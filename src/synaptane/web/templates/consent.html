@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% set bare = true %}{# in the middle of the OAuth flow: no navigation that would invite leaving #}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import access_limits with context %}
+{% block title %}{{ _("Authorize an application") }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<span aria-current="page">{{ _("Authorize an application") }}</span>{% endblock %}
+{% block content %}
+<section class="card content-narrow consent-card" aria-labelledby="consent-title">
+  <p class="eyebrow">MCP</p>
+  <h1 id="consent-title">{{ _("An application requests access to your second brain") }}</h1>
+  <dl class="metadata consent-client">
+    <div><dt>{{ _("Application") }}</dt><dd><strong>{{ client_name }}</strong> <span class="muted">{{ _("(name given by the application)") }}</span></dd></div>
+    <div><dt>{{ _("Returns to") }}</dt><dd><strong>{{ target }}</strong></dd></div>
+  </dl>
+  {% if lookalike %}<p class="notice notice-warning" role="alert">{{ _("Warning: this name suggests {publisher}, but the redirect does not go to a domain of this publisher. Only allow it if you started this connection yourself, from the expected application.", publisher=lookalike) }}</p>{% endif %}
+  <form class="consent-account" method="post" action="/logout">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ request.url.path }}?{{ request.url.query }}">
+    <span class="muted">{{ _("Signed in as {name} (@{username}).", name=user.display_name, username=user.username) }}</span>
+    <button class="button button-small" type="submit">{{ _("Switch account") }}</button>
+  </form>
+  <p>{{ _("On your behalf, this application will be able to:") }}</p>
+  <ul>
+    <li>{{ _("list your spaces, read and search their content;") }}</li>
+    <li>{{ _("deposit information in the inbox and change the content of spaces where you are a contributor.") }}</li>
+  </ul>
+  <p class="muted">{{ _("It will never have more than your rights, and you can limit it below. You can disconnect it at any time from “My account”.") }}</p>
+  {% if not member_spaces %}<p class="notice notice-warning">{{ _("You are not a member of any space: the application will see nothing until you are added to a space.") }}</p>{% endif %}
+  <form method="post" action="/oauth/consent">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="request" value="{{ request_id }}">
+    {{ access_limits(member_spaces, limits_error) }}
+    <div class="actions consent-actions">
+      <button class="button button-primary" type="submit" name="decision" value="allow">{{ _("Allow") }}</button>
+      <button class="button" type="submit" name="decision" value="deny">{{ _("Deny") }}</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

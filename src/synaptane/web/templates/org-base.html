@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import section_tabs with context %}
+{% set sections = [("spaces", "/o/" ~ org.slug, _("Spaces"))] %}
+{% if manage %}{% set sections = sections + [
+  ("members", "/o/" ~ org.slug ~ "/-/members", _("Members")),
+  ("ai", "/o/" ~ org.slug ~ "/-/ai", _("Artificial intelligence")),
+  ("semantic", "/o/" ~ org.slug ~ "/-/embeddings", _("Semantic search")),
+  ("webhooks", "/o/" ~ org.slug ~ "/-/webhooks", _("Webhooks")),
+  ("settings", "/o/" ~ org.slug ~ "/-/settings", _("Settings")),
+] %}{% endif %}
+{% set section_title = (sections|selectattr(0, "equalto", section)|map(attribute=2)|first) if section != "spaces" else "" %}
+{% block title %}{% if section_title %}{{ section_title }} · {% endif %}{{ org.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}{% if section_title %}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<span aria-current="page">{{ section_title }}</span>{% else %}<span aria-current="page">{{ org.name }}</span>{% endif %}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">{{ _("Organization") }} · <span class="ident">{{ org.slug }}</span></p>
+    <h1>{{ org.name }}</h1>
+    {% if org.description and section == "spaces" %}<p class="lede">{{ org.description }}</p>{% endif %}
+  </div>
+</header>
+{% if sections|length > 1 %}{{ section_tabs(_("Organization sections"), sections, section) }}{% endif %}
+<div class="section-body">
+{% block section %}{% endblock %}
+</div>
+{% endblock %}

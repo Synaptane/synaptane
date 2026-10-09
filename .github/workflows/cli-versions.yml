@@ -1,0 +1,94 @@
+# Dependabot does not track the Claude Code and Codex CLIs (npm versions in ARGs of the
+# Dockerfile). Every Monday, this workflow compares with npm, builds the image with the new
+# versions, checks the agent isolation contract (`synaptane check-clis`) and opens a bump
+# PR. If the contract fails, the PR says so at the top: do not merge it as is.
+name: CLI versions
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write # PR branch
+      pull-requests: write
+      issues: write # fallback if the repository forbids actions from opening PRs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # token passed to `git push` only, not left in .git/config
+      - name: Latest published versions
+        id: versions
+        run: |
+          claude="$(npm view @anthropic-ai/claude-code version)"
+          codex="$(npm view @openai/codex version)"
+          sed -i -E "s/^ARG CLAUDE_CODE_VERSION=.*/ARG CLAUDE_CODE_VERSION=${claude}/; s/^ARG CODEX_VERSION=.*/ARG CODEX_VERSION=${codex}/" Dockerfile
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "title=CLI: Claude Code ${claude}, Codex ${codex}" >> "$GITHUB_OUTPUT"
+          fi
+      # With no login, no model call and no network: do the CLIs still only offer
+      # Synaptane's tools? The result goes into the PR, whether good or not.
+      - name: Isolation contract with the new versions
+        id: contract
+        if: steps.versions.outputs.changed == 'true'
+        run: |
+          report="$RUNNER_TEMP/contract.txt"
+          if ! docker build -t synaptane:cli-versions . > "$RUNNER_TEMP/build.log" 2>&1; then
+            { echo "The image build failed:"; tail -n 40 "$RUNNER_TEMP/build.log"; } > "$report"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif docker run --rm --network none --entrypoint synaptane synaptane:cli-versions check-clis > "$report" 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$report"
+          echo "report=$report" >> "$GITHUB_OUTPUT"
+      - name: Version bump PR
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.versions.outputs.title }}
+          CONTRACT_OK: ${{ steps.contract.outputs.ok }}
+          REPORT: ${{ steps.contract.outputs.report }}
+        run: |
+          if gh pr list --state open --search "in:title \"${TITLE}\"" --json number -q '.[].number' | grep -q .; then
+            echo "A PR already exists: ${TITLE}"; exit 0
+          fi
+          branch="cli-versions/$(date +%F)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "$TITLE"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+          body="$RUNNER_TEMP/body.md"
+          {
+            if [ "$CONTRACT_OK" = "true" ]; then
+              echo "**CLI isolation contract: respected** (\`synaptane check-clis\` on the image built with these versions)."
+            else
+              echo "## Warning: CLI isolation contract BROKEN — do not merge as is"
+              echo
+              echo "With these versions, a subscription agent could have tools other than Synaptane's (shell, files, web), or no longer start. Classify the new features (\`cli_agents.CODEX_DISABLED\` or \`cli_contract.CODEX_ALLOWED\`), adapt the options, then run \`synaptane check-clis\` again."
+            fi
+            echo
+            echo '```'
+            cat "$REPORT"
+            echo '```'
+            echo
+            echo "Bump of the CLIs used by tidying in subscription mode (docs/admin/ai.md). A PR opened by this workflow does not trigger the CI: close it then reopen it to run it."
+          } > "$body"
+          title="$TITLE"
+          [ "$CONTRACT_OK" = "true" ] || title="$TITLE — isolation contract broken"
+          # If the repository forbids actions from opening PRs, an issue warns instead.
+          if ! gh pr create --title "$title" --body-file "$body" --head "$branch"; then
+            printf '\nBranch ready: %s.\n' "$branch" >> "$body"
+            gh issue create --title "$title" --body-file "$body"
+          fi

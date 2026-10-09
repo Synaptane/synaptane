@@ -1,0 +1,27 @@
+{# Shared pieces of the routine pages: schedule, outputs, status of the last run. #}
+{% from "ui.html" import when with context %}
+
+{# "Every Monday at 06:00", in the space's time zone. #}
+{% macro schedule(r, weekdays) -%}
+{%- if r.frequency == 'daily' -%}{{ _("Every day at {time}", time=r.at) }}
+{%- elif r.frequency == 'weekly' -%}{{ _("Every {day} at {time}", day=_(weekdays[r.weekday or 0]), time=r.at) }}
+{%- else -%}{{ _("On day {n} of every month at {time}", n=r.monthday, time=r.at) }}{%- endif -%}
+{%- endmacro %}
+
+{# Chosen outputs, as pills. #}
+{% macro outputs(r, wiki="") -%}
+<ul class="routine-outputs" aria-label="{{ _('Outputs') }}">
+  {% if r.output_page %}<li class="badge badge-quiet">{{ _("Page") }} {% if wiki %}<a href="{{ wiki }}/p/{{ r.output_page|pathurl }}"><code>{{ r.output_page }}</code></a>{% else %}<code>{{ r.output_page }}</code>{% endif %}</li>{% endif %}
+  {% if r.output_inbox %}<li class="badge badge-quiet">{{ _("Inbox") }}</li>{% endif %}
+  {% if r.output_email == 'admins' %}<li class="badge badge-quiet">{{ _("E-mail to administrators") }}</li>{% elif r.output_email == 'members' %}<li class="badge badge-quiet">{{ _("E-mail to members") }}</li>{% endif %}
+  {% if r.output_webhook %}<li class="badge badge-quiet">{{ _("Webhook") }}</li>{% endif %}
+</ul>
+{%- endmacro %}
+
+{# Status of a run, for the list: colored dot, date, cause of a failure. #}
+{% macro last_run(run) -%}
+{%- if run is none -%}<span class="status">{{ _("Never run") }}</span>
+{%- elif run.status == 'running' -%}<span class="status status-warn">{{ _("Running…") }}</span>
+{%- elif run.status == 'failed' -%}<span class="status status-error">{{ (_("Failed on {when}")|e).format(when=when(run.started_at)) }}</span>
+{%- else -%}<span class="status status-ok">{{ (_("Last run on {when}")|e).format(when=when(run.started_at)) }}</span>{%- endif -%}
+{%- endmacro %}

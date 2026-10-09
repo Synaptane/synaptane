@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import action, when with context %}
+{% from "tidy-run-now.html" import run_now_button with context %}
+{% set tab = 'tidy' %}
+{% block title %}{{ _("Tidying") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span aria-current="page">{{ _("Tidying") }}</span>{% endblock %}
+{% block content %}
+{% set space_tab = "tidy" %}{% include "space-tabs.html" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug %}
+{% set triggers = {'schedule': _("scheduled"), 'chain': _("chained"), 'manual': _("manual")} %}
+{# Header: when the tidy-up runs, and running it by hand. The button is subdued when the
+   run is very likely to fail; it asks for confirmation if it costs money. #}
+<div class="section-heading tidy-heading">
+  <div>
+    <h2 class="settings-title">{{ _("Tidying") }}</h2>
+    <p class="muted tidy-schedule">
+      <span>{% if space.tidy_enabled %}{{ _("Every day at {time} ({tz})", time=space.tidy_time, tz=space.tidy_timezone) }}{% else %}{{ _("Automatic tidying turned off") }}{% endif %}{% if manage %} · <a href="{{ base }}/-/tidy-settings">{{ _("Edit") }}</a>{% endif %}</span>
+      {% set upcoming = tidy_next_label(space) %}{% if upcoming %}<span>{{ upcoming }}</span>{% endif %}
+    </p>
+  </div>
+  {% if contribute and configured %}
+  <div class="tidy-run-now">
+    {{ run_now_button(base ~ "/-/tidy", caution, paid, average_cost) }}
+    {% if caution == 'failures' %}<p class="tidy-caution">{{ _("The last {n} runs failed: test the connection first.", n=streak.count) }}</p>
+    {% elif caution == 'test' %}<p class="tidy-caution">{{ _("The last connection test failed: test it again before starting a run.") }}{% if manage %} <a href="/o/{{ org.slug }}/-/ai">{{ _("Organization AI page") }}</a>{% endif %}</p>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% if not configured %}
+<div class="notice notice-warning"><p>{{ _("No AI provider is configured for the organization: tidying cannot run.") }}
+  {% if manage %}<a href="/o/{{ org.slug }}/-/ai">{{ _("Configure AI") }}</a>{% else %}{{ _("Ask an organization administrator.") }}{% endif %}</p></div>
+{% elif streak %}
+{# Banner: the tidy-up fails. To admins, the cause and what to do; to others, that it is
+   broken and who is notified (the technical detail is of no use to them). #}
+{% set why = streak.explanation %}
+<section class="notice notice-error tidy-alert" aria-labelledby="tidy-alert-title">
+  {% if manage %}
+  <h3 id="tidy-alert-title">{% if streak.count == 1 %}{{ _("The last run failed") }}{% else %}{{ (_("Tidying has been failing since {date} ({n} attempts)")|e).format(date=when(streak.since, 'date'), n=streak.count) }}{% endif %}</h3>
+  <p>{{ _(why.message, **why.params) }}</p>
+  {% if why.show_detail %}<p class="tidy-detail">{{ _("Technical detail: {detail}", detail=why.detail) }}</p>{% endif %}
+  {# Unrecognized cause while the Git repository has a problem: that is what to look at,
+     testing the AI connection would change nothing. #}
+  <div class="tidy-alert-actions">
+    {% if why.code in ('other', 'unknown') and space.sync_status != 'ok' %}
+    <a href="{{ base }}/-/git">{{ _("See the repository status") }}</a>
+    {% else %}
+    {% if why.code not in ('budget', 'no_provider') %}{{ action("/o/" ~ org.slug ~ "/-/ai/test", _("Test the connection")) }}{% endif %}
+    <a href="/o/{{ org.slug }}/-/ai">{{ _("Check the organization's AI") }}</a>
+    {% endif %}
+  </div>
+  {% else %}
+  <h3 id="tidy-alert-title">{% if streak.count == 1 %}{{ _("The last tidying run failed.") }}{% else %}{{ (_("Tidying has been broken since {date}.")|e).format(date=when(streak.since, 'date')) }}{% endif %}</h3>
+  <p>{% if streak.notified %}{{ _("The organization's administrators have been notified.") }}{% elif admins %}{{ _("Let an administrator of the organization know: {names}.", names=admins|join(", ")) }}{% else %}{{ _("Let an administrator of the organization know.") }}{% endif %}</p>
+  <p class="tidy-detail">{{ _("Cause: {cause}.", cause=_(why.label)) }}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% if spending.exhausted %}
+<div class="notice notice-error"><p>{{ _("Monthly AI budget reached ({spent} of {budget}): tidying is paused until next month.", spent=spending.spent|euros, budget=spending.budget|euros) }}
+  {% if manage %}<a href="/o/{{ org.slug }}/-/ai">{{ _("Raise the budget") }}</a>{% endif %}</p></div>
+{% elif spending.budget and spending.ratio >= 0.8 %}
+<div class="notice notice-warning">{{ _("Monthly AI budget almost reached: {spent} of {budget}.", spent=spending.spent|euros, budget=spending.budget|euros) }}</div>
+{% endif %}
+{% if activity and activity.poll %}<div hidden data-tidy-state="{{ base }}/-/tidy/state" data-version="{{ version }}"></div>{% endif %}
+<div class="stack tidy-journal" data-tidy-journal data-more="{{ _('Details') }}">
+  {# Request not logged yet: the card appears on click, the page waits for the result. #}
+  {% if activity and not activity.run %}
+  <article class="card tidy-run tidy-pending" role="status">
+    <div class="tidy-run-head">
+      <div class="tidy-run-heading">
+        <h3 class="tidy-run-title tidy-warn">{% if activity.state == 'retry' %}{{ _("Retry scheduled") }}{% elif activity.state == 'running' %}{{ _("Running…") }}{% else %}{{ _("Waiting for the worker") }}{% endif %}</h3>
+        <p class="muted tidy-run-meta">{% if activity.state == 'retry' %}{{ (_("The previous attempt failed; next try on {when}.")|e).format(when=when(activity.at)) }}{% elif activity.stalled %}{{ (_("Requested on {when}: the worker has not picked it up yet.")|e).format(when=when(activity.at)) }}{% else %}{{ _("The run starts as soon as the worker is free.") }}{% endif %} <span data-live-hint hidden>{{ _("This page updates by itself.") }}</span></p>
+      </div>
+    </div>
+    {% if activity.stalled and manage %}<div class="tidy-run-body"><p class="tidy-detail">{{ _("Check that the worker is running (“worker” container, “synaptane worker” command).") }}</p></div>{% endif %}
+  </article>
+  {% endif %}
+  {% for entry in entries %}{% set run = entry.run %}{% set why = entry.explanation %}
+  <article class="card tidy-run" data-status="{{ run.status }}" {% if run.status == 'running' %}role="status"{% endif %}>
+    <div class="tidy-run-head">
+      <div class="tidy-run-heading">
+        <h3 class="tidy-run-title tidy-{{ {'done': 'ok', 'failed': 'error', 'running': 'warn'}.get(run.status, 'quiet') }}">
+          {%- if run.status == 'running' %}{{ _("Running…") }}
+          {%- elif run.status == 'failed' %}{{ _("Failed · {cause}", cause=_(why.label)) }}
+          {%- elif run.status == 'nothing' %}{{ _("Nothing to tidy") }}
+          {%- elif run.items_done and run.items_left %}{{ _(pl(run.items_done, "{n} item filed", "{n} items filed"), n=run.items_done) }}, {{ _("{n} left in the inbox", n=run.items_left) }}
+          {%- elif run.items_done %}{{ _(pl(run.items_done, "{n} item filed", "{n} items filed"), n=run.items_done) }}
+          {%- elif run.items_left %}{{ _(pl(run.items_left, "{n} item left in the inbox", "{n} items left in the inbox"), n=run.items_left) }}
+          {%- else %}{{ _("No item filed") }}{% endif -%}
+        </h3>
+        <p class="muted tidy-run-meta">{{ when(run.started_at) }} · {{ triggers.get(run.trigger, run.trigger) }}{% if entry.grouped %} · {{ _(pl(entry.attempts|length, "{n} attempt", "{n} attempts, all failed"), n=entry.attempts|length) }}{% endif %}</p>
+      </div>
+      {% if run.reverted_at %}<span class="badge badge-quiet">{{ _("undone") }}</span>{% endif %}
+    </div>
+    <div class="tidy-run-body" id="tidy-run-{{ run.id }}">
+      {% if run.status == 'done' and run.summary %}<p class="tidy-summary">{{ run.summary }}</p>{% endif %}
+      {% if why %}
+      <div class="notice {{ 'notice-error' if run.status == 'failed' else 'notice-warning' }}">
+        {% if manage %}<p>{% if run.status != 'failed' %}{{ _("Run interrupted, work done so far kept.") }} {% endif %}{{ _(why.message, **why.params) }}</p>
+        {# The banner already gives the detail of the last failure: no need to repeat it. #}
+        {% if why.show_detail and not (streak and why.detail == streak.explanation.detail) %}<p class="tidy-detail">{{ _("Technical detail: {detail}", detail=why.detail) }}</p>{% endif %}
+        {% else %}<p>{% if run.status != 'failed' %}{{ _("Run interrupted, work done so far kept.") }} {% endif %}{{ _("Cause: {cause}.", cause=_(why.label)) }}</p>{% endif %}
+      </div>
+      {% endif %}
+      {% include "tidy-metrics.html" %}
+      {% if entry.grouped %}
+      <details class="tidy-attempts"><summary>{{ _("Show the {n} attempts", n=entry.attempts|length) }}</summary>
+        <ol>{% for attempt in entry.attempts %}<li>{{ when(attempt.started_at) }}</li>{% endfor %}</ol>
+      </details>
+      {% endif %}
+      {% if entry.operations %}
+      <details class="tidy-ops"><summary>{{ _("Operations: {count}", count=entry.operations|length) }}</summary>
+        <ul>{% for op in entry.operations %}
+          <li class="tidy-op tidy-op-{{ 'warn' if op.op in ('réduit', 'supprimé', 'conflit', 'non traité') else 'plain' }}"><span class="tidy-op-label">{{ op.op|operation_label }}</span>
+            {% if op.linked %}<a href="{{ base }}/p/{{ op.path|pathurl }}">{{ op.path }}</a>{% else %}<span class="tidy-op-name">{{ log_text(op.path) }}</span>{% endif %}
+            {%- if op.detail %} <span class="muted">— {{ log_text(op.detail) }}</span>{% endif %}
+            {%- if op.pages %}<span class="tidy-op-pages">{{ _("Integrated into:") }} {% for path in op.pages %}<a href="{{ base }}/p/{{ path|pathurl }}">{{ path }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
+            {%- elif op.no_page %}<span class="tidy-op-pages muted">{{ _("No page given by the agent.") }}</span>{% endif %}
+          </li>{% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+      {% if run.status != 'running' and (run.model or entry.tokens or run.commit) %}
+      <div class="tidy-run-foot">
+        <span>{% if run.model %}{{ _("Model: {model}", model=run.model) }} · {% endif %}{{ _(pl(entry.tokens, "{n} token", "{n} tokens"), n="{:,}".format(entry.tokens).replace(",", " ")) }}{% if entry.cost is not none %} · {{ _("≈ {amount}", amount=entry.cost|euros) }}{% endif %}{% if run.quota %} · {{ _("subscription quota: {usage}", usage=run.quota|quota_summary) }}{% endif %}{% if run.commit %} · <code>{{ run.commit[:10] }}</code>{% endif %}</span>
+        {% if manage and run.commit and not run.reverted_at %}{{ action(base ~ "/-/tidy/" ~ run.id ~ "/revert", _("Undo this run"), confirm=_("Undo this run? Its changes are removed from the wiki and the tidied items return to the inbox."), kind="danger") }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  {% if not activity %}<p class="empty">{{ _("No runs yet.") }}</p>{% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

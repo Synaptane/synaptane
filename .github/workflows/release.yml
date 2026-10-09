@@ -1,0 +1,258 @@
+# Release publication, on push of a vX.Y.Z tag (or vX.Y.Z-rc.N, pre-release):
+#   1. safeguards: tag = pyproject.toml version (in the PEP 440 sense: 1.0.0-rc.1 is
+#      1.0.0rc1), commit present on main;
+#   2. full CI (ci.yml) on this commit;
+#   3. images ghcr.io/synaptane/synaptane and ghcr.io/synaptane/synaptane-nginx (proxy mode),
+#      with SBOM, BuildKit provenance and GitHub-signed attestation
+#      (`gh attestation verify oci://ghcr.io/synaptane/synaptane:X.Y.Z -R synaptane/synaptane`);
+#   4. GitHub Release, notes taken from the `## [X.Y.Z…]` section of CHANGELOG.md.
+#
+# The published image is built without the subscription CLIs (AGENT_CLIS=false): Claude Code
+# is a proprietary binary, not redistributable. For subscription mode, build the image.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+# Only one publication at a time per tag, never cancelled midway.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/synaptane/synaptane
+  NGINX_IMAGE: ghcr.io/synaptane/synaptane-nginx
+
+jobs:
+  verify:
+    name: Safeguards (version, branch)
+    # Copies (forks) of the repository publish nothing.
+    if: github.repository == 'synaptane/synaptane'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      pep440: ${{ steps.version.outputs.pep440 }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Tag matches pyproject.toml
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv run --no-project --with 'packaging>=24' python - <<'EOF'
+          import os
+          import re
+          import sys
+          import tomllib
+
+          from packaging.version import InvalidVersion, Version
+
+          tag = os.environ["TAG"]
+          match = re.fullmatch(r"v(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)", tag)
+          if not match:
+              sys.exit(f"::error::Tag {tag!r}: expected vX.Y.Z or vX.Y.Z-rc.N")
+          semver = match.group(1)
+          try:
+              tagged = Version(semver)
+          except InvalidVersion:
+              sys.exit(f"::error::{semver!r} is not a PEP 440 version (alpha, beta, rc)")
+          with open("pyproject.toml", "rb") as f:
+              declared = Version(tomllib.load(f)["project"]["version"])
+          if tagged != declared:
+              sys.exit(
+                  f"::error::Tag {tag} ({tagged}) differs from pyproject.toml ({declared})"
+              )
+          if tagged.is_devrelease or tagged.is_postrelease or tagged.local:
+              sys.exit(f"::error::{tagged}: no .dev, .post or local version may be published")
+          prerelease = "-" in semver
+          if prerelease != tagged.is_prerelease:
+              sys.exit(f"::error::{semver}: inconsistent pre-release")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={semver}\npep440={tagged}\n")
+              out.write(f"prerelease={str(prerelease).lower()}\n")
+          print(f"Version {semver} (PEP 440: {tagged}), pre-release: {prerelease}")
+          EOF
+      # A tag set on a work branch publishes nothing.
+      - name: Commit present on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" -q .status)"
+          case "$status" in
+            identical | behind) echo "Commit ${GITHUB_SHA::7} present on main." ;;
+            *) echo "::error::Commit ${GITHUB_SHA::7} missing from main (${status})."; exit 1 ;;
+          esac
+
+  ci:
+    name: CI
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Images and GitHub Release
+    needs: [verify, ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write # GitHub Release
+      packages: write # ghcr.io
+      id-token: write # Sigstore signature of the attestations
+      attestations: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      PEP440: ${{ needs.verify.outputs.pep440 }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Tags: X.Y.Z and X.Y (a pre-release only gets its own), latest only for a final
+      # release.
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
+      # No cache (no possible poisoning, no stale layer) and base images pulled again: the
+      # day's Debian fixes go into the release.
+      - name: Image Synaptane
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          no-cache: true
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            AGENT_CLIS=false
+          tags: ${{ steps.meta.outputs.tags }}
+          provenance: mode=max
+          sbom: true
+      # What was just published starts and carries the right commit (the CI only builds the
+      # image with the CLIs); on failure, no attestation and no GitHub Release.
+      - name: Published image (version and commit)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker run --rm --entrypoint synaptane "${IMAGE}@${DIGEST}" --version | tee "$RUNNER_TEMP/version.txt"
+          grep -F "(${GITHUB_SHA::7})" "$RUNNER_TEMP/version.txt"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false # would require the artifact-metadata permission
+
+      - name: nginx image tags
+        id: meta-nginx
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.NGINX_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=Synaptane nginx
+            org.opencontainers.image.description=HTTPS reverse proxy for Synaptane (compose.yaml, proxy profile)
+      - name: nginx image (proxy mode)
+        id: build-nginx
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: deploy/nginx
+          platforms: linux/amd64
+          pull: true
+          no-cache: true
+          push: true
+          tags: ${{ steps.meta-nginx.outputs.tags }}
+          labels: ${{ steps.meta-nginx.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.NGINX_IMAGE }}
+          subject-digest: ${{ steps.build-nginx.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      # Notes: the `## [X.Y.Z…]` section of CHANGELOG.md (Keep a Changelog; brackets and "v"
+      # optional, semver or PEP 440 form), up to the next one. Not found: link to the file,
+      # followed by notes generated by GitHub.
+      - name: Release notes
+        id: notes
+        env:
+          NOTES: ${{ runner.temp }}/notes.md
+        run: |
+          python3 - <<'EOF'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          accepted = {version, os.environ["PEP440"]}  # [1.0.0-rc.1] or [1.0.0rc1]
+          changelog = Path("CHANGELOG.md")
+          lines = changelog.read_text(encoding="utf-8").splitlines() if changelog.exists() else []
+          section, inside = [], False
+          for line in lines:
+              if line.startswith("## "):
+                  if inside:
+                      break
+                  m = re.match(r"## \[?v?([0-9][^\]\s]*)", line)
+                  inside = bool(m) and m.group(1) in accepted
+              elif inside:
+                  section.append(line)
+          # Without the link definitions at the end of the file ([1.0.0]: https://…).
+          while section and (not section[-1].strip() or re.match(r"\[[^\]]+\]:\s", section[-1])):
+              section.pop()
+          body = "\n".join(section).strip()
+          found = bool(body)
+          if not found:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              body = f"See [CHANGELOG.md](https://github.com/{repo}/blob/v{version}/CHANGELOG.md)."
+          body += f"\n\nImage: `ghcr.io/synaptane/synaptane:{version}`"
+          body += f" (`SYNAPTANE_VERSION={version}` in `.env`)."
+          Path(os.environ["NOTES"]).write_text(body + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"found={str(found).lower()}\n")
+          print(body)
+          EOF
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NOTES: ${{ runner.temp }}/notes.md
+          FOUND: ${{ steps.notes.outputs.found }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file "$NOTES")
+          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
+          if [ "$FOUND" != true ]; then args+=(--generate-notes); fi
+          gh release create "$TAG" "${args[@]}"

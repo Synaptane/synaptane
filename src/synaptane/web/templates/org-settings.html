@@ -1,0 +1,17 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, danger_zone with context %}
+{% block section %}
+<form class="card content-narrow" method="post" action="/o/{{ org.slug }}/-/update">
+  <h2>{{ _("General") }}</h2>
+  {{ csrf_field() }}
+  <div class="field"><label for="org-name">{{ _("Name") }}</label><input id="org-name" name="name" value="{{ org.name }}" required maxlength="120"></div>
+  <div class="field"><label for="org-description">{{ _("Description (optional)") }}</label><textarea id="org-description" name="description" rows="2">{{ org.description }}</textarea></div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+{% if user.is_superadmin %}
+<div class="content-narrow section-gap">
+{{ danger_zone(_("Delete organization"), _("Its members lose access. Git repositories are not touched."), "/o/" ~ org.slug ~ "/-/delete", org.slug,
+   disabled_reason=_(pl(org_spaces|length, "Delete its space first.", "Delete its {count} spaces first."), count=org_spaces|length) if org_spaces else "") }}
+</div>
+{% endif %}
+{% endblock %}

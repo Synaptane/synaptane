@@ -1,0 +1,28 @@
+{#- "Quality" block of a tidy-up run (services/tidy_metrics.py), measured without AI before
+    the commit. To include in a run's card, with `run` in the context:
+    {% include "tidy-metrics.html" %}. Nothing is shown for a run without measurements
+    (failure, or older than the measurement). Keys read with m["…"]: `items` is also a dict
+    method. -#}
+{%- set m = run.metrics -%}
+{%- if m -%}
+{%- set pages = m["pages"] or {} -%}
+{%- set links = m["broken_links"] or {} -%}
+{%- set items = m["items"] or {} -%}
+{%- set per = (m["usage"] or {})["per_item"] -%}
+<details class="tidy-quality">
+  <summary>{% if m["issues"] %}<strong>{{ _(pl(m["issues"], "Quality: {count} point to check", "Quality: {count} points to check"), count=m["issues"]) }}</strong>{% else %}{{ _("Quality: nothing to report") }}{% endif %}</summary>
+  <ul class="muted">
+    <li>{{ _("Files: {created} created, {modified} modified, {moved} moved, {deleted} deleted", created=pages["created"], modified=pages["modified"], moved=pages["moved"], deleted=pages["deleted"]) }}</li>
+    <li>{{ _("Broken links: {before} before, {after} after", before=links["before"], after=links["after"]) }}{% if links["introduced"] %} — <strong>{{ _("{count} introduced", count=links["introduced"]) }}</strong> : {% for e in links["examples"] %}{{ e["page"] }} → <code>{{ e["link"] }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</li>
+    {% if m["orphans_count"] %}<li><strong>{{ _("Created with no incoming link: {count}", count=m["orphans_count"]) }}</strong> — {{ m["orphans"]|join(", ") }}</li>{% endif %}
+    {% if m["not_in_index_count"] %}<li><strong>{{ _("Missing from the folder index (README.md): {count}", count=m["not_in_index_count"]) }}</strong> — {{ m["not_in_index"]|join(", ") }}</li>{% endif %}
+    {% if m["untitled"] %}<li><strong>{{ _("Pages created without a level-1 heading:") }}</strong> {{ m["untitled"]|join(", ") }}</li>{% endif %}
+    {% if m["empty"] %}<li><strong>{{ _("Empty pages created:") }}</strong> {{ m["empty"]|join(", ") }}</li>{% endif %}
+    {% if m["closed_without_page_count"] %}<li><strong>{{ _("Items filed without a page given: {count}", count=m["closed_without_page_count"]) }}</strong> — {{ m["closed_without_page"]|join(", ") }}</li>{% endif %}
+    {% if m["reduced"] %}<li><strong>{{ _("Pages heavily reduced:") }}</strong> {{ m["reduced"]|join(", ") }}</li>{% endif %}
+    {% if m["removed_chars"] or m["deleted_chars"] %}<li>{{ _("Text removed: {kept} characters from kept pages, {deleted} from deleted pages", kept="{:,}".format(m["removed_chars"]).replace(",", " "), deleted="{:,}".format(m["deleted_chars"]).replace(",", " ")) }}</li>{% endif %}
+    <li>{{ _("Items left: {rate}%", rate=(100 * items["left_rate"])|round|int) }}</li>
+    {% if per %}<li>{{ _("Per filed item: {tokens} tokens, {turns} turns", tokens="{:,}".format(per["tokens"]).replace(",", " "), turns=per["turns"]) }}{% if per["cost"] is not none %}, {{ _("≈ {amount}", amount=per["cost"]|euros) }}{% endif %}</li>{% endif %}
+  </ul>
+</details>
+{%- endif %}

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, file_icon %}
+{% block title %}{{ _("Home") }} · Synaptane{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>{{ _("Hello {name}", name=user.display_name) }}</h1>
+    <p class="lede">{{ _("Your organizations and the spaces you can access.") }}</p>
+  </div>
+  {% if can_deposit or user.is_superadmin %}<div class="actions">
+    {% if user.is_superadmin %}<a class="button" href="/admin" data-test="admin-link">{{ icon('shield') }}{{ _("Administration") }}</a>{% endif %}
+    {# On large screens, "Deposit" is already at the top of the left bar: here, only
+       when the bar is a drawer (mobile). #}
+    {% if can_deposit %}<a class="button button-primary home-deposit" href="/deposit?next=/" data-test="deposit-link">{{ icon('plus') }}{{ _("Deposit information") }}</a>{% endif %}
+  </div>{% endif %}
+</header>
+{% if nav %}
+<form class="page-search" method="get" action="/search" role="search">
+  {{ icon('search', 16) }}
+  <label class="sr-only" for="home-q">{{ _("Search all your spaces") }}</label>
+  <input id="home-q" type="search" name="q" placeholder="{{ _('Search everywhere') }}" autocomplete="off">
+</form>
+<div class="home-columns">
+  <section class="card home-panel" aria-labelledby="home-waiting">
+    <h2 id="home-waiting">{{ _("Waiting") }}</h2>
+    {% if waiting or reviews %}
+    <ul class="home-list">
+      {% for entry in waiting %}
+      <li class="home-item home-item-{{ entry.kind }}">
+        <a href="{{ entry.url }}">
+          {% if entry.kind == 'inbox' %}
+          <span class="home-item-title">{{ _("{space} inbox", space=entry.space.name) }}</span>
+          <span class="home-item-meta">{{ _(pl(entry.counts.note, "{n} note", "{n} notes"), n=entry.counts.note) }}{% if entry.counts.change %}, {{ _(pl(entry.counts.change, "{n} changed page", "{n} changed pages"), n=entry.counts.change) }}{% endif %}{% if entry.counts.left %} · <span class="home-left">{{ _("{n} left by tidying", n=entry.counts.left) }}</span>{% endif %}</span>
+          {% elif entry.kind == 'tidy' %}
+          <span class="home-item-title"><span class="status status-error">{{ _("Tidying failed") }} · {{ entry.space.name }}</span></span>
+          <span class="home-item-meta">{% if entry.when %}{{ _("Last run") }} <time datetime="{{ entry.when.isoformat() }}" data-local="full">{{ entry.when.strftime('%Y-%m-%d %H:%M UTC') }}</time> · {% endif %}{{ _("see the log") }}</span>
+          {% else %}
+          <span class="home-item-title"><span class="status {{ 'status-error' if entry.status == 'error' else 'status-warn' }}">{{ _("Git sync failing") if entry.status == 'error' else _("Git conflict") }} · {{ entry.space.name }}</span></span>
+          <span class="home-item-meta">{{ _("See the repository status") }}</span>
+          {% endif %}
+        </a>
+        {% if entry.kind == 'inbox' %}<span class="home-count" aria-hidden="true">{{ entry.counts.total }}</span>{% endif %}
+      </li>
+      {% endfor %}
+      {% for entry in reviews %}
+      {% set name = entry.path.rsplit('/', 1)[-1] %}
+      <li class="home-item home-item-review">
+        <a href="{{ entry.url }}">
+          <span class="home-item-title"><span class="verify-mark verify-stale">{{ icon('clock', 14) }}</span><span>{{ _("To review: {name}", name=name) }}</span></span>
+          <span class="home-item-meta">{{ entry.space.name }}{% if '/' in entry.path %} · {{ entry.path.rsplit('/', 1)[0] }}{% endif %} · {{ _("you own it, due on") }} <time datetime="{{ entry.due.isoformat() }}T12:00" data-local="day">{{ entry.due.isoformat() }}</time></span>
+        </a>
+      </li>
+      {% endfor %}
+      {% if more_reviews > 0 %}<li class="home-item home-more">{{ _(pl(more_reviews, "… and {count} more page to review (the space's Health tab)", "… and {count} more pages to review (each space's Health tab)"), count=more_reviews) }}</li>{% endif %}
+    </ul>
+    {% else %}
+    <p class="home-empty">{{ _("Nothing waiting: everything is tidied.") }}</p>
+    {% endif %}
+  </section>
+  <section class="card home-panel" aria-labelledby="home-recent">
+    <h2 id="home-recent">{{ _("Recently changed") }}</h2>
+    {% if recent %}
+    <ul class="home-list">
+      {% for entry in recent %}
+      {% set name = entry.path.rsplit('/', 1)[-1] %}
+      <li class="home-item">
+        <a href="{{ entry.url }}">
+          <span class="home-item-title">{{ file_icon(name, 14) }}<span>{{ name }}</span></span>
+          <span class="home-item-meta">{{ entry.space.name }}{% if '/' in entry.path %} · {{ entry.path.rsplit('/', 1)[0] }}{% endif %} · {{ _("tidying") if entry.by_agent else entry.author }} · <time datetime="{{ entry.date }}" data-local="full">{{ entry.date[:16].replace('T', ' ') }}</time></span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="home-empty">{{ _("No page changed yet.") }}</p>
+    {% endif %}
+  </section>
+</div>
+<div class="org-sections">
+  {% for org, org_spaces in nav %}
+  <section>
+    <div class="org-section-heading"><h2>{{ org.name }}</h2><span class="divider"></span><a href="/o/{{ org.slug }}">{{ _("View organization") }}</a></div>
+    {% if org_spaces %}
+    <div class="space-grid">
+      {% for space in org_spaces %}
+      {% set counts = inbox_of(space) %}
+      <article class="card space-card">
+        <span class="card-icon">{{ icon('folder', 18) }}</span>
+        <div>
+          <h2><a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a></h2>
+          {% if space.description %}<p class="card-copy">{{ space.description }}</p>{% else %}<p class="card-copy card-copy-empty">{{ _("No description") }}</p>{% endif %}
+        </div>
+        <div class="card-meta"><span>{{ org.slug }}/{{ space.slug }}</span>{% if counts and counts.total %}<a class="card-link card-inbox" href="/o/{{ org.slug }}/{{ space.slug }}/inbox">{{ _(pl(counts.total, "{n} waiting", "{n} waiting"), n=counts.total) }}{% if counts.left %}<span class="sidebar-dot" aria-hidden="true"></span>{% endif %}</a>{% endif %}</div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">{{ _("No accessible spaces in this organization.") }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% elif user.is_superadmin %}
+<section class="card content-narrow">
+  <h2>{{ _("Getting started") }}</h2>
+  <ol class="steps">
+    <li><a href="/admin">{{ _("Create an organization") }}</a> {{ _("(a team, a client, a project).") }}</li>
+    <li>{{ _("In the organization, create a space and link it to a Git repository (GitHub, GitLab…).") }}</li>
+    <li>{{ _("Choose the AI provider that will tidy the inbox every night.") }}</li>
+    <li><a href="/admin/users">{{ _("Create the accounts") }}</a> {{ _("then add the members to the organization and the spaces.") }}</li>
+    <li><a href="/account/assistants">{{ _("Connect your AI assistant") }}</a> {{ _("(Claude, ChatGPT…) with the MCP address.") }}</li>
+  </ol>
+  <p class="section-gap-small"><a class="button button-primary" href="/admin">{{ icon('plus') }}{{ _("Create the first organization") }}</a></p>
+</section>
+{% else %}
+<div class="notice notice-empty"><h2>{{ _("No organizations yet") }}</h2><p>{{ _("An administrator needs to add you to an organization or a space.") }}</p></div>
+{% endif %}
+{% endblock %}

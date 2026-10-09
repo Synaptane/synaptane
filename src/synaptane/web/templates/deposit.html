@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "icons.html" import sep %}
+{% from "deposit-form.html" import deposit_form with context %}
+{% block title %}{{ _("Deposit information") }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<span aria-current="page">{{ _("Deposit information") }}</span>{% endblock %}
+{% block content %}
+<div class="content-narrow">
+  <header class="page-header">
+    <div>
+      <h1>{{ _("Deposit information") }}</h1>
+      <p class="lede">{{ _("A note, minutes, a file: the tidying agent of the chosen space will add it to the wiki.") }}</p>
+    </div>
+  </header>
+  {% if choices %}
+  {{ deposit_form("/deposit", form, form_error, choices, chosen, heading=false, back=back) }}
+  {% else %}
+  <div class="notice notice-empty">
+    <h2>{{ _("No space to drop into") }}</h2>
+    <p>{{ _("You are not a contributor to any space: ask an administrator to add you.") }}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

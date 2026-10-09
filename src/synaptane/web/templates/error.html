@@ -1,0 +1,28 @@
+{% from "icons.html" import mark %}
+<!doctype html>
+<html lang="{{ locale }}" data-user-key="public">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ status }} · Synaptane</title>
+  <link rel="icon" href="/static/icon.svg?v={{ static_version }}" type="image/svg+xml">
+  <script src="/static/preferences.js?v={{ static_version }}"></script>
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+</head>
+<body class="public-page">
+  {# Same header as the other public pages: you know where you are, and the chosen theme applies. #}
+  <header class="site-header">
+    <a class="brand" href="/">{{ mark() }}Synaptane</a>
+    {% include "theme-control.html" %}
+  </header>
+  <main id="content">
+    <div class="public-card-layout">
+      <section class="card error-card" aria-labelledby="error-title">
+        <p class="eyebrow">{{ _("Error") }} {{ status }}</p>
+        <h1 id="error-title">{{ message }}</h1>
+        <div class="actions"><a class="button button-primary" href="/">{{ _("Back to home") }}</a></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

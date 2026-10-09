@@ -1,0 +1,55 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field, action, copyable with context %}
+{% block page_title %}{{ _("Single sign-on") }}{% endblock %}
+{% block section_crumbs %}<span aria-current="page">{{ _("Single sign-on") }}</span>{% endblock %}
+{% block section %}
+<section aria-labelledby="sso-title">
+  <div class="section-heading"><h2 id="sso-title">{{ _("Sign-in providers") }} <span class="admin-count">{{ sso_providers|length }}</span></h2></div>
+  <p class="muted admin-intro">{{ _("Sign in with a GitLab, Google, GitHub or any OIDC account. An account is matched by its verified email address; signing in grants no rights: then add the person to organizations and spaces.") }}</p>
+  <div class="stack">
+    {% for provider in sso_providers %}
+    <article class="card token-card">
+      <div class="token-head"><h3>{{ provider.name }}</h3><code>{{ provider.slug }}</code><span class="badge badge-quiet">{{ {"gitlab": "GitLab", "google": "Google", "github": "GitHub", "oidc": "OIDC"}.get(provider.kind, provider.kind) }}</span>{% if not provider.enabled %}<span class="badge badge-quiet">{{ _("disabled") }}</span>{% endif %}</div>
+      {% if provider.slug in open_providers %}<div class="notice notice-warning" role="alert" data-test="sso-open">{{ _("Open to everyone: anyone with a {name} account gets an account here on first sign-in. Enter allowed email domains or turn off automatic account creation.", name=provider.name) }}</div>{% endif %}
+      <div class="admin-callback"><span>{{ _("Callback URL to register with the provider:") }}</span>{{ copyable("callback-" ~ provider.slug, public_url ~ "/sso/" ~ provider.slug ~ "/callback", block=true) }}</div>
+      <div class="token-foot"><span>{% if provider.issuer %}{{ provider.issuer }} · {% endif %}{{ _("account creation: {value}", value=_("yes") if provider.auto_create else _("no")) }} · {{ _("link by email: {value}", value=_("yes") if provider.link_by_email else _("no")) }} · {{ _("allowed domains: {value}", value=provider.allowed_domains|join(", ") if provider.allowed_domains else _("all")) }}</span>
+        <div class="actions"><a class="button button-small" href="/admin/sso?edit={{ provider.slug|urlencode }}#sso-form" aria-label="{{ _('Edit {name}', name=provider.name) }}">{{ _("Edit") }}</a>
+          {{ action("/admin/sso/" ~ provider.slug ~ "/delete", _("Delete"), confirm=_("Delete {name}? Its users will have to sign in another way.", name=provider.name), kind="danger") }}</div></div>
+    </article>
+    {% else %}
+    <p class="empty admin-empty">{{ _("No provider: only local accounts can sign in.") }}</p>
+    {% endfor %}
+  </div>
+</section>
+{% set p = editing %}
+<form class="card section-gap" method="post" action="/admin/sso" id="sso-form">
+  {% if p %}
+  <h2>{{ _("Edit the provider {name}", name=p.name) }}</h2>
+  <p class="muted">{{ _("The client secret is never shown again: leave the field empty to keep it.") }} <a href="/admin/sso">{{ _("Cancel") }}</a></p>
+  {% else %}
+  <h2>{{ _("Add or edit a provider") }}</h2>
+  <p class="muted">{{ _("An identifier already in use updates that provider.") }}</p>
+  {% endif %}
+  {{ csrf_field() }}
+  <div class="form-columns">
+    <div class="field"><label for="sso-kind">{{ _("Type") }}</label><select id="sso-kind" name="kind">{% for k in sso_kinds %}<option value="{{ k }}"{% if p and p.kind == k %} selected{% endif %}>{{ {"gitlab": "GitLab", "google": "Google", "github": "GitHub", "oidc": _("Generic OIDC")}[k] }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="sso-slug">{{ _("Identifier") }}</label><input id="sso-slug" name="slug" required placeholder="gitlab" aria-describedby="sso-slug-help"{% if p %} value="{{ p.slug }}" readonly{% endif %}><p class="muted" id="sso-slug-help">{{ _("Callback address: {url}", url=public_url ~ "/sso/<identifiant>/callback") }}</p></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="sso-name">{{ _("Button label") }}</label><input id="sso-name" name="name" required placeholder="GitLab" aria-describedby="sso-name-help"{% if p %} value="{{ p.name }}"{% endif %}><p class="muted" id="sso-name-help">{{ _("Shown as “Sign in with …” on the sign-in page.") }}</p></div>
+    <div class="field"><label for="sso-issuer">{{ _("OIDC issuer") }}</label><input id="sso-issuer" name="issuer" placeholder="https://gitlab.example.com" aria-describedby="sso-issuer-help"{% if p %} value="{{ p.issuer }}"{% endif %}><p class="muted" id="sso-issuer-help">{{ _("For self-hosted GitLab and generic OIDC only.") }}</p></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="sso-client">{{ _("Client ID") }}</label><input id="sso-client" name="client_id" required{% if p %} value="{{ p.client_id }}"{% endif %}></div>
+    <div class="field"><label for="sso-secret">{{ _("Client secret") }}</label><input id="sso-secret" name="client_secret" type="password" autocomplete="off" placeholder="{{ _('unchanged if empty') }}"></div>
+  </div>
+  <div class="field"><label for="sso-domains">{{ _("Allowed email domains") }}</label><input id="sso-domains" name="allowed_domains" placeholder="example.com, example.org" aria-describedby="sso-domains-help"{% if p %} value="{{ p.allowed_domains|join(', ') }}"{% endif %}><p class="muted" id="sso-domains-help">{{ _("Only these addresses can create an account or be linked automatically (exact domain, subdomains not included). Empty: no restriction, to avoid with GitHub and Google when automatic account creation is on.") }}</p></div>
+  <fieldset class="admin-options">
+    <legend>{{ _("Options") }}</legend>
+    <label class="checkbox"><input type="checkbox" name="auto_create" value="true"{% if p and p.auto_create %} checked{% endif %}>{{ _("Create the account automatically on first sign-in") }}</label>
+    <label class="checkbox"><input type="checkbox" name="link_by_email" value="true"{% if p and p.link_by_email %} checked{% endif %}>{{ _("Link to an existing account with the same verified email (recommended for GitHub and Google only)") }}</label>
+    <label class="checkbox"><input type="checkbox" name="enabled" value="true"{% if not p or p.enabled %} checked{% endif %}>{{ _("Enabled") }}</label>
+  </fieldset>
+  <button class="button button-primary" type="submit">{{ _("Save provider") }}</button>
+</form>
+{% endblock %}

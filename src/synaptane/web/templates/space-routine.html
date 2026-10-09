@@ -1,0 +1,92 @@
+{% extends "space-settings-base.html" %}
+{% from "icons.html" import icon %}
+{% from "ui.html" import action, when with context %}
+{% from "routine-ui.html" import schedule, outputs with context %}
+{% set section = "routines" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
+{% set wiki = "/o/" ~ org.slug ~ "/" ~ space.slug %}
+{% set triggers = {'schedule': _("scheduled"), 'manual': _("manual")} %}
+{% block section %}
+<p class="routine-back"><a href="{{ base }}">{{ icon('chevron-left', 14) }}{{ _("All routines") }}</a></p>
+<div class="section-heading routine-title">
+  <div>
+    <h3>{{ routine.name }}</h3>
+    <p class="muted routine-meta">
+      <span>{{ schedule(routine, weekdays) }} ({{ space.tidy_timezone }})</span>
+      {% set upcoming = next_run(routine, space) %}{% if upcoming %}<span>{{ (_("Next run: {when}")|e).format(when=when(upcoming)) }}</span>{% endif %}
+    </p>
+  </div>
+  <span class="badge{% if not routine.enabled %} badge-quiet{% endif %}">{{ _("Enabled", context="routine") if routine.enabled else _("Disabled", context="routine") }}</span>
+</div>
+{% if manage %}
+<div class="actions routine-actions">
+  {% if ai_configured and not spending.exhausted %}{{ action(base ~ "/" ~ routine.id ~ "/run", _("Run now"), confirm=_("Run the routine now? The run uses tokens counted in the month's budget."), kind="primary") }}{% endif %}
+  <a class="button button-small" href="{{ base }}/{{ routine.id }}/edit">{{ _("Edit") }}</a>
+  {{ action(base ~ "/" ~ routine.id ~ "/toggle", _("Deactivate") if routine.enabled else _("Enable"), kind="quiet") }}
+  {{ action(base ~ "/" ~ routine.id ~ "/delete", _("Delete"), confirm=_("Delete the “{name}” routine? Its runs stay counted in the month's budget, and its report page stays in the wiki.", name=routine.name), kind="danger") }}
+</div>
+{% endif %}
+{% if not ai_configured %}<div class="notice notice-warning"><p>{{ _("No AI provider is configured for the organization: routines cannot run.") }}</p></div>{% endif %}
+
+<div class="card routine-settings">
+  <dl class="metadata">
+    <div><dt>{{ _("Scope") }}</dt><dd>{% if routine.scope %}{% for folder in routine.scope %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ _("The whole space") }}{% endif %}</dd></div>
+    <div><dt>{{ _("Outputs") }}</dt><dd>{{ outputs(routine, wiki) }}</dd></div>
+  </dl>
+  <details class="routine-instructions"><summary>{{ _("Instructions") }}</summary><pre>{{ routine.instructions }}</pre></details>
+</div>
+
+<h3 class="routine-journal-title">{{ _("Runs") }}</h3>
+{% if poll %}<div hidden data-tidy-state="{{ base }}/{{ routine.id }}/state" data-version="{{ version }}"></div>{% endif %}
+<div class="stack tidy-journal" data-tidy-journal data-more="{{ _('Details') }}">
+  {% if routine.requested %}
+  <article class="card tidy-run tidy-pending" role="status">
+    <div class="tidy-run-head"><div class="tidy-run-heading">
+      <h3 class="tidy-run-title tidy-warn">{{ _("Waiting for the worker") }}</h3>
+      <p class="muted tidy-run-meta">{{ _("The run starts as soon as the worker is free (never during a tidying run of the space).") }} <span data-live-hint hidden>{{ _("This page updates by itself.") }}</span></p>
+    </div></div>
+  </article>
+  {% endif %}
+  {% for view in runs %}{% set run = view.run %}{% set why = view.explanation %}
+  <article class="card tidy-run" data-status="{{ run.status }}" {% if run.status == 'running' %}role="status"{% endif %}>
+    <div class="tidy-run-head">
+      <div class="tidy-run-heading">
+        <h3 class="tidy-run-title tidy-{{ {'done': 'ok', 'failed': 'error', 'running': 'warn'}.get(run.status, 'quiet') }}">
+          {%- if run.status == 'running' %}{{ _("Running…") }}
+          {%- elif run.status == 'failed' %}{{ _("Failed · {cause}", cause=_(why.label)) }}
+          {%- else %}{{ _("Done") }}{% endif -%}
+        </h3>
+        <p class="muted tidy-run-meta">{{ when(run.started_at) }} · {{ triggers.get(run.trigger, run.trigger) }}</p>
+      </div>
+    </div>
+    <div class="tidy-run-body" id="routine-run-{{ run.id }}">
+      {% if run.summary %}<p class="tidy-summary">{{ log_text(run.summary) }}</p>{% endif %}
+      {% if why %}
+      <div class="notice notice-error">
+        {% if manage %}<p>{{ _(why.message, **why.params) }} {{ _("Nothing was published.") }}</p>
+        {% if why.show_detail %}<p class="tidy-detail">{{ _("Technical detail: {detail}", detail=why.detail) }}</p>{% endif %}
+        {% else %}<p>{{ _("Cause: {cause}.", cause=_(why.label)) }} {{ _("Nothing was published.") }}</p>{% endif %}
+      </div>
+      {% endif %}
+      {% set out = run.outputs or {} %}
+      {% if out %}
+      <ul class="routine-produced">
+        {% if out.page %}<li><span class="tidy-op-label">{{ _("Page rewritten") }}</span> <a href="{{ wiki }}/p/{{ out.page|pathurl }}">{{ out.page }}</a></li>{% endif %}
+        {% if out.inbox %}<li><span class="tidy-op-label">{{ _(pl(out.inbox|length, "{n} item dropped into the inbox", "{n} items dropped into the inbox"), n=out.inbox|length) }}</span> <span class="muted">{{ out.inbox|join(" · ") }}</span></li>{% endif %}
+        {% if out.emails is defined %}<li><span class="tidy-op-label">{{ _(pl(out.emails, "{n} e-mail sent", "{n} e-mails sent"), n=out.emails) }}</span></li>{% endif %}
+        {% if out.webhook %}<li><span class="tidy-op-label">{{ _("routine.done webhook sent") }}</span></li>{% endif %}
+      </ul>
+      {% endif %}
+      {% if run.report %}<details class="tidy-ops routine-report"><summary>{{ _("Output text") }}</summary><pre>{{ run.report }}</pre></details>{% endif %}
+      {% if run.status != 'running' and (run.model or view.tokens or run.commit) %}
+      <div class="tidy-run-foot">
+        <span>{% if run.model %}{{ _("Model: {model}", model=run.model) }} · {% endif %}{{ _(pl(view.tokens, "{n} token", "{n} tokens"), n="{:,}".format(view.tokens).replace(",", " ")) }}{% if run.cost is not none %} · {{ _("≈ {amount}", amount=run.cost|euros) }}{% endif %}{% if run.quota %} · {{ _("subscription quota: {usage}", usage=run.quota|quota_summary) }}{% endif %}{% if run.commit %} · <code>{{ run.commit[:10] }}</code>{% endif %}</span>
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  {% if not routine.requested %}<p class="empty">{{ _("No runs yet.") }}</p>{% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

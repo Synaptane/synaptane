@@ -1,0 +1,38 @@
+{# Current space in the left bar: its name (space home and search), the gear to its
+   settings, the "Inbox · N" row (with a badge if the tidy-up left items aside), then the
+   tree. Tidying and Activity are tabs of the inbox and of the settings. #}
+{% from "space-tree.html" import tree_children with context %}
+{% set base = '/o/' ~ org.slug ~ '/' ~ space.slug %}
+{% set here = request.url.path %}
+{# Current section from the URL; forms (POST under /-/) are not settings. #}
+{% set settings_paths = ['/-/settings', '/-/git', '/-/members', '/-/tidy-settings', '/-/semantic', '/-/compare'] %}
+{% set rest = here[base|length:] %}
+{% set in_settings = rest in settings_paths or rest.startswith(('/-/git/', '/-/members/', '/-/compare')) %}
+{% set in_inbox = here.startswith(base ~ '/inbox') or here.startswith(base ~ '/-/inbox') %}
+{% set counts = inbox_counts if inbox_counts is defined else none %}
+<div class="sidebar-space">
+  {# Space row marked on its home and settings only: in the inbox (and its Tidying and
+     Activity tabs), the "Inbox" row is marked, never both at once. #}
+  <div class="sidebar-space-row{% if here == base or in_settings %} is-current{% endif %}">
+    <a class="sidebar-space-name" href="{{ base }}" {% if here == base %}aria-current="page"{% endif %}><span class="tree-icon">{{ icon('folder') }}</span><span class="tree-label">{{ space.name }}</span></a>
+    <a class="sidebar-space-gear" href="{{ base }}/-/settings" {% if in_settings %}aria-current="page"{% endif %} aria-label="{{ _('{name} settings', name=space.name) }}" title="{{ _('Settings') }}">{{ icon('gear', 15) }}</a>
+  </div>
+  <a class="sidebar-inbox" href="{{ base }}/inbox" {% if in_inbox or here in (base ~ '/tidy', base ~ '/activity') %}aria-current="page"{% endif %}>
+    <span class="tree-icon">{{ icon('inbox') }}</span><span class="tree-label">{{ _("Inbox") }}</span>
+    {% if counts and counts.total %}
+    <span class="sidebar-count" aria-hidden="true">{{ counts.total }}</span>
+    <span class="sr-only">{{ _(pl(counts.total, "{n} item waiting", "{n} items waiting"), n=counts.total) }}</span>
+    {% endif %}
+    {% if counts and counts.left %}
+    <span class="sidebar-dot" title="{{ _('{n} left by tidying', n=counts.left) }}" aria-hidden="true"></span>
+    <span class="sr-only">{{ _("{n} of them left by tidying", n=counts.left) }}</span>
+    {% endif %}
+  </a>
+  {% if space_tree %}
+  <nav class="space-tree" aria-label="{{ _('File tree') }}">
+    {{ tree_children(space_tree, base, path if (path is defined and path is string and view is defined) else '') }}
+  </nav>
+  {% elif space_tree is not none %}
+  <p class="tree-status">{{ _("Empty wiki") }}</p>
+  {% endif %}
+</div>

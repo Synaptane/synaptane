@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% block title %}{{ _("Search", context="noun") }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<span aria-current="page">{{ _("Search", context="noun") }}</span>{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>{{ _("Search", context="noun") }}</h1></div></header>
+<form class="search-form card" method="get" action="/search" role="search">
+  <div class="field search-q"><label for="q">{{ _("Text to search for") }}</label><input id="q" type="search" name="q" value="{{ q }}" autofocus></div>
+  <div class="field"><label for="space">{{ _("Space") }}</label><select id="space" name="space"><option value="">{{ _("All my spaces") }}</option>{% for address, label in all_spaces %}<option value="{{ address }}" {% if address == selected %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <label class="checkbox"><input type="checkbox" name="regex" value="true" {% if regex %}checked{% endif %}>{{ _("Regular expression") }}</label>
+  <button class="button button-primary" type="submit">{{ icon('search') }}{{ _("Search", context="button") }}</button>
+</form>
+{% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
+{% if q and not error and pending %}
+<section class="section-gap">
+  <h2 class="section-label">{{ _("Waiting to be tidied") }}</h2>
+  <p class="muted">{{ _("Dropped in the inbox, not yet filed in the wiki.") }}</p>
+  <ul class="file-list">{% for s, note in pending %}<li><a href="/o/{{ s.organization.slug }}/{{ s.slug }}/inbox/{{ note.name }}">{{ icon('upload') }}<span>{{ highlight(note.title|tr, terms) }}</span></a><span class="muted">{{ s.name }} · <time datetime="{{ note.deposited_at }}" data-local="date">{{ note.deposited_at[:10] }}</time></span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if q and not error %}
+<p class="muted section-gap">{% if not hits and pending %}{{ _(pl(pending|length, "No wiki page, but {count} pending note above.", "No wiki page, but {count} pending notes above."), count=pending|length) }}{% else %}{{ _(pl(hits|length, "{count} result", "{count} results"), count=hits|length) }}{% endif %}</p>
+<ol class="search-results">
+  {% for hit in hits %}
+  {% set href = "/o/" ~ hit.org ~ "/" ~ hit.space ~ "/p/" ~ url_path(hit.path) %}
+  <li class="card search-hit">
+    <a class="search-title" href="{{ href }}{% if hit.anchor %}#{{ hit.anchor }}{% endif %}">{{ highlight(hit.title, terms) }}</a>
+    <p class="muted"><span class="badge badge-quiet">{{ hit.space_name }}</span> <code>{{ hit.path }}</code>{% if hit.section %} · <a class="search-section" href="{{ href }}#{{ hit.anchor }}">§ {{ highlight(hit.section, terms) }}</a>{% endif %}{% if hit.extracted %} · {{ _("extracted text") }}{% endif %}{% if hit.match == 'meaning' %} · <span class="badge">{{ _("by meaning") }}</span>{% elif hit.match == 'both' %} · <span class="badge">{{ _("words and meaning") }}</span>{% endif %}{% if hit.verified %} · <span class="verify-mark verify-ok" title="{{ _('Verified on {date}', date=hit.freshness.verified.isoformat()) }}">{{ icon('verified', 13) }}{{ _("verified") }}</span>{% elif hit.stale %} · <span class="verify-mark verify-stale" title="{{ _('To review since {date}', date=hit.freshness.due.isoformat()) }}">{{ icon('clock', 13) }}{{ _("to review") }}</span>{% endif %}</p>
+    {% if hit.passage %}<div class="search-excerpt">{% for line in hit.passage %}{% if line == "…" %}<span class="search-gap" aria-hidden="true">…</span>{% else %}<p>{{ highlight(line, terms) }}</p>{% endif %}{% endfor %}</div>{% endif %}
+  </li>
+  {% else %}
+  {% if not pending %}<li class="empty">{{ _("No results.") }}</li>{% endif %}
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

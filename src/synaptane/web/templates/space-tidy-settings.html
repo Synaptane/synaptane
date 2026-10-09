@@ -1,0 +1,29 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% set section = "tidy" %}
+{% block section %}
+{# Two ways to trigger the tidy-up, each in its group, then the model. #}
+<form class="card content-narrow tidy-settings-form" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/tidy-settings">
+  <p class="muted">{{ _("Every day at the chosen time, the AI agent files the inbox into the wiki. Space-specific instructions: the repository file .synaptane/prompts/tidy.md.") }}</p>
+  <p class="muted">{{ _("Depositors get an e-mail when their notes are filed or left (can be turned off in My account).") }}</p>
+  {% if not ai_configured %}<div class="notice notice-warning"><p>{{ _("No AI provider is configured for the organization.") }} <a href="/o/{{ org.slug }}/-/ai">{{ _("Configure") }}</a></p></div>{% endif %}
+  {{ csrf_field() }}
+  <fieldset class="settings-group">
+    <legend>{{ _("Daily tidying") }}</legend>
+    <label class="checkbox"><input type="checkbox" name="tidy_enabled" value="true" {% if space.tidy_enabled %}checked{% endif %}>{{ _("Tidy automatically every day") }}</label>
+    <div class="form-columns">
+      <div class="field"><label for="tidy-time">{{ _("Time") }}</label><input id="tidy-time" name="tidy_time" type="time" value="{{ space.tidy_time }}" required></div>
+      <div class="field"><label for="tidy-tz">{{ _("Time zone") }}</label><input id="tidy-tz" name="tidy_timezone" value="{{ space.tidy_timezone }}" required list="timezones" autocomplete="off"><datalist id="timezones">{% for zone in timezones %}<option value="{{ zone }}">{% endfor %}</datalist></div>
+    </div>
+  </fieldset>
+  <fieldset class="settings-group">
+    <legend>{{ _("Tidying as you go") }}</legend>
+    <label class="checkbox"><input type="checkbox" name="tidy_soon" value="true" {% if space.tidy_delay %}checked{% endif %}>{{ _("Also tidy as you go, shortly after each deposit") }}</label>
+    <div class="field field-short"><label for="tidy-delay">{{ _("Delay after a deposit (minutes)") }}</label><input id="tidy-delay" name="tidy_delay" type="number" min="1" max="1440" value="{{ space.tidy_delay or 15 }}" aria-describedby="tidy-delay-help"><p class="muted" id="tidy-delay-help">{{ _("Deposits received during this delay are tidied together, in a single run. The monthly budget applies.") }}</p></div>
+  </fieldset>
+  <div class="settings-group">
+    <div class="field"><label for="tidy-model">{{ _("Model for this space (optional)") }}</label><input id="tidy-model" name="ai_model" value="{{ space.ai_model or '' }}" placeholder="{{ _("the organization's") }}"></div>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+{% endblock %}

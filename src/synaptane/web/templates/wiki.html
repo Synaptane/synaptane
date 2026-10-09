@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep, ref, file_icon %}
+{% set folder_limit = 1000 %}
+{% set tab = 'wiki' %}
+{% set home = page_url('') %}
+{% set current_folder = path if view in ('folder', 'new') else (crumbs[:-1]|map(attribute=1)|list|last if crumbs|length > 1 else '') %}
+{% block title %}{{ crumbs[-1][0] if crumbs else space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="{{ home }}">{{ space.name }}</a>{% for name, p in crumbs %}{{ sep() }}{% if loop.last %}<span aria-current="page">{{ name }}</span>{% else %}<a href="{{ page_url(p) }}">{{ name }}</a>{% endif %}{% endfor %}{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/assets/code.css?v={{ static_version }}">{% endblock %}
+{% from "ui.html" import csrf_field, when, secret_confirm, file_input with context %}
+{# Page verification: discreet badge in the bar, detail in the ⋮ menu. #}
+{% macro verify_title(state, owner_name, modified) -%}
+{%- if state.stale %}{{ _("To review since {date}", date=state.due.isoformat()) }} · {{ _("verified on {date}", date=state.verified.isoformat()) }}
+{%- else %}{{ _("Verified on {date}", date=state.verified.isoformat()) }}{% if state.due %} · {{ _("review on {date}", date=state.due.isoformat()) }}{% endif %}{% endif %}
+{%- if owner_name %} · {{ _("owner: {name}", name=owner_name) }}{% endif %}
+{%- if modified %} · {{ _("modified since") }}{% endif %}
+{%- endmacro %}
+{% macro day(value) -%}<time datetime="{{ value.isoformat() }}T12:00" data-local="day">{{ value.isoformat() }}</time>{%- endmacro %}
+{% macro doc_menu() -%}
+<details class="menu doc-menu">
+  <summary class="icon-button" aria-label="{{ _('More actions') }}" title="{{ _('More actions') }}">{{ icon('dots', 17) }}</summary>
+  <div class="menu-panel">{{ caller() }}</div>
+</details>
+{%- endmacro %}
+{% block topbar_end %}
+{% if view == 'file' %}
+<div class="topbar-doc">
+  {% set v = verification %}
+  {% if v and v.state.verified %}
+  <span class="verify-badge verify-{{ 'stale' if v.state.stale else 'ok' }}" title="{{ verify_title(v.state, v.owner_name, v.modified) }}" data-test="verify-badge">
+    {{ icon('clock' if v.state.stale else 'verified', 14) }}
+    <span class="verify-text" aria-hidden="true">{% if v.state.stale %}{{ _("To review since") }} {{ day(v.state.due) }}{% else %}{{ _("Verified on") }} {{ day(v.state.verified) }}{% if v.owner_name %} · {{ v.owner_name }}{% endif %}{% endif %}</span>
+    <span class="sr-only">{{ verify_title(v.state, v.owner_name, v.modified) }}</span>
+  </span>
+  {% endif %}
+  <span class="topbar-meta">{{ file.size|filesize }}{% if last_change %} · {{ _("modified on") }} <time datetime="{{ last_change.date }}" data-local="full">{{ last_change.date[:16].replace('T', ' ') }}</time> {{ _("by") }} {{ last_change.author.name }}{% endif %}</span>
+  <a class="button button-small" href="{{ home }}/history/{{ file.path|pathurl }}">{{ _("History") }}</a>
+  {% if contribute and file.text is not none %}<a class="button button-small button-primary" href="{{ home }}/edit/{{ file.path|pathurl }}" data-test="page-edit">{{ _("Edit") }}</a>{% endif %}
+  {% call doc_menu() %}
+        {% if v %}
+        <div class="verify-panel" data-test="verify-panel">
+          <p class="verify-state verify-{{ v.state.state }}">{{ icon('clock' if v.state.stale else 'verified' if v.state.verified else 'circle', 15) }}<span>{% if v.state.stale %}{{ _("To review since") }} {{ day(v.state.due) }}{% elif v.state.verified %}{{ _("Verified on") }} {{ day(v.state.verified) }}{% else %}{{ _("Never verified") }}{% endif %}</span></p>
+          <p class="verify-details">
+            {%- if v.owner_name %}{{ _("Owner: {name}", name=v.owner_name) }}{% else %}{{ _("No owner") }}{% endif %}
+            {%- if v.state.stale %} · {{ _("verified on") }} {{ day(v.state.verified) }}{% elif v.state.due %} · {{ _("review on") }} {{ day(v.state.due) }}{% endif %}
+            {%- if v.state.period %} · {{ period_label(v.state.period) }}{% if v.state.inherited %} ({{ _("space setting") }}){% endif %}{% endif %}
+            {%- if v.modified %} · <strong>{{ _("modified since it was verified") }}</strong>{% endif %}
+          </p>
+          {% if contribute %}
+          <form class="verify-form" method="post" action="{{ home }}/-/verify">
+            {{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}">
+            <div class="field"><label for="verify-owner">{{ _("Owner") }}</label><input id="verify-owner" name="owner" value="{{ v.owner }}" list="verify-people" placeholder="{{ user.username }}" autocomplete="off" maxlength="120"><datalist id="verify-people">{% for name in v.people %}<option value="{{ name }}">{% endfor %}</datalist></div>
+            <div class="field"><label for="verify-every">{{ _("Review") }}</label><select id="verify-every" name="review_every">
+              <option value="" {% if not v.own %}selected{% endif %}>{{ _("Same as the space ({period})", period=period_label(v.default)) }}</option>
+              {% for choice in v.choices %}<option value="{{ choice }}" {% if choice == v.own %}selected{% endif %}>{{ period_label(choice)|capitalize }}</option>{% endfor %}
+            </select></div>
+            <div class="verify-actions">
+              <button class="button button-small button-primary" type="submit" name="action" value="verify" data-test="verify-page">{{ icon('check', 14) }}{{ _("Mark as verified") }}</button>
+              <button class="button button-small" type="submit" name="action" value="save">{{ _("Save") }}</button>
+            </div>
+            <p class="muted">{{ _("Content correct and up to date? The date goes into the page's front matter, in a commit under your name; with no owner yet, it becomes you.") }}</p>
+          </form>
+          {% endif %}
+        </div>
+        <hr>
+        {% endif %}
+        <a class="menu-item narrow-only" href="{{ home }}/history/{{ file.path|pathurl }}">{{ icon('refresh', 14) }}{{ _("History") }}</a>
+        <a class="menu-item" href="{{ raw_url(file.path) }}?download=1">{{ icon('download', 14) }}{{ _("Download") }}</a>
+        {% if file.name.lower().endswith(('.html', '.htm')) %}<a class="menu-item" href="{{ page_url(file.path) }}{% if html_page %}?source=1{% endif %}">{{ icon('file', 14) }}{{ _("View source") if html_page else _("View rendered page") }}</a>{% endif %}
+        <span class="menu-item menu-item-static"><code>{{ file.path }}</code></span>
+        <span class="menu-item menu-item-static">{{ _("Fingerprint") }} <code>{{ file.sha[:10] }}</code></span>
+        {% if contribute %}
+        <hr>
+        <form method="post" action="{{ home }}/-/move">
+          {{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}">
+          <div class="field"><label for="target">{{ _("Move or rename") }}</label><input id="target" name="target" value="{{ file.path }}" required list="folders" autocomplete="off"><datalist id="folders">{% for folder_path in all_folders %}<option value="{{ folder_path }}/{{ file.name }}">{% endfor %}</datalist></div>
+          <button class="button button-small" type="submit">{{ _("Move") }}</button>
+          <p class="muted">{{ _("Links to this page, and its own links, are updated at the same time.") }}</p>
+        </form>
+        <hr>
+        <form method="post" action="{{ home }}/-/delete-file" data-confirm="{{ _("Delete {name}? Git history keeps it.", name=file.name) }}">
+          {{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}">
+          <button class="button button-small button-danger" type="submit">{{ _("Delete this file") }}</button>
+        </form>
+        {% endif %}
+      {% endcall %}
+</div>
+{% elif view == 'folder' %}
+<div class="topbar-doc">
+  <span class="topbar-meta">{{ _("{folders}, {files}", folders=_(pl(folder.folders|length, "{n} folder", "{n} folders"), n=folder.folders|length), files=_(pl(folder.files|length, "{n} file", "{n} files"), n=folder.files|length)) }}</span>
+  {% if contribute %}<a class="button button-small button-primary" href="{{ home }}/new?folder={{ path|urlencode }}">{{ icon('plus') }}{{ _("New page") }}</a>{% endif %}
+  {% call doc_menu() %}
+        {% if contribute %}
+        <form class="upload-form" method="post" action="{{ home }}/-/upload" enctype="multipart/form-data">
+          {{ csrf_field() }}<input type="hidden" name="folder" value="{{ path }}">
+          <label for="upload">{{ _("Add a file to this folder") }}</label>
+          {{ file_input("upload", "upload", required=true) }}
+          <button class="button button-small" type="submit">{{ icon('upload') }}{{ _("Add") }}</button>
+        </form>
+        {% endif %}
+        {% if index and contribute %}<a class="menu-item" href="{{ home }}/edit/{{ index|pathurl }}">{{ _("Edit the folder home page") }}</a>{% endif %}
+        {% if not path %}<a class="menu-item" href="{{ home }}/-/settings">{{ icon('gear', 14) }}{{ _("Space settings") }}</a>{% endif %}
+      {% endcall %}
+</div>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% include "space-header.html" %}
+<article class="wiki-main{% if view == 'file' and toc %} wiki-wide{% endif %}{% if view == 'file' and (html_page or file.kind in ('pdf', 'image')) %} full-bleed{% endif %}">
+  {% if view == 'unsynced' %}
+  <header class="doc-bar">
+    <div class="doc-bar-main"><span class="doc-icon">{{ icon('folder', 18) }}</span><div><h1 class="doc-title">{{ space.name }}</h1>{% if space.description %}<p class="doc-meta">{{ space.description }}</p>{% endif %}</div></div>
+  </header>
+  <div class="notice notice-empty">
+    {% if not space.repo_url %}
+    <h2>{{ _("No Git repository linked") }}</h2>
+    <p>{{ _("The wiki shows the content/ folder of a Git repository: one must be linked first.") }} <a href="{{ home }}/-/git">{{ _("Link a Git repository") if can(actor.access, Action.MANAGE_ORG, org_id=space.org_id) else _("See the repository status") }}</a></p>
+    {% elif space.sync_status == 'error' %}
+    <h2>{{ _("Synchronisation failed") }}</h2>
+    <p>{{ _("The repository could not be fetched.") }} <a href="{{ home }}/-/git">{{ _("See the error") }}</a></p>
+    {% else %}
+    <h2>{{ _("First synchronisation in progress") }}</h2>
+    <p>{{ _("The repository content is on its way: reload the page in a moment.") }} <a href="{{ home }}/-/git">{{ _("See the repository status") }}</a></p>
+    {% endif %}
+  </div>
+
+  {% elif view == 'missing' %}
+  {% set wanted = path.rsplit('/', 1) %}
+  <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('file', 18) }}</span><div><h1 class="doc-title">{{ _("This page does not exist yet") }}</h1><p class="doc-meta"><code>{{ path }}</code></p></div></div></header>
+  <div class="wiki-actions">
+    {% if contribute %}<a class="button button-primary button-small" data-test="page-create" href="{{ home }}/new?folder={{ (wanted[0] if wanted|length > 1 else '')|urlencode }}&amp;name={{ (wanted[-1] if wanted[-1].endswith('.md') else wanted[-1] ~ '.md')|urlencode }}">{{ icon('plus') }}{{ _("Create this page") }}</a>{% endif %}
+    <a class="button button-small" href="/search?q={{ wanted[-1].rsplit('.', 1)[0]|urlencode }}&amp;space={{ org.slug }}/{{ space.slug }}">{{ icon('search') }}{{ _("Search for “{name}”", name=wanted[-1].rsplit('.', 1)[0]) }}</a>
+  </div>
+
+  {% elif view == 'folder' %}
+  {% if not intro_title %}<h1 class="sr-only">{{ crumbs[-1][0] if path else space.name }}</h1>{% endif %}
+  {% if not path %}
+  <form class="page-search" method="get" action="/search" role="search">
+    <input type="hidden" name="space" value="{{ org.slug }}/{{ space.slug }}">
+    {{ icon('search', 16) }}
+    <label class="sr-only" for="space-q">{{ _("Search this space") }}</label>
+    <input id="space-q" type="search" name="q" placeholder="{{ _('Search in {name}', name=space.name) }}" autocomplete="off">
+  </form>
+  {% endif %}
+  {% if intro %}<div class="markdown hl doc-body">{{ intro }}</div>{% endif %}
+  {% if folder.folders or folder.files %}
+  <div class="card doc-listing">
+    <ul class="file-list">
+      {% for name, child in folder.folders.items() %}<li><a href="{{ page_url(child.path) }}">{{ ref('folder', 15) }}<span>{{ name }}</span></a><span class="muted">{{ _("folder") }}</span></li>{% endfor %}
+      {% for blob in folder.files[:folder_limit] if blob.path != index %}{% set st = states.get(blob.path) if states else none %}<li><a href="{{ page_url(blob.path) }}">{{ file_icon(blob.path, 15) }}<span>{{ blob.path.rsplit('/', 1)[-1] }}</span>{% if st and st.verified %}<span class="verify-mark verify-{{ 'stale' if st.stale else 'ok' }}" title="{{ verify_title(st, owner_label(st.owner), false) }}">{{ icon('clock' if st.stale else 'verified', 13) }}<span class="sr-only">{{ _("to review") if st.stale else _("verified") }}</span></span>{% endif %}</a><span class="muted">{{ blob.size|filesize }}</span></li>{% endfor %}
+      {% if folder.files|length > folder_limit %}<li class="muted">{{ _("… and {count} more files: use search.", count=folder.files|length - folder_limit) }}</li>{% endif %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="empty">{{ _("This folder is empty.") }}</p>
+  {% endif %}
+
+  {% elif view == 'file' %}
+  {% if not has_title %}<h1 class="sr-only">{{ title }}</h1>{% endif %}
+  <div class="doc-layout{% if toc %} with-toc{% endif %}">
+  <div class="doc-body">
+  {% if file.kind == 'markdown' and rendered is not none %}
+    <div class="markdown hl">{{ rendered }}</div>
+  {% elif html_page %}
+    <iframe class="doc-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="{{ raw_url(file.path) }}?preview=1" title="{{ file.name }}"></iframe>
+  {% elif file.kind == 'text' and rendered is not none %}
+    <pre class="code hl">{{ rendered }}</pre>
+  {% elif file.kind == 'image' %}
+    <div class="image-stage"><img class="wiki-image" src="{{ raw_url(file.path) }}" alt="{{ file.name }}"></div>
+  {% elif file.kind == 'pdf' %}
+    <iframe class="doc-frame" src="{{ raw_url(file.path) }}" title="{{ file.name }}"></iframe>
+  {% else %}
+    <div class="notice"><p>{{ _("No preview for this file type.") }} <a href="{{ raw_url(file.path) }}?download=1">{{ _("Download") }}</a> ({{ file.size|filesize }})</p></div>
+  {% endif %}
+  {% if extracted %}
+  <details class="section-gap"><summary>{{ _("Extracted text (used by search)") }}</summary><pre>{{ extracted }}</pre></details>
+  {% endif %}
+  {% if backlinks %}
+  <section class="backlinks section-gap">
+    <h2 class="section-label">{{ _("Pages linking here") }}</h2>
+    <ul class="file-list">{% for p, title in backlinks %}<li><a href="{{ page_url(p) }}">{{ file_icon(p, 15) }}<span>{{ title }}</span></a><span class="muted">{{ p }}</span></li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+  {% if related_url %}<section class="related section-gap" data-related="{{ related_url }}" aria-labelledby="voir-aussi" hidden></section>{% endif %}
+  </div>
+  {% if toc %}
+  <details class="doc-toc" open>
+    <summary>{{ _("Contents") }}</summary>
+    <nav aria-label="{{ _('Contents') }}"><ol>{% for level, anchor, text in toc %}<li class="toc-{{ level }}"><a href="#{{ anchor }}">{{ text }}</a></li>{% endfor %}</ol></nav>
+  </details>
+  {% endif %}
+  </div>
+
+  {% elif view == 'history' %}
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{{ _("History") }} · {{ crumbs[-1][0] }}</h1><p class="doc-meta"><a href="{{ page_url(path) }}">{{ _("Back to the document") }}</a></p></div></div></header>
+    <ul class="history-list">
+      {% for commit in commits %}
+      <li>
+        <a href="{{ home }}/diff/{{ commit.sha }}/{{ path|pathurl }}"><strong>{{ commit.subject }}</strong></a>
+        <span class="muted">{{ commit.author.name }} · <time datetime="{{ commit.date }}" data-local="full">{{ commit.date[:16].replace('T', ' ') }}</time> · <code>{{ commit.sha[:8] }}</code></span>
+      </li>
+      {% endfor %}
+    </ul>
+
+  {% elif view == 'diff' %}
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{{ _("Change", context="noun") }} <code>{{ sha[:8] }}</code></h1><p class="doc-meta"><a href="{{ home }}/history/{{ path|pathurl }}">{{ _("Back to history") }}</a></p></div></div></header>
+    <pre class="diff">{% for kind, line in diff_lines %}<span class="diff-{{ kind }}">{{ line }}</span>{% endfor %}</pre>
+
+  {% elif view == 'edit' %}
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('file', 18) }}</span><div><h1 class="doc-title">{{ _("Edit") }} · {{ file.name }}</h1><p class="doc-meta"><code>{{ file.path }}</code></p></div></div></header>
+    {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
+    {% if conflict %}
+    <section class="card conflict">
+      <h2>{{ _("What changed since you opened the page") }}</h2>
+      <p class="muted">{{ _("Removed lines: your version; added lines: the saved version. Copy what must be kept into your text, then choose.") }}</p>
+      <pre class="diff">{% for kind, line in conflict.diff %}<span class="diff-{{ kind }}">{{ line }}</span>{% endfor %}</pre>
+    </section>
+    {% endif %}
+    <form method="post" action="{{ home }}/edit/{{ file.path|pathurl }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="base_sha" value="{{ base_sha or file.sha }}">
+      <div class="field"><label for="text">{{ _("Content (Markdown)") if file.kind == 'markdown' else _("Content") }}</label><textarea id="text" name="text" class="editor" rows="24" spellcheck="true">{{ draft }}</textarea></div>
+      <div class="field"><label for="message">{{ _("Change summary (optional)") }}</label><input id="message" name="message" value="{{ message }}" maxlength="200"></div>
+      {{ secret_confirm(error) }}
+      <div class="actions">
+        {% if conflict %}
+        <button class="button button-danger" type="submit" name="overwrite_sha" value="{{ conflict.sha }}">{{ _("Replace the saved version with mine") }}</button>
+        <a class="button" href="{{ home }}/edit/{{ file.path|pathurl }}">{{ _("Discard my version") }}</a>
+        {% else %}
+        <button class="button button-primary" type="submit">{{ _("Save") }}</button><a class="button" href="{{ page_url(file.path) }}">{{ _("Cancel") }}</a>
+        {% endif %}
+      </div>
+    </form>
+
+  {% elif view == 'new' %}
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('plus', 18) }}</span><div><h1 class="doc-title">{{ _("New page") }}</h1>{% if folder %}<p class="doc-meta"><code>{{ folder }}/</code></p>{% endif %}</div></div></header>
+    {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
+    <form method="post" action="{{ home }}/-/new">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-columns">
+        <div class="field"><label for="folder">{{ _("Folder") }}</label><input id="folder" name="folder" value="{{ folder }}" placeholder="{{ _('root') }}"></div>
+        <div class="field"><label for="name">{{ _("File name") }}</label><input id="name" name="name" required placeholder="ma-page.md" value="{{ name or '' }}"></div>
+      </div>
+      <div class="field"><label for="text">{{ _("Content (Markdown)") }}</label><textarea id="text" name="text" class="editor" rows="18">{{ draft or '' }}</textarea></div>
+      <div class="field"><label for="message">{{ _("Change summary (optional)") }}</label><input id="message" name="message" maxlength="200" value="{{ message or '' }}"></div>
+      {{ secret_confirm(error) }}
+      <button class="button button-primary" type="submit">{{ _("Create page") }}</button>
+    </form>
+  {% endif %}
+</article>
+{% endblock %}

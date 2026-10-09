@@ -1,0 +1,31 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, action with context %}
+{% from "provider-help.html" import key_help with context %}
+{% block section %}
+<div class="content-narrow">
+  <p class="muted">{{ _("Optional. Once enabled in a space (Space settings → Semantic search), search also finds pages close in meaning. Pages are sent to the provider to be vectorised.") }}</p>
+  {% if embeddings %}
+  <div class="card status-card">
+    <div>
+      <strong>{{ _(embedding_labels.get(embeddings.provider, embeddings.provider)) }} · {{ embeddings.model }}</strong>
+      {% if not embeddings.has_key and embeddings.provider not in ('ollama', 'openai_compatible') %}<p><span class="status status-warn">{{ _("No key") }}</span></p>{% endif %}
+    </div>
+    {{ action("/o/" ~ org.slug ~ "/-/embeddings/test", _("Test the connection")) }}
+  </div>
+  {% endif %}
+  <form class="card section-gap-small" method="post" action="/o/{{ org.slug }}/-/embeddings">
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="emb-provider">{{ _("Provider") }}</label><select id="emb-provider" name="provider" data-model-field="emb-model">{% for p in embedding_providers %}<option value="{{ p }}" data-model="{{ default_models.get(p, '') }}" {% if embeddings and embeddings.provider == p %}selected{% endif %}>{{ _(embedding_labels[p]) }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="emb-model">{{ _("Model (optional)") }}</label><input id="emb-model" name="model" value="{{ embeddings.model if embeddings else '' }}" placeholder="{{ default_models.get(embeddings.provider if embeddings else 'openai', '') }}"></div>
+    </div>
+    <div class="form-columns">
+      <div class="field" data-providers="openai gemini mistral voyage openai_compatible"><label for="emb-key">{{ _("API key") }}</label><input id="emb-key" name="api_key" type="password" autocomplete="off" placeholder="{{ _('unchanged') if embeddings and embeddings.has_key else '' }}"><p class="muted">{{ _("Encrypted, never shown again.", context="key") }}</p></div>
+      <div class="field"><label for="emb-base">{{ _("API address (optional)") }}</label><input id="emb-base" name="base_url" value="{{ embeddings.base_url if embeddings else '' }}" placeholder="https://…/v1"></div>
+    </div>
+    {{ key_help(('openai', 'gemini', 'mistral', 'voyage', 'ollama', 'openai_compatible')) }}
+    {% if embeddings and embeddings.has_key %}<label class="checkbox"><input type="checkbox" name="clear_key" value="true">{{ _("Delete the saved key") }}</label>{% endif %}
+    <div class="actions"><button class="button button-primary" type="submit">{{ _("Save") }}</button></div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,55 @@
+{# How to get the key of each AI or embeddings provider. Each block is only shown for the
+   chosen provider (`data-providers`, see preferences.js). #}
+{% macro key_help(providers) -%}
+{% for p in providers %}
+<div class="key-help" data-providers="{{ p }}">
+  {% if p == "anthropic" %}
+  <p><strong>{{ _("Get an Anthropic key") }}</strong> · <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com/settings/keys</a></p>
+  <ol class="steps">
+    <li>{{ _("Sign in to the Claude Console. It is separate from a Claude Pro or Max subscription: to use a subscription, choose “Claude subscription” instead.") }}</li>
+    <li>{{ _("Settings → API keys → Create key, then copy the key (sk-ant-…): it is shown only once.") }}</li>
+    <li>{{ _("Billing: add credit, the API is billed per use.") }}</li>
+  </ol>
+  {% elif p == "openai" %}
+  <p><strong>{{ _("Get an OpenAI key") }}</strong> · <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a></p>
+  <ol class="steps">
+    <li>{{ _("Sign in to the OpenAI platform. It is separate from a ChatGPT subscription.") }}</li>
+    <li>{{ _("API keys → Create new secret key, then copy the key (sk-…): it is shown only once.") }}</li>
+    <li>{{ _("Billing: add credit, the API is billed per use.") }}</li>
+  </ol>
+  {% elif p == "mistral" %}
+  <p><strong>{{ _("Get a Mistral key") }}</strong> · <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener">console.mistral.ai/api-keys</a></p>
+  <ol class="steps">
+    <li>{{ _("Sign in to the Mistral console and choose a plan in Billing to enable the API.") }}</li>
+    <li>{{ _("API Keys → Create new key, then copy the key: it is shown only once.") }}</li>
+  </ol>
+  {% elif p == "gemini" %}
+  <p><strong>{{ _("Get a Gemini key") }}</strong> · <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
+  <ol class="steps">
+    <li>{{ _("Sign in to Google AI Studio with a Google account.") }}</li>
+    <li>{{ _("Get API key → Create API key (in a Google Cloud project), then copy the key (AIza…).") }}</li>
+    <li>{{ _("Without billing enabled on the project, the free tier applies: lower quotas, and Google may use the content sent to improve its products. For team data, enable billing.") }}</li>
+  </ol>
+  {% elif p == "voyage" %}
+  <p><strong>{{ _("Get a Voyage AI key") }}</strong> · <a href="https://dashboard.voyageai.com/" target="_blank" rel="noopener">dashboard.voyageai.com</a></p>
+  <ol class="steps">
+    <li>{{ _("Create an account on the Voyage AI dashboard.") }}</li>
+    <li>{{ _("API Keys → Create new secret key, then copy the key: it is shown only once.") }}</li>
+    <li>{{ _("Add a payment method to lift the rate limits.") }}</li>
+  </ol>
+  {% elif p == "ollama" %}
+  <p><strong>{{ _("Ollama: no key") }}</strong> · <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a></p>
+  <ol class="steps">
+    <li>{{ _("Install Ollama on a machine Synaptane can reach, then pull the model, for example “ollama pull bge-m3” for embeddings.") }}</li>
+    <li>{{ _("API address: http://<machine>:11434/v1. Under Docker, localhost is the Synaptane container, not the server: enter the machine's or service's address. Changing the address is reserved to the super-admin.") }}</li>
+  </ol>
+  {% elif p == "openai_compatible" %}
+  <p><strong>{{ _("OpenAI-compatible API") }}</strong></p>
+  <ol class="steps">
+    <li>{{ _("The key and address come from your service: LiteLLM gateway, vLLM, Azure OpenAI, OpenRouter… The address usually ends with /v1.") }}</li>
+    <li>{{ _("Entering an address is reserved to the super-admin: it makes the server call that destination.") }}</li>
+  </ol>
+  {% endif %}
+</div>
+{% endfor %}
+{%- endmacro %}

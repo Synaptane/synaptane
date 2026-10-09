@@ -1,0 +1,44 @@
+{% extends "account-base.html" %}
+{% from "ui.html" import csrf_field, action, when with context %}
+{% macro password_form(forced=false) -%}
+<form class="card account-password" method="post" action="/account/password">
+  {% if not forced %}<h2>{{ _("Password") }}</h2>{% endif %}
+  {{ csrf_field() }}
+  {% if user.password_hash %}<div class="field"><label for="current">{{ _("Temporary password") if forced else _("Current password") }}</label><input id="current" name="current" type="password" autocomplete="current-password" required{% if forced %} autofocus{% endif %}>{% if forced %}<p class="muted">{{ _("The one your administrator gave you.") }}</p>{% endif %}</div>{% else %}<p class="muted">{{ _("Your account has no password yet: you sign in with single sign-on.") }}</p><input type="hidden" name="current" value="">{% endif %}
+  <div class="field"><label for="new">{{ _("New password") }}</label><input id="new" name="password" type="password" autocomplete="new-password" minlength="12" required><p class="muted">{{ _("12 characters minimum.") }}</p></div>
+  {% if not forced %}<p class="muted account-consequence">{{ _("Your other sessions and your personal tokens will be closed.") }}</p>{% endif %}
+  <button class="button button-primary" type="submit">{{ _("Save and continue") if forced else _("Change password") }}</button>
+</form>
+{%- endmacro %}
+{% block forced %}
+<header class="page-heading">
+  <p class="eyebrow"><span class="ident">@{{ user.username }}</span></p>
+  <h1>{{ _("Choose your password") }}</h1>
+  <p>{{ _("Your account was created with a temporary password. Replace it with your own to access Synaptane.") }}</p>
+</header>
+{{ password_form(forced=true) }}
+<form class="account-forced-logout" method="post" action="/logout">
+  {{ csrf_field() }}<span class="muted">{{ _("Not your account?") }}</span> <button class="button button-link" type="submit">{{ _("Sign out") }}</button>
+</form>
+{% endblock %}
+{% block section %}
+{{ password_form() }}
+{% if identities or linkable %}
+<section class="section-gap account-section">
+  <h2>{{ _("Single sign-on identities") }}</h2>
+  <p class="muted">{{ _("External accounts you sign in to Synaptane with.") }}</p>
+  <div class="stack">
+    {% for identity, provider in identities %}
+    <article class="card token-card"><div class="token-head"><h3>{{ provider.name }}</h3><code>{{ identity.email }}</code></div>
+      <div class="token-foot"><span>{% if identity.last_login_at %}{{ _("Last sign-in") }} {{ when(identity.last_login_at) }}{% else %}{{ _("Never used to sign in") }}{% endif %}</span>
+        {{ action("/account/identities/" ~ identity.id ~ "/unlink", _("Unlink"), confirm=_("Unlink this {name} account? You will no longer be able to sign in with it.", name=provider.name), kind="danger") }}</div>
+    </article>
+    {% endfor %}
+    {% if linkable %}
+    <div class="account-link-sso"><span class="muted">{{ _("Link another account:") if identities else _("Link an account:") }}</span>
+      {% for provider in linkable %}{{ action("/account/identities/link/" ~ provider.slug, provider.name) }}{% endfor %}</div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

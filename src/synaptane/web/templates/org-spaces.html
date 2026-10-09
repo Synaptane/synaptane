@@ -1,0 +1,25 @@
+{% extends "org-base.html" %}
+{% block section %}
+<div class="section-heading">
+  <h2>{{ _("Spaces") }}</h2>
+  {% if manage %}<a class="button button-primary" href="/o/{{ org.slug }}/-/new-space">{{ icon('plus') }}{{ _("New space") }}</a>{% endif %}
+</div>
+{% if org_spaces %}
+<div class="space-grid">
+  {% for space in org_spaces %}
+  <article class="card space-card">
+    <span class="card-icon">{{ icon('folder', 18) }}</span>
+    <div>
+      <h3><a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a></h3>
+      {% if space.description %}<p class="card-copy">{{ space.description }}</p>{% else %}<p class="card-copy card-copy-empty">{{ _("No description") }}</p>{% endif %}
+    </div>
+    <div class="card-meta"><span>{{ space.slug }}</span>{% if space.sync_status in ('error', 'conflict') %}<span class="status {{ 'status-error' if space.sync_status == 'error' else 'status-warn' }}">{{ _("Error", context="status") if space.sync_status == 'error' else _("In conflict") }}</span>{% elif not space.repo_url %}<span class="status">{{ _("No Git repository") }}</span>{% endif %}</div>
+  </article>
+  {% endfor %}
+</div>
+{% elif manage %}
+<div class="notice notice-empty"><h3>{{ _("No space yet") }}</h3><p>{{ _("A space is a Git repository whose content/ folder becomes a wiki. Create the first one.") }}</p><p><a class="button button-primary" href="/o/{{ org.slug }}/-/new-space">{{ icon('plus') }}{{ _("New space") }}</a></p></div>
+{% else %}
+<p class="empty">{{ _("No accessible spaces in this organization.") }}</p>
+{% endif %}
+{% endblock %}

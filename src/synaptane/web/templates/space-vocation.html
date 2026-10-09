@@ -1,0 +1,93 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field, when, secret_confirm with context %}
+{% set section = "vocation" %}
+
+{# One of the two files: editor, preview, latest changes. #}
+{% macro document_card(key, title, lead, action_url, placeholder) %}
+{% set doc = documents[key] %}
+{% set mine = error_kind == key %}
+<section class="card vocation-card" id="{{ key }}">
+  <div class="section-heading">
+    <h2>{{ title }}</h2>
+    {% if doc.pending %}<span class="status status-warn">{{ _("Waiting for synchronisation") }}</span>{% elif not doc.sha %}<span class="badge badge-quiet">{{ _("Not defined") if key == "vocation" else _("None") }}</span>{% endif %}
+  </div>
+  <p class="muted">{{ lead }}</p>
+  {{ caller() }}
+  {% if mine and error %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  <form method="post" action="{{ action_url }}" class="vocation-form">
+    {{ csrf_field() }}
+    <input type="hidden" name="base_sha" value="{{ doc.sha or '' }}">
+    <div class="field">
+      <label for="{{ key }}-text">{{ _("Text (Markdown)") }}</label>
+      <textarea id="{{ key }}-text" name="text" class="editor vocation-editor" rows="{{ 22 if key == 'vocation' else 12 }}" spellcheck="true" placeholder="{{ placeholder }}" aria-describedby="{{ key }}-help">{{ drafts[key] if key in drafts else doc.text }}</textarea>
+      <p class="muted" id="{{ key }}-help">{{ _("20,000 characters at most. An empty text removes the file from the repository.") }}</p>
+    </div>
+    {% if mine and conflict_sha %}<label class="checkbox"><input type="checkbox" name="overwrite_sha" value="{{ conflict_sha }}">{{ _("Replace the repository's current version with my text") }}</label>{% endif %}
+    {% if mine %}{{ secret_confirm(error) }}{% endif %}
+    <div class="actions">
+      <button class="button button-primary" type="submit" name="action" value="save">{{ _("Save") }}</button>
+      <button class="button" type="submit" name="action" value="preview" formnovalidate>{{ _("Preview") }}</button>
+    </div>
+  </form>
+  {% if preview_kind == key %}
+  <div class="vocation-preview" aria-labelledby="{{ key }}-preview-title">
+    <p class="section-label" id="{{ key }}-preview-title">{{ _("Preview — not saved yet") }}</p>
+    <div class="markdown">{{ preview_html|safe if preview_html.strip() else _("(empty text)") }}</div>
+  </div>
+  {% endif %}
+  {% if history[key] %}
+  <div class="vocation-history">
+    <p class="section-label">{{ _("Latest changes") }}</p>
+    <ul class="history-list">
+      {% for date, author, subject in history[key] %}
+      <li><span>{{ subject }}</span><span class="muted">{{ when(date) }} · {{ author }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{% block section %}
+<div class="vocation-page">
+  <div class="vocation-intro">
+    <a class="vocation-explain" href="#vocation">
+      <p class="eyebrow">{{ _("Purpose") }}</p>
+      <p class="vocation-explain-title">{{ _("What the space is") }}</p>
+      <p>{{ _("What it is for and for whom, what goes in it or not, how folders are organised, conventions, vocabulary. Given to the nightly tidying, to routines and to AI assistants.") }}</p>
+      <code>.synaptane/vocation.md</code>
+    </a>
+    <a class="vocation-explain" href="#tidy-rules">
+      <p class="eyebrow">{{ _("Filing instructions") }}</p>
+      <p class="vocation-explain-title">{{ _("How to file") }}</p>
+      <p>{{ _("Precise rules for the tidying agent, taking precedence over its default instructions. Read by the agent only.") }}</p>
+      <code>.synaptane/prompts/tidy.md</code>
+    </a>
+  </div>
+
+  {% if not documents.vocation.synced %}
+  <div class="notice notice-warning"><p>{{ _("The space is not synchronised with its repository yet: what you save waits for the first synchronisation, then is written to the repository (unless it already has its own file).") }} <a href="/o/{{ org.slug }}/{{ space.slug }}/-/git">{{ _("Git repository") }}</a></p></div>
+  {% else %}
+  <p class="muted vocation-git">{{ _("Both files are versioned in the repository: edit them here or with a push. Each save is a commit in your name.") }}</p>
+  {% endif %}
+
+  {% call document_card("vocation", _("Purpose"), _("Answer each section's questions in a few concrete lines. An infrastructure team's second brain is not filed the same way as a marketing team's or a family's."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation", _("Start from a template above, or write: what the space is for, what goes in it, how…")) %}
+  <form class="vocation-template" method="get" action="/o/{{ org.slug }}/{{ space.slug }}/-/vocation#vocation" data-vocation-template data-target="vocation-text" data-texts='{{ template_texts|tojson }}' data-confirm-replace="{{ _("Replace the editor's text with this template? Nothing is saved until “Save”.") }}">
+    <div class="field">
+      <label for="vocation-model">{{ _("Start from a template") }}</label>
+      <div class="vocation-template-row">
+        <select id="vocation-model" name="template" required>
+          <option value="">{{ _("Choose a template…") }}</option>
+          {% for t in templates %}<option value="{{ t.key }}" {% if chosen == t.key %}selected{% endif %}>{{ _(t.label) }} — {{ _(t.summary) }}</option>{% endfor %}
+        </select>
+        <button class="button" type="submit">{{ _("Fill in") }}</button>
+      </div>
+      <p class="muted">{{ _("The template replaces the editor's text; adapt it, then save.") }}</p>
+    </div>
+  </form>
+  {% if chosen and 'vocation' in drafts %}<div class="notice notice-ok" role="status"><p>{{ _("Template loaded in the editor: review it, adapt it, then save.") }}</p></div>{% endif %}
+  {% endcall %}
+
+  {% call document_card("tidy-rules", _("Filing instructions"), _("Precise rules for the agent, for example: “one page per supplier in fournisseurs/”, “never rename procedures”, “write dates as YYYY-MM-DD”. They do not lift the safeguards (deposited content treated as data, deletion cap)."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/tidy-rules", _("- One page per supplier in fournisseurs/.")) %}{% endcall %}
+</div>
+{% endblock %}

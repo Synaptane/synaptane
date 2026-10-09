@@ -1,0 +1,9 @@
+{# Centered card of the public pages (invitation, forgotten password, reset). #}
+{% extends "base.html" %}
+{% block content %}
+<div class="public-card-layout">
+  <section class="card login-card">
+    {% block card %}{% endblock %}
+  </section>
+</div>
+{% endblock %}

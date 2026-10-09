@@ -1,0 +1,70 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import action, when with context %}
+{% from "routine-ui.html" import schedule, outputs, last_run with context %}
+{% set section = "routines" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
+{% block section %}
+<div class="routines">
+  <p class="muted routines-intro">{{ _("AI agents that review the wiki at regular intervals. They only write to their outputs: a report page, the inbox (then handled by tidying), an e-mail or a webhook. Every run counts toward the month's AI budget.") }}</p>
+  {% if not ai_configured %}<div class="notice notice-warning"><p>{{ _("No AI provider is configured for the organization: routines cannot run.") }}{% if manage %} <a href="/o/{{ org.slug }}/-/ai">{{ _("Configure AI") }}</a>{% endif %}</p></div>
+  {% elif spending.exhausted %}<div class="notice notice-error"><p>{{ _("Monthly AI budget reached ({spent} of {budget}): routines are paused until next month.", spent=spending.spent|euros, budget=spending.budget|euros) }}{% if manage %} <a href="/o/{{ org.slug }}/-/ai">{{ _("Raise the budget") }}</a>{% endif %}</p></div>{% endif %}
+
+  <div class="stack routine-list">
+    {% for r in routines %}{% set run = last_runs.get(r.id) %}{% set upcoming = next_run(r, space) %}
+    <article class="card routine-card{% if not r.enabled %} routine-off{% endif %}">
+      <div class="routine-head">
+        <div class="routine-heading">
+          <h3><a href="{{ base }}/{{ r.id }}">{{ r.name }}</a></h3>
+          <p class="muted routine-meta">
+            <span>{{ schedule(r, weekdays) }} ({{ space.tidy_timezone }})</span>
+            {% if r.scope %}<span>{{ _("Scope: {folders}", folders=r.scope|join(", ")) }}</span>{% else %}<span>{{ _("The whole space") }}</span>{% endif %}
+          </p>
+        </div>
+        <span class="badge{% if not r.enabled %} badge-quiet{% endif %}">{{ _("Enabled", context="routine") if r.enabled else _("Disabled", context="routine") }}</span>
+      </div>
+      {{ outputs(r) }}
+      <p class="routine-state">{{ last_run(run) }}{% if r.requested %}<span class="status status-warn">{{ _("Requested, waiting for the worker") }}</span>{% elif upcoming %}<span class="muted">{{ (_("Next run: {when}")|e).format(when=when(upcoming)) }}</span>{% endif %}</p>
+      {% if run and run.status == 'done' and run.summary %}<p class="routine-summary">{{ run.summary }}</p>{% endif %}
+      <div class="actions">
+        <a class="button button-small" href="{{ base }}/{{ r.id }}">{{ _("Log") }}</a>
+        {% if manage %}
+        <a class="button button-small" href="{{ base }}/{{ r.id }}/edit">{{ _("Edit") }}</a>
+        {% if ai_configured and not spending.exhausted %}{{ action(base ~ "/" ~ r.id ~ "/run", _("Run now"), confirm=_("Run the routine now? The run uses tokens counted in the month's budget.")) }}{% endif %}
+        {{ action(base ~ "/" ~ r.id ~ "/toggle", _("Deactivate") if r.enabled else _("Enable"), kind="quiet" if r.enabled else "primary") }}
+        {% endif %}
+      </div>
+    </article>
+    {% else %}
+    <p class="empty">{{ _("No routines yet.") }}{% if manage %} {{ _("Start from a template below.") }}{% endif %}</p>
+    {% endfor %}
+  </div>
+
+  {% if manage %}
+  <section class="routine-add" aria-labelledby="routine-add-title">
+    <h3 id="routine-add-title">{{ _("Add a routine") }}</h3>
+    <div class="routine-templates">
+      {% for t in templates %}
+      <article class="card routine-template">
+        <h4>{{ _(t.name) }}</h4>
+        <p class="muted">{{ _(t.description) }}</p>
+        <p class="routine-template-plan">{{ schedule(t, weekdays) }}</p>
+        {{ outputs(t) }}
+        <div class="actions">
+          {% if t.key in used_templates %}<span class="badge badge-quiet">{{ _("Already added") }}</span>
+          {% else %}{{ action(base ~ "/from/" ~ t.key, _("Enable"), kind="primary") }}
+          <a class="button button-small" href="{{ base }}/new?template={{ t.key }}">{{ _("Customize first") }}</a>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+      <article class="card routine-template routine-template-blank">
+        <h4>{{ _("Blank routine") }}</h4>
+        <p class="muted">{{ _("Your own instructions: review of a folder, Monday briefing, regenerated FAQ…") }}</p>
+        <div class="actions"><a class="button button-small" href="{{ base }}/new">{{ _("Create") }}</a></div>
+      </article>
+    </div>
+  </section>
+  {% else %}
+  <p class="muted section-gap-small">{{ _("Only organization administrators create and edit routines.") }}</p>
+  {% endif %}
+</div>
+{% endblock %}

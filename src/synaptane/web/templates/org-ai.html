@@ -1,0 +1,94 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, action, when, copyable with context %}
+{% from "provider-help.html" import key_help with context %}
+{% set keyless = ('ollama', 'openai_compatible', 'claude_code', 'codex') %}
+{% set effort_labels = {"low": _("Low"), "medium": _("Medium"), "high": _("High"), "max": _("Maximum")} %}
+{% block section %}
+<div class="content-narrow">
+  <p class="muted">{{ _("Used by nightly tidying in all the organization's spaces; each space may pick another model.") }}</p>
+  {% if ai %}
+  <div class="card status-card">
+    <div>
+      <strong>{{ _(provider_labels.get(ai.provider, ai.provider)) }}{% if ai.model %} · {{ ai.model }}{% endif %}</strong>
+      {% if not ai.has_key and ai.provider not in keyless %}<p><span class="status status-warn">{{ _("No key: tidying cannot run") }}</span></p>
+      {% elif ai.test_pending %}<p data-test-pending="/o/{{ org.slug }}/-/ai/test-status"><span class="status">{{ _("Test in progress…") }}</span> <span class="muted">{{ _("in the worker, the only container with access to the CLI; this page updates itself.") }}</span> <a href="/o/{{ org.slug }}/-/ai">{{ _("Refresh") }}</a></p>
+      {% elif ai.test_ok is none %}<p><span class="status">{{ _("Not tested yet") }}</span></p>
+      {% elif ai.test_ok %}<p><span class="status status-ok">{{ _("Reachable") }}</span> <span class="muted">{{ _("tested") }} {{ when(ai.tested_at) }}</span></p>
+      {% else %}<p><span class="status status-error">{{ _("Unreachable") }}</span> <span class="muted">{{ when(ai.tested_at) }}</span></p><p class="muted">{{ _(ai.test_message) }}</p>{% endif %}
+      {% if spending %}<p class="muted">{{ _("This month: {spent}", spent=spending.spent|euros) }}{% if spending.budget %} {{ _("of {budget}", budget=spending.budget|euros) }}{% endif %}{% if spending.subscription %} · {{ _("subscription: no per-use cost") }}{% endif %}</p>{% endif %}
+    </div>
+    {{ action("/o/" ~ org.slug ~ "/-/ai/test", _("Test the connection")) }}
+  </div>
+  {% if ai.metered and ai.monthly_budget is none %}
+  <div class="notice notice-warning section-gap-small" role="alert"><p><strong>{{ _("No monthly budget: AI spending has no limit.") }}</strong> {{ _("Your provider bills every tidying and routine run. Set a budget below (for example {amount}): administrators are notified at 80%, and runs stop at 100%.", amount=suggested_budget|euros) }}</p></div>
+  {% endif %}
+  {% else %}
+  <div class="notice">{{ _("No provider configured: nightly tidying cannot run.") }}</div>
+  {% endif %}
+  <form class="card section-gap-small" method="post" action="/o/{{ org.slug }}/-/ai">
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="ai-provider">{{ _("Provider") }}</label><select id="ai-provider" name="provider">
+        <optgroup label="{{ _('API key') }}">{% for p in ('anthropic', 'openai', 'mistral', 'ollama', 'openai_compatible') %}<option value="{{ p }}" {% if ai and ai.provider == p %}selected{% endif %}>{{ _(provider_labels[p]) }}</option>{% endfor %}</optgroup>
+        {% if user.is_superadmin or (ai and ai.provider in ('claude_code', 'codex')) %}<optgroup label="{{ _('Subscription signed in on the server') }}"><option value="claude_code" {% if ai and ai.provider == 'claude_code' %}selected{% endif %}>{{ _(provider_labels["claude_code"]) }}</option><option value="codex" {% if ai and ai.provider == 'codex' %}selected{% endif %}>{{ _(provider_labels["codex"]) }}</option></optgroup>{% endif %}
+      </select></div>
+      <div class="field"><label for="ai-model">{{ _("Model (optional)") }}</label><input id="ai-model" name="model" value="{{ ai.model if ai else '' }}" placeholder="claude-sonnet-5-5"></div>
+    </div>
+    <div class="form-columns">
+      <div class="field" data-providers="anthropic openai mistral openai_compatible"><label for="ai-key">{{ _("API key") }}</label><input id="ai-key" name="api_key" type="password" autocomplete="off" placeholder="{{ _('unchanged') if ai and ai.has_key else '' }}"><p class="muted">{{ _("Encrypted, never shown again.", context="key") }}</p></div>
+      <div class="field" data-providers="anthropic claude_code"><label for="ai-effort">{{ _("Thinking (Claude)") }}</label><select id="ai-effort" name="effort">{% for e in efforts %}<option value="{{ e }}" {% if (ai.effort if ai else 'medium') == e %}selected{% endif %}>{{ effort_labels.get(e, e) }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="field" data-providers="ollama openai_compatible openai mistral anthropic"><label for="ai-base">{{ _("API address (optional: Ollama, OpenAI-compatible, proxy)") }}</label><input id="ai-base" name="base_url" value="{{ ai.base_url if ai else '' }}" placeholder="https://…/v1"></div>
+    {{ key_help(('anthropic', 'openai', 'mistral', 'ollama', 'openai_compatible')) }}
+    {% if ai and ai.has_key %}<label class="checkbox"><input type="checkbox" name="clear_key" value="true">{{ _("Delete the saved key") }}</label>{% endif %}
+    {# Subscription: neither per-token pricing nor a budget in euros, the plan is paid separately. #}
+    <fieldset class="form-section" data-providers="anthropic openai mistral ollama openai_compatible">
+      <legend>{{ _("Cost and budget") }}</legend>
+      <div class="form-columns">
+        <div class="field"><label for="ai-price-in">{{ _("Input price (€ per million tokens)") }}</label><input id="ai-price-in" name="price_input" inputmode="decimal" value="{{ ai.price_input|amount if ai and ai.price_input is not none else '' }}"></div>
+        <div class="field"><label for="ai-price-out">{{ _("Output price (€ per million tokens)") }}</label><input id="ai-price-out" name="price_output" inputmode="decimal" value="{{ ai.price_output|amount if ai and ai.price_output is not none else '' }}"></div>
+      </div>
+      <p class="muted">{% if public_price %}{{ _("Empty: the model's public price, ${input} / ${output} per million tokens, counted $1 = €1 (the cost shown is an estimate).", input=public_price[0], output=public_price[1]) }}{% else %}{{ _("Empty: no cost is computed for this model. Subscriptions have no per-use cost.") }}{% endif %}</p>
+      {# Budget suggested on first setup (or when leaving a subscription); no effect for Ollama or a compatible API without a key (see org_ai_update). #}
+      {% set suggest = (not ai or ai.provider in ('claude_code', 'codex')) %}
+      <div class="field"><label for="ai-budget">{{ _("Monthly budget (€, optional)") }}</label><input id="ai-budget" name="monthly_budget" inputmode="decimal" value="{{ ai.monthly_budget|amount if ai and ai.monthly_budget is not none else (suggested_budget|amount if suggest else '') }}">{% if suggest %}<input type="hidden" name="budget_suggested" value="{{ suggested_budget|amount }}">{% endif %}<p class="muted">{{ _("Administrators are notified at 80%; at 100%, tidying is paused until the following month.") }}{% if suggest %} {{ _("Suggested amount for a pay-per-use API key; ignored for Ollama.") }}{% endif %}</p></div>
+    </fieldset>
+    <div class="actions"><button class="button button-primary" type="submit">{{ _("Save") }}</button></div>
+  </form>
+  {% if user.is_superadmin or (ai and ai.provider in ('claude_code', 'codex')) %}
+  {% if user.is_superadmin and legacy_logins %}
+  {# The worker connection already works: only the old copy remains to be deleted. #}
+  {% set worker_ok = ai and ai.provider in ('claude_code', 'codex') and ai.test_ok and not ai.test_pending %}
+  <div class="notice notice-warning section-gap-small" role="alert">
+    {% if worker_ok %}
+    <p><strong>{{ _("Last step: delete the old login.") }}</strong> {{ _("The worker's login works") }} ({{ _("tested", context="connection") }} {{ when(ai.tested_at) }}). {{ _("An old copy remains in the data volume, visible to the web container:") }} {{ legacy_logins|join(", ") }}</p>
+    <p>{{ _("Synaptane does not delete it itself: only the official CLI handles these credentials. On the server, run:") }}</p>
+    {% else %}
+    <p><strong>{{ _("An old subscription login is still in the data volume, visible to the web container:") }}</strong> {{ legacy_logins|join(", ") }}</p>
+    <p>{{ _("Synaptane does not move it: only the official CLI handles these credentials. Log the CLI in again inside the worker (steps below), test the connection, then delete the old folder yourself:") }}</p>
+    {% endif %}
+    <p>{{ copyable("legacy-cleanup", legacy_cleanup, block=true) }}</p>
+    <p class="muted">{{ _("This message disappears as soon as the old folder is gone.") }}</p>
+  </div>
+  {% endif %}
+  {% for provider in ('claude_code', 'codex') %}
+  <section class="card section-gap-small" data-providers="{{ provider }}">
+    <h2>{% if provider == 'claude_code' %}{{ _("Connect Claude Code on the server") }}{% else %}{{ _("Connect Codex on the server") }}{% endif %}</h2>
+    <p class="muted">{{ _("Once, by the server administrator. Synaptane never sees the credentials: they stay in the official CLI. Empty model: the CLI's default.") }}</p>
+    <ol class="steps">
+      <li>{% if docker %}{{ _("On the server, in the Synaptane folder (the one with compose.yaml), run:") }}{% else %}{{ _("On the server, as the system user running “synaptane worker”, run:") }}{% endif %}
+        {{ copyable("login-" ~ provider, cli_login[provider], block=true) }}</li>
+      {% if provider == 'claude_code' %}
+      <li>{{ _("Open the address shown in your browser, sign in with your Claude account (Pro or Max) and authorize access.") }}</li>
+      <li>{{ _("Copy the code shown by Claude, paste it into the terminal and press Enter.") }}</li>
+      {% else %}
+      <li>{{ _("Open the address shown in your browser, sign in with your ChatGPT account (Plus or Pro) and enter the code shown in the terminal.") }}</li>
+      {% endif %}
+      <li>{{ _("Save this provider above, then click “Test the connection”.") }}</li>
+    </ol>
+    {% if docker %}<p class="muted">{{ _("The login is kept in a volume of its own, mounted only in the worker, not in the web container: it survives updates and image rebuilds, but “docker compose down -v” erases it. The connection test therefore runs in the worker.") }}</p>{% endif %}
+  </section>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

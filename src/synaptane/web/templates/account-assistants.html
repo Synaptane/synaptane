@@ -1,0 +1,95 @@
+{% extends "account-base.html" %}
+{% from "ui.html" import csrf_field, action, when, copyable, reveal_notice, access_limits with context %}
+{% block section %}
+{# Freshly created token: at the top of the page, focus on "Copy" (preferences.js), and a
+   confirmation before leaving as long as it has not been copied: it will not be shown again. #}
+{% if revealed %}
+<section class="card token-revealed" id="jeton-cree" data-revealed aria-labelledby="jeton-cree-titre">
+<h2 id="jeton-cree-titre">{{ _("Your new token") }}</h2>
+{{ reveal_notice(revealed, _("Copy this token now: it will not be shown again.")) }}
+<p class="muted">{{ _("Command for Claude Code:") }}</p>
+{{ copyable("mcp-command", 'claude mcp add --transport http synaptane ' ~ mcp_url ~ ' --header "Authorization: Bearer ' ~ revealed ~ '"', block=true) }}
+</section>
+{% endif %}
+<section class="card">
+  <h2>{{ _("Connect an AI assistant (MCP)") }}</h2>
+  <div class="account-address"><p class="field-label">{{ _("MCP server address") }}</p>{{ copyable("mcp-url", mcp_url, block=true) }}</div>
+  <div class="account-guides">
+    <details class="help" open><summary>{{ _("Claude.ai and Claude Desktop") }}</summary>
+      <ol class="steps"><li>{{ _("Settings → Connectors → Add custom connector.") }}</li><li>{{ _("Paste the address above, then authorize access on the page that opens (you can limit it to reading or to some spaces).") }}</li></ol>
+    </details>
+    <details class="help"><summary>{{ _("ChatGPT") }}</summary>
+      <ol class="steps"><li>{{ _("In ChatGPT's settings, turn on developer mode (Apps or Connectors section), then create a connector.") }}</li><li>{{ _("Paste the address above, choose OAuth authentication, then authorize access. The search and fetch tools follow the format ChatGPT expects.") }}</li></ol>
+    </details>
+    <details class="help"><summary>{{ _("Claude Code") }}</summary>
+      <p>{{ _("Create a personal token below: the command to paste is then shown.") }} <a href="#nouveau-jeton">{{ _("Create a token") }}</a></p>
+    </details>
+    <details class="help"><summary>{{ _("Other MCP clients (Cursor, VS Code…)") }}</summary>
+      <p>{{ _("Remote Streamable HTTP server at the address above. Authentication: OAuth if the client offers it, otherwise the “Authorization: Bearer” header with a personal token.") }}</p>
+    </details>
+  </div>
+  {% if not member_spaces %}<div class="notice notice-warning account-notice">{{ _("You are not a member of any space: an assistant connected now would see nothing. Ask to be added to a space, or create an organization you administer.") }}</div>{% endif %}
+  {% if user.is_superadmin %}<p class="muted account-note">{{ _("Super-admin: your assistants only reach the spaces you are a member of (or whose organization you administer), never the whole instance.") }}</p>{% endif %}
+</section>
+
+<section class="card section-gap" data-assistant-test data-url="/account/assistants/activity" data-since="{{ now.isoformat() }}">
+  <h2>{{ _("Test the connection") }}</h2>
+  <p>{{ _("Ask your assistant: “List my Synaptane spaces”. The call shows up here as soon as it arrives.") }}</p>
+  <p class="status" data-assistant-status aria-live="polite" data-waiting="{{ _('Waiting for a call…') }}" data-received="{{ _('Call received ({via}).') }}" data-timeout="{{ _('No call received yet. Check the address and the authorization, then reload the page.') }}">{{ _("Reload the page after asking: the latest calls are listed below.") }}</p>
+  {% if uses %}
+  <div class="table-scroll account-calls"><table>
+    <caption class="sr-only">{{ _("Latest calls from your assistants") }}</caption>
+    <thead><tr><th scope="col">{{ _("Client") }}</th><th scope="col">{{ _("Last call") }}</th><th scope="col" class="account-num">{{ _("Calls") }}</th></tr></thead>
+    <tbody>{% for name, kind, last_at, calls in uses %}<tr><td><span class="account-client">{{ name or _("MCP client") }}</span>{% if kind %}<span class="muted">{{ _("personal token") if kind == "token" else _("application") }}</span>{% endif %}</td><td class="account-when">{{ when(last_at) }}</td><td class="account-num">{{ calls }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="section-gap account-section">
+  <h2>{{ _("Connected applications") }}</h2>
+  <p class="muted">{{ _("Assistants authorized through the sign-in page (OAuth), such as Claude.ai or ChatGPT.") }}</p>
+  <div class="stack">
+    {% for family, name, created in apps %}
+    <article class="card token-card">
+      <div class="token-head"><h3>{{ name }}</h3></div>
+      <p class="account-app-note">{{ _("Name given by the application itself.") }}</p>
+      <div class="token-foot">
+        <span>{{ _("Authorised") }} {{ when(created, "date") }}</span>
+        {{ action("/account/apps/" ~ family ~ "/revoke", _("Disconnect"), confirm=_("Disconnect {name}? It will need to be authorised again.", name=name), kind="danger") }}
+      </div>
+    </article>
+    {% else %}
+    <p class="empty">{{ _("No connected application.") }}</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section-gap account-section">
+  <h2>{{ _("Personal tokens") }}</h2>
+  <p class="muted">{{ _("For the REST API, Claude Code and your scripts. A token has your permissions, never more.") }}</p>
+  <div class="stack">
+    {% for token in tokens %}
+    <article class="card token-card">
+      <div class="token-head"><h3>{{ token.name }}</h3><code>…{{ token.hint }}</code></div>
+      {% if token.read_only or token.space_ids is not none %}<p class="muted">{% if token.read_only %}<span class="badge badge-quiet">{{ _("read only") }}</span> {% endif %}{% if token.space_ids is not none %}{{ _("Spaces:") }} {% for sid in token.space_ids %}{{ space_labels.get(sid, _("deleted space")) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>{% endif %}
+      <div class="token-foot">
+        <span>{% if token.expires_at %}{{ _("Expires") }} {{ when(token.expires_at, "date") }}{% else %}{{ _("No expiry") }}{% endif %}{% if token.last_used_at %} · {{ _("used") }} {{ when(token.last_used_at) }}{% endif %}</span>
+        {{ action("/account/tokens/" ~ token.id ~ "/revoke", _("Revoke"), confirm=_("Revoke the token “{name}”? Tools using it will lose access.", name=token.name), kind="danger") }}
+      </div>
+    </article>
+    {% else %}
+    <p class="empty">{{ _("No tokens.") }}</p>
+    {% endfor %}
+  </div>
+  <form class="card account-new-token" id="nouveau-jeton" method="post" action="/account/tokens" aria-labelledby="nouveau-jeton-titre">
+    <h2 id="nouveau-jeton-titre">{{ _("New token") }}</h2>
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="token-name">{{ _("Name") }}</label><input id="token-name" name="name" required maxlength="120" placeholder="Claude Code"></div>
+      <div class="field"><label for="token-days">{{ _("Validity (days)") }}</label><input id="token-days" name="days" type="number" min="1" max="3650" value="90"></div>
+    </div>
+    {{ access_limits(member_spaces) }}
+    <button class="button button-primary" type="submit">{{ icon('key') }}{{ _("Create token") }}</button>
+  </form>
+</section>
+{% endblock %}

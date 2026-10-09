@@ -1,0 +1,41 @@
+{# Members of an organization or a space: role editable on the row, adding with suggestions. #}
+{% from "ui.html" import csrf_field, action, people_list with context %}
+<div class="card">
+  <div class="table-scroll">
+    <table class="table-stack">
+      <thead><tr><th>{{ _("Account") }}</th><th>{{ _("Role") }}</th>{% if manage %}<th><span class="sr-only">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for member, member_role in members %}
+        <tr>
+          <td>{{ member.display_name }}<br><span class="muted">@{{ member.username }}</span></td>
+          <td>
+            {% if manage %}
+            <form class="inline-form" method="post" action="{{ members_url }}" data-test="member-role">
+              {{ csrf_field() }}<input type="hidden" name="username" value="{{ member.username }}">
+              <label class="sr-only" for="role-{{ loop.index }}">{{ _("Role of {name}", name=member.display_name) }}</label>
+              <select id="role-{{ loop.index }}" name="role">{% for value, label in role_labels %}<option value="{{ value }}" {% if member_role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+              <button class="button button-small" type="submit">{{ _("Change") }}</button>
+            </form>
+            {% else %}{{ dict(role_labels)[member_role] }}{% endif %}
+          </td>
+          {% if manage %}<td class="cell-actions">{{ action(members_url ~ "/" ~ member.username ~ "/remove", _("Remove"), confirm=_("Remove {name}?", name=member.display_name), kind="danger") }}</td>{% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">{{ empty_text }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% if manage %}
+<form class="card section-gap" method="post" action="{{ members_url }}" data-test="member-add">
+  <h2>{{ _("Add a member") }}</h2>
+  {{ csrf_field() }}
+  <div class="form-columns">
+    <div class="field"><label for="new-member">{{ _("Username") }}</label><input id="new-member" name="username" required list="people" autocomplete="off">{{ people_list("people", people) }}</div>
+    <div class="field"><label for="new-role">{{ _("Role") }}</label><select id="new-role" name="role">{% for value, label in role_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Add") }}</button>
+  {% if add_help %}<p class="muted">{{ add_help }}</p>{% endif %}
+</form>
+{% endif %}

@@ -1,0 +1,12 @@
+{% extends "space-settings-base.html" %}
+{% set section = "members" %}
+{% block section %}
+<div class="content-narrow">
+<p class="muted">{{ _("Readers read and search; contributors drop into the inbox and edit the wiki. Organization administrators access all its spaces.") }}</p>
+{% set members_url = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/members" %}
+{% set role_labels = [("reader", _("Reader")), ("contributor", _("Contributor"))] %}
+{% set empty_text = _("No direct member.") %}
+{% set add_help = "" %}
+{% include "members-table.html" %}
+</div>
+{% endblock %}

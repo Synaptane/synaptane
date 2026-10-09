@@ -1,0 +1,17 @@
+{% extends "public-card.html" %}
+{% block title %}{{ _("Forgotten password") }} · Synaptane{% endblock %}
+{% block card %}
+<h1 class="card-title">{{ _("Forgotten password") }}</h1>
+{% if not mail_ready %}
+  <p>{{ _("Email sending is not configured on this instance: ask an administrator to reset your password.") }}</p>
+{% elif sent %}
+  <div class="notice notice-ok" role="status">{{ _("If an account matches, a link has just been emailed to it. It is valid for 30 minutes.") }}</div>
+{% else %}
+  <p class="muted">{{ _("Enter your username or email: we will send you a link to choose a new password.") }}</p>
+  <form method="post" action="/login/forgot">
+    <div class="field"><label for="login">{{ _("Username or email") }}</label><input id="login" name="login" required maxlength="320" autocomplete="username" autofocus></div>
+    <button class="button button-primary button-wide" type="submit">{{ _("Send the link") }}</button>
+  </form>
+{% endif %}
+<p class="login-help"><a href="/login">{{ _("Back to sign-in") }}</a></p>
+{% endblock %}

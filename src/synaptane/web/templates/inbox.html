@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep, file_icon %}
+{% from "ui.html" import action, secret_confirm, file_input with context %}
+{% from "deposit-form.html" import deposit_form with context %}
+{% from "tidy-run-now.html" import run_now_button with context %}
+{% set tab = 'inbox' %}
+{% block title %}{{ _("Inbox") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}{% if item %}<a href="/o/{{ org.slug }}/{{ space.slug }}/inbox">{{ _("Inbox") }}</a>{{ sep() }}<span aria-current="page">{{ item.title|tr }}</span>{% else %}<span aria-current="page">{{ _("Inbox") }}</span>{% endif %}{% endblock %}
+{% block content %}
+{% set space_tab = "inbox" %}{% include "space-tabs.html" %}
+{% if item %}
+<article class="wiki-main">
+  <h2 class="file-title">{{ item.title|tr }}</h2>
+  <p class="muted"><span class="badge {{ 'badge-quiet' if item.type == 'change' else '' }}">{{ _("Change", context="noun") if item.type == 'change' else _("Note") }}</span> <span title="{{ item.deposited_by if user.is_superadmin else '' }}">{{ item.deposited_by|names }}</span> · <time datetime="{{ item.deposited_at }}" data-local="full">{{ item.deposited_at[:16].replace('T', ' ') }}</time>{% if item.via %} · {{ item.via }}{% elif item.source %} · {{ item.source }}{% endif %}</p>
+  {% if item.origin %}<p class="muted">{{ _("Origin") }} : {% if item.origin.startswith(('https://', 'http://')) %}<a href="{{ item.origin }}" rel="noopener noreferrer" target="_blank">{{ item.origin }}</a>{% else %}{{ item.origin }}{% endif %}</p>{% endif %}
+  {% if item.hint %}<p class="muted">{{ _("Suggested location: {hint}", hint=item.hint) }}</p>{% endif %}
+  {% if item.status == 'left' %}<div class="notice">{{ _("Left by the tidying run: {reason}", reason=item.reason) }}</div>{% endif %}
+  {% if form_error %}<div class="notice notice-error" role="alert">{{ _(form_error.template, **form_error.params) }}</div>{% endif %}
+  {% if contribute and not (editing and item.type == 'note') %}
+  <div class="wiki-actions">
+    {% if item.type == 'note' %}
+    <a class="button button-small" href="?edit=1">{{ _("Edit") }}</a>
+    {% if targets %}
+    <details class="menu"><summary class="button button-small">{{ icon('arrow-right') }}{{ _("Move") }}</summary>
+      <form class="menu-panel" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/inbox/{{ item.name }}/move">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="field"><label for="move-target">{{ _("To the inbox of") }}</label><select id="move-target" name="target">{% for s in targets %}<option value="{{ s.id }}">{{ s.organization.name }} / {{ s.name }}</option>{% endfor %}</select></div>
+        <button class="button button-primary" type="submit">{{ _("Move") }}</button>
+      </form>
+    </details>
+    {% endif %}
+    {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox/" ~ item.name ~ "/delete", _("Delete"), confirm=_("Delete the note “{title}” and its attachments? They will remain in the Git history.", title=item.title), kind="danger") }}
+    {% else %}
+    {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox/" ~ item.name ~ "/dismiss", _("Mark as seen")) }}
+    <span class="muted">{{ _("Tidying will not review it, unless the page changes again.") }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if editing and contribute and item.type == 'note' %}
+  <form class="card" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/inbox/{{ item.name }}/edit">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="edit-title">{{ _("Title") }}</label><input id="edit-title" name="title" required maxlength="120" value="{{ form.title if form else item.title }}"></div>
+    <div class="field"><label for="edit-body">{{ _("Content (Markdown)") }}</label><textarea id="edit-body" name="body" class="editor" rows="16">{{ form.body if form else item.body }}</textarea></div>
+    <div class="form-columns">
+      <div class="field"><label for="edit-hint">{{ _("Where to file it? (optional, a hint for the agent)") }}</label><input id="edit-hint" name="hint" maxlength="500" value="{{ form.hint if form else item.hint }}"></div>
+      <div class="field"><label for="edit-origin">{{ _("Origin (optional: link, meeting, conversation…)") }}</label><input id="edit-origin" name="origin" maxlength="2000" value="{{ form.origin if form else item.origin }}"></div>
+    </div>
+    {{ secret_confirm(form_error) }}
+    <div class="actions"><button class="button button-primary" type="submit">{{ _("Save") }}</button><a class="button" href="/o/{{ org.slug }}/{{ space.slug }}/inbox/{{ item.name }}">{{ _("Cancel") }}</a></div>
+  </form>
+  {% else %}
+  <div class="card inbox-note"><div class="markdown hl">{{ body }}</div></div>
+  {% endif %}
+  {% if item.attachments %}
+  <h2 class="section-label section-gap">{{ _("Attachments") }}</h2>
+  <ul class="file-list">{% for name in item.attachments %}<li><a href="/o/{{ org.slug }}/{{ space.slug }}/inbox/{{ item.name }}/files/{{ url_path(name) }}">{{ file_icon(name, 15) }}<span>{{ name }}</span></a></li>{% endfor %}</ul>
+  {% endif %}
+</article>
+{% else %}
+{# Header: the title and, on the right, "Tidy now" (same rules as the log). #}
+<div class="section-heading inbox-heading">
+  <h2 class="settings-title">{{ _("Inbox") }}</h2>
+  {% if run_now %}{{ run_now_button("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/tidy", run_now.caution, run_now.paid, run_now.average_cost, small=true) }}{% endif %}
+</div>
+<div class="grid-2">
+  <section>
+    <p class="muted">{{ _("What is dropped here is filed into the wiki by the tidying agent. Changes made directly (web, assistants, Git) are flagged here too, to be integrated.") }}{% set upcoming = tidy_next_label(space) %}{% if upcoming and tidy_ready %} {{ upcoming }}.{% endif %}</p>
+    {% if not tidy_ready %}<div class="notice notice-warning"><p>{{ _("Tidying cannot run: no AI provider is configured for the organization.") }}</p></div>{% endif %}
+    {% if total %}<p class="muted">{{ _(pl(counts.note, "{n} note", "{n} notes"), n=counts.note) }}, {{ _(pl(counts.change, "{n} changed page", "{n} changed pages"), n=counts.change) }}{% if counts.left %}, {{ _("{n} of them left by tidying", n=counts.left) }}{% endif %}.</p>{% endif %}
+    {% if total > 5 or query or kind %}
+    <form class="inbox-filter" method="get" role="search">
+      <input type="search" name="q" value="{{ query }}" placeholder="{{ _('Filter the inbox…') }}" aria-label="{{ _('Filter the inbox') }}">
+      <select name="kind" aria-label="{{ _('Type') }}">
+        <option value="">{{ _("All") }}</option>
+        <option value="note" {% if kind == 'note' %}selected{% endif %}>{{ _("Notes") }}</option>
+        <option value="change" {% if kind == 'change' %}selected{% endif %}>{{ _("Changes") }}</option>
+        <option value="left" {% if kind == 'left' %}selected{% endif %}>{{ _("Left by tidying") }}</option>
+      </select>
+      <button class="button button-small" type="submit">{{ _("Filter") }}</button>
+      {% if query or kind %}<a class="button button-small" href="/o/{{ org.slug }}/{{ space.slug }}/inbox">{{ _("Show all") }}</a>{% endif %}
+    </form>
+    {% endif %}
+    {% if items is none %}
+    <div class="notice notice-empty"><p>{{ _("No content yet: the space's Git repository is not linked or not synchronised yet.") }} <a href="/o/{{ org.slug }}/{{ space.slug }}/-/git">{{ _("See the repository status") }}</a></p></div>
+    {% elif items %}
+    <div class="inbox-list"><ul class="file-list">
+      {% for entry in items %}
+      {% set fresh = new and entry.name == new %}
+      <li{% if fresh %} class="is-new"{% endif %}><a href="/o/{{ org.slug }}/{{ space.slug }}/inbox/{{ entry.name }}">{{ icon('file') }}<span>{{ entry.title|tr }}</span></a>{% if fresh %}<span class="badge">{{ _("Just arrived") }}</span>{% endif %}<span class="muted">{{ _("Change", context="noun") if entry.type == 'change' else _("Note") }} · <time datetime="{{ entry.deposited_at }}" data-local="date">{{ entry.deposited_at[:10] }}</time>{% if entry.status == 'left' %} · {{ _("left: {reason}", reason=entry.reason) if entry.reason else _("left") }}{% endif %}</span></li>
+      {% endfor %}
+    </ul></div>
+    {% if matched > page_size %}
+    {% set params = ('&q=' ~ query|urlencode if query else '') ~ ('&kind=' ~ kind if kind else '') %}
+    <nav class="pager" aria-label="{{ _('Inbox pages') }}">
+      {% if start > 0 %}<a class="button button-small" href="?start={{ [start - page_size, 0]|max }}{{ params }}">{{ _("Previous") }}</a>{% endif %}
+      <span class="muted">{{ _("{first} to {last} of {total}", first=start + 1, last=[start + page_size, matched]|min, total=matched) }}</span>
+      {% if start + page_size < matched %}<a class="button button-small" href="?start={{ start + page_size }}{{ params }}">{{ _("Next") }}</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% elif query or kind %}
+    <p class="empty">{{ _("No item matches this filter.") }}</p>
+    {% else %}
+    <p class="empty">{{ _("The inbox is empty. Drop some information here, or ask your assistant: “Note in Synaptane that…”.") }}</p>
+    {% endif %}
+  </section>
+  {% if contribute and items is not none %}
+  {{ deposit_form("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox", form, form_error) }}
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,20 @@
+# Development PostgreSQL, with pgvector for hybrid search.
+# Start: docker compose -f compose.dev.yaml up -d
+services:
+  postgres:
+    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+    environment:
+      POSTGRES_USER: synaptane
+      POSTGRES_PASSWORD: synaptane
+      POSTGRES_DB: synaptane
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synaptane"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

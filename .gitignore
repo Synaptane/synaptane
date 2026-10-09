@@ -1,0 +1,37 @@
+# Python and tools
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local configuration, secrets and data
+.env*
+!.env.example
+synaptane.toml
+local/
+data/
+*.key
+*.pem
+*.log
+
+# OCR test corpus (large, kept out of Git)
+tests/fixtures/ocr/
+
+# AI agent tools (settings and local working copies)
+.claude/
+.g2-input/
+
+# Editors and systems
+.DS_Store
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,142 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synaptane"
+version = "1.0.0rc1"
+description = "Self-hosted team second brain stored in Git: wiki, search, MCP server and AI tidy-up."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "René Cotton" }]
+requires-python = ">=3.12,<3.13"
+keywords = [
+    "second-brain",
+    "knowledge-base",
+    "wiki",
+    "markdown",
+    "git",
+    "mcp",
+    "semantic-search",
+    "pgvector",
+    "llm",
+    "self-hosted",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Information Technology",
+    "Natural Language :: English",
+    "Natural Language :: French",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Groupware",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "alembic>=1.20.0",
+    "anthropic>=1.11.0",
+    "argon2-cffi>=25.1.0",
+    "cryptography>=50.0.2",
+    "fastapi>=0.142.2",
+    "jinja2>=3.1.6",
+    "markdown-it-py>=4.2.0",
+    "mcp>=2.3.0",
+    "mdit-py-plugins>=0.6.1",
+    "nh3>=0.3.7",
+    "pgvector>=0.5.0",
+    "pillow>=12.3.0",
+    "psycopg[binary]>=3.3.6",
+    "pydantic>=2.13.5",
+    "pygments>=2.21.0",
+    "pypdfium2>=5.13.0",
+    "python-multipart>=0.0.32",
+    "sqlalchemy>=2",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+synaptane = "synaptane.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12",
+    "mypy>=1.16",
+    "pytest>=8.4",
+    "httpx2>=2.13.1",
+    "types-pygments>=2.21.0.20260819",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-cov>=7.1.0",
+    "pip-audit>=2.10.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/synaptane/synaptane"
+Documentation = "https://github.com/synaptane/synaptane/tree/main/docs"
+Repository = "https://github.com/synaptane/synaptane"
+Issues = "https://github.com/synaptane/synaptane/issues"
+Changelog = "https://github.com/synaptane/synaptane/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/synaptane"]
+
+# Allowlist: without it, the sdist ships everything Git only ignores locally.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md",
+    "pyproject.toml",
+    "uv.lock",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["pypdfium2", "pypdfium2.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib --strict-config --strict-markers"
+timeout = 300  # a stuck test (Git, network, lock) fails instead of freezing the CI
+markers = [
+    "integration: requires PostgreSQL (compose.dev.yaml) or real Git repositories",
+]
+
+# Line and branch coverage, measured by `scripts/check.sh` (full suite).
+[tool.coverage.run]
+# By folder and not by package: the credential helper is run as a script (`__main__`).
+source_dirs = ["src/synaptane"]
+branch = true
+parallel = true
+# Python subprocesses started by the tests (credential helper called by Git) are measured
+# too: without this, credential_helper.py looks like 0 % although it is tested.
+patch = ["subprocess"]
+
+[tool.coverage.report]
+# Just below the measured value (87.6 % on 6 October 2026): a drop makes the check fail.
+# Raise it when coverage goes up, never lower it without a written reason.
+fail_under = 87
+show_missing = true
+skip_covered = true

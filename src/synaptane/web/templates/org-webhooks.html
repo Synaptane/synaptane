@@ -1,0 +1,36 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, action, reveal_notice, when with context %}
+{% block section %}
+<div class="content-narrow">
+  <p class="muted">{{ _("Notify other tools (Slack, n8n, CI…) with a signed HTTPS call on each event.") }}</p>
+  {% if revealed %}{{ reveal_notice(revealed, _("Copy this secret now: it will not be shown again.")) }}{% endif %}
+  <div class="stack">
+    {% for hook in webhooks %}
+    <article class="card token-card">
+      <div class="token-head"><h3><code>{{ hook.url }}</code></h3>{% if hook.last_status %}<span class="status {{ 'status-ok' if hook.last_status.startswith('2') else 'status-error' }}">{{ hook.last_status }}</span>{% endif %}</div>
+      <p class="muted">{{ hook.events|map("event_label")|join(", ") }}{% if hook.last_delivery_at %} · {{ _("last delivery") }} {{ when(hook.last_delivery_at) }}{% endif %}</p>
+      {% if not hook.active %}
+      <p class="notice notice-error" role="status">{{ _("Disabled after {count} consecutive failures: no events are sent to it any more. Re-enable it once the receiver is fixed.", count=hook.failures) }}</p>
+      {% endif %}
+      <div class="actions">
+        {% if not hook.active %}{{ action("/o/" ~ org.slug ~ "/-/webhooks/" ~ hook.id ~ "/reactivate", _("Re-enable"), kind="primary") }}{% endif %}
+        {{ action("/o/" ~ org.slug ~ "/-/webhooks/" ~ hook.id ~ "/test", _("Send a test")) }}
+        {{ action("/o/" ~ org.slug ~ "/-/webhooks/" ~ hook.id ~ "/delete", _("Delete"), confirm=_("Delete this webhook? The tool receiving it will no longer be notified."), kind="danger") }}
+      </div>
+    </article>
+    {% else %}
+    <p class="empty">{{ _("No webhook.") }}</p>
+    {% endfor %}
+  </div>
+  <form class="card section-gap" method="post" action="/o/{{ org.slug }}/-/webhooks">
+    <h2>{{ _("New webhook") }}</h2>
+    {{ csrf_field() }}
+    <div class="field"><label for="hook-url">{{ _("URL (HTTPS)") }}</label><input id="hook-url" name="url" type="url" required placeholder="https://hooks.example.com/synaptane"></div>
+    <fieldset><legend>{{ _("Events") }}</legend>{% for event in webhook_events %}<label class="checkbox"><input type="checkbox" name="events" value="{{ event }}" checked>{{ event|event_label }} <code class="muted">{{ event }}</code></label>{% endfor %}</fieldset>
+    <button class="button button-primary" type="submit">{{ _("Add webhook") }}</button>
+  </form>
+  <details class="help section-gap-small"><summary>{{ _("Technical details") }}</summary>
+    <p>{{ _("Each call is a signed JSON POST: header X-Synaptane-Signature = sha256=HMAC(secret, body). The secret is only shown at creation.") }}</p>
+  </details>
+</div>
+{% endblock %}

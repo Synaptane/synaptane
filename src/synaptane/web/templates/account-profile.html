@@ -1,0 +1,46 @@
+{% extends "account-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% from "icons.html" import icon %}
+{% block section %}
+<form class="card" method="post" action="/account">
+  <h2>{{ _("Name and email") }}</h2>
+  {{ csrf_field() }}
+  <div class="field"><label for="display-name">{{ _("Display name") }}</label><input id="display-name" name="display_name" value="{{ user.display_name }}" required maxlength="120"></div>
+  <div class="field"><label for="email">{{ _("Email (optional)") }}</label><input id="email" name="email" type="email" value="{{ user.email or '' }}" autocomplete="email"{% if user.email and not user.email_verified_at %} aria-describedby="email-state"{% endif %}>
+    {% if user.email %}{% if user.email_verified_at %}<p class="account-email-state"><span class="status status-ok">{{ _("Verified") }}</span></p>{% else %}<div class="account-email-state" id="email-state"><p><span class="status status-warn">{{ _("To verify") }}</span> <span class="muted">{{ _("Open the link sent to this address.") }}</span> <button class="button button-link" type="submit" form="email-verify">{{ _("Resend the link") }}</button></p><p class="muted">{{ _("Until it is verified, it is used neither for invitations nor for password recovery.") }}</p></div>{% endif %}{% endif %}</div>
+  {% if user.password_hash %}<div class="field"><label for="current">{{ _("Current password") }}</label><input id="current" name="current" type="password" autocomplete="current-password" aria-describedby="current-help"><p class="muted" id="current-help">{{ _("Only needed if you change your email address.") }}</p></div>{% endif %}
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+
+{# Account settings (language, on all devices) and this device's settings (theme): each states
+   its scope; the theme applies without a button. #}
+<section class="card account-preferences" aria-labelledby="preferences-title">
+  <h2 id="preferences-title">{{ _("Preferences") }}</h2>
+  <form class="account-pref" method="post" action="/account/locale">
+    {{ csrf_field() }}
+    <div class="account-pref-text"><label for="locale">{{ _("Language") }}</label><p class="muted">{{ _("For your account, on all your devices.") }}</p></div>
+    <div class="account-pref-control"><select id="locale" name="locale"><option value="fr" {% if user.locale == 'fr' %}selected{% endif %} lang="fr">Français</option><option value="en" {% if user.locale == 'en' %}selected{% endif %} lang="en">English</option></select><button class="button" type="submit">{{ _("Save") }}</button></div>
+  </form>
+  <div class="account-pref">
+    <div class="account-pref-text"><span class="field-label" id="theme-label">{{ _("Appearance") }}</span><p class="muted">{{ _("On this device only, applied right away.") }}</p></div>
+    <div class="account-pref-control"><div class="segmented segmented-labels" role="group" aria-labelledby="theme-label">
+      <button type="button" data-theme-option="light" aria-pressed="false" disabled>{{ icon('sun', 14) }}{{ _("Light") }}</button>
+      <button type="button" data-theme-option="dark" aria-pressed="false" disabled>{{ icon('moon', 14) }}{{ _("Dark") }}</button>
+      <button type="button" data-theme-option="system" aria-pressed="false" disabled>{{ icon('monitor', 14) }}{{ _("System") }}</button>
+    </div></div>
+  </div>
+</section>
+
+<form class="card" method="post" action="/account/notifications">
+  {{ csrf_field() }}
+  <h2>{{ _("E-mail notices") }}</h2>
+  <p class="muted">{{ _("An email after each tidy-up that handles your notes: where they were filed, or why they were left in the inbox.") }}</p>
+  {% if not user.email_verified_at %}<p class="account-note-warn"><span class="status status-warn">{{ _("These notices only go to a verified address: add or verify your email above to receive them.") }}</span></p>{% endif %}
+  <label class="checkbox account-checkbox"><input type="checkbox" name="notify_tidy" value="true" {% if user.notify_tidy %}checked{% endif %}>{{ _("Tell me when my notes are filed or left") }}</label>
+  <label class="checkbox account-checkbox"><input type="checkbox" name="notify_routines" value="true" {% if user.notify_routines %}checked{% endif %}>{{ _("Receive e-mails from the routines of my spaces (weekly digest…)") }}</label>
+  <p class="muted">{{ _("Also applies to the weekly reminder of the pages you own that are due for review.") }}</p>
+  <button class="button" type="submit">{{ _("Save") }}</button>
+</form>
+{# Resend the verification link: button inside the e-mail field (form attribute). #}
+{% if user.email and not user.email_verified_at %}<form id="email-verify" method="post" action="/account/email/verify" hidden>{{ csrf_field() }}</form>{% endif %}
+{% endblock %}

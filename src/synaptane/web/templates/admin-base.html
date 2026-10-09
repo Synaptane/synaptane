@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import section_tabs with context %}
+{# Short labels: the four tabs fit on one line, even on mobile. #}
+{% set sections = [("orgs", "/admin", _("Organizations")), ("users", "/admin/users", _("Accounts")), ("sso", "/admin/sso", _("SSO")), ("mail", "/admin/mail", _("Email"))] %}
+{% set section_title = sections|selectattr(0, "equalto", section)|map(attribute=2)|first %}
+{% block title %}{% block page_title %}{{ section_title }}{% endblock %} · {{ _("Administration") }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/admin">{{ _("Administration") }}</a>{{ sep() }}{% block section_crumbs %}<span aria-current="page">{{ section_title }}</span>{% endblock %}{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">{{ _("Super admin") }}</p><h1>{{ _("Administration") }}</h1><p class="lede">{{ _("Organizations, accounts, single sign-on and email sending for this instance.") }}</p></div></header>
+{{ section_tabs(_("Administration sections"), sections, section) }}
+<div class="section-body content-narrow admin-body">
+{% block section %}{% endblock %}
+</div>
+<p class="muted admin-version">Synaptane {{ synaptane_version }}</p>
+{% endblock %}

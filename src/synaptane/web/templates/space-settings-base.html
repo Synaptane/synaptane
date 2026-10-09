@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% set tab = 'settings' %}
+{% set items = [] %}
+{% if manage %}{% set items = items + [("general", "/-/settings", _("General")), ("vocation", "/-/vocation", _("Purpose"))] %}{% endif %}
+{% set items = items + [("git", "/-/git", _("Git repository")), ("members", "/-/members", _("Members"))] %}
+{% if manage %}{% set items = items + [("tidy", "/-/tidy-settings", _("Tidying")), ("semantic", "/-/semantic", _("Semantic search"))] %}{% endif %}
+{% if contribute %}{% set items = items + [("routines", "/-/routines", _("Routines"))] %}{% endif %}
+{% set section_title =items|selectattr(0, "equalto", section)|map(attribute=2)|first %}
+{% block title %}{{ section_title }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span>{{ _("Settings") }}</span>{{ sep() }}<span aria-current="page">{{ section_title }}</span>{% endblock %}
+{% block content %}
+{% set space_tab = "settings" %}{% include "space-tabs.html" %}
+<div class="settings-layout">
+  <nav class="settings-nav" aria-label="{{ _('Space settings') }}">
+    {% for key, path, title in items %}<a href="/o/{{ org.slug }}/{{ space.slug }}{{ path }}" {% if key == section %}aria-current="page"{% endif %}>{{ title }}</a>{% endfor %}
+    <p class="settings-role"><span class="badge">{{ role_label }}</span></p>
+  </nav>
+  <div class="settings-main">
+    <h2 class="settings-title">{{ section_title }}</h2>
+    {% block section %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

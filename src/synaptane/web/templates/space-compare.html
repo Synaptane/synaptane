@@ -1,0 +1,10 @@
+{% extends "space-settings-base.html" %}
+{% set section = "git" %}
+{% block section %}
+<div class="content-narrow">
+  <p><a href="/o/{{ org.slug }}/{{ space.slug }}/-/git">{{ _("Back to conflicts") }}</a></p>
+  <h2><code>{{ path }}</code></h2>
+  <p class="muted">{{ _("Removed lines: Synaptane's version; added lines: the remote repository's version.") }}</p>
+  <pre class="diff">{% for kind, line in diff_lines %}<span class="diff-{{ kind }}">{{ line }}</span>{% else %}{{ _("No content difference.") }}{% endfor %}</pre>
+</div>
+{% endblock %}

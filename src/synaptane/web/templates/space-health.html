@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% block title %}{{ _("Health") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span aria-current="page">{{ _("Health") }}</span>{% endblock %}
+{% block content %}
+{% set space_tab = "health" %}{% include "space-tabs.html" %}
+{% set base = '/o/' ~ org.slug ~ '/' ~ space.slug %}
+{% set shown = 200 %}
+{% macro page_link(path) -%}<a href="{{ base }}/p/{{ path|pathurl }}">{{ path }}</a>{%- endmacro %}
+{% macro edit_link(path) -%}{% if contribute %}<a class="button button-small" href="{{ base }}/edit/{{ path|pathurl }}">{{ _("Edit") }}</a>{% endif %}{%- endmacro %}
+{# Column of the "Edit" button: narrow, aligned right. #}
+{% macro more(items) -%}{% if items|length > shown %}<p class="muted">{{ _("and {count} more", count=items|length - shown) }}</p>{% endif %}{%- endmacro %}
+<h2 class="settings-title">{{ _("Wiki health") }}</h2>
+<p class="muted">{{ _("Check without AI, at the latest commit: broken links, pages with no incoming link, empty or untitled pages, pages to review, pages not modified for a long time.") }}</p>
+{% if report is none %}
+<div class="notice notice-warning">{{ _("The space has not been synchronised yet: nothing to check for now.") }}</div>
+{% else %}
+<p>{{ _(pl(report.pages, "{n} page checked", "{n} pages checked"), n=report.pages) }} · {% if report.problems %}<strong>{{ _(pl(report.problems, "{n} item to check", "{n} items to check"), n=report.problems) }}</strong>{% else %}{{ _("Nothing to check.") }}{% endif %}{% if report.commit %} · <code>{{ report.commit[:10] }}</code>{% endif %}</p>
+
+<section class="card section-gap-small" aria-labelledby="health-broken">
+  <h3 id="health-broken">{{ _("Broken links") }} <span class="badge badge-quiet">{{ report.broken|length }}</span></h3>
+  {% if report.broken %}
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Page") }}</th><th>{{ _("Link") }}</th><th>{{ _("Suggestion") }}</th>{% if contribute %}<th class="row-action"><span class="sr-only">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+    <tbody>{% for item in report.broken[:shown] %}<tr><td>{{ page_link(item.page) }}</td><td><code>{{ item.link }}</code></td><td>{% if item.suggestion %}<code>{{ item.suggestion }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>{% if contribute %}<td class="row-action">{{ edit_link(item.page) }}</td>{% endif %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {{ more(report.broken) }}
+  {% else %}<p class="muted">{{ _("No broken links.") }}</p>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="health-orphans">
+  <h3 id="health-orphans">{{ _("Orphan pages") }} <span class="badge badge-quiet">{{ report.orphans|length }}</span></h3>
+  <p class="muted">{{ _("No other page links to them (folder home pages are not counted). Add a link from the folder index or from a page about the same topic.") }}</p>
+  {% if report.orphans %}
+  <div class="table-scroll"><table class="health-table"><tbody>{% for path in report.orphans[:shown] %}<tr><td>{{ page_link(path) }}</td>{% if contribute %}<td class="row-action">{{ edit_link(path) }}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
+  {{ more(report.orphans) }}
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="health-form">
+  <h3 id="health-form">{{ _("Empty or untitled pages") }} <span class="badge badge-quiet">{{ report.empty|length + report.untitled|length }}</span></h3>
+  {% if report.empty or report.untitled %}
+  <div class="table-scroll"><table class="health-table"><tbody>
+    {% for path in report.empty[:shown] %}<tr><td>{{ page_link(path) }}</td><td>{{ _("Empty") }}</td>{% if contribute %}<td class="row-action">{{ edit_link(path) }}</td>{% endif %}</tr>{% endfor %}
+    {% for path in report.untitled[:shown] %}<tr><td>{{ page_link(path) }}</td><td>{{ _("No level-1 heading") }}</td>{% if contribute %}<td class="row-action">{{ edit_link(path) }}</td>{% endif %}</tr>{% endfor %}
+  </tbody></table></div>
+  {{ more(report.empty) }}{{ more(report.untitled) }}
+  {% else %}<p class="muted">{{ _("Every page has a title and some content.") }}</p>{% endif %}
+</section>
+
+<section class="card" id="health-review" aria-labelledby="health-due">
+  <h3 id="health-due">{{ _("Pages to review") }} <span class="badge badge-quiet">{{ report.due|length }}</span></h3>
+  <p class="muted">{{ _(pl(report.verified, "{n} verified, up-to-date page.", "{n} verified, up-to-date pages."), n=report.verified) }} {% if report.review_every %}{{ _("Space review period: {period}.", period=period_label(report.review_every)) }}{% else %}{{ _("With no review period set for the space, only pages that have their own (review_every) become due for review.") }}{% endif %}{% if can(actor.access, Action.MANAGE_ORG, org_id=space.org_id) %} <a href="{{ base }}/-/settings">{{ _("Change", context="link") }}</a>{% endif %}</p>
+  {% if report.due %}
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Page") }}</th><th>{{ _("Owner") }}</th><th class="cell-date">{{ _("Due since") }}</th></tr></thead>
+    <tbody>{% for item in report.due[:shown] %}<tr><td>{{ page_link(item.path) }}</td><td>{% if item.owner %}{{ owner_label(item.owner) }}{% else %}<span class="muted">—</span>{% endif %}</td><td class="cell-date"><time datetime="{{ item.due }}T12:00" data-local="day">{{ item.due }}</time></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {{ more(report.due) }}
+  {% else %}<p class="muted">{{ _("No page to review.") }}</p>{% endif %}
+  {% if report.unowned %}
+  <h4 class="section-gap-small">{{ _("Verified, without an owner") }} <span class="badge badge-quiet">{{ report.unowned|length }}</span></h4>
+  <p class="muted">{{ _("Nobody answers for them: choose an owner in the page's ⋮ menu.") }}</p>
+  <div class="table-scroll"><table class="health-table"><tbody>{% for path in report.unowned[:shown] %}<tr><td>{{ page_link(path) }}</td></tr>{% endfor %}</tbody></table></div>
+  {{ more(report.unowned) }}
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="health-stale">
+  <div class="section-heading">
+    <h3 id="health-stale">{{ _(pl(report.months, "Not changed for {n} months", "Not changed for {n} months"), n=report.months) }} <span class="badge badge-quiet">{{ report.stale|length }}</span></h3>
+    <nav class="segmented" aria-label="{{ _('Age') }}">
+      {% for value in [3, 6, 12, 24] %}<a class="segmented-option" href="{{ base }}/health?months={{ value }}" {% if report.months == value %}aria-current="page"{% endif %}>{{ _("{n} months", n=value) }}</a>{% endfor %}
+    </nav>
+  </div>
+  {% if report.stale %}
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Page") }}</th><th>{{ _("Last changed") }}</th>{% if contribute %}<th class="row-action"><span class="sr-only">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+    <tbody>{% for item in report.stale[:shown] %}<tr><td>{{ page_link(item.path) }}</td><td><time datetime="{{ item.date }}" data-local="date">{{ item.date[:10] }}</time></td>{% if contribute %}<td class="row-action">{{ edit_link(item.path) }}</td>{% endif %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {{ more(report.stale) }}
+  {% else %}<p class="muted">{{ _("No page that old.") }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
