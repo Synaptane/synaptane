@@ -1,0 +1,31 @@
+{# "Drop information" form, shared by a space's inbox and the drop page reachable from
+   everywhere (`choices`: spaces offered, the space picker is shown). #}
+{% from "ui.html" import secret_confirm, file_input with context %}
+{# `heading`: card title (the drop page already has its h1); `back`: page to return to
+   after the drop. #}
+{% macro deposit_form(action, form=None, form_error=None, choices=None, chosen='', heading=true, back='') -%}
+<form class="card deposit-form" method="post" action="{{ action }}" enctype="multipart/form-data"{% if not heading %} aria-label="{{ _('Drop information') }}"{% endif %}>
+  {% if heading %}<h2>{{ _("Drop information") }}</h2>{% endif %}
+  {% if form_error %}<div class="notice notice-error" role="alert">{{ _(form_error.template, **form_error.params) }}</div>{% endif %}
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if back %}<input type="hidden" name="next" value="{{ back }}">{% endif %}
+  {% if choices is not none %}
+  <div class="field"><label for="space">{{ _("Space") }}</label>
+    <select id="space" name="space" required>
+      {% if not chosen %}<option value="" disabled selected>{{ _("Choose a space…") }}</option>{% endif %}
+      {% for org_name, org_spaces in choices|groupby(attribute="organization.name") %}
+      <optgroup label="{{ org_name }}">{% for s in org_spaces %}<option value="{{ s.address }}" {% if s.address == chosen %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</optgroup>
+      {% endfor %}
+    </select>
+    <p class="muted">{{ _("This space's tidy-up agent will add the information to the wiki on its next run.") }}</p>
+  </div>
+  {% endif %}
+  <div class="field"><label for="title">{{ _("Title") }}</label><input id="title" name="title" required maxlength="120" value="{{ form.title if form else '' }}"></div>
+  <div class="field"><label for="body">{{ _("Content (Markdown)") }}</label><textarea id="body" name="body" rows="8">{{ form.body if form else '' }}</textarea></div>
+  <div class="field"><label for="hint">{{ _("Where to file it? (optional, a hint for the agent)") }}</label><input id="hint" name="hint" maxlength="500" placeholder="{{ _('servers/') }}" value="{{ form.hint if form else '' }}"></div>
+  <div class="field"><label for="origin">{{ _("Origin (optional: link, meeting, conversation…)") }}</label><input id="origin" name="origin" maxlength="2000" placeholder="https://…" value="{{ form.origin if form else '' }}"></div>
+  <div class="field"><label for="files">{{ _("Attachments (up to 10, 25 MB each)") }}</label>{{ file_input("files", "files", multiple=true) }}{% if form %}<p class="muted">{{ _("Attach the files again: the browser does not keep them.") }}</p>{% endif %}</div>
+  {{ secret_confirm(form_error) }}
+  <div class="actions"><button class="button button-primary" type="submit">{{ _("Drop") }}</button>{% if back %}<a class="button" href="{{ back }}">{{ _("Cancel") }}</a>{% endif %}</div>
+</form>
+{%- endmacro %}

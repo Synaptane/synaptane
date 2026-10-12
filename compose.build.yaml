@@ -1,0 +1,35 @@
+# Builds the images from this repository instead of pulling the published ones: needed for the
+# subscription CLIs (Claude Code, Codex: docs/admin/ai.md) or to run your own changes.
+# In .env:
+#   COMPOSE_FILE=compose.yaml:compose.build.yaml
+#   SYNAPTANE_IMAGE=synaptane:local
+# then, from a release tag: GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
+# deploy/host/deploy.sh does it on a server, with a backup and an automatic rollback.
+#
+# The built images keep a local name (synaptane:local, synaptane-nginx:local), never the
+# published one: `docker compose pull` would replace them, and the published name would point
+# to an image that contains the subscription CLIs.
+
+x-build: &build
+  image: ${SYNAPTANE_IMAGE:-synaptane:local}
+  build:
+    context: .
+    args:
+      # Commit recorded in the image (`synaptane --version`): deploy/host/deploy.sh provides it,
+      # or by hand: GIT_SHA=$(git rev-parse HEAD) docker compose build
+      GIT_SHA: ${GIT_SHA:-unknown}
+      # Claude Code and Codex (third-party software, under their own terms): AGENT_CLIS=false
+      # in .env leaves them out.
+      AGENT_CLIS: ${AGENT_CLIS:-true}
+
+services:
+  migrate: *build
+  app: *build
+  worker: *build
+
+  # Proxy mode (COMPOSE_PROFILES=proxy): the profile comes from compose.yaml.
+  nginx:
+    image: ${SYNAPTANE_NGINX_IMAGE:-synaptane-nginx:local}
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile

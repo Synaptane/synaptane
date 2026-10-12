@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import section_tabs with context %}
+{% set sections = [("profile", "/account", _("Profile")), ("security", "/account/security", _("Security")), ("assistants", "/account/assistants", _("AI assistants"))] %}
+{% set section_title = sections|selectattr(0, "equalto", section)|map(attribute=2)|first %}
+{# Temporary password (chosen by an admin): only one thing to do, without tabs that would
+   lead back here. #}
+{% set forced = user.must_change_password %}
+{% block title %}{% if forced %}{{ _("Choose my password") }}{% else %}{{ section_title }} · {{ _("My account") }}{% endif %} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/account">{{ _("My account") }}</a>{{ sep() }}<span aria-current="page">{{ section_title }}</span>{% endblock %}
+{% block content %}
+{% if forced %}
+<div class="content-narrow account-forced">
+{% block forced %}{% endblock %}
+</div>
+{% else %}
+<header class="page-header">
+  <div><p class="eyebrow"><span class="ident">@{{ user.username }}</span></p><h1>{{ _("My account") }}</h1></div>
+  {% if user.is_superadmin %}<div class="actions"><a class="button" href="/admin" data-test="admin-link">{{ icon('shield') }}{{ _("Administration") }}</a></div>{% endif %}
+</header>
+{{ section_tabs(_("Account sections"), sections, section) }}
+<div class="section-body content-narrow account-body account-{{ section }}">
+{% block section %}{% endblock %}
+</div>
+{% endif %}
+{% endblock %}

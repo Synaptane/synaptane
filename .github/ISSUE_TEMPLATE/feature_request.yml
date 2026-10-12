@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest an improvement or a new feature.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. English or French welcome.
+        Synaptane is maintained by one person: not every idea can be accepted, and open-ended
+        ideas may fit better in [Discussions](https://github.com/synaptane/synaptane/discussions).
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched existing issues and discussions and did not find this request.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wiki
+        - Search
+        - MCP
+        - AI tidy-up
+        - Routines
+        - Git sync
+        - SSO / accounts
+        - API / webhooks
+        - Deployment / backup
+        - UI / i18n
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way? Describe the need before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you would like it to work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other solutions or workarounds you have tried or thought about.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

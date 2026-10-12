@@ -1,0 +1,55 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field, when with context %}
+{% block page_title %}{{ account.display_name }} · {{ _("Accounts") }}{% endblock %}
+{% block section_crumbs %}<a href="/admin/users">{{ _("Accounts") }}</a>{{ sep() }}<span aria-current="page">{{ account.display_name }}</span>{% endblock %}
+{% block section %}
+<p class="admin-back"><a href="/admin/users">← {{ _("All accounts") }}</a></p>
+<section class="card admin-identity" aria-labelledby="account-title">
+  <div class="admin-identity-head">
+    <span class="avatar" aria-hidden="true">{{ account.display_name[:1]|upper }}</span>
+    <div>
+      <h2 id="account-title">{{ account.display_name }}</h2>
+      <p class="admin-row-meta">@{{ account.username }}</p>
+    </div>
+    <div class="badges">{% if account.is_superadmin %}<span class="badge">{{ _("Super admin") }}</span>{% endif %}{% if not account.is_active %}<span class="badge badge-quiet">{{ _("Disabled") }}</span>{% endif %}</div>
+  </div>
+  <dl class="metadata">
+    <div><dt>{{ _("Email") }}</dt><dd>{% if account.email %}{{ account.email }}{% if not account.email_verified_at %} <span class="muted">({{ _("address not verified") }})</span>{% endif %}{% else %}<span class="muted">{{ _("No address") }}</span>{% endif %}</dd></div>
+    <div><dt>{{ _("Sign in") }}</dt><dd>{{ _("Password") if account.password_hash else _("SSO") }}{% if account.must_change_password %} <span class="muted">({{ _("to be changed at next sign-in") }})</span>{% endif %}</dd></div>
+    <div><dt>{{ _("Created on") }}</dt><dd>{{ when(account.created_at, "date") }}</dd></div>
+  </dl>
+</section>
+{% if account.id == user.id %}
+<p class="notice">{{ _("This is your account: your rights can only be changed by another super admin.") }} <a href="/account/security">{{ _("Change my password") }}</a></p>
+{% else %}
+{# Both settings go through the same submit: each form sends the other one back unchanged. #}
+<form class="card section-gap-small" method="post" action="/admin/users/{{ account.username }}">
+  <h3>{{ _("Permissions") }}</h3>
+  {{ csrf_field() }}
+  {% if account.is_active %}<input type="hidden" name="is_active" value="true">{% endif %}
+  <div class="admin-check">
+    <label class="checkbox"><input type="checkbox" name="is_superadmin" value="true" {% if account.is_superadmin %}checked{% endif %} aria-describedby="superadmin-help">{{ _("Super admin") }}</label>
+    <p class="muted" id="superadmin-help">{{ _("Manages the whole instance and reads all content.") }}</p>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+<form class="card section-gap-small" method="post" action="/admin/users/{{ account.username }}/password" data-confirm="{{ _('Reset the password? All sessions and tokens of this account will be closed.') }}">
+  <h3>{{ _("Reset password") }}</h3>
+  {{ csrf_field() }}
+  <div class="field"><label for="reset-password">{{ _("New password") }}</label><input id="reset-password" type="password" name="password" autocomplete="new-password" minlength="12" required aria-describedby="reset-password-help"><p class="muted" id="reset-password-help">{{ _("At least 12 characters. Closes their sessions and tokens; the person will choose another one at next sign-in.") }}</p></div>
+  <button class="button" type="submit">{{ _("Reset") }}</button>
+</form>
+<form class="card section-gap-small admin-state" method="post" action="/admin/users/{{ account.username }}"{% if account.is_active %} data-confirm="{{ _("Deactivate {name}'s account? Their sessions and tokens will be closed.", name=account.display_name) }}"{% endif %}>
+  {{ csrf_field() }}
+  {% if account.is_superadmin %}<input type="hidden" name="is_superadmin" value="true">{% endif %}
+  {% if account.is_active %}
+  <div><h3>{{ _("Deactivate account") }}</h3><p class="muted">{{ _("The person can no longer sign in; their sessions and tokens are closed. Their content stays, and the account can be reactivated at any time.") }}</p></div>
+  <button class="button button-danger" type="submit">{{ _("Deactivate") }}</button>
+  {% else %}
+  <input type="hidden" name="is_active" value="true">
+  <div><h3>{{ _("Account deactivated") }}</h3><p class="muted">{{ _("The person cannot sign in. Reactivating does not reopen their old sessions.") }}</p></div>
+  <button class="button" type="submit">{{ _("Re-enable") }}</button>
+  {% endif %}
+</form>
+{% endif %}
+{% endblock %}

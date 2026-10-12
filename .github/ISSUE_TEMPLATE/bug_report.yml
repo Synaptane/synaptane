@@ -1,0 +1,96 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. English or French welcome.
+
+        > [!WARNING]
+        > **Security issue? Do not open an issue.** Report it privately instead, see
+        > [SECURITY.md](https://github.com/synaptane/synaptane/blob/main/SECURITY.md).
+
+        Questions belong in [Discussions](https://github.com/synaptane/synaptane/discussions).
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched existing issues and did not find this bug.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `synaptane --version` (with Compose, `docker compose exec app synaptane --version`).
+      placeholder: synaptane 1.0.0 (abc1234)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Docker Compose, behind the host's own nginx (default mode)
+        - Docker Compose, with the bundled proxy profile (COMPOSE_PROFILES=proxy)
+        - From source (uv)
+        - Other (describe below)
+    validations:
+      required: true
+  - type: dropdown
+    id: ai_provider
+    attributes:
+      label: AI provider
+      options:
+        - API key
+        - Claude Code or Codex subscription
+        - None
+    validations:
+      required: true
+  - type: input
+    id: mcp_client
+    attributes:
+      label: MCP client
+      description: If the bug involves MCP, which client and version (Claude Desktop, Claude Code, ChatGPT, Cursor…).
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to…
+        2. Click on…
+        3. See…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead. Screenshots are welcome (no real personal data).
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `synaptane doctor`
+      description: With Compose, `docker compose exec app synaptane doctor`. Remove anything sensitive.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redacted)
+      description: |
+        Relevant logs, for example `docker compose logs app worker --since 1h`.
+        **Redact them first**: remove passwords, tokens, API keys, URLs with credentials, e-mail addresses and private content.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

@@ -1,0 +1,90 @@
+{# Shared template components. #}
+
+{# CSRF token of every POST form. #}
+{% macro csrf_field() -%}<input type="hidden" name="csrf" value="{{ csrf }}">{%- endmacro %}
+
+{# Date and time: UTC text without JS, converted to the browser's local time otherwise. #}
+{% macro when(value, kind="full") -%}
+{%- if value -%}<time datetime="{{ value.isoformat() }}" data-local="{{ kind }}">{{ value.strftime('%Y-%m-%d' if kind == 'date' else '%Y-%m-%d %H:%M UTC') }}</time>{%- endif -%}
+{%- endmacro %}
+
+{# One-click action button, with confirmation if `confirm` is given. #}
+{% macro action(url, label, confirm="", kind="", small=true) -%}
+<form method="post" action="{{ url }}" {% if confirm %}data-confirm="{{ confirm }}"{% endif %}>{{ csrf_field() }}<button class="button{% if small %} button-small{% endif %}{% if kind %} button-{{ kind }}{% endif %}" type="submit">{{ label }}</button></form>
+{%- endmacro %}
+
+{# Copyable value (address, command, secret). #}
+{% macro copyable(id, value, block=false) -%}
+<span class="copyable{% if block %} copyable-block{% endif %}"><code id="{{ id }}">{{ value }}</code><button type="button" class="button button-small" data-copy="{{ id }}" data-copied="{{ _('Copied') }}" hidden>{{ _("Copy") }}</button></span>
+{%- endmacro %}
+
+{# Secret shown only once. #}
+{% macro reveal_notice(value, message) -%}
+<div class="notice notice-ok" role="status"><p><strong>{{ message }}</strong></p><p>{{ copyable('revealed-value', value) }}</p></div>
+{%- endmacro %}
+
+{# Secondary navigation of a settings area (tabs). #}
+{% macro section_tabs(label, items, current) -%}
+<nav class="tabs" aria-label="{{ label }}">
+  {% for key, href, title in items %}<a href="{{ href }}" {% if key == current %}aria-current="page"{% endif %}>{{ title }}</a>{% endfor %}
+</nav>
+{%- endmacro %}
+
+{# Danger zone: deletion confirmed by retyping the identifier (works without JS). #}
+{% macro danger_zone(title, text, url, slug, disabled_reason="") -%}
+<section class="danger-zone">
+  <h2>{{ title }}</h2>
+  <p>{{ text }}</p>
+  {% if disabled_reason %}
+  <p class="muted">{{ disabled_reason }}</p>
+  {% else %}
+  <form method="post" action="{{ url }}" class="inline-form">
+    {{ csrf_field() }}
+    <div class="field"><label for="confirm-slug">{{ _("To confirm, type “{slug}”", slug=slug) }}</label><input id="confirm-slug" name="confirm" required autocomplete="off" pattern="{{ slug }}"></div>
+    <button class="button button-danger" type="submit">{{ _("Delete permanently") }}</button>
+  </form>
+  {% endif %}
+</section>
+{%- endmacro %}
+
+{# List of accounts suggested in a "username" field. #}
+{% macro people_list(id, people) -%}
+<datalist id="{{ id }}">{% for username, display_name in people %}<option value="{{ username }}">{{ display_name }}</option>{% endfor %}</datalist>
+{%- endmacro %}
+
+{# Restrictions of a token or an OAuth connection: read-only, chosen spaces.
+   Member of several organizations: by default, only the spaces of the first one (`spaces`
+   is sorted by organization). Otherwise, a page from one organization could lead the
+   assistant to read another organization and copy its content. "All" remains an explicit
+   choice. A single organization: all spaces, as before. #}
+{% macro access_limits(spaces, error=none) -%}
+{% set orgs = spaces|map(attribute="org_id")|unique|list %}
+{% set narrowed = orgs|length > 1 %}
+<div class="form-columns" data-access-limits>
+  <fieldset class="choice-list">
+    <legend>{{ _("Permissions") }}</legend>
+    <label class="checkbox"><input type="radio" name="access" value="write" checked>{{ _("Read and write, according to your roles") }}</label>
+    <label class="checkbox"><input type="radio" name="access" value="read">{{ _("Read only") }}</label>
+  </fieldset>
+  <fieldset class="choice-list">
+    <legend>{{ _("Spaces") }}</legend>
+    <label class="checkbox"><input type="radio" name="scope" value="all"{% if not narrowed %} checked{% endif %}>{{ _("All my spaces, including future ones") }}</label>
+    <label class="checkbox"><input type="radio" name="scope" value="some"{% if narrowed %} checked{% endif %}>{{ _("Only the checked spaces:") }}</label>
+    {% for s in spaces %}<label class="checkbox"><input type="checkbox" name="space" value="{{ s.id }}"{% if narrowed and s.org_id == orgs[0] %} checked{% endif %}>{{ s.organization.name }} / {{ s.name }}</label>{% else %}<p>{{ _("You are not a member of any space.") }}</p>{% endfor %}
+    {% if error %}<p class="field-error" role="alert">{{ _(error.template, **error.params) }}</p>{% endif %}
+  </fieldset>
+</div>
+{% if narrowed %}<p class="muted" data-scope-note>{{ _("You belong to several organizations: only the spaces of {org} are checked. Otherwise, malicious content in one organization could lead the assistant to read another organization and copy what it finds there. Check other spaces, or choose “All my spaces”, if you need them.", org=spaces[0].organization.name) }}</p>{% endif %}
+{%- endmacro %}
+
+{# After a refusal for a likely secret: confirm it is not one. #}
+{% macro secret_confirm(error) -%}
+{% if error and error.code == 'secret_detected' %}<label class="checkbox"><input type="checkbox" name="allow_secrets" value="true">{{ _("This is not a secret: save anyway") }}</label>{% endif %}
+{%- endmacro %}
+
+{# Translated file field (the native button follows the browser language, not the page's). #}
+{# File field. Several files: each selection adds to the list above the button
+   (preferences.js), each file can be removed; without JS, a plain multiple field. #}
+{% macro file_input(id, name, multiple=false, required=false) -%}
+<span class="file-picker"{% if multiple %} data-remove="{{ _('Remove {name}') }}" data-one="{{ _('1 file') }}" data-many="{{ _('{n} files') }}"{% endif %}>{% if multiple %}<ul class="file-picked" data-file-list hidden></ul>{% endif %}<span class="file-picker-row"><input class="file-input" id="{{ id }}" type="file" name="{{ name }}"{% if multiple %} multiple{% endif %}{% if required %} required{% endif %}><label class="button button-small" for="{{ id }}">{{ _("Add files") if multiple else _("Choose a file") }}</label><span class="muted" data-file-names data-empty="{{ _('No file chosen') }}"></span></span></span>
+{%- endmacro %}

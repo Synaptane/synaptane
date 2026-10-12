@@ -1,0 +1,13 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% set section = "semantic" %}
+{% block section %}
+<form class="card content-narrow semantic-form" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/semantic">
+  <p class="muted">{{ _("Also finds pages close in meaning. Uses the organization's embedding provider; the space's content is sent to it.") }}</p>
+  {% if not embeddings_ready %}<div class="notice notice-warning"><p>{{ _("No embedding provider is configured for the organization.") }} <a href="/o/{{ org.slug }}/-/embeddings">{{ _("Configure") }}</a></p></div>{% endif %}
+  {{ csrf_field() }}
+  <label class="checkbox"><input type="checkbox" name="enabled" value="true" {% if space.embeddings_enabled %}checked{% endif %} {% if not embeddings_ready and not space.embeddings_enabled %}disabled{% endif %}>{{ _("Enable semantic search in this space") }}</label>
+  {% if space.embeddings_enabled %}<p class="muted">{{ _("Index: {files}, {chunks}.", files=_(pl(semantic_stats[0], "{n} file", "{n} files"), n=semantic_stats[0]), chunks=_(pl(semantic_stats[1], "{n} chunk", "{n} chunks"), n=semantic_stats[1])) }}</p>{% endif %}
+  <button class="button button-primary" type="submit" {% if not embeddings_ready and not space.embeddings_enabled %}disabled{% endif %}>{{ _("Save") }}</button>
+</form>
+{% endblock %}

@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # release.yml: publishing waits for a green CI on the tagged commit
+
+permissions:
+  contents: read
+
+# A new push on the same branch cancels the check that has become useless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions pinned by commit hash (a tag can be moved); the version is in a comment, and
+# Dependabot keeps both up to date.
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # Same image and digest as compose.yaml and compose.dev.yaml: Dependabot only updates
+        # the Compose files, tests/unit/test_image_metadata.py checks that all three agree.
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: synaptane
+          POSTGRES_PASSWORD: synaptane
+          POSTGRES_DB: synaptane
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U synaptane"
+          --health-interval 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # no push: the token does not stay in .git
+      - name: System tools (search, OCR, old Office files, PostgreSQL 17 client for backups)
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends ripgrep tesseract-ocr tesseract-ocr-fra catdoc postgresql-client-17
+          # The runner's default pg_dump is version 16: too old for server 17.
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+      - name: shellcheck (deployment and operations scripts)
+        run: shellcheck scripts/*.sh deploy/*/*.sh
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Lint, typing, tests in parallel with coverage and its threshold (pyproject.toml).
+      - run: ./scripts/check.sh
+      - name: Coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: ignore
+          retention-days: 14
+      # Known vulnerabilities of the locked dependencies (all of them, development tools
+      # included: they run here with the CI's permissions). Nothing is installed or resolved:
+      # pip-audit reads the exact versions and hashes from uv.lock.
+      - name: pip-audit (Python dependencies)
+        run: |
+          uv export --locked --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uv run --locked pip-audit --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # parent commit: previous version for the upgrade run
+          persist-credentials: false
+      # Built with the subscription CLIs (Dockerfile default), as by compose.build.yaml.
+      - name: Docker image
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t synaptane:ci .
+      - name: Commit recorded in the image
+        run: |
+          docker run --rm --entrypoint synaptane synaptane:ci --version | tee version.txt
+          grep -F "(${GITHUB_SHA::7})" version.txt
+          test "$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' synaptane:ci)" = "$GITHUB_SHA"
+      - name: Tools present in the image
+        run: |
+          docker run --rm --entrypoint sh synaptane:ci -c \
+            'synaptane --version && git --version && rg --version && tesseract --list-langs && catdoc -V && xls2csv -V && pg_dump --version && age --version && rclone version && claude --version && codex --version'
+      - name: Licenses in the images
+        run: |
+          docker run --rm --entrypoint ls synaptane:ci /usr/share/doc/synaptane/LICENSE /usr/share/doc/synaptane/NOTICE /usr/share/doc/synaptane/THIRD_PARTY_NOTICES.md /usr/share/common-licenses/GPL-3 /usr/share/common-licenses/LGPL-2.1
+          docker build -f deploy/nginx/Dockerfile -t synaptane-nginx:ci .
+          docker run --rm --entrypoint ls synaptane-nginx:ci /usr/share/doc/synaptane/LICENSE /usr/share/doc/synaptane/NOTICE /usr/share/doc/synaptane/THIRD_PARTY_NOTICES.md
+      # Isolation of the subscription agent (docs/admin/ai.md): with no login, no model call
+      # and no network, the image's CLIs only offer Synaptane's tools.
+      - name: Subscription CLI contract
+        run: docker run --rm --network none --entrypoint synaptane synaptane:ci check-clis
+      # Both modes, with the published images (no build) and with compose.build.yaml (local
+      # names only).
+      - name: Valid Compose (both modes, published or built image)
+        env:
+          PUBLIC_URL: https://x.example
+          POSTGRES_PASSWORD: x
+          DOMAIN: x.example
+        run: |
+          docker compose config -q
+          docker compose --profile proxy config -q
+          if docker compose --profile proxy config | grep -q '^ *build:'; then
+            echo "::error::compose.yaml must not build: the build goes in compose.build.yaml"; exit 1
+          fi
+          export COMPOSE_FILE=compose.yaml:compose.build.yaml
+          docker compose --profile proxy config -q
+          images="$(docker compose --profile proxy config --images)"
+          echo "$images"
+          if grep -q '^ghcr.io/synaptane/' <<<"$images"; then
+            echo "::error::compose.build.yaml must not build under a published image name"; exit 1
+          fi
+      # Previous version = parent commit: on `main`, the commit before; in a PR (merge commit),
+      # the tip of the target branch. The shared layers come from the previous build's cache.
+      # No registry: the image is rebuilt here.
+      - name: Previous version image
+        id: previous
+        run: |
+          # The very first commit has no parent: only a fresh install is tested then.
+          if ! git rev-parse --verify --quiet 'HEAD^' > /dev/null; then
+            echo "No parent commit: fresh install only."
+            exit 0
+          fi
+          mkdir "$RUNNER_TEMP/previous"
+          git archive HEAD^ | tar -x -C "$RUNNER_TEMP/previous"
+          docker build --build-arg GIT_SHA="$(git rev-parse HEAD^)" -t synaptane:previous "$RUNNER_TEMP/previous"
+          echo "image=synaptane:previous" >> "$GITHUB_OUTPUT"
+      - name: Compose run (upgrade from the previous version, space, worker, backup, down -v, restore)
+        env:
+          SYNAPTANE_PREVIOUS_IMAGE: ${{ steps.previous.outputs.image }}
+        run: |
+          SYNAPTANE_PREVIOUS_COMPOSE="$RUNNER_TEMP/previous/compose.yaml" \
+          SYNAPTANE_IMAGE=synaptane:ci ./scripts/e2e-compose.sh

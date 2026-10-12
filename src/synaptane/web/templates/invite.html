@@ -1,0 +1,24 @@
+{% extends "public-card.html" %}
+{% block title %}{{ _("Invitation") }} · Synaptane{% endblock %}
+{% block card %}
+{% if invitation is none %}
+  <h1 class="card-title">{{ _("Invitation") }}</h1>
+  <div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>
+  <a class="button button-wide" href="/login">{{ _("Go to sign-in") }}</a>
+{% else %}
+  <p class="eyebrow">{{ _("Invitation") }}</p>
+  <h1 class="card-title">{{ _("Join “{org}”", org=org.name) }}</h1>
+  {% set role_names = {"admin": _("administrator"), "member": _("member"), "contributor": _("contributor"), "reader": _("reader")} %}
+  <p>{% if inviter %}{{ _("{name} invites you as {role} of the organization.", name=inviter, role=role_names.get(invitation.org_role, invitation.org_role)) }}{% else %}{{ _("You are invited as {role} of the organization.", role=role_names.get(invitation.org_role, invitation.org_role)) }}{% endif %}</p>
+  {% if granted %}<ul>{% for space, role in granted %}<li>{{ space }} : {{ role_names.get(role, role) }}</li>{% endfor %}</ul>{% endif %}
+  <p class="muted">{{ _("Create your account for {email}.", email=invitation.email) }}</p>
+  {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
+  <form method="post" action="/invite/{{ token }}">
+    <div class="field"><label for="display-name">{{ _("Your name") }}</label><input id="display-name" name="display_name" required maxlength="120" value="{{ form.display_name if form else '' }}" autocomplete="name"></div>
+    <div class="field"><label for="username">{{ _("Username") }}</label><input id="username" name="username" required maxlength="64" value="{{ form.username if form else invitation.email.split('@')[0] }}" autocomplete="username"><p class="muted">{{ _("Lowercase letters, digits, dots and hyphens.") }}</p></div>
+    <div class="field"><label for="password">{{ _("Password") }}</label><input id="password" type="password" name="password" required minlength="12" autocomplete="new-password"><p class="muted">{{ _("12 characters minimum.") }}</p></div>
+    <button class="button button-primary button-wide" type="submit">{{ _("Create my account") }}</button>
+  </form>
+  <p class="login-help">{{ _("Already have an account?") }} <a href="/login">{{ _("Sign in", context="link") }}</a></p>
+{% endif %}
+{% endblock %}

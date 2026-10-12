@@ -1,0 +1,6 @@
+name,role,location,ports,firmware,checked
+core-a,core,rack A,48,7.4.2,2026-10-04
+core-b,core,rack B,48,7.4.2,2026-10-04
+floor-1,access,floor 1,24,7.3.9,2026-10-04
+floor-2,access,floor 2,24,7.3.9,2026-10-04
+floor-3,access,floor 3,24,7.3.9,2026-10-04

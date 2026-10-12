@@ -1,0 +1,8 @@
+Synaptane
+Copyright 2026 René Cotton and the Synaptane contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes third-party components (fonts, icons, and the libraries and tools
+bundled in the Docker images) distributed under their own licenses: see
+THIRD_PARTY_NOTICES.md.

@@ -1,0 +1,11 @@
+# Fake secrets used on purpose to test Synaptane's own secret detector.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures of the secret detector"
+paths = [
+  '''tests/unit/test_secret_scan\.py''',
+  '''tests/integration/test_inbox\.py''',
+  '''tests/integration/test_ssh_credentials_storage\.py''',
+]

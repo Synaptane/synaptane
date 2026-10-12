@@ -1,0 +1,8 @@
+{# "Tidy now" button, shared by the tidy-up log and the inbox: subdued when the run is very
+   likely to fail (`caution`), confirmed when it costs money (`paid`, `average_cost`); see
+   tidy_pages.run_now_context. #}
+{% from "ui.html" import action with context %}
+{% macro run_now_button(url, caution, paid, average_cost, small=false) -%}
+{% if paid %}{% set confirm = _("Start a run now? It uses tokens billed by the provider (about {amount} per run lately).", amount=average_cost|euros) if average_cost else _("Start a run now? It uses tokens billed by the provider.") %}{% else %}{% set confirm = "" %}{% endif %}
+{{ action(url, _("Tidy now"), confirm=confirm, kind="" if caution else "primary", small=small) }}
+{%- endmacro %}

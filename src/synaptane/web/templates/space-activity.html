@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% block title %}{{ _("Activity") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span aria-current="page">{{ _("Activity") }}</span>{% endblock %}
+{% block content %}
+{% set space_tab = "activity" %}{% include "space-tabs.html" %}
+{% set base = '/o/' ~ org.slug ~ '/' ~ space.slug %}
+<h2 class="settings-title">{{ _("Activity") }}</h2>
+<p class="muted">{{ _("Everything that changes in the space, from the Git history: pages, inbox and tidy-up, from Synaptane or pushed from elsewhere.") }}</p>
+{% set filters = [('', _("All")), ('page', _("Pages")), ('inbox', _("Inbox")), ('tidy', _("Tidy-up runs")), ('external', _("Pushed outside Synaptane"))] %}
+<nav class="segmented section-gap-small" aria-label="{{ _('Filter activity') }}">
+  {% for value, label in filters %}<a class="segmented-option" href="{{ base }}/activity{% if value %}?kind={{ value }}{% endif %}" {% if kind == value %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+{% set labels = {"page": _("Page"), "inbox": _("Note"), "tidy": _("Tidy-up"), "system": _("Synaptane")} %}
+<ol class="activity section-gap-small">
+  {% for event in events %}
+  <li class="activity-item activity-{{ event.kind }}">
+    <div class="activity-head">
+      <span class="badge {{ 'badge-quiet' if event.kind != 'page' else '' }}">{{ labels[event.kind] }}</span>
+      <strong>{{ event.author }}</strong>
+      <span class="muted"><time datetime="{{ event.date }}" data-local="full">{{ event.date[:16].replace('T', ' ') }}</time>{% if event.external %} · {{ _("pushed outside Synaptane") }}{% endif %}</span>
+    </div>
+    <p class="activity-subject" title="{{ event.subject }}">{% if event.kind == 'tidy' %}<a href="{{ base }}/tidy">{{ event.subject|commit_label }}</a>{% else %}{{ event.subject|commit_label }}{% endif %}</p>
+    {% if event.pages %}
+    <ul class="activity-pages">{% for p in event.pages[:8] %}<li><a href="{{ base }}/diff/{{ event.sha }}/{{ p|pathurl }}">{{ p }}</a></li>{% endfor %}{% if event.pages|length > 8 %}<li class="muted">{{ _("and {count} more", count=event.pages|length - 8) }}</li>{% endif %}</ul>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="empty">{{ _("No activity yet.") if not kind else _("No activity of this kind.") }}</li>
+  {% endfor %}
+</ol>
+{% if following %}<a class="button" href="{{ base }}/activity?skip={{ following }}{% if kind %}&amp;kind={{ kind }}{% endif %}">{{ _("Older") }}</a>{% endif %}
+{% endblock %}

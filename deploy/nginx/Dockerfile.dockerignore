@@ -1,0 +1,7 @@
+# Build context of deploy/nginx/Dockerfile (the root of the repository): only these files.
+*
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
+!deploy/nginx/synaptane.conf.template
+!deploy/nginx/start.sh

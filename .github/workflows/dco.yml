@@ -1,0 +1,56 @@
+name: DCO
+
+# Developer Certificate of Origin (CONTRIBUTING.md): every commit of a pull request carries a
+# `Signed-off-by: Name <email>` line. Merge commits are not checked. No third-party action:
+# only git, on the pull request's commits; nothing from the pull request is run.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push on the same pull request cancels the check that has become useless.
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions pinned by commit hash (a tag can be moved); the version is in a comment, and
+# Dependabot keeps both up to date.
+jobs:
+  sign-off:
+    name: Signed-off-by on every commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }} # the commits themselves, not the merge
+          fetch-depth: 0 # full history: the base commit is needed for base..head
+          persist-credentials: false # no push: the token does not stay in .git
+      - name: Check sign-offs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2> /dev/null; then
+            echo "::error::Base commit ${BASE_SHA::7} not found in the fetched history."
+            exit 1
+          fi
+          commits="$(git rev-list --no-merges --reverse "${BASE_SHA}..${HEAD_SHA}")"
+          checked=0
+          missing=0
+          for sha in $commits; do
+            checked=$((checked + 1))
+            if ! git log -1 --format=%B "$sha" \
+              | grep -Eq '^Signed-off-by: [^<>]+ <[^<>[:space:]]+@[^<>[:space:]]+>[[:space:]]*$'; then
+              missing=$((missing + 1))
+              echo "::error::Commit ${sha::7} has no Signed-off-by line: $(git log -1 --format=%s "$sha")"
+            fi
+          done
+          echo "${checked} commit(s) checked, ${missing} without sign-off."
+          if [ "$missing" -gt 0 ]; then
+            echo "Sign off with \`git commit --amend -s\` (last commit) or" \
+              "\`git rebase --signoff ${BASE_SHA::7}\` (whole branch), then force-push." \
+              "See CONTRIBUTING.md."
+            exit 1
+          fi

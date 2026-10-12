@@ -1,0 +1,127 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field, action, when, copyable, reveal_notice with context %}
+{% set section = "git" %}
+{% set status_labels = {"never": _("Never synchronized"), "ok": _("Up to date"), "error": _("Error", context="status"), "conflict": _("In conflict")} %}
+{% set status_class = {"never": "", "ok": "status-ok", "error": "status-error", "conflict": "status-warn"} %}
+{% block section %}
+<div class="content-narrow">
+<section class="card git-state">
+  <div class="section-heading">
+    <h2>{{ _("Status") }}</h2>
+    {% if space.repo_url %}<span class="status {{ status_class[space.sync_status] }}">{{ status_labels[space.sync_status] }}</span>{% endif %}
+  </div>
+  {% if space.repo_url %}
+  <dl class="metadata">
+    <div><dt>{{ _("Git repository") }}</dt><dd><code>{{ space.repo_url }}</code> · <code>{{ space.branch }}</code></dd></div>
+    {% if space.synced_at %}<div><dt>{{ _("Last synchronization") }}</dt><dd>{{ when(space.synced_at) }}</dd></div>{% endif %}
+    {% if space.remote_head %}<div><dt>{{ _("Latest commit") }}</dt><dd><code>{{ space.remote_head[:10] }}</code></dd></div>{% endif %}
+  </dl>
+  {% if space.sync_error %}<div class="notice notice-error" role="alert"><p>{{ git_error(space.sync_error) }}</p></div>{% endif %}
+  {# Sync requested, in progress or next attempt: the page reloads on its own as long as the result may arrive at any moment. #}
+  {% set sync = sync_activity %}
+  {% if sync %}
+  {% if sync.poll %}<div hidden data-tidy-state="/o/{{ org.slug }}/{{ space.slug }}/-/git/state" data-version="{{ sync_version }}"></div>{% endif %}
+  <p class="sync-activity status {{ 'status-warn' if sync.state == 'retry' or sync.stalled else '' }}" role="status"><span>
+    {%- if sync.state == 'running' %}{{ _("Synchronizing…") }}
+    {%- elif sync.state == 'retry' %}{{ (_("Automatic retry on {when}, after {n} failures. “Synchronize now” runs it right away.")|e).format(when=when(sync.at), n=sync.failures) if sync.failures > 1 else (_("Automatic retry on {when}. “Synchronize now” runs it right away.")|e).format(when=when(sync.at)) }}
+    {%- elif sync.stalled %}{{ (_("Synchronization requested on {when}: the worker has not picked it up yet.")|e).format(when=when(sync.at)) }}
+    {%- else %}{{ _("Synchronization requested: it starts as soon as the worker is free.") }}{% endif %}
+    {%- if sync.poll %} <span data-live-hint hidden>{{ _("This page updates by itself.") }}</span>{% endif -%}
+  </span></p>
+  {% endif %}
+  {% if contribute %}<div class="actions section-gap-small">{{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/sync", _("Synchronize now"), small=false) }}</div>{% endif %}
+  {% else %}
+  <p>{{ _("No Git repository is linked: the wiki and the inbox stay empty until one is.") }}{% if not manage %} {{ _("Ask an organization administrator to link it.") }}{% endif %}</p>
+  {% endif %}
+</section>
+
+{% if vocation_pending %}
+<div class="notice section-gap" role="status"><p>{{ _("Space purpose chosen: it will be written to the repository at the first synchronization (unless it already has its own).") }} <a href="/o/{{ org.slug }}/{{ space.slug }}/-/vocation">{{ _("Review or adapt the purpose") }}</a></p></div>
+{% endif %}
+
+{% if space.sync_status == 'conflict' %}
+<form class="card section-gap" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/conflicts">
+  <h2>{{ _("Conflicts to resolve") }}</h2>
+  {% if manage %}
+  <p class="muted">{{ _("These files were changed both in Synaptane and on the remote repository. Compare, then choose the version to keep; Git history keeps the other one.") }}</p>
+  {{ csrf_field() }}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>{{ _("File") }}</th><th>{{ _("Version to keep") }}</th></tr></thead>
+      <tbody>
+        {% for path in space.conflict_paths %}
+        <tr>
+          <td><code>{{ path }}</code><input type="hidden" name="path" value="{{ path }}"> <a href="/o/{{ org.slug }}/{{ space.slug }}/-/compare?path={{ path|urlencode }}">{{ _("Compare") }}</a></td>
+          <td><label class="sr-only" for="choice-{{ loop.index }}">{{ _("Version to keep") }}</label><select id="choice-{{ loop.index }}" name="choice" required><option value="">{{ _("Choose…") }}</option><option value="local">{{ _("Synaptane's") }}</option><option value="remote">{{ _("The remote repository's") }}</option></select></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Resolve conflicts") }}</button>
+  {% else %}
+  <p>{{ _("An organization administrator must choose which version to keep for: {paths}.", paths=space.conflict_paths|join(", ")) }}</p>
+  {% endif %}
+</form>
+{% endif %}
+
+{% if manage %}
+<form class="card section-gap" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/repository" data-test="repo-form">
+  <h2><span class="step">1</span>{{ _("Repository address") }}</h2>
+  {{ csrf_field() }}
+  <div class="form-columns repo-columns">
+    <div class="field"><label for="space-repo">{{ _("Git repository address") }}</label><input id="space-repo" name="repo_url" value="{{ space.repo_url or '' }}" required placeholder="https://gitlab.com/acme/brain.git"><p class="muted">{{ _("HTTPS (token) or SSH (deploy key).") }}</p></div>
+    <div class="field"><label for="space-branch">{{ _("Branch") }}</label><input id="space-branch" name="branch" value="{{ space.branch }}" required></div>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Save the address") }}</button>
+</form>
+
+{% if space.repo_url %}
+<section class="card section-gap">
+  <h2><span class="step">2</span>{{ _("Repository access") }}</h2>
+  <p class="muted">{% if credential_kind == 'https' %}{{ _("HTTPS access token saved.") }}{% elif credential_kind == 'ssh' %}{{ _("SSH key saved.") }}{% else %}{{ _("No credentials: only public repositories can be read.") }}{% endif %} {{ _("Secrets are encrypted and never shown again.") }}</p>
+  {% if space.repo_url.startswith('https://') %}
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/git/https">
+    {{ csrf_field() }}
+    <div class="field"><label for="git-token">{{ _("Access token") }}</label><input id="git-token" name="token" type="password" autocomplete="off" required><p class="muted">{{ _("GitHub: fine-grained token limited to the repository, “Contents” read and write. GitLab: project access token with “write_repository”.") }}</p></div>
+    <div class="field field-short"><label for="git-user">{{ _("Username (optional)") }}</label><input id="git-user" name="username" autocomplete="off" placeholder="synaptane"></div>
+    <button class="button button-primary" type="submit">{{ _("Save token") }}</button>
+  </form>
+  {% elif ssh_remote %}
+  {# Reading reloads the page: to be done before pasting the private key, hence the order. #}
+  <div class="actions git-scan">
+    {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/git/scan", _("Read the SSH server keys")) }}
+    <span class="muted">{{ _("First: fills in the “Server keys” field below (the page reloads).") }}</span>
+  </div>
+  {% if fingerprints %}
+  <div class="notice section-gap-small"><p>{{ _("Compare these fingerprints with those published by your host before saving:") }}</p>{% for line in fingerprints %}<p><code>{{ line }}</code></p>{% endfor %}</div>
+  {% endif %}
+  <form class="section-gap-small" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/git/ssh">
+    {{ csrf_field() }}
+    <div class="field"><label for="git-key">{{ _("Private key (deploy key, without passphrase)") }}</label><textarea id="git-key" class="mono-field" name="private_key" rows="5" autocomplete="off" data-no-draft required placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div>
+    <div class="field"><label for="git-hosts">{{ _("Server keys (known_hosts)") }}</label><textarea id="git-hosts" class="mono-field" name="known_hosts" rows="3" required aria-describedby="git-hosts-help">{{ scanned_keys }}</textarea><p class="muted" id="git-hosts-help">{{ _("Filled in by “Read the SSH server keys” above, or copied from your host's documentation.") }}</p></div>
+    <button class="button button-primary" type="submit">{{ _("Save key") }}</button>
+  </form>
+  {% endif %}
+  {% if credential_kind %}<div class="actions section-gap-small">{{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/git/clear", _("Delete credentials"), confirm=_("Delete the credentials? Synaptane will no longer be able to write to the repository."), kind="danger") }}</div>{% endif %}
+</section>
+
+<section class="card section-gap">
+  <h2><span class="step">3</span>{{ _("Webhook (optional)") }}</h2>
+  <p class="muted">{{ _("Notifies Synaptane on every push for an immediate synchronization. Without a webhook, synchronization happens every few minutes.") }}</p>
+  {% if revealed %}{{ reveal_notice(revealed, _("Copy this secret now into the webhook settings: it will not be shown again.")) }}{% endif %}
+  <dl class="metadata webhook-meta">
+    <div><dt>{{ _("URL") }}</dt><dd>{{ copyable("webhook-url", webhook_url) }}</dd></div>
+    <div><dt>{{ _("Secret") }}</dt><dd>{{ _("configured") if has_webhook_secret else _("none") }}</dd></div>
+  </dl>
+  <p class="muted section-gap-small">{{ _("GitHub: Settings → Webhooks, content type “application/json”, “push” event. GitLab: Settings → Webhooks, “Secret token”, “Push events”.") }}</p>
+  {% if has_webhook_secret %}
+  {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/webhook", _("Generate a new secret"), confirm=_("The current webhook will stop working until you paste the new secret at your host. Continue?")) }}
+  {% else %}
+  {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/webhook", _("Generate the secret")) }}
+  {% endif %}
+</section>
+{% endif %}
+{% endif %}
+</div>
+{% endblock %}

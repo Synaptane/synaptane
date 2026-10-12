@@ -1,0 +1,36 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% block section %}
+<section aria-labelledby="orgs-title">
+  <div class="section-heading"><h2 id="orgs-title">{{ _("Organizations") }} <span class="admin-count">{{ orgs|length }}</span></h2></div>
+  {% if orgs %}
+  <ul class="card admin-list">
+    {% for org in orgs %}
+    <li class="admin-row">
+      <div class="admin-row-main">
+        <a class="admin-row-title" href="/o/{{ org.slug }}">{{ org.name }}</a>
+        <span class="admin-row-meta"><code>{{ org.slug }}</code>{% if org.description %} · {{ org.description }}{% endif %}</span>
+      </div>
+      <a class="button button-small" href="/o/{{ org.slug }}/-/settings">{{ _("Settings") }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">{{ _("No organization: create the first one to hold spaces.") }}</p>
+  {% endif %}
+</section>
+<form class="card section-gap" method="post" action="/admin/organizations">
+  <h2>{{ _("New organization") }}</h2>
+  {{ csrf_field() }}
+  <div class="form-columns">
+    <div class="field"><label for="org-name">{{ _("Name") }}</label><input id="org-name" name="name" required maxlength="120"></div>
+    <div class="field"><label for="org-slug">{{ _("Identifier") }}</label><input id="org-slug" name="slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" title="{{ _('Lowercase letters, digits and hyphens') }}" placeholder="acme" aria-describedby="org-slug-help"><p class="muted" id="org-slug-help">{{ _("Lowercase letters, digits and hyphens; used in the address: /o/identifier.") }}</p></div>
+  </div>
+  <div class="field"><label for="org-description">{{ _("Description (optional)") }}</label><textarea id="org-description" name="description" rows="2"></textarea></div>
+  <div class="admin-check">
+    <label class="checkbox"><input type="checkbox" name="join" value="true" checked aria-describedby="org-join-help">{{ _("Make me an administrator of this organization") }}</label>
+    <p class="muted" id="org-join-help">{{ _("Otherwise, your AI assistants will see nothing in it.") }}</p>
+  </div>
+  <button class="button button-primary" type="submit">{{ icon('plus') }}{{ _("Create organization") }}</button>
+</form>
+{% endblock %}

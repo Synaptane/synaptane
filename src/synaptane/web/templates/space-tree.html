@@ -1,0 +1,22 @@
+{# Tree of a space, in the left bar. Only the path of the current page is rendered
+   expanded; other folders expand on demand (fragment /-/tree?dir=…). #}
+{% from "icons.html" import ref, file_icon %}
+{% macro tree_children(folder, base, current, limit=200) -%}
+<ul class="space-tree-list">
+  {% for name, child in folder.folders.items() %}
+  {% set opened = current == child.path or current.startswith(child.path ~ '/') %}
+  <li>
+    <div class="space-tree-row">
+      <button type="button" class="tree-toggle" aria-expanded="{{ 'true' if opened else 'false' }}" data-tree="{{ base }}/-/tree?dir={{ child.path|urlencode }}" aria-label="{{ _('Expand {name}', name=name) }}"></button>
+      <a class="space-tree-entry" href="{{ base }}/p/{{ child.path|pathurl }}" {% if current == child.path %}aria-current="page"{% endif %}>{{ ref('folder') }}<span>{{ name }}</span></a>
+    </div>
+    {% if opened %}{{ tree_children(child, base, current, limit) }}{% endif %}
+  </li>
+  {% endfor %}
+  {% for blob in folder.files[:limit] %}
+  {% set name = blob.path.rsplit('/', 1)[-1] %}
+  <li><div class="space-tree-row"><span class="tree-spacer"></span><a class="space-tree-entry" href="{{ base }}/p/{{ blob.path|pathurl }}" {% if current == blob.path %}aria-current="page"{% endif %}>{{ file_icon(name) }}<span>{{ name }}</span></a></div></li>
+  {% endfor %}
+  {% if folder.files|length > limit %}<li><div class="space-tree-row"><span class="tree-spacer"></span><a class="space-tree-entry space-tree-more" href="{{ base }}/p/{{ folder.path|pathurl }}"><span>{{ _("… and {count} more files", count=folder.files|length - limit) }}</span></a></div></li>{% endif %}
+</ul>
+{%- endmacro %}

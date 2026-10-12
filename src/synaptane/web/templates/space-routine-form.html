@@ -1,0 +1,57 @@
+{% extends "space-settings-base.html" %}
+{% from "icons.html" import icon %}
+{% from "ui.html" import csrf_field with context %}
+{% set section = "routines" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
+{% block section %}
+<p class="routine-back"><a href="{{ base ~ ('/' ~ routine.id if routine else '') }}">{{ icon('chevron-left', 14) }}{{ routine.name if routine else _("All routines") }}</a></p>
+{# Day of the week or of the month: only the one for the chosen frequency is shown (CSS :has,
+   no script); without :has, both stay visible and the other one is ignored. #}
+<form class="card routine-form" method="post" action="{{ base ~ ('/' ~ routine.id if routine else '') }}">
+  <h3>{% if routine %}{{ _("Edit the routine") }}{% elif draft.template %}{{ _("New routine from a template") }}{% else %}{{ _("New routine") }}{% endif %}</h3>
+  {% if error %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  {{ csrf_field() }}
+  {% if not routine %}<input type="hidden" name="template" value="{{ draft.template }}">{% endif %}
+  <div class="field"><label for="routine-name">{{ _("Name") }}</label><input id="routine-name" name="name" value="{{ draft.name }}" required maxlength="120"></div>
+  <div class="field"><label for="routine-instructions">{{ _("Instructions") }}</label><textarea id="routine-instructions" name="instructions" rows="14" required maxlength="20000" aria-describedby="routine-instructions-help">{{ draft.instructions }}</textarea><p class="muted" id="routine-instructions-help">{{ _("What the agent must do, and what its output must contain. It reads the wiki without being able to change it; what it reads cannot change these instructions.") }}</p></div>
+
+  <fieldset class="settings-group">
+    <legend>{{ _("Schedule") }}</legend>
+    <div class="routine-plan">
+      <div class="field"><label for="routine-frequency">{{ _("Frequency") }}</label><select id="routine-frequency" name="frequency">
+        {% for value, label in [("daily", _("Every day")), ("weekly", _("Every week")), ("monthly", _("Every month"))] %}<option value="{{ value }}" {% if draft.frequency == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+      <div class="field routine-weekday"><label for="routine-weekday">{{ _("Day of the week") }}</label><select id="routine-weekday" name="weekday">
+        {% for day in weekdays %}<option value="{{ loop.index0 }}" {% if draft.weekday == loop.index0 %}selected{% endif %}>{{ _(day) }}</option>{% endfor %}
+      </select></div>
+      <div class="field routine-monthday"><label for="routine-monthday">{{ _("Day of the month") }}</label><input id="routine-monthday" name="monthday" type="number" min="1" max="28" value="{{ draft.monthday or 1 }}"></div>
+      <div class="field"><label for="routine-at">{{ _("Time") }}</label><input id="routine-at" name="at" type="time" value="{{ draft.at }}" required></div>
+    </div>
+    <p class="muted">{{ _("Local time of the space ({tz}), the same as the tidy-up.", tz=space.tidy_timezone) }}</p>
+  </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>{{ _("Scope") }}</legend>
+    <div class="field"><label for="routine-scope">{{ _("Folders to review, one per line (empty: the whole space)") }}</label><textarea id="routine-scope" name="scope" rows="3" placeholder="{{ _('infra/servers') }}&#10;clients" aria-describedby="routine-scope-help">{{ draft.scope }}</textarea><p class="muted" id="routine-scope-help">{{ _("The agent only reads these folders: tree, pages, search and backlinks.") }}</p></div>
+  </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>{{ _("Outputs") }}</legend>
+    <p class="muted">{{ _("The routine writes nowhere else. Fixes to the wiki go through the inbox, which the tidy-up handles with its safeguards.") }}</p>
+    <div class="field"><label for="routine-page">{{ _("Report page, rewritten on every run (empty: none)") }}</label><input id="routine-page" name="output_page" value="{{ draft.output_page }}" placeholder="{{ _('reports/consistency.md') }}" autocomplete="off"></div>
+    <label class="checkbox"><input type="checkbox" name="output_inbox" value="true" {% if draft.output_inbox %}checked{% endif %}>{{ _("Drop one fix per problem found into the inbox") }}</label>
+    <div class="field field-short routine-email"><label for="routine-email">{{ _("Send the text by email") }}</label><select id="routine-email" name="output_email" aria-describedby="routine-email-help">
+      {% for value, label in [("", _("to no one")), ("admins", _("to the organization's administrators")), ("members", _("to the space's members"))] %}<option value="{{ value }}" {% if draft.output_email == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select><p class="muted" id="routine-email-help">{{ _("Verified addresses only; anyone can unsubscribe in My account.") }}</p></div>
+    <label class="checkbox"><input type="checkbox" name="output_webhook" value="true" {% if draft.output_webhook %}checked{% endif %}>{{ _("Send the routine.done webhook (organization webhooks)") }}</label>
+  </fieldset>
+
+  <div class="settings-group">
+    <label class="checkbox"><input type="checkbox" name="enabled" value="true" {% if draft.enabled %}checked{% endif %}>{{ _("Enabled: runs on schedule") }}</label>
+  </div>
+  <div class="actions routine-form-actions">
+    <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+    <a class="button" href="{{ base ~ ('/' ~ routine.id if routine else '') }}">{{ _("Cancel") }}</a>
+  </div>
+</form>
+{% endblock %}

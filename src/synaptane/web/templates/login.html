@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon %}
+{% block title %}{{ _("Sign in") }} · Synaptane{% endblock %}
+{% block content %}
+<div class="login-layout">
+  <section class="introduction">
+    <h1>{{ _("Your team's second brain.") }}</h1>
+    <p class="intro-copy">{{ _("Your knowledge stored in Git, browsable like a wiki and available from your AI assistant.") }}</p>
+  </section>
+  <section class="card login-card" aria-labelledby="login-title">
+    <h2 id="login-title">{{ _("Sign in") }}</h2>
+    {% if error %}<div class="notice notice-error" role="alert">{{ _(error, **(error_values or {})) }}</div>{% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <div class="field">
+        <label for="username">{{ _("Username or email") }}</label>
+        <input id="username" name="username" autocomplete="username" maxlength="320" required value="{{ username }}" autofocus>
+      </div>
+      <div class="field">
+        <label for="password">{{ _("Password") }}</label>
+        <input id="password" type="password" name="password" autocomplete="current-password" maxlength="256" required>
+      </div>
+      <button class="button button-primary button-wide" type="submit">{{ _("Sign in", context="button") }} {{ icon('arrow-right', 16) }}</button>
+      <p class="login-help"><a href="/login/forgot">{{ _("Forgot your password?") }}</a></p>
+    </form>
+    {% if providers %}
+    <div class="sso-buttons">
+      <p class="muted">{{ _("or") }}</p>
+      {% for provider in providers %}<a class="button button-wide" href="/sso/{{ provider.slug }}/start?next={{ next_url|urlencode }}">{{ _("Sign in with {name}", name=provider.name) }}</a>{% endfor %}
+    </div>
+    {% endif %}
+    <form class="language-form" method="get" action="/login">
+      <label for="language">{{ _("Language") }}</label>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <select id="language" name="lang">
+        <option value="fr" {% if locale == 'fr' %}selected{% endif %}>Français</option>
+        <option value="en" {% if locale == 'en' %}selected{% endif %}>English</option>
+      </select>
+      <button class="button button-quiet" type="submit">{{ _("Change") }}</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

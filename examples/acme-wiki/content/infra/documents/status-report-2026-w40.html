@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly status report, week 40</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #1d2733; background: #fafbfc; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.2rem; }
+  .period { color: #5a6b7d; margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; max-width: 46rem; margin: 1rem 0 2rem; }
+  th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid #dde3ea; }
+  th { background: #e8eef4; }
+  .ok { color: #1f7a3a; font-weight: 600; }
+  .warn { color: #a05a00; font-weight: 600; }
+  .bar { background: #e8eef4; width: 12rem; height: 0.8rem; border-radius: 0.4rem; }
+  .bar span { display: block; height: 100%; border-radius: 0.4rem; background: #3d7bb8; }
+  .bar .high { background: #d08a1f; }
+  footer { color: #5a6b7d; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<h1>Weekly status report, week 40</h1>
+<p class="period">29 September to 5 October 2026 &middot; Acme IT team &middot; exported from
+the Zabbix dashboard</p>
+
+<h2>Services</h2>
+<table>
+  <tr><th>Service</th><th>Hosts</th><th>Uptime</th><th>State</th></tr>
+  <tr><td>Public website</td><td>web1, web2</td><td>100 %</td><td class="ok">OK</td></tr>
+  <tr><td>PostgreSQL</td><td>db1, db2</td><td>99.99 %</td><td class="ok">OK</td></tr>
+  <tr><td>VPN</td><td>vpn.acme.internal</td><td>99.95 %</td><td class="ok">OK</td></tr>
+  <tr><td>GitLab</td><td>gitlab.acme.internal</td><td>99.90 %</td>
+    <td class="warn">Slow on 2 October</td></tr>
+  <tr><td>Tickets</td><td>glpi.acme.internal</td><td>100 %</td><td class="ok">OK</td></tr>
+</table>
+
+<h2>Disk usage</h2>
+<table>
+  <tr><th>Host</th><th>Used</th><th></th></tr>
+  <tr><td>db1</td><td>78 %</td><td><div class="bar"><span class="high" style="width: 78%">
+    </span></div></td></tr>
+  <tr><td>pve1</td><td>64 %</td><td><div class="bar"><span style="width: 64%"></span></div>
+    </td></tr>
+  <tr><td>web1</td><td>41 %</td><td><div class="bar"><span style="width: 41%"></span></div>
+    </td></tr>
+</table>
+
+<h2>Alerts this week</h2>
+<table>
+  <tr><th>When</th><th>Host</th><th>Alert</th><th>Resolved</th></tr>
+  <tr><td>30 Sep, 02:14</td><td>gitlab</td><td>CI runner queue above 20 jobs</td>
+    <td>02:51</td></tr>
+  <tr><td>2 Oct, 11:05</td><td>gitlab</td><td>HTTP response time above 2 s</td>
+    <td>11:40</td></tr>
+  <tr><td>4 Oct, 23:30</td><td>db1</td><td>Disk usage above 75 % (warning)</td>
+    <td>open</td></tr>
+</table>
+
+<footer>Generated every Monday at 08:00 for the team meeting. Alert threshold for disks: 85 %.
+On call this week: Hugo Bernard.</footer>
+</body>
+</html>

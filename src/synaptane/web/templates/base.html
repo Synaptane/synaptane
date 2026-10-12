@@ -1,0 +1,109 @@
+{% from "icons.html" import icon, mark, sep, sprite %}
+<!doctype html>
+<html lang="{{ locale }}" data-user-key="{{ user.id if user else 'public' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Synaptane{% endblock %}</title>
+  <link rel="icon" href="/static/icon.svg?v={{ static_version }}" type="image/svg+xml">
+  <script src="/static/preferences.js?v={{ static_version }}"></script>
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  {% block head %}{% endblock %}
+</head>
+{# Password that must be changed: no navigation until it is done. #}
+{% set shell = user and not bare and not user.must_change_password %}
+<body class="{{ 'workspace' if shell else 'public-page' }}">
+  {{ sprite() }}
+  <a class="skip-link" href="#content">{{ _("Skip to content") }}</a>
+  {% if shell %}
+  <div class="sidebar-scrim" data-sidebar-scrim aria-hidden="true"></div>
+  <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="{{ _('Main navigation') }}">
+    <div class="sidebar-brand">
+      <a class="brand" href="/">{{ mark() }}Synaptane</a>
+      <button type="button" class="icon-button" data-sidebar-close aria-label="{{ _('Hide navigation') }}">{{ icon('chevron-left', 16) }}</button>
+    </div>
+    {# After the drop, back to the page we came from (`next`), with "View the note". #}
+    {% set deposit_params = [] %}
+    {% if space is defined and space %}{% set deposit_params = deposit_params + ['space=' ~ space.address|urlencode] %}{% endif %}
+    {% if request.method == 'GET' and request.url.path != '/deposit' %}{% set deposit_params = deposit_params + ['next=' ~ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode] %}{% endif %}
+    {% if can_deposit %}<a class="button button-primary sidebar-deposit" data-test="deposit-link" href="/deposit{% if deposit_params %}?{{ deposit_params|join('&') }}{% endif %}" {% if request.url.path == '/deposit' %}aria-current="page"{% endif %}>{{ icon('plus') }}{{ _("Drop information") }}</a>{% endif %}
+    <div class="sidebar-tree">
+      <div class="tree-heading">{{ _("Organizations") }}</div>
+      <div class="knowledge-tree">
+        {% for org, org_spaces in nav %}
+        {% set org_path = '/o/' ~ org.slug %}
+        <div class="tree-node tree-organization">
+          <a class="tree-org-link" href="{{ org_path }}" {% if request.url.path == org_path or request.url.path.startswith(org_path ~ '/-/') %}aria-current="page"{% endif %}><span class="tree-label">{{ org.name }}</span></a>
+          <div class="tree-children">
+            {% for item in org_spaces %}
+            {% if space is defined and space.id == item.id %}
+            {% include "space-sidebar.html" %}
+            {% else %}
+            <a class="tree-document" href="{{ org_path ~ '/' ~ item.slug }}"><span class="tree-icon">{{ icon('folder') }}</span><span class="tree-label">{{ item.name }}</span></a>
+            {% endif %}
+            {% else %}
+            <p class="tree-status">{{ _("No spaces") }}</p>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+        <p class="tree-status">{{ _("No organizations") }}</p>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-account">
+        <a class="account-label" href="/account" {% if request.url.path.startswith('/account') %}aria-current="page"{% endif %}><span class="avatar" aria-hidden="true">{{ user.display_name[:1]|upper }}</span><span><strong>{{ user.display_name }}</strong><small>@{{ user.username }}</small></span></a>
+        <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="icon-button" type="submit" aria-label="{{ _('Sign out') }}" title="{{ _('Sign out') }}">{{ icon('logout', 16) }}</button></form>
+      </div>
+    </div>
+  </aside>
+  {# Sheet: the top bar and the content, laid on the background next to the navigation. #}
+  <div class="workspace-sheet">
+  <header class="workspace-topbar">
+    <button type="button" class="icon-button" id="sidebar-toggle" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="{{ _('Show or hide navigation') }}">{{ icon('panel', 16) }}</button>
+    {# The breadcrumbs start at the organization: the sidebar logo already leads home. #}
+    {% if false %}{% block crumbs %}{% endblock %}{% endif %}
+    <nav class="topbar-crumbs" aria-label="{{ _('Breadcrumb') }}" data-more="{{ _('Show the full path') }}">{% if self.crumbs()|trim %}{{ self.crumbs() }}{% else %}<span aria-current="page">{{ _("Home") }}</span>{% endif %}</nav>
+    {% block topbar_end %}{% endblock %}
+    {# Search from every page: without JS, the search page; with JS, the palette
+       (also Ctrl/Cmd+K and "/"), limited to the current space with an "Everywhere" toggle. #}
+    {% set here_space = space if (space is defined and space and space.address is defined) else none %}
+    <a class="topbar-search" href="/search{% if here_space %}?space={{ here_space.address|urlencode }}{% endif %}" data-palette-open aria-keyshortcuts="Control+K Meta+K /" title="{{ _('Search (Ctrl+K or /)') }}">{{ icon('search', 16) }}<span class="topbar-search-label">{{ _("Search") }}</span><kbd data-shortcut-label>Ctrl K</kbd></a>
+  </header>
+  <dialog class="palette" id="search-palette" aria-label="{{ _('Search') }}" data-url="/search/titles" data-empty="{{ _('No page matches.') }}" data-short="{{ _('Type at least two characters.') }}" data-busy="{{ _('Searching…') }}" data-found-one="{{ _('1 page found.') }}" data-found-many="{{ _('{n} pages found.') }}" data-failed="{{ _('The search did not complete: try again.') }}">
+    <form class="palette-form" method="get" action="/search" role="search">
+      <div class="palette-field">
+        {{ icon('search', 18) }}
+        <label class="sr-only" for="palette-q">{{ _("Search for a page") }}</label>
+        <input id="palette-q" type="search" name="q" placeholder="{{ _('Search for a page…') }}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="palette-results">
+        <button type="button" class="icon-button palette-close" data-palette-close aria-label="{{ _('Close search') }}">{{ icon('x', 16) }}</button>
+      </div>
+      {% if here_space %}
+      <fieldset class="palette-scope">
+        <legend class="sr-only">{{ _("Where to search") }}</legend>
+        <label><input type="radio" name="space" value="{{ here_space.address }}" checked><span>{{ _("In {space}", space=here_space.name) }}</span></label>
+        <label><input type="radio" name="space" value=""><span>{{ _("Everywhere") }}</span></label>
+      </fieldset>
+      {% endif %}
+      <ul class="palette-results" id="palette-results" role="listbox" aria-label="{{ _('Pages found') }}" hidden></ul>
+      <p class="palette-status" data-palette-status role="status" aria-live="polite"></p>
+      <div class="palette-foot">
+        <button class="button button-small" type="submit">{{ _("See all results") }}</button>
+        <span class="palette-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> {{ _("select") }} · <kbd>↵</kbd> {{ _("open") }} · <kbd>{{ _("Esc") }}</kbd> {{ _("close") }}</span>
+      </div>
+    </form>
+  </dialog>
+  {% else %}
+  <header class="site-header">
+    <a class="brand" href="/">{{ mark() }}Synaptane</a>
+    {% include "theme-control.html" %}
+  </header>
+  {% endif %}
+  <main id="content" tabindex="-1">
+    {% if flash %}<div class="notice {{ {'error': 'notice-error', 'warning': 'notice-warning'}.get(flash.kind, 'notice-ok') }}" role="{{ 'alert' if flash.kind == 'error' else 'status' }}" data-flash="{{ flash.kind }}">{{ flash.text }}{% if flash.link and flash.link.url is string and flash.link.url.startswith('/') and not flash.link.url.startswith('//') %} <a href="{{ flash.link.url }}">{{ flash.link.label }}</a>{% endif %}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  {% if shell %}</div>{% endif %}
+</body>
+</html>

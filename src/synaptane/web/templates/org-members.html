@@ -1,0 +1,52 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, action, when, reveal_notice with context %}
+{% block section %}
+<div class="content-narrow">
+<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members only access the spaces they are added to.") }}</p>
+{% set members_url = "/o/" ~ org.slug ~ "/-/members" %}
+{% set role_labels = [("member", _("Member")), ("admin", _("Administrator"))] %}
+{% set empty_text = _("No members.") %}
+{% set add_help = _("For someone without an account yet: invite them by email below.") %}
+{% include "members-table.html" %}
+
+<section class="section-gap" id="invitations">
+  {% if revealed %}{{ reveal_notice(revealed, _("Invitation link to pass on (valid 14 days, single use):")) }}{% endif %}
+  <form class="card" method="post" action="/o/{{ org.slug }}/-/invitations" data-test="invite-form">
+    <h2>{{ _("Invite by email") }}</h2>
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="invite-email">{{ _("Email address") }}</label><input id="invite-email" name="email" type="email" required autocomplete="off"></div>
+      <div class="field"><label for="invite-role">{{ _("Role in the organization") }}</label><select id="invite-role" name="org_role"><option value="member">{{ _("Member") }}</option><option value="admin">{{ _("Administrator") }}</option></select></div>
+    </div>
+    {% if org_spaces %}
+    <fieldset><legend>{{ _("Access to spaces (optional)") }}</legend>
+      <ul class="access-list">
+        {% for item in org_spaces %}
+        <li>
+          <label for="space-role-{{ item.id }}">{{ item.name }}</label>
+          <select class="select-compact" id="space-role-{{ item.id }}" name="space_role"><option value="">{{ _("No access") }}</option><option value="{{ item.id }}:reader">{{ _("Reader") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option></select>
+        </li>
+        {% endfor %}
+      </ul>
+    </fieldset>
+    {% endif %}
+    <button class="button button-primary" type="submit">{{ _("Invite") }}</button>
+    <p class="muted">{{ _("If the address already has an account, access is granted at once. Otherwise, a link lets them create the account.") }}{% if not mail_ready %} {{ _("As email sending is not configured, the link will be shown to you so you can pass it on.") }}{% endif %}</p>
+  </form>
+</section>
+{% if invitations %}
+<section class="section-gap">
+  <h2>{{ _("Pending invitations") }}</h2>
+  <div class="stack">
+    {% for invitation in invitations %}
+    <article class="card token-card">
+      <div class="token-head"><h3>{{ invitation.email }}</h3><span class="badge badge-quiet">{{ _("Administrator") if invitation.org_role == 'admin' else _("Member") }}</span></div>
+      <div class="token-foot"><span>{{ _("Expires") }} {{ when(invitation.expires_at, "date") }}</span>
+        {{ action("/o/" ~ org.slug ~ "/-/invitations/" ~ invitation.id ~ "/revoke", _("Cancel"), confirm=_("Cancel the invitation for {email}?", email=invitation.email), kind="danger") }}</div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+</div>
+{% endblock %}

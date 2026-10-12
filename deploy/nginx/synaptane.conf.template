@@ -1,0 +1,79 @@
+# Generated at startup from /etc/synaptane/nginx.conf.template (DOMAIN, CERT_DIR).
+server_tokens off;
+
+# Log without secrets: link tokens (invitation, forgotten password, e-mail verification)
+# masked, and without query parameters.
+map $uri $synaptane_logged_uri {
+    ~^(?<synaptane_prefix>/(reset|invite|verify-email)/)  "${synaptane_prefix}…";
+    default                                               $uri;
+}
+log_format synaptane '$remote_addr - [$time_iso8601] "$request_method $synaptane_logged_uri" '
+                     '$status $body_bytes_sent "$http_user_agent"';
+access_log /var/log/nginx/access.log synaptane;
+
+# Any name other than DOMAIN (scan by IP address, made-up Host header): connection closed.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    return 444;
+}
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    ssl_reject_handshake on;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://${DOMAIN}$request_uri;  # not the Host header sent by the client
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate ${CERT_DIR}/fullchain.pem;
+    ssl_certificate_key ${CERT_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # Attachments and uploaded files: 25 MB each, several per upload.
+    client_max_body_size 100m;
+
+    # Compression of static files and JSON responses. Not HTML: it contains CSRF tokens
+    # next to user-entered text (BREACH attack).
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml text/plain;
+    gzip_min_length 1024;
+
+    # Resolved on every request (Docker DNS): a recreated `app` changes address.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $synaptane_app http://app:8000;
+
+    location / {
+        proxy_pass $synaptane_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;  # real address, cannot be spoofed
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Connection "";
+        # MCP (Streamable HTTP): streamed responses, no buffering.
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}

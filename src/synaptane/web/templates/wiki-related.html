@@ -1,0 +1,28 @@
+{# "See also" panel of a page, loaded after it (preferences.js, setupRelated). #}
+{% from "icons.html" import file_icon %}
+<h2 class="section-label" id="voir-aussi">{{ _("See also") }}</h2>
+<ul class="related-list">
+  {% for n in neighbours %}
+  <li class="related-item">
+    <div class="related-main">
+      <a class="related-link" href="{{ page_url(n.path) }}">{{ file_icon(n.path, 15) }}<span class="related-title">{{ n.title }}</span></a>
+      <p class="related-meta"><span class="related-reason">{% for code in n.reasons[:2] %}{{ _(labels[code]) }}{% if not loop.last %} · {% endif %}{% endfor %}</span><span class="related-path">{{ n.path }}</span></p>
+    </div>
+    {% if not n.linked %}
+    <div class="related-side">
+      <span class="badge badge-quiet related-unlinked" title="{{ _('This page does not link to it yet.') }}">{{ _("not linked yet") }}</span>
+      {% if contribute %}
+        {% if n.path in proposed %}
+        <span class="related-proposed">{{ _("Suggestion pending") }}</span>
+        {% else %}
+        <form method="post" action="{{ base }}/-/related/propose" class="related-propose">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ path }}"><input type="hidden" name="target" value="{{ n.path }}">
+          <button class="button-link" type="submit" title="{{ _('Drops a “Link” note in the inbox: the nightly tidy-up will add the link.') }}">{{ _("Suggest a link") }}</button>
+        </form>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>

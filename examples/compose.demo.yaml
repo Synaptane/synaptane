@@ -1,0 +1,17 @@
+# Demo only: lets the app and the worker use the local Git repository created by
+# `synaptane demo` (file:///data/demo/acme-it.git). Do not use it for a real instance: it
+# lets an organization admin link a space to any Git folder of the server.
+#
+#   echo 'COMPOSE_FILE=compose.yaml:examples/compose.demo.yaml' >> .env
+#   docker compose up -d
+#   docker compose exec app synaptane demo
+#
+# With an image built from the repository:
+#   COMPOSE_FILE=compose.yaml:compose.build.yaml:examples/compose.demo.yaml
+services:
+  app:
+    environment:
+      SYNAPTANE_ALLOW_LOCAL_REPOS: "true"
+  worker:
+    environment:
+      SYNAPTANE_ALLOW_LOCAL_REPOS: "true"

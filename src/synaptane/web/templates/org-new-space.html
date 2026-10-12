@@ -1,0 +1,20 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% block section %}
+<form class="card content-narrow" method="post" action="/o/{{ org.slug }}/-/spaces">
+  <h2>{{ _("New space") }}</h2>
+  {{ csrf_field() }}
+  <div class="form-columns">
+    <div class="field"><label for="space-name">{{ _("Name") }}</label><input id="space-name" name="name" required maxlength="120"></div>
+    <div class="field"><label for="space-slug">{{ _("Identifier") }}</label><input id="space-slug" name="slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" title="{{ _('Lowercase letters, digits and hyphens') }}" placeholder="infra"><p class="muted">{{ _("Lowercase letters, digits and hyphens: it appears in the address (/o/{org}/infra).", org=org.slug) }}</p></div>
+  </div>
+  <div class="field"><label for="space-description">{{ _("Description (optional)") }}</label><textarea id="space-description" name="description" rows="2"></textarea><p class="muted">{{ _("Shown to AI assistants to pick the right space.") }}</p></div>
+  <div class="field"><label for="space-vocation">{{ _("Purpose (optional)") }}</label><select id="space-vocation" name="vocation_template" aria-describedby="space-vocation-help"><option value="">{{ _("None for now") }}</option>{% for t in templates %}<option value="{{ t.key }}">{{ _(t.label) }} — {{ _(t.summary) }}</option>{% endfor %}</select><p class="muted" id="space-vocation-help">{{ _("What the space is for, what goes in it and how: given every night to the tidy-up agent and to AI assistants. Adapt the chosen template afterwards in Settings → Purpose.") }}</p></div>
+  <div class="form-columns">
+    <div class="field"><label for="space-repo">{{ _("Git repository address") }}</label><input id="space-repo" name="repo_url" required placeholder="https://gitlab.com/acme/brain.git"><p class="muted">{{ _("HTTPS or SSH. An empty repository is fine: Synaptane prepares it.") }}</p></div>
+    <div class="field"><label for="space-branch">{{ _("Branch") }}</label><input id="space-branch" name="branch" value="main" required></div>
+  </div>
+  <div class="actions"><button class="button button-primary" type="submit">{{ _("Create space") }}</button><a class="button" href="/o/{{ org.slug }}">{{ _("Cancel") }}</a></div>
+  <p class="muted">{{ _("Next step: give Synaptane access to the Git repository.") }}</p>
+</form>
+{% endblock %}

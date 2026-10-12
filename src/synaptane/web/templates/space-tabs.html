@@ -1,0 +1,21 @@
+{# Header of a space's pages outside the wiki: Inbox, Tidying, Activity, Health, Settings.
+   Reached through the "Inbox" row or the gear (settings) of the left bar. `space_tab`:
+   active tab. A badge on "Tidy-up" signals that the last run failed. #}
+{% from "ui.html" import section_tabs with context %}
+{% set space_base = '/o/' ~ org.slug ~ '/' ~ space.slug %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">{{ _("Space") }} · <span class="ident">{{ org.name }}</span></p>
+    <h1>{{ space.name }}</h1>
+  </div>
+</header>
+{% set tidy_tab %}{{ _("Tidy-up") }}{% if tidy_failing(space) %}<span class="tab-alert" aria-hidden="true"></span><span class="sr-only"> ({{ _("failing") }})</span>{% endif %}{% endset %}
+{{ section_tabs(_("Space sections"), [
+  ("inbox", space_base ~ "/inbox", _("Inbox")),
+  ("tidy", space_base ~ "/tidy", tidy_tab),
+  ("activity", space_base ~ "/activity", _("Activity")),
+  ("health", space_base ~ "/health", _("Health")),
+  ("settings", space_base ~ "/-/settings", _("Settings")),
+], space_tab) }}
+{# Sync in error or in conflict: under the tabs, in place of the expected content. #}
+{% include "space-header.html" %}

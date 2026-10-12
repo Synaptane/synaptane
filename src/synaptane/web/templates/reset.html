@@ -1,0 +1,16 @@
+{% extends "public-card.html" %}
+{% block title %}{{ _("New password") }} · Synaptane{% endblock %}
+{% block card %}
+<h1 class="card-title">{{ _("New password") }}</h1>
+{% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
+{% if account %}
+  <p class="muted">{{ _("Account: {name} (@{username}). Your sessions and tokens will be closed.", name=account.display_name, username=account.username) }}</p>
+  <form method="post" action="/reset/{{ token }}">
+    <div class="field"><label for="password">{{ _("New password") }}</label><input id="password" type="password" name="password" required minlength="12" autocomplete="new-password" autofocus><p class="muted">{{ _("12 characters minimum.") }}</p></div>
+    <button class="button button-primary button-wide" type="submit">{{ _("Save and sign in") }}</button>
+  </form>
+{% else %}
+  <a class="button button-primary button-wide" href="/login/forgot">{{ _("Ask for a new link") }}</a>
+  <p class="login-help"><a href="/login">{{ _("Back to sign-in") }}</a></p>
+{% endif %}
+{% endblock %}

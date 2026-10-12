@@ -1,0 +1,35 @@
+# Updates proposed every week: Python dependencies (uv), Docker images, actions.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /deploy/nginx
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # PostgreSQL 17 → 18 is not a simple update: backup then restore, and the volume path
+      # changes in the 18 images (docs/admin/backup.md). To be done by hand, along with the CI
+      # service (ci.yml) and compose.dev.yaml. The `pg17` tag is read as version 17: the two
+      # rules cover `pg18` however it is read.
+      - dependency-name: "pgvector/pgvector"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pgvector/pgvector"
+        versions: [">= 18"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

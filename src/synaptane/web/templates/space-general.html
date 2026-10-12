@@ -1,0 +1,18 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field, danger_zone with context %}
+{% set section = "general" %}
+{% block section %}
+<form class="card content-narrow" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/update">
+  {{ csrf_field() }}
+  <div class="field"><label for="space-name">{{ _("Name") }}</label><input id="space-name" name="name" value="{{ space.name }}" required maxlength="120"></div>
+  <div class="field"><label for="space-description">{{ _("Description (optional)") }}</label><textarea id="space-description" name="description" rows="3">{{ space.description }}</textarea><p class="muted">{{ _("Shown to AI assistants to pick the right space.") }}</p></div>
+  {% set choices = ["", "1m", "3m", "6m", "1y", "2y"] %}
+  <div class="field field-short"><label for="space-review">{{ _("Verified pages: review") }}</label><select id="space-review" name="review_every" aria-describedby="space-review-help">
+    {% for choice in choices + ([space.review_every] if space.review_every and space.review_every not in choices else []) %}<option value="{{ choice }}" {% if choice == (space.review_every or '') %}selected{% endif %}>{{ _("Never (no due date)") if not choice else period_label(choice)|capitalize }}</option>{% endfor %}
+  </select><p class="muted" id="space-review-help">{{ _("A page marked as verified becomes “to review” after this period: its owner is reminded every week, and search ranks it slightly lower. A page can set its own (review_every in its front matter).") }}</p></div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+<div class="content-narrow section-gap">
+{{ danger_zone(_("Delete space"), _("Removes the space from Synaptane, with its inbox and log. The remote Git repository is not touched."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/delete", space.slug) }}
+</div>
+{% endblock %}

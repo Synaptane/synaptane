@@ -1,0 +1,40 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field, when with context %}
+{% block section %}
+<section aria-labelledby="users-title">
+  <div class="section-heading"><h2 id="users-title">{{ _("Accounts") }} <span class="admin-count">{{ users|length }}</span></h2></div>
+  <div class="card admin-table-card">
+    <table class="admin-accounts">
+      <thead><tr><th scope="col">{{ _("Account") }}</th><th scope="col">{{ _("Permissions") }}</th><th scope="col">{{ _("Sign in") }}</th><th scope="col"><span class="sr-only">{{ _("Actions") }}</span></th></tr></thead>
+      <tbody>
+        {% for account in users %}
+        <tr{% if not account.is_active %} class="is-inactive"{% endif %}>
+          <td class="admin-account"><span class="admin-row-title">{{ account.display_name }}</span><span class="admin-row-meta">@{{ account.username }}{% if account.email %} · {{ account.email }}{% endif %}</span></td>
+          <td class="admin-rights">{% if account.is_superadmin %}<span class="badge">{{ _("Super admin") }}</span>{% endif %}{% if not account.is_active %}<span class="badge badge-quiet">{{ _("Disabled") }}</span>{% endif %}</td>
+          <td class="admin-auth">{{ _("Password") if account.password_hash else _("SSO") }}</td>
+          <td class="admin-action"><a class="button button-small" href="/admin/users/{{ account.username }}" aria-label="{{ _("Manage {name}'s account", name=account.display_name) }}">{{ _("Manage") }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+<form class="card section-gap" method="post" action="/admin/users">
+  <h2>{{ _("New account") }}</h2>
+  <p class="muted">{{ _("To invite someone by email, use an organization's Members page instead.") }}</p>
+  {{ csrf_field() }}
+  <div class="form-columns">
+    <div class="field"><label for="new-display">{{ _("Display name") }}</label><input id="new-display" name="display_name" required maxlength="120"></div>
+    <div class="field"><label for="new-username">{{ _("Username") }}</label><input id="new-username" name="username" required maxlength="64" autocomplete="off"></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="new-email">{{ _("Email (optional)") }}</label><input id="new-email" name="email" type="email"></div>
+    <div class="field"><label for="new-password">{{ _("Initial password") }}</label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required aria-describedby="new-password-help"><p class="muted" id="new-password-help">{{ _("At least 12 characters; the person will change it when they first sign in.") }}</p></div>
+  </div>
+  <div class="admin-check">
+    <label class="checkbox"><input type="checkbox" name="is_superadmin" value="true" aria-describedby="new-superadmin-help">{{ _("Super admin") }}</label>
+    <p class="muted" id="new-superadmin-help">{{ _("Manages the whole instance and reads all content.") }}</p>
+  </div>
+  <button class="button button-primary" type="submit">{{ icon('plus') }}{{ _("Create account") }}</button>
+</form>
+{% endblock %}

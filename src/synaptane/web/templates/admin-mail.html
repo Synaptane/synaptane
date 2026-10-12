@@ -1,0 +1,43 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field, action with context %}
+{% block page_title %}{{ _("Email sending") }}{% endblock %}
+{% block section_crumbs %}<span aria-current="page">{{ _("Email sending") }}</span>{% endblock %}
+{% block section %}
+<div class="section-heading"><h2>{{ _("Email sending") }}</h2>{% if settings_view %}<span class="status status-ok">{{ _("Configured") }}</span>{% else %}<span class="status">{{ _("Not configured") }}</span>{% endif %}</div>
+<p class="muted admin-intro">{{ _("To send invitations and “forgotten password” links. Without settings, invitation links are shown to the person inviting.") }}</p>
+{% if settings_view %}
+<form class="card admin-mail-test" method="post" action="/admin/mail/test">
+  <h3>{{ _("Check sending") }}</h3>
+  <p class="muted">{{ _("Through {server}, on behalf of {sender}.", server=settings_view.host ~ ":" ~ settings_view.port, sender=settings_view.sender) }}</p>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="admin-inline">
+    <div class="field"><label for="mail-test-to">{{ _("Test address") }}</label><input id="mail-test-to" name="to" type="email" required value="{{ user.email or '' }}" placeholder="{{ _('you@example.com') }}"></div>
+    <button class="button" type="submit">{{ _("Send a test email") }}</button>
+  </div>
+</form>
+{% endif %}
+<form class="card section-gap-small" method="post" action="/admin/mail">
+  <h3>{{ _("SMTP server") }}</h3>
+  {{ csrf_field() }}
+  <div class="admin-columns-port">
+    <div class="field"><label for="mail-host">{{ _("Server address") }}</label><input id="mail-host" name="host" required value="{{ settings_view.host if settings_view else '' }}" placeholder="smtp.example.com"></div>
+    <div class="field"><label for="mail-port">{{ _("Port") }}</label><input id="mail-port" name="port" type="number" min="1" max="65535" value="{{ settings_view.port if settings_view else 587 }}" required></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="mail-security">{{ _("Security") }}</label><select id="mail-security" name="security">{% for value, label in (("starttls", "STARTTLS (587)"), ("ssl", "SSL/TLS (465)"), ("none", _("None (local network only)"))) %}<option value="{{ value }}" {% if settings_view and settings_view.security == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="mail-sender">{{ _("Sender address") }}</label><input id="mail-sender" name="sender" type="email" required value="{{ settings_view.sender if settings_view else '' }}" placeholder="synaptane@example.com"></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="mail-user">{{ _("SMTP user (optional)") }}</label><input id="mail-user" name="username" autocomplete="off" value="{{ settings_view.username if settings_view else '' }}"></div>
+    <div class="field"><label for="mail-password">{{ _("SMTP password") }}</label><input id="mail-password" name="password" type="password" autocomplete="off" placeholder="{{ _('unchanged if empty') if settings_view and settings_view.has_password else '' }}" aria-describedby="mail-password-help"><p class="muted" id="mail-password-help">{{ _("Encrypted, never shown again.") }}</p></div>
+  </div>
+  {% if settings_view and settings_view.has_password %}<div class="admin-check"><label class="checkbox"><input type="checkbox" name="clear_password" value="true">{{ _("Delete the saved password") }}</label></div>{% endif %}
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+{% if settings_view %}
+<div class="card section-gap-small admin-state">
+  <div><h3>{{ _("Disable email sending") }}</h3><p class="muted">{{ _("Invitations and “forgot password” links will no longer be sent; the settings are erased.") }}</p></div>
+  {{ action("/admin/mail/delete", _("Turn off sending"), confirm=_("Disable email sending? Invitations will no longer be sent."), kind="danger", small=false) }}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,9 @@
+{# Sync status when there is a problem: at the top of the wiki, under the tabs of the other
+   space pages (space-tabs.html). Not in the settings: the "Git repository" page details
+   it. #}
+{% if space.sync_status in ('error', 'conflict') and section is not defined %}
+<div class="notice {{ 'notice-error' if space.sync_status == 'error' else 'notice-warning' }} notice-compact" role="status">
+  {{ _("Git synchronization failing: the latest changes may not have been pushed.") if space.sync_status == 'error' else _("Git conflict: files changed on both sides.") }}
+  <a href="/o/{{ org.slug }}/{{ space.slug }}/-/git">{{ _("Details") }}</a>
+</div>
+{% endif %}

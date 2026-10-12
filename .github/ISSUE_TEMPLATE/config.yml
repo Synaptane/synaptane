@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/synaptane/synaptane/security/advisories/new
+    about: Never in a public issue. Report it privately to the maintainers (see SECURITY.md).
+  - name: Questions
+    url: https://github.com/synaptane/synaptane/discussions
+    about: Ask and answer questions in GitHub Discussions (English or French).
+  - name: Documentation
+    url: https://github.com/synaptane/synaptane/tree/main/docs
+    about: Installation, administration, user guide and API reference.
