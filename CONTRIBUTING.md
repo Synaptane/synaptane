@@ -303,7 +303,13 @@ commit`) required in the rules of `main`.
      from `CHANGELOG.md`;
    - if the `SITE_DISPATCH_TOKEN` secret exists, starts the sync of the website's
      documentation (`repository_dispatch` event of type `sync-docs` sent to
-     `synaptane/website`). Without the secret, this step is skipped.
+     `synaptane/website`). Without the secret, this step is skipped;
+   - publishes the Python package (sdist and wheel) on [PyPI](https://pypi.org/project/synaptane/)
+     by Trusted Publishing, from the `pypi` environment: no token is stored. The README links
+     are made absolute (GitHub, at the tag) for the PyPI page. A tag released before this
+     step existed is published by hand: Actions → Release → Run workflow, with the tag.
 4. Check the run in the Actions tab, then the release page. If the version or branch check,
    or the CI, fails, nothing is published: fix the cause, delete the tag
-   (`git tag -d vX.Y.Z` and `git push --delete origin vX.Y.Z`), then tag again.
+   (`git tag -d vX.Y.Z` and `git push --delete origin vX.Y.Z`), then tag again. Release
+   tags are protected by a ruleset (no move, no deletion): an administrator disables it in
+   Settings → Rules → Rulesets for the deletion, then enables it again.

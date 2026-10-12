@@ -8,7 +8,13 @@
 #   4. GitHub Release, notes taken from the `## [X.Y.Z…]` section of CHANGELOG.md;
 #   5. documentation of the site (synaptane/website): `repository_dispatch` of type
 #      `sync-docs` with this tag, only if the SITE_DISPATCH_TOKEN secret exists (fine-grained
-#      token on synaptane/website, Contents: read and write); otherwise the step is skipped.
+#      token on synaptane/website, Contents: read and write); otherwise the step is skipped;
+#   6. Python package (sdist and wheel) on PyPI, by Trusted Publishing (no token stored): the
+#      trusted publisher of the `synaptane` project names this workflow and the `pypi`
+#      environment.
+#
+# Run by hand (workflow_dispatch) with an existing tag, it only publishes that tag on PyPI:
+# for a release made before the PyPI step existed. Images and GitHub Release are left alone.
 #
 # Before tagging: version raised in pyproject.toml, Dockerfile (ARG VERSION), compose.yaml
 # (SYNAPTANE_VERSION default) and .env.example (CONTRIBUTING.md, maintainer section).
@@ -20,12 +26,18 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish on PyPI only (vX.Y.Z or vX.Y.Z-rc.N)"
+        required: true
+        type: string
 
 permissions: {}
 
 # Only one publication at a time per tag, never cancelled midway.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -42,12 +54,16 @@ jobs:
     permissions:
       contents: read
     outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.main.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
       pep440: ${{ steps.version.outputs.pep440 }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # By hand: the tag given, never a branch of the same name.
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -55,7 +71,7 @@ jobs:
       - name: Tag matches pyproject.toml
         id: version
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           uv run --no-project --with 'packaging>=24' python - <<'EOF'
           import os
@@ -86,24 +102,28 @@ jobs:
           if prerelease != tagged.is_prerelease:
               sys.exit(f"::error::{semver}: inconsistent pre-release")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"version={semver}\npep440={tagged}\n")
+              out.write(f"tag={tag}\nversion={semver}\npep440={tagged}\n")
               out.write(f"prerelease={str(prerelease).lower()}\n")
           print(f"Version {semver} (PEP 440: {tagged}), pre-release: {prerelease}")
           EOF
       # A tag set on a work branch publishes nothing.
       - name: Commit present on main
+        id: main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" -q .status)"
+          sha="$(git rev-parse HEAD)"
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${sha}" -q .status)"
           case "$status" in
-            identical | behind) echo "Commit ${GITHUB_SHA::7} present on main." ;;
-            *) echo "::error::Commit ${GITHUB_SHA::7} missing from main (${status})."; exit 1 ;;
+            identical | behind) echo "Commit ${sha::7} present on main." ;;
+            *) echo "::error::Commit ${sha::7} missing from main (${status})."; exit 1 ;;
           esac
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
   ci:
     name: CI
     needs: verify
+    if: github.event_name == 'push'
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
@@ -111,6 +131,7 @@ jobs:
   release:
     name: Images and GitHub Release
     needs: [verify, ci]
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -299,3 +320,90 @@ jobs:
           gh api --method POST repos/synaptane/website/dispatches \
             -f event_type=sync-docs -f "client_payload[ref]=${TAG}" -f "client_payload[version]=${VERSION}"
           echo "sync-docs requested on synaptane/website for ${TAG}."
+
+  pypi-build:
+    name: Python package
+    needs: [verify, release]
+    # On a tag push, after the images and the GitHub Release; by hand, right after the
+    # safeguards (the tag already went through the CI when it was released).
+    if: >-
+      ${{ !cancelled() && needs.verify.result == 'success' && (needs.release.result == 'success'
+      || (github.event_name == 'workflow_dispatch' && needs.release.result == 'skipped')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.verify.outputs.tag }}
+      PEP440: ${{ needs.verify.outputs.pep440 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      # PyPI shows the README without the repository around it: relative links and images
+      # point to GitHub, at this tag.
+      - name: README links for PyPI
+        run: |
+          python3 - <<'EOF'
+          import os
+          import re
+          from pathlib import Path
+
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+          tag = os.environ["TAG"]
+          raw = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{tag}/"
+          blob = f"{base}/blob/{tag}/"
+
+
+          def absolute(url: str, prefix: str) -> str:
+              if re.match(r"[a-z][a-z0-9+.-]*:|#|/", url):
+                  return url
+              return prefix + url
+
+
+          readme = Path("README.md")
+          text = readme.read_text(encoding="utf-8")
+          text = re.sub(r'(<img\s[^>]*src=")([^"]+)"', lambda m: m[1] + absolute(m[2], raw) + '"', text)
+          text = re.sub(r"(!\[[^\]]*\]\()([^)\s]+)", lambda m: m[1] + absolute(m[2], raw), text)
+          text = re.sub(r'(<a\s[^>]*href=")([^"]+)"', lambda m: m[1] + absolute(m[2], blob) + '"', text)
+          # Links last: images are already absolute, a badge's link ([![…](…)](LICENSE)) too.
+          text = re.sub(r"(\]\()([^)\s]+)", lambda m: m[1] + absolute(m[2], blob), text)
+          text = re.sub(r"^(\[[^\]]+\]:\s+)(\S+)", lambda m: m[1] + absolute(m[2], blob), text, flags=re.M)
+          readme.write_text(text, encoding="utf-8")
+          EOF
+          git diff --stat
+      - name: sdist and wheel
+        run: |
+          uv build --out-dir dist
+          ls -l dist
+          test -f "dist/synaptane-${PEP440}.tar.gz"
+          test -f "dist/synaptane-${PEP440}-py3-none-any.whl"
+          uvx --from 'twine>=6' twine check --strict dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  pypi:
+    name: PyPI
+    needs: [verify, pypi-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The trusted publisher on PyPI names this environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/synaptane/${{ needs.verify.outputs.pep440 }}/
+    permissions:
+      id-token: write # Trusted Publishing (OIDC), no token stored
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-package
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

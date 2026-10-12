@@ -340,8 +340,15 @@ every commit`) obligatoire dans les règles de `main`.
      `CHANGELOG.md` ;
    - si le secret `SITE_DISPATCH_TOKEN` existe, déclenche la synchronisation de la
      documentation du site (événement `repository_dispatch` de type `sync-docs` envoyé à
-     `synaptane/website`). Sans ce secret, cette étape est sautée.
+     `synaptane/website`). Sans ce secret, cette étape est sautée ;
+   - publie le paquet Python (sdist et wheel) sur [PyPI](https://pypi.org/project/synaptane/)
+     par Trusted Publishing, depuis l'environnement `pypi` : aucun jeton n'est stocké. Les
+     liens du README sont rendus absolus (GitHub, à l'étiquette) pour la page PyPI. Une
+     étiquette publiée avant l'existence de cette étape se publie à la main : Actions →
+     Release → Run workflow, avec l'étiquette.
 4. Suivez l'exécution dans l'onglet Actions, puis vérifiez la page de la version. Si la
    vérification de version ou de branche, ou la CI, échoue, rien n'est publié : corrigez la
    cause, supprimez l'étiquette (`git tag -d vX.Y.Z` et `git push --delete origin vX.Y.Z`),
-   puis posez-la de nouveau.
+   puis posez-la de nouveau. Les étiquettes de version sont protégées par un ruleset (ni
+   déplacement ni suppression) : un administrateur le désactive dans Settings → Rules →
+   Rulesets le temps de la suppression, puis le réactive.
