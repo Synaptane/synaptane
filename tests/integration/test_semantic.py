@@ -1,5 +1,6 @@
 import math
 import re
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -168,6 +169,23 @@ def test_meaning_only_hits_need_a_confident_neighbour(ctx: Workspace, wiki: Wiki
     assert [h.path for _, h in clear] == ["p0.md"]  # stands out, distant neighbors dropped
     vague = search_service._meaning(wiki.infra, [], hits(0.33, 0.27, 0.26, 0.22), ctx)
     assert vague == []  # question unrelated to the space: nothing "by meaning"
+
+
+def test_a_similarity_floor_replaces_the_gap_for_similar_pages(ctx: Workspace, wiki: Wiki) -> None:
+    from synaptane.services.semantic import SemanticHit
+
+    def hits(*sims: float) -> list[SemanticHit]:
+        return [SemanticHit(f"p{n}.md", "T", "texte", s) for n, s in enumerate(sims)]
+
+    similar = hits(0.64, 0.63, 0.62, 0.61, 0.61, 0.60, 0.60)  # relevant, but no outlier
+    assert search_service._meaning(wiki.infra, [], similar, ctx) == []
+    floored = replace(ctx, meaning_min_similarity=0.55)
+    found = search_service._meaning(wiki.infra, [], similar, floored)
+    assert [h.path for _, h in found] == ["p0.md", "p1.md", "p2.md", "p3.md", "p4.md"]
+    # An unrelated question stands out from its neighbours, but stays below the floor.
+    unrelated = hits(0.45, 0.30, 0.29, 0.28)
+    assert search_service._meaning(wiki.infra, [], unrelated, ctx) != []
+    assert search_service._meaning(wiki.infra, [], unrelated, floored) == []
 
 
 def test_files_are_embedded_in_batches_and_a_refused_file_is_skipped(

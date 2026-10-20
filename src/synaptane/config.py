@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 ENV_PREFIX = "SYNAPTANE_"
 DEFAULT_CONFIG = Path("synaptane.toml")
@@ -36,6 +36,10 @@ class Settings(BaseModel):
     ocr_images: bool = True  # extract text from images for search
     allow_private_webhooks: bool = False  # webhooks to the local network: development only
     api_docs: bool = False  # publish /api/docs and the OpenAPI schema (lists every route)
+    # Semantic search: a page found by meaning counts once the best neighbour reaches this
+    # cosine similarity (depends on the embedding model). Unset: the best neighbour must stand
+    # out from the median of the others, which fails on a corpus of similar pages.
+    meaning_min_similarity: float | None = Field(default=None, gt=0, lt=1)
     # Interface language when the browser asks for none that is supported, and initial
     # language of accounts created without a browser (CLI, administrator).
     default_locale: Literal["en", "fr"] = "en"
@@ -53,6 +57,12 @@ class Settings(BaseModel):
         if not value.startswith(("http://", "https://")):
             raise ValueError("public_url must start with http:// or https://")
         return value.rstrip("/")
+
+    @field_validator("meaning_min_similarity", mode="before")
+    @classmethod
+    def _optional_number(cls, value: object) -> object:
+        """An empty environment variable (Docker Compose default) means unset."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("backup_age_recipients", "backup_remotes", mode="before")
     @classmethod

@@ -28,6 +28,7 @@ class Workspace:
     ocr_languages: str = "fra+eng"
     ocr_images: bool = True
     public_url: str = ""  # for the links in emails sent by the worker
+    meaning_min_similarity: float | None = None  # see Settings
 
     @classmethod
     def from_settings(cls, settings: Settings, box: SecretBox) -> "Workspace":
@@ -41,6 +42,7 @@ class Workspace:
             ocr_languages=settings.ocr_languages,
             ocr_images=settings.ocr_images,
             public_url=settings.public_url,
+            meaning_min_similarity=settings.meaning_min_similarity,
         )
 
     def clone_path(self, space_id: UUID) -> Path:

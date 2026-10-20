@@ -8,6 +8,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before each upgrade, back up your instance (see `docs/admin/backup.md`) and read the section
 of the target version.
 
+## [Unreleased]
+
+### Added
+- `meaning_min_similarity` (Compose: `MEANING_MIN_SIMILARITY`): a similarity floor for pages
+  found by meaning, in place of the gap between the best neighbour and the median. In a space
+  of similar pages (call transcripts, tickets), relevant questions never stood out enough and
+  semantic search added nothing. Unset by default: nothing changes.
+
 ## [1.0.0-rc.1] - 2026-10-12
 
 First public release.
@@ -188,4 +196,5 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/synaptane/synaptane/releases/tag/v1.0.0-rc.1

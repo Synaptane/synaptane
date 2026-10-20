@@ -312,6 +312,7 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `ocr_images` | Extraire le texte des images (OCR), `true` par défaut. |
 | `allow_private_webhooks` | Autorise les webhooks en HTTP et vers le réseau local. **Développement uniquement.** |
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
+| `meaning_min_similarity` | Recherche par le sens : une page trouvée seulement par le sens est proposée dès que la meilleure page atteint cette similarité (entre 0 et 1). Non défini (par défaut) : elle doit nettement se détacher des autres voisines, ce qui arrive rarement dans un espace de pages semblables (transcriptions d'appels, tickets). L'échelle dépend du modèle d'embeddings : la mesurer sur des questions liées à l'espace et sur des questions sans rapport. Variable Compose : `MEANING_MIN_SIMILARITY`. |
 | `backup_age_recipients` | Clés publiques age (`age1…`) pour lesquelles `backup --offsite` chiffre. En variable d'environnement : séparées par des virgules. Voir [Sauvegarde](backup.fr.md). |
 | `backup_age_recipients_file` | Ou un fichier de destinataires age. |
 | `backup_remotes` | Destinations rclone de la copie hors serveur (`nom:chemin`, ou un dossier). |
