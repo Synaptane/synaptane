@@ -74,6 +74,13 @@ _PREFIXES = (
     ("nomic-embed", "search_query: ", "search_document: "),
     ("e5", "query: ", "passage: "),
     ("mxbai-embed", "Represent this sentence for searching relevant passages: ", ""),
+    # The prompts Voyage itself prepends for `input_type` "query" and "document": the API
+    # format has no such field, and its own embeddings are tuned for search with them.
+    (
+        "voyage",
+        "Represent the query for retrieving supporting documents: ",
+        "Represent the document for retrieval: ",
+    ),
 )
 
 

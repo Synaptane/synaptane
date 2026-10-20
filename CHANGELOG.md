@@ -8,6 +8,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before each upgrade, back up your instance (see `docs/admin/backup.md`) and read the section
 of the target version.
 
+## [Unreleased]
+
+### Changed
+- Semantic search with Voyage AI: pages and queries are embedded with the prompts Voyage
+  prepends for its `input_type` ("document" and "query"), which its models are tuned for.
+  Vectors made without them stay compatible; `synaptane reindex` rebuilds an existing index
+  with them.
+
+### Added
+- Prices of the Voyage 4 embedding models (`voyage-4-large`, `voyage-4`, `voyage-4-lite`), so
+  that their indexing is counted at its real cost instead of the table's highest price.
+
 ## [1.0.0-rc.1] - 2026-10-12
 
 First public release.
@@ -188,4 +200,5 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/synaptane/synaptane/releases/tag/v1.0.0-rc.1
