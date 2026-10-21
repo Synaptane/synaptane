@@ -60,6 +60,7 @@ CODEX_DISABLED = (
     "browser_use",
     "browser_use_external",
     "browser_use_full_cdp_access",
+    "browser_annotation_api",  # websites opening annotation tools in the desktop app
     "computer_use",
     "in_app_browser",
     "in_app_local_automation",
