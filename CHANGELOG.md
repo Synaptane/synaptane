@@ -15,6 +15,13 @@ of the target version.
   prepends for its `input_type` ("document" and "query"), which its models are tuned for.
   Vectors made without them stay compatible; `synaptane reindex` rebuilds an existing index
   with them.
+- Agent CLIs of the image (subscription mode): Claude Code 2.1.303 and Codex 0.163.0. Codex's
+  new `browser_annotation_api` feature is turned off on each run; its other new features
+  (service tiers, access programs, interruptions, desktop voice) open nothing.
+
+### Security
+- Pillow 13.0.0: fixes in the image decoders (JPEG, TIFF, GIF, PDF, EPS), which open the
+  images uploaded for OCR.
 
 ### Added
 - Prices of the Voyage 4 embedding models (`voyage-4-large`, `voyage-4`, `voyage-4-lite`), so

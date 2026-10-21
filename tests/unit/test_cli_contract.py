@@ -17,7 +17,7 @@ import pytest
 from synaptane.ai import cli_agents, cli_contract
 from synaptane.cli import main
 
-FIXTURE = Path(__file__).parents[1] / "fixtures" / "codex-features-0.160.0.txt"
+FIXTURE = Path(__file__).parents[1] / "fixtures" / "codex-features-0.163.0.txt"
 REPORT = {"type": "function", "name": "mcp__synaptane_tidy__report"}
 SEARCH = {
     "type": "tool_search",

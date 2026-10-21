@@ -1,25 +1,33 @@
 agent_message_board                      under development  false
 analytics_plan_history                   experimental       false
-api_key_model_discovery                  under development  false
+api_key_cyber_access_programs            stable             true
+api_key_model_discovery                  stable             true
 apply_patch_freeform                     removed            false
-apply_patch_preserve_line_endings        under development  false
+apply_patch_preserve_line_endings        removed            false
 apply_patch_streaming_events             under development  false
 apps                                     stable             true
 apps_mcp_path_override                   removed            false
 artifact                                 under development  false
+async_compaction                         under development  false
 auth_elicitation                         stable             true
 background_paginated_rollout_migration   under development  false
 bedrock_setup_wizard                     under development  false
+browser_annotation_api                   stable             true
 browser_use                              stable             true
 browser_use_external                     stable             true
 browser_use_full_cdp_access              stable             true
 chronicle                                under development  false
+cli_daybreak                             stable             true
 code_mode                                under development  false
 code_mode_buffered_exec                  removed            false
 code_mode_host                           stable             true
-code_mode_interrupt                      under development  false
+code_mode_host_grpc                      under development  false
+code_mode_interrupt                      stable             true
 code_mode_only                           under development  false
+code_mode_only_strict_3p_tools           under development  false
 code_mode_prewarm                        under development  false
+code_mode_tool_description_first         under development  false
+code_mode_tool_search                    under development  false
 codex_apps_mcp_2026_07_28                under development  false
 codex_git_commit                         removed            false
 collaboration_modes                      removed            true
@@ -28,6 +36,7 @@ computer_use                             stable             true
 concurrent_reasoning_summaries           under development  false
 content_item_kinds                       stable             true
 context_management                       under development  false
+credential_masking                       under development  false
 current_time_reminder                    under development  false
 cwd_relative_turn_diffs                  under development  false
 daemon_auto_start                        stable             true
@@ -54,8 +63,10 @@ guardian_ext                             removed            false
 guardian_node_repl_transcript_images     under development  false
 guardian_reuse_parent_compaction         stable             true
 guardian_root_handoff_context            under development  false
+guardian_trust_orchestrator_connectors   under development  false
 guardianv2                               under development  false
 guardianv2.thread_context                removed            false
+guardianv2_decisions_comparison          under development  false
 hooks                                    stable             true
 image_detail_original                    removed            false
 image_generation                         stable             true
@@ -65,23 +76,29 @@ in_app_chat                              stable             true
 in_app_dictation                         stable             true
 in_app_local_automation                  stable             true
 in_app_updates                           stable             true
-instant_interrupt                        under development  false
+in_app_voice                             stable             true
+incremental_tools                        under development  false
+instant_interrupt                        under development  true
 item_ids                                 removed            true
 js_repl                                  removed            false
 js_repl_tools_only                       removed            false
 local_thread_store_compression           under development  false
 local_thread_store_shared_compression    removed            false
+login_shell_package_path                 experimental       false
 mcp_2026_07_28                           under development  false
 mcp_oauth_refresh_coordination           under development  false
 memories                                 stable             false
 mentions_v2                              stable             true
+model_catalog_in_context                 under development  false
 multi_agent                              stable             true
 multi_agent_mode                         removed            false
 multi_agent_v2                           stable             false
+multi_agent_v2_dynamic_tools             under development  false
 network_proxy                            experimental       false
 non_prefixed_mcp_tool_names              under development  false
 nonfatal_clock_read_errors               under development  false
 omit_app_server_notification_media       under development  false
+output_token_replay                      under development  false
 personality                              removed            false
 plugin_hooks                             removed            false
 plugin_sharing                           stable             true
@@ -104,6 +121,7 @@ respect_system_proxy                     under development  false
 responses_websockets                     removed            false
 responses_websockets_v2                  removed            false
 retain_client_developer_messages         under development  false
+retain_client_tool_outputs               under development  false
 rollout_budget                           under development  false
 runtime_metrics                          under development  false
 search_tool                              removed            false
@@ -113,16 +131,18 @@ send_message_to_user_async               under development  false
 shell_snapshot                           stable             true
 shell_snapshot_v2                        under development  false
 shell_tool                               stable             true
-shell_zsh_fork                           under development  false
+shell_zsh_fork                           removed            false
 skill_env_var_dependency_prompt          removed            false
 skill_mcp_dependency_install             stable             true
 skill_search                             stable             true
 skip_host_skill_discovery                under development  false
 sleep_tool                               stable             true
 sqlite                                   removed            true
+stable_environment_tools                 under development  false
 standalone_web_search                    under development  false
 steer                                    removed            true
 step_model_switching                     under development  false
+subagent_default_context_limits          under development  false
 system_proxy_fallback                    stable             true
 terminal_resize_reflow                   removed            true
 terminal_visualization_instructions      under development  false
@@ -133,12 +153,13 @@ tool_search_always_defer_mcp_tools       removed            true
 tool_suggest                             stable             true
 transcript_v2                            deprecated         false
 tui_app_server                           removed            true
+ultrafast_mode                           stable             true
 unavailable_dummy_tools                  removed            false
 unbounded_connection_retries             stable             true
 undo                                     removed            false
 unified_exec                             stable             true
 unified_exec_tty                         stable             true
-unified_exec_zsh_fork                    removed            true
+unified_exec_zsh_fork                    removed            false
 unified_image_budget                     under development  false
 use_agent_identity                       under development  false
 use_legacy_landlock                      deprecated         false

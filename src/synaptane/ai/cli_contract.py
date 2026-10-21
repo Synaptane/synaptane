@@ -59,12 +59,16 @@ CLAUDE_MEANINGS = (
 )
 
 # Codex features enabled by default, reviewed and judged free of execution, file access and
-# web access (Codex 0.160.0). Any other enabled feature fails the contract: it must be
-# classified here, or turned off in `cli_agents.CODEX_DISABLED` (when in doubt, turned off).
-# "removed" features are ignored: they can no longer be set.
+# web access (Codex 0.160.0 to 0.163.0, from its sources). Any other enabled feature fails the
+# contract: it must be classified here, or turned off in `cli_agents.CODEX_DISABLED` (when in
+# doubt, turned off). "removed" features are ignored: they can no longer be set.
 CODEX_ALLOWED = frozenset(
     {
+        "api_key_cyber_access_programs",  # access program of the model, with an API key
+        "api_key_model_discovery",  # model catalog, with an API key
         "auth_elicitation",  # authentication request from an MCP server
+        "cli_daybreak",  # choice of the model's access program (cyber treatment), no tool
+        "code_mode_interrupt",  # stops code mode cells on interruption: code mode turned off
         "compaction_image_budget",  # image size during context summarization
         "content_item_kinds",  # message format
         "enable_request_compression",  # compression of requests to OpenAI
@@ -74,11 +78,14 @@ CODEX_ALLOWED = frozenset(
         "in_app_chat",  # desktop app
         "in_app_dictation",  # desktop app
         "in_app_updates",  # desktop app
+        "in_app_voice",  # desktop app
+        "instant_interrupt",  # interruption by the user, interactive
         "mentions_v2",  # mentions in the typed text
         "realtime_conversation",  # voice conversation, interactive
         "sleep_tool",  # waiting
         "system_proxy_fallback",  # system network proxy
         "tool_call_mcp_elicitation",  # questions from an MCP server
+        "ultrafast_mode",  # model service tier
         "unbounded_connection_retries",  # network retries
         "write_stdin_approval",  # approval specific to unified_exec, turned off
     }
