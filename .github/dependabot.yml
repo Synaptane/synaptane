@@ -12,6 +12,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The image follows `requires-python` (pyproject.toml): moving to Python 3.13+ is done
+      # by hand, along with uv.lock and the CI. The 3.12 image digests are still updated.
+      - dependency-name: "python"
+        versions: [">= 3.13"]
   - package-ecosystem: docker
     directory: /deploy/nginx
     schedule:
