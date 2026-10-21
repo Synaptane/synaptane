@@ -5,7 +5,7 @@ from synaptane.services.content import kind_of
 
 def test_character_cut_by_the_window_is_still_text() -> None:
     data = ("a" * 8191 + "é" + " end").encode()  # "é" is 2 bytes: byte 8192 falls in the middle
-    assert data[:8192].decode("utf-8", "replace").endswith("�")
+    assert data[:8192].decode("utf-8", "replace").endswith("\ufffd")
     assert kind_of("notes/data.jsonl", data) == "text"
 
 
