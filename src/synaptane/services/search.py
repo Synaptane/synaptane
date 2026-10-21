@@ -930,8 +930,14 @@ def _meaning(
     others = sorted(m.similarity for m in meaning[1:])
     median = others[len(others) // 2] if others else 0.0
     # The best neighbour does not stand out: the question probably has nothing to do with the
-    # space; meaning then adds nothing (no tie-breaking, no extra page).
-    if others and best - median < MEANING_ONLY_CONFIDENCE:
+    # space; meaning then adds nothing (no tie-breaking, no extra page). With a similarity
+    # floor, the best neighbour must reach it instead: in a space of similar pages (call
+    # transcripts…), a relevant question stands out no more than an unrelated one.
+    floor = ws.meaning_min_similarity
+    if floor is not None:
+        if best < floor:
+            return []
+    elif others and best - median < MEANING_ONLY_CONFIDENCE:
         return []
     clone = ws.clone_path(space.id)
     found_pages: list[tuple[float, Hit]] = []

@@ -305,6 +305,7 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `ocr_images` | Extract text from images (OCR), `true` by default. |
 | `allow_private_webhooks` | Allows webhooks over HTTP and to the local network. **Development only.** |
 | `api_docs` | Publishes the interactive documentation `/api/docs` and the schema `/api/v1/openapi.json`, `false` by default. |
+| `meaning_min_similarity` | Semantic search: a page found only by meaning is suggested once the best page reaches this similarity (between 0 and 1). Unset (default): it must clearly stand out from the other neighbors, which rarely happens in a space of similar pages (call transcripts, tickets). The scale depends on the embedding model: measure it on questions about the space and on unrelated ones. Compose variable: `MEANING_MIN_SIMILARITY`. |
 | `backup_age_recipients` | age public keys (`age1…`) that `backup --offsite` encrypts for. As an environment variable: comma-separated. See [Backup](backup.md). |
 | `backup_age_recipients_file` | Or a file of age recipients. |
 | `backup_remotes` | rclone destinations of the off-site copy (`name:path`, or a folder). |
