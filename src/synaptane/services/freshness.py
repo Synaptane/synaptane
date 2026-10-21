@@ -607,7 +607,7 @@ def send_reminders(database: Database, ws: Workspace, now: datetime | None = Non
         sent = 0
         for reminder in reminders.values():
             if not _reminded(session, reminder.user, moment) and _send_reminder(
-                session, ws, reminder
+                session, ws, reminder, moment
             ):
                 sent += 1
         return sent
@@ -631,7 +631,7 @@ def _reminded(session: Session, user: User, moment: datetime) -> bool:
     return found is not None
 
 
-def _send_reminder(session: Session, ws: Workspace, reminder: _Reminder) -> bool:
+def _send_reminder(session: Session, ws: Workspace, reminder: _Reminder, moment: datetime) -> bool:
     from synaptane.services import mail
 
     user, pages = reminder.user, reminder.pages
@@ -655,8 +655,13 @@ def _send_reminder(session: Session, ws: Workspace, reminder: _Reminder) -> bool
     except mail.MailError as error:
         log.warning("Review reminder not sent to %s: %s", user.email, error)
         return False
+    # Dated at `moment`, which `_reminded` compares with (not the clock: `now` may be given).
     session.add(
-        AuditEvent(action=REMINDER, details={"user": str(user.id), "pages": str(len(pages))})
+        AuditEvent(
+            action=REMINDER,
+            at=moment.astimezone(UTC),
+            details={"user": str(user.id), "pages": str(len(pages))},
+        )
     )
     session.flush()
     return True
