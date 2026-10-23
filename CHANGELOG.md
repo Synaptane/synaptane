@@ -22,6 +22,9 @@ of the target version.
 ### Security
 - Pillow 13.0.0: fixes in the image decoders (JPEG, TIFF, GIF, PDF, EPS), which open the
   images uploaded for OCR.
+- opentelemetry-api 1.45.1 (pulled in by anthropic, fastapi and mcp): its `tracestate` parser
+  no longer takes quadratic time on a crafted header (CVE-2026-114603). Synaptane does not
+  extract trace headers itself.
 
 ### Added
 - Prices of the Voyage 4 embedding models (`voyage-4-large`, `voyage-4`, `voyage-4-lite`), so
