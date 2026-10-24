@@ -43,6 +43,9 @@ of the target version.
   scheduled run starts before the first synchronization.
 - The failed-run alert offers to test the AI connection only when the cause may lie with the
   AI; a space not synchronized yet points to the repository status.
+- A UTF-8 text file whose 8 KiB detection window cut a multi-byte character (an accented
+  letter at byte 8192) was taken for a binary file: shown as a download, without its text for
+  search and AI assistants. It is text again; an invalid byte still makes a file binary.
 
 ## [1.0.0-rc.1] - 2026-10-12
 
