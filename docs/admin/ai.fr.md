@@ -488,7 +488,12 @@ Fonctionnement :
   embeddings n'est pas désavantagé dans une recherche sur plusieurs espaces.
 - **Filtrage du sens** : une page trouvée *seulement* par le sens n'est proposée que si elle se
   détache nettement des autres voisins. Une question sans rapport avec l'espace ne remonte
-  donc rien.
+  donc rien. Dans un espace de pages semblables (transcriptions d'appels, tickets), même une
+  question pertinente se détache rarement : réglez une **similarité minimale** sur la page
+  Recherche par le sens de l'organisation. La meilleure page doit alors l'atteindre à la
+  place (entre 0 et 1, par ex. 0,55 avec `voyage-4-large`). Son échelle dépend du modèle :
+  mesurez-la sur des questions liées à l'espace et sur des questions sans rapport. Elle est
+  effacée quand le modèle change.
 - **Panne du fournisseur** : la recherche par mots reste disponible.
 - **Contrôle par l'appelant** : `mode=text` (REST, MCP) force la recherche par mots seuls.
 - **Pages proches** (panneau « Voir aussi », outil MCP `related`) : avec les embeddings, le

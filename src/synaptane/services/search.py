@@ -920,18 +920,27 @@ def _named_section(clone: Path, path: str, trail: str) -> Heading | None:
 
 
 def _meaning(
-    space: Space, lexical: list[Hit], meaning: list[semantic.SemanticHit], ws: Workspace
+    space: Space,
+    lexical: list[Hit],
+    meaning: list[semantic.SemanticHit],
+    ws: Workspace,
+    floor: float | None = None,
 ) -> list[tuple[float, Hit]]:
     """Contribution of meaning in a space: (RRF contribution, page), pages found by words
     included (their result is then marked "both"). Empty if the question resembles nothing
-    in the space."""
+    in the space. `floor`: the organization's similarity floor (`meaning_min_similarity`)."""
     by_path = {hit.path: hit for hit in lexical}
     best = meaning[0].similarity if meaning else 0.0
     others = sorted(m.similarity for m in meaning[1:])
     median = others[len(others) // 2] if others else 0.0
     # The best neighbour does not stand out: the question probably has nothing to do with the
-    # space; meaning then adds nothing (no tie-breaking, no extra page).
-    if others and best - median < MEANING_ONLY_CONFIDENCE:
+    # space; meaning then adds nothing (no tie-breaking, no extra page). With a similarity
+    # floor, the best neighbour must reach it instead: in a space of similar pages (call
+    # transcripts…), a relevant question stands out no more than an unrelated one.
+    if floor is not None:
+        if best < floor:
+            return []
+    elif others and best - median < MEANING_ONLY_CONFIDENCE:
         return []
     clone = ws.clone_path(space.id)
     found_pages: list[tuple[float, Hit]] = []
@@ -1037,7 +1046,8 @@ def search(
     for space, space_hits in lexical.items():
         if space.id not in meaning:
             continue
-        for extra, hit in _meaning(space, space_hits, meaning[space.id], ws):
+        floor = semantic.meaning_floor(session, space.org_id)
+        for extra, hit in _meaning(space, space_hits, meaning[space.id], ws, floor):
             key = (hit.address, hit.path)
             fused[key] = (fused.get(key, (0.0, hit))[0] + extra, hit)
     ranked = sorted(

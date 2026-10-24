@@ -232,8 +232,8 @@ sorties (voir [Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace)).
 
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
-| `GET /organizations/{org}/embeddings` | admin | Fournisseur d'embeddings, ou `null` : `provider`, `model`, `base_url`, `has_key` |
-| `PUT /organizations/{org}/embeddings` | admin | `{"provider": "openai", "model": …, "api_key": …}` |
+| `GET /organizations/{org}/embeddings` | admin | Fournisseur d'embeddings, ou `null` : `provider`, `model`, `base_url`, `has_key`, `meaning_min_similarity` |
+| `PUT /organizations/{org}/embeddings` | admin | `{"provider": "openai", "model": …, "api_key": …, "meaning_min_similarity": 0.55}` (seuil de similarité, `null` par défaut ; effacé quand le modèle change) |
 | `PUT …/spaces/{space}/semantic` | admin | `{"enabled": true}` : active l'index de l'espace ; renvoie `files` et `chunks` indexés |
 
 ## Connexion SSO (super-admin)

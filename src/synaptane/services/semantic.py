@@ -65,6 +65,7 @@ class EmbeddingView:
     model: str
     base_url: str
     has_key: bool
+    meaning_min_similarity: float | None = None
 
 
 def view(session: Session, actor: Actor, box: SecretBox, org: Organization) -> EmbeddingView | None:
@@ -73,7 +74,30 @@ def view(session: Session, actor: Actor, box: SecretBox, org: Organization) -> E
     if row is None:
         return None
     has_key = bool(get_org_secret(session, box, org.id, EMBEDDING_KEY))
-    return EmbeddingView(row.provider, row.model, row.base_url, has_key)
+    return EmbeddingView(row.provider, row.model, row.base_url, has_key, row.meaning_min_similarity)
+
+
+FLOOR_REFUSED = "Enter a minimal similarity between 0 and 1 (e.g. 0.55), or leave it empty."
+
+
+def parse_floor(text: str) -> float | None:
+    """Similarity floor typed in a form: empty for none, a decimal comma accepted."""
+    text = text.strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        floor = float(text)
+    except ValueError:
+        raise invalid(FLOOR_REFUSED) from None
+    if not 0 < floor < 1:
+        raise invalid(FLOOR_REFUSED)
+    return floor
+
+
+def meaning_floor(session: Session, org_id: UUID) -> float | None:
+    """Similarity floor of an organization's semantic search, or None (default rule)."""
+    row = session.get(OrgEmbeddingSettings, org_id)
+    return row.meaning_min_similarity if row is not None else None
 
 
 def configure(
@@ -86,11 +110,16 @@ def configure(
     model: str = "",
     base_url: str = "",
     api_key: str | None = None,
+    meaning_min_similarity: float | None = None,
 ) -> EmbeddingView:
-    """`api_key=None` keeps the key; "" removes it. Changing the model rebuilds the index."""
+    """`api_key=None` keeps the key; "" removes it. Changing the model rebuilds the index, and
+    drops the similarity floor kept from the previous model (its scale was that model's); a
+    new value given at the same time is kept."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     if provider not in EMBEDDING_PROVIDERS:
         raise invalid("Unknown embedding provider.")
+    if meaning_min_similarity is not None and not 0 < meaning_min_similarity < 1:
+        raise invalid(FLOOR_REFUSED)
     model = model.strip() or DEFAULT_EMBEDDING_MODELS.get(provider, "")
     if not model:
         raise invalid("Enter the embedding model.")
@@ -112,7 +141,12 @@ def configure(
     if row is None:
         row = OrgEmbeddingSettings(org_id=org.id, provider=provider, model=model)
         session.add(row)
+    elif (row.provider, row.model) != (provider, model) and (
+        meaning_min_similarity == row.meaning_min_similarity
+    ):
+        meaning_min_similarity = None
     row.provider, row.model, row.base_url = provider, model, base_url
+    row.meaning_min_similarity = meaning_min_similarity
     if api_key is not None:
         put_org_secret(session, box, org.id, EMBEDDING_KEY, api_key.strip(), actor.user.id)
     audit(

@@ -335,6 +335,7 @@ def org_embeddings_update(
     base_url: Annotated[str, Form()] = "",
     api_key: Annotated[str, Form()] = "",
     clear_key: Annotated[bool, Form()] = False,
+    meaning_min_similarity: Annotated[str, Form()] = "",
 ) -> Response:
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
@@ -348,6 +349,7 @@ def org_embeddings_update(
             model=model,
             base_url=base_url,
             api_key="" if clear_key else (api_key or None),
+            meaning_min_similarity=semantic.parse_floor(meaning_min_similarity),
         )
     except SynaptaneError as error:
         return failure(f"{org_url(org)}/-/embeddings", page, error)

@@ -341,6 +341,9 @@ class OrgEmbeddingSettings(Base):
     provider: Mapped[str] = mapped_column(String(32))
     model: Mapped[str] = mapped_column(String(200))
     base_url: Mapped[str] = mapped_column(Text, default="")
+    # Semantic search: similarity the best page must reach for meaning to count (its scale
+    # depends on the model). None: it must stand out from the median of the others instead.
+    meaning_min_similarity: Mapped[float | None]
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

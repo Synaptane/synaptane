@@ -465,6 +465,11 @@ How it works:
   at a disadvantage in a search across several spaces.
 - **Meaning filter**: a page found *only* by meaning is suggested only if it clearly stands
   out from the other neighbors. A question unrelated to the space therefore returns nothing.
+  In a space of similar pages (call transcripts, tickets), even a relevant question rarely
+  stands out: set a **minimal similarity** on the organization's Semantic search page. The
+  best page must then reach it instead (between 0 and 1, e.g. 0.55 with `voyage-4-large`).
+  Its scale depends on the model: measure it on questions about the space and on unrelated
+  ones. It is cleared when the model changes.
 - **Provider outage**: word search remains available.
 - **Caller control**: `mode=text` (REST, MCP) forces word-only search.
 - **Related pages** ("See also" panel, MCP tool `related`): with embeddings, a page's vector
