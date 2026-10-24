@@ -83,6 +83,27 @@ def test_failures_are_summed_up_with_what_to_do(
     assert 'class="tab-alert"' in unescape(client.get("/o/acme/infra/inbox").text)
 
 
+def test_a_run_before_the_first_sync_points_to_the_repository_not_the_ai(
+    client: TestClient, db: Session, ctx: Workspace, wiki: Wiki
+) -> None:
+    ollama(db, ctx, wiki)
+    db.add(
+        TidyRun(
+            space_id=wiki.infra.id,
+            trigger="schedule",
+            status="failed",
+            started_at=datetime.now(UTC),
+            error="This space has not been synchronized with its repository yet.",
+        )
+    )
+    db.commit()
+    login(client, "root")
+    page = unescape(client.get("/o/acme/infra/tidy").text)
+    assert "L'espace n'avait pas encore été synchronisé avec son dépôt" in page
+    assert 'href="/o/acme/infra/-/git"' in page
+    assert 'action="/o/acme/-/ai/test"' not in page and 'href="/o/acme/-/ai"' not in page
+
+
 def test_readers_learn_who_to_tell_not_the_technical_detail(
     client: TestClient, db: Session, ctx: Workspace, wiki: Wiki
 ) -> None:
