@@ -18,6 +18,12 @@ of the target version.
 - Agent CLIs of the image (subscription mode): Claude Code 2.1.303 and Codex 0.163.0. Codex's
   new `browser_annotation_api` feature is turned off on each run; its other new features
   (service tiers, access programs, interruptions, desktop voice) open nothing.
+- Anthropic provider: `anthropic` 2.0.0, which calls the Claude API with version 2026-10-21
+  and sends the API key in `Authorization: Bearer` instead of `X-Api-Key`. Requests to the
+  Claude API itself are unchanged. **If the organization's AI goes through a gateway or proxy
+  (an "API address" set for Anthropic), check that it accepts the key in `Authorization`**;
+  one that only reads `X-Api-Key` now refuses the requests ("key refused"). The `anthropic`
+  package is now under Apache-2.0 (MIT before; see `THIRD_PARTY_NOTICES.md`).
 
 ### Security
 - Pillow 13.0.0: fixes in the image decoders (JPEG, TIFF, GIF, PDF, EPS), which open the
