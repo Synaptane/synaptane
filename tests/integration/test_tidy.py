@@ -267,6 +267,8 @@ def test_schedule_respects_time_zone_and_runs_once_a_day(
     db: Session, database: Database, wiki: Wiki
 ) -> None:
     tidy.update_settings(db, wiki.root, wiki.infra, at="02:00", timezone="Europe/Paris")
+    for space in (wiki.infra, wiki.other):  # spaces older than the days below
+        space.created_at = datetime(2026, 10, 1, tzinfo=UTC)
     db.commit()
     before = datetime(2026, 10, 3, 23, 59, tzinfo=UTC)  # 01:59 in Paris
     after = datetime(2026, 10, 4, 0, 1, tzinfo=UTC)  # 02:01 in Paris
@@ -282,6 +284,23 @@ def test_schedule_respects_time_zone_and_runs_once_a_day(
         tidy.update_settings(db, wiki.root, wiki.infra, timezone="Mars/Olympus")
     with pytest.raises(SynaptaneError):
         tidy.update_settings(db, wiki.alice, wiki.infra, at="03:00")
+
+
+def test_new_space_waits_for_its_first_sync_and_for_the_next_night(
+    db: Session, database: Database, wiki: Wiki
+) -> None:
+    """A space created at 20:07, after its 02:00 time, is not tidied right away: not before
+    its first synchronization (no local copy yet), nor on the day it was created."""
+    space = wiki.infra
+    space.created_at = datetime(2026, 10, 24, 18, 7, tzinfo=UTC)  # 20:07 in Paris
+    space.sync_status = "never"
+    db.commit()
+    evening = datetime(2026, 10, 24, 18, 8, tzinfo=UTC)
+    assert tidy.due(space, evening) is None  # never synchronized
+    space.sync_status = "ok"
+    assert tidy.due(space, evening) is None  # created after today's 02:00
+    assert tidy.due(space, datetime(2026, 10, 24, 23, 59, tzinfo=UTC)) is None  # 01:59
+    assert tidy.due(space, datetime(2026, 10, 25, 1, 1, tzinfo=UTC)) == date(2026, 10, 25)
 
 
 def test_ai_settings_keep_the_key_secret(db: Session, ctx: Workspace, wiki: Wiki) -> None:

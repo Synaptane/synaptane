@@ -74,6 +74,13 @@ class Explanation:
         sometimes outdated: "organization page"), nor when it *is* the message."""
         return bool(self.detail) and self.technical and self.code != "other"
 
+    @property
+    def about_ai(self) -> bool:
+        """The cause may lie with the AI provider or its settings: testing the connection or
+        checking the AI page is worth it. Not for a cause on Synaptane's side (repository,
+        worker, run)."""
+        return self.code not in SYNAPTANE_SIDE
+
 
 @dataclass(frozen=True)
 class _Rule:
@@ -242,6 +249,15 @@ RULES = (
         technical=False,
     ),
     _rule(
+        "not_synced",
+        r"pas encore été synchronisé|not been synchronized with its repository",
+        "repository not synchronized yet",
+        "The space had not been synchronized with its repository yet: the next run will work "
+        "once it is.",
+        "wait",
+        technical=False,
+    ),
+    _rule(
         "internal",
         r"^(?:Erreur interne|Internal error)",
         "internal error",
@@ -250,6 +266,8 @@ RULES = (
     ),
 )
 UNKNOWN = "Unknown cause: details are in the worker logs."
+# Causes on Synaptane's side: the AI connection has nothing to do with them.
+SYNAPTANE_SIDE = ("not_synced", "busy", "conflict", "interrupted", "run_timeout", "internal")
 # Templates produced here: the French catalog must know them all (test).
 MESSAGES = tuple(
     text for rule in RULES for text in (rule.label, rule.message, rule.with_address) if text
