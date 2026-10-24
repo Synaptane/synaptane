@@ -35,6 +35,12 @@ of the target version.
 ### Added
 - Prices of the Voyage 4 embedding models (`voyage-4-large`, `voyage-4`, `voyage-4-lite`), so
   that their indexing is counted at its real cost instead of the table's highest price.
+- Semantic search: an optional **minimal similarity** per organization, next to its embedding
+  model (Semantic search page, REST `meaning_min_similarity`). Set, the best page found by
+  meaning must reach it instead of standing out from the median of its neighbours: in a space
+  of similar pages (call transcripts, tickets), relevant questions never stood out enough and
+  meaning added nothing. Empty by default: nothing changes. Cleared when the model changes,
+  since its scale is the model's.
 
 ### Fixed
 - A space created after its tidy-up time (02:00 by default) no longer gets a scheduled run

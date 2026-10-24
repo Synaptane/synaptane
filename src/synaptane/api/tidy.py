@@ -220,6 +220,7 @@ class EmbeddingsOut(BaseModel):
     model: str
     base_url: str
     has_key: bool
+    meaning_min_similarity: float | None = None
 
 
 class EmbeddingsIn(BaseModel):
@@ -227,6 +228,14 @@ class EmbeddingsIn(BaseModel):
     model: str = ""
     base_url: str = ""
     api_key: str | None = Field(default=None, description='null: key unchanged; "": key removed')
+    meaning_min_similarity: float | None = Field(
+        default=None,
+        gt=0,
+        lt=1,
+        description="similarity the best page must reach for a page found only by meaning; "
+        "null: it must stand out from the other neighbours. Dropped when the model changes, "
+        "unless a new value is given.",
+    )
 
 
 class SemanticIn(BaseModel):

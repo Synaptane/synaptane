@@ -1,5 +1,6 @@
 import math
 import re
+from html import unescape
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from synaptane.ai.base import AIError
 from synaptane.ai.embeddings import EmbeddingConfig
+from synaptane.core.errors import SynaptaneError
 from synaptane.services import content, semantic
 from synaptane.services import search as search_service
 from synaptane.services.workspace import Workspace
@@ -152,6 +154,20 @@ def test_semantic_interfaces(
         client.get("/api/v1/search", params={"q": "backup", "mode": "text"}, headers=root).json()
         == []
     )
+    # The organization's similarity floor applies to its spaces: out of reach, nothing by meaning.
+    floored = client.put(
+        "/api/v1/organizations/acme/embeddings",
+        json={"provider": "mistral", "meaning_min_similarity": 0.99},
+        headers=root,
+    )
+    assert floored.json()["meaning_min_similarity"] == 0.99
+    assert client.get("/api/v1/search", params={"q": "backup"}, headers=root).json() == []
+    wrong = client.put(
+        "/api/v1/organizations/acme/embeddings",
+        json={"provider": "mistral", "meaning_min_similarity": 1.5},
+        headers=root,
+    )
+    assert wrong.status_code == 422
     off = client.put(
         "/api/v1/organizations/acme/spaces/infra/semantic", json={"enabled": False}, headers=root
     )
@@ -168,6 +184,68 @@ def test_meaning_only_hits_need_a_confident_neighbour(ctx: Workspace, wiki: Wiki
     assert [h.path for _, h in clear] == ["p0.md"]  # stands out, distant neighbors dropped
     vague = search_service._meaning(wiki.infra, [], hits(0.33, 0.27, 0.26, 0.22), ctx)
     assert vague == []  # question unrelated to the space: nothing "by meaning"
+
+
+def test_a_similarity_floor_replaces_the_gap_for_similar_pages(ctx: Workspace, wiki: Wiki) -> None:
+    from synaptane.services.semantic import SemanticHit
+
+    def hits(*sims: float) -> list[SemanticHit]:
+        return [SemanticHit(f"p{n}.md", "T", "texte", s) for n, s in enumerate(sims)]
+
+    similar = hits(0.64, 0.63, 0.62, 0.61, 0.61, 0.60, 0.60)  # relevant, but no outlier
+    assert search_service._meaning(wiki.infra, [], similar, ctx) == []
+    found = search_service._meaning(wiki.infra, [], similar, ctx, floor=0.55)
+    assert [h.path for _, h in found] == ["p0.md", "p1.md", "p2.md", "p3.md", "p4.md"]
+    # An unrelated question stands out from its neighbours, but stays below the floor.
+    unrelated = hits(0.45, 0.30, 0.29, 0.28)
+    assert search_service._meaning(wiki.infra, [], unrelated, ctx) != []
+    assert search_service._meaning(wiki.infra, [], unrelated, ctx, floor=0.55) == []
+
+
+def test_the_similarity_floor_follows_the_organizations_model(
+    client: TestClient, db: Session, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Its scale is the model's: kept while the model stays, dropped when it changes (unless
+    a new value comes with the change)."""
+    org = wiki.infra.organization
+
+    def save(model: str, floor: float | None) -> float | None:
+        view = semantic.configure(
+            db,
+            wiki.root,
+            ctx.box,
+            org,
+            provider="voyage",
+            model=model,
+            api_key="pa-x",
+            meaning_min_similarity=floor,
+        )
+        assert view.meaning_min_similarity == semantic.meaning_floor(db, org.id)
+        return view.meaning_min_similarity
+
+    assert semantic.meaning_floor(db, org.id) is None  # no provider yet
+    assert save("voyage-4-large", 0.55) == 0.55
+    assert save("voyage-4-large", 0.55) == 0.55  # saved again unchanged: kept
+    assert save("voyage-4-lite", 0.55) is None  # other model: the old value means nothing
+    assert save("voyage-4-large", 0.5) == 0.5  # new value given with the change: kept
+    with pytest.raises(SynaptaneError):
+        save("voyage-4-large", 1.5)
+    assert semantic.parse_floor(" 0,55 ") == 0.55 and semantic.parse_floor("") is None
+    for typed in ("x", "0", "1"):
+        with pytest.raises(SynaptaneError):
+            semantic.parse_floor(typed)
+    db.commit()
+    login(client, "root")
+    token = csrf(client, "/o/acme/-/embeddings")
+    form = {"csrf": token, "provider": "voyage", "model": "voyage-4-large"}
+    client.post("/o/acme/-/embeddings", data={**form, "meaning_min_similarity": "0,6"})
+    assert (
+        'name="meaning_min_similarity" inputmode="decimal" value="0.6"'
+        in client.get("/o/acme/-/embeddings").text
+    )
+    page = client.post("/o/acme/-/embeddings", data={**form, "meaning_min_similarity": "2"})
+    assert "Indiquez une similarité minimale entre 0 et 1" in unescape(page.text)
+    assert semantic.meaning_floor(db, org.id) == 0.6
 
 
 def test_files_are_embedded_in_batches_and_a_refused_file_is_skipped(

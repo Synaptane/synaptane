@@ -229,8 +229,8 @@ outputs (see [Agent routines](../admin/ai.md#agent-routines-per-space)). Paths u
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET /organizations/{org}/embeddings` | admin | Embeddings provider, or `null`: `provider`, `model`, `base_url`, `has_key` |
-| `PUT /organizations/{org}/embeddings` | admin | `{"provider": "openai", "model": …, "api_key": …}` |
+| `GET /organizations/{org}/embeddings` | admin | Embeddings provider, or `null`: `provider`, `model`, `base_url`, `has_key`, `meaning_min_similarity` |
+| `PUT /organizations/{org}/embeddings` | admin | `{"provider": "openai", "model": …, "api_key": …, "meaning_min_similarity": 0.55}` (similarity floor, `null` by default; dropped when the model changes) |
 | `PUT …/spaces/{space}/semantic` | admin | `{"enabled": true}`: enables the space's index; returns the `files` and `chunks` indexed |
 
 ## SSO sign-in (super admin)
