@@ -57,10 +57,21 @@ def test_the_address_cited_by_the_error_wins_over_the_configuration() -> None:
         ("Passage interrompu (worker arrêté pendant le rangement).", "interrupted"),
         ("Budget mensuel d'IA atteint : passage refusé.", "budget"),
         ("Erreur interne : KeyError: 'x'", "internal"),
+        ("Cet espace n'a pas encore été synchronisé avec son dépôt.", "not_synced"),
+        ("This space has not been synchronized with its repository yet.", "not_synced"),
     ],
 )
 def test_known_errors_get_a_code(error: str, code: str) -> None:
     assert explain(error, OLLAMA).code == code
+
+
+def test_only_the_causes_on_the_ai_side_point_to_the_ai() -> None:
+    """A space not synchronized yet or a stopped worker: testing the AI connection would
+    change nothing, the alert does not offer it."""
+    assert not explain("This space has not been synchronized with its repository yet.").about_ai
+    assert not explain("Passage interrompu (worker arrêté pendant le rangement).").about_ai
+    assert explain("Clé refusée par le fournisseur.").about_ai
+    assert explain("Quelque chose d'imprévu").about_ai  # unknown: the AI stays a lead
 
 
 def test_an_outdated_message_is_replaced_not_repeated() -> None:

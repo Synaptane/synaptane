@@ -39,16 +39,19 @@
   <h3 id="tidy-alert-title">{% if streak.count == 1 %}{{ _("The last run failed") }}{% else %}{{ (_("The tidy-up has been failing since {date} ({n} attempts)")|e).format(date=when(streak.since, 'date'), n=streak.count) }}{% endif %}</h3>
   <p>{{ _(why.message, **why.params) }}</p>
   {% if why.show_detail %}<p class="tidy-detail">{{ _("Technical detail: {detail}", detail=why.detail) }}</p>{% endif %}
-  {# Unrecognized cause while the Git repository has a problem: that is what to look at,
-     testing the AI connection would change nothing. #}
+  {# Repository not synchronized, or unrecognized cause while the Git repository has a
+     problem: that is what to look at, testing the AI connection would change nothing. Nor
+     for the other causes on Synaptane's side (busy space, stopped worker…). #}
+  {% if why.code == 'not_synced' or (why.code in ('other', 'unknown') and space.sync_status != 'ok') %}
   <div class="tidy-alert-actions">
-    {% if why.code in ('other', 'unknown') and space.sync_status != 'ok' %}
     <a href="{{ base }}/-/git">{{ _("See the repository status") }}</a>
-    {% else %}
+  </div>
+  {% elif why.about_ai %}
+  <div class="tidy-alert-actions">
     {% if why.code not in ('budget', 'no_provider') %}{{ action("/o/" ~ org.slug ~ "/-/ai/test", _("Test the connection")) }}{% endif %}
     <a href="/o/{{ org.slug }}/-/ai">{{ _("Check the organization's AI") }}</a>
-    {% endif %}
   </div>
+  {% endif %}
   {% else %}
   <h3 id="tidy-alert-title">{% if streak.count == 1 %}{{ _("The last tidy-up run failed.") }}{% else %}{{ (_("The tidy-up has been broken since {date}.")|e).format(date=when(streak.since, 'date')) }}{% endif %}</h3>
   <p>{% if streak.notified %}{{ _("The organization's administrators have been notified.") }}{% elif admins %}{{ _("Let an administrator of the organization know: {names}.", names=admins|join(", ")) }}{% else %}{{ _("Let an administrator of the organization know.") }}{% endif %}</p>

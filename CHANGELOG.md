@@ -30,6 +30,14 @@ of the target version.
 - Prices of the Voyage 4 embedding models (`voyage-4-large`, `voyage-4`, `voyage-4-lite`), so
   that their indexing is counted at its real cost instead of the table's highest price.
 
+### Fixed
+- A space created after its tidy-up time (02:00 by default) no longer gets a scheduled run
+  right away, before its repository is even synchronized, which failed with "This space has
+  not been synchronized with its repository yet". Its first run is the next night, and no
+  scheduled run starts before the first synchronization.
+- The failed-run alert offers to test the AI connection only when the cause may lie with the
+  AI; a space not synchronized yet points to the repository status.
+
 ## [1.0.0-rc.1] - 2026-10-12
 
 First public release.

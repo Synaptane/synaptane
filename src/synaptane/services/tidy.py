@@ -1093,15 +1093,21 @@ def active(session: Session, box: SecretBox, space: Space) -> bool:
 
 
 def due(space: Space, now: datetime) -> date | None:
-    """Local day of the run due, or None (disabled, already done, or time not reached)."""
-    if not space.tidy_enabled or not space.repo_url:
+    """Local day of the run due, or None (disabled, already done, or time not reached).
+
+    Never before the first synchronization (no local copy to tidy yet), and not on the day a
+    space is created after its time: its first run is the next one, not right away."""
+    if not space.tidy_enabled or not space.repo_url or space.sync_status == "never":
         return None
     try:
-        local = now.astimezone(zone(space.tidy_timezone))
+        tz = zone(space.tidy_timezone)
+        local = now.astimezone(tz)
         at = parse_time(space.tidy_time)
     except SynaptaneError:
         return None
     if local.time() < at or space.tidy_last_date == local.date():
+        return None
+    if space.created_at and space.created_at >= datetime.combine(local.date(), at, tzinfo=tz):
         return None
     return local.date()
 
