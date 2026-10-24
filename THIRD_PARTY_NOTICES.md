@@ -110,7 +110,7 @@ package ships its own license file in its `*.dist-info/` directory (in the Docke
 | alembic | 1.20.0 | MIT |
 | annotated-doc | 0.0.5 | MIT |
 | annotated-types | 0.8.0 | MIT |
-| anthropic | 1.11.0 | MIT (vendored `httpx-aiohttp`: BSD-3-Clause, see below) |
+| anthropic | 2.0.0 | Apache-2.0 (vendored `httpx-aiohttp`: BSD-3-Clause, see below) |
 | anyio | 4.15.1 | MIT |
 | argon2-cffi | 25.1.0 | MIT |
 | argon2-cffi-bindings | 26.1.0 | MIT |
@@ -119,10 +119,10 @@ package ships its own license file in its `*.dist-info/` directory (in the Docke
 | click | 8.5.0 | BSD-3-Clause |
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | docstring-parser | 0.18.0 | MIT |
-| fastapi | 0.142.2 | MIT |
+| fastapi | 0.159.1 | MIT |
 | h11 | 0.16.0 | MIT |
-| httpcore2 | 2.13.1 | BSD-3-Clause |
-| httpx2 | 2.13.1 | BSD-3-Clause |
+| httpcore2 | 2.16.0 | BSD-3-Clause |
+| httpx2 | 2.16.0 | BSD-3-Clause |
 | idna | 3.20 | BSD-3-Clause |
 | jinja2 | 3.1.6 | BSD-3-Clause |
 | jiter | 0.17.0 | MIT |
@@ -137,22 +137,22 @@ package ships its own license file in its `*.dist-info/` directory (in the Docke
 | mdurl | 0.1.2 | MIT |
 | nh3 | 0.3.7 | MIT |
 | olefile | 0.47 | BSD-2-Clause (code derived from PIL: MIT-CMU) |
-| opentelemetry-api | 1.45.0 | Apache-2.0 |
-| pgvector | 0.5.0 | MIT |
-| pillow | 12.3.0 | MIT-CMU (bundled libraries: see section 4) |
+| opentelemetry-api | 1.45.1 | Apache-2.0 |
+| pgvector | 0.5.1 | MIT |
+| pillow | 13.0.0 | MIT-CMU (bundled libraries: see section 4) |
 | **psycopg** | 3.3.6 | **LGPL-3.0-only** |
 | **psycopg-binary** | 3.3.6 | **LGPL-3.0-only** (bundled libraries: see section 4) |
 | pycparser | 3.0 | BSD-3-Clause |
-| pydantic | 2.13.5 | MIT |
-| pydantic-core | 2.46.5 | MIT |
+| pydantic | 2.14.1 | MIT |
+| pydantic-core | 2.50.1 | MIT |
 | pygments | 2.21.0 | BSD-2-Clause |
 | pyjwt | 2.15.1 | MIT |
-| pypdfium2 | 5.13.0 | Apache-2.0 OR BSD-3-Clause (bundled PDFium: see section 4) |
+| pypdfium2 | 5.14.0 | Apache-2.0 OR BSD-3-Clause (bundled PDFium: see section 4) |
 | python-multipart | 0.0.32 | Apache-2.0 |
 | referencing | 0.37.0 | MIT |
 | rpds-py | 2026.6.3 | MIT |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 |
-| sqlalchemy | 2.1.3 | MIT |
+| sqlalchemy | 2.1.6 | MIT |
 | sse-starlette | 3.5.0 | BSD-3-Clause |
 | starlette | 1.7.0 | BSD-3-Clause |
 | truststore | 0.10.4 | MIT |
@@ -199,7 +199,7 @@ Bundled in `pillow.libs/` or linked into `PIL/*.so`: FreeType (dual-licensed
 and libsharpyuv (BSD-3-Clause), libavif (BSD-2-Clause) with its AV1 codecs, Little CMS 2
 (MIT), OpenJPEG (BSD-2-Clause), Brotli (MIT), zlib-ng in its zlib-compatible build (Zlib),
 liblzma (0BSD), Zstandard (BSD-3-Clause), libxcb and libXau (X11/MIT). Full texts:
-`pillow-12.3.0.dist-info/licenses/LICENSE`; inventory: `pillow-12.3.0.dist-info/sboms/`.
+`pillow-13.0.0.dist-info/licenses/LICENSE`; inventory: `pillow-13.0.0.dist-info/sboms/`.
 
 FriBiDi (LGPL-2.1-or-later) is **not** bundled: libraqm loads it at run time, only if the
 system provides it (in the Docker image, the Debian package `libfribidi0`, installed as a
@@ -225,8 +225,8 @@ This product includes software developed by Computing Services at Carnegie Mello
 FreeType (FTL),
 ICU (Unicode-3.0), Little CMS (MIT), libjpeg-turbo (IJG and BSD-3-Clause), OpenJPEG
 (BSD-2-Clause), libpng, libtiff, LLVM libc (Apache-2.0 WITH LLVM-exception), simdutf and zlib.
-Full texts: `pypdfium2-5.13.0.dist-info/licenses/data/linux_x64/BUILD_LICENSES/` (directory
-named after the wheel's platform) and `pypdfium2-5.13.0.dist-info/licenses/LICENSES/`.
+Full texts: `pypdfium2-5.14.0.dist-info/licenses/data/linux_x64/BUILD_LICENSES/` (directory
+named after the wheel's platform) and `pypdfium2-5.14.0.dist-info/licenses/LICENSES/`.
 
 ### Required acknowledgements
 
