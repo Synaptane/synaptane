@@ -177,7 +177,7 @@ On your server, get the files for the release (Compose file, nginx configuration
 then start the published image:
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env   # it holds the database password
 openssl rand -hex 24                     # copy into POSTGRES_PASSWORD
@@ -205,8 +205,8 @@ building the image yourself.
 ## Try it locally in 2 minutes
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git && cd synaptane
-printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.0.0-rc.1\n' \
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git && cd synaptane
+printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.0.0-rc.2\n' \
   "$(openssl rand -hex 24)" > .env
 chmod 600 .env                                                        # database password
 echo 'COMPOSE_FILE=compose.yaml:examples/compose.demo.yaml' >> .env   # demo only
