@@ -148,8 +148,11 @@ def test_a_stuck_child_is_killed_with_its_tesseract(
         run_isolated("pdf", ".pdf", blank_pdf(600), languages="fra", ocr_images=True, timeout=5)
     pid = int(pid_file.read_text())
     for _ in range(50):
-        status = Path(f"/proc/{pid}/status")
-        if not status.exists() or "\nState:\tZ" in status.read_text():
+        try:
+            status = Path(f"/proc/{pid}/status").read_text()
+        except OSError:  # gone (FileNotFoundError), or reaped while being read (ESRCH)
+            break
+        if "\nState:\tZ" in status:
             break
         time.sleep(0.1)
     else:

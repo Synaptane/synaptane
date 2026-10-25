@@ -221,7 +221,10 @@ def test_demo_leaves_foreign_accounts_and_spaces_alone(
     assert not demo_service.repo_path(settings).exists()
 
 
-def test_dataset_is_found_from_the_source_tree() -> None:
+def test_dataset_is_found_from_the_source_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tesseract on one thread, as in the extraction child (extract._child_env): with one
+    # thread per core in each pytest process, the OCR of the scans ran past its timeout.
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "1")
     dataset = demo_service.find_dataset()
     assert (dataset / "content" / "README.md").is_file()
     assert (dataset / ".synaptane" / "vocation.md").is_file()
@@ -239,7 +242,7 @@ def test_dataset_is_found_from_the_source_tree() -> None:
             unread = (not OCR and path[len("content/") :] in SCANNED) or (
                 not CATDOC and path[len("content/") :] in LEGACY
             )
-            assert text.strip() or unread, path
+            assert text.strip() or unread, (path, budget.notes)
         else:
             text = data.decode()
         for word in text.replace("(", " ").replace(")", " ").replace("`", " ").split():
