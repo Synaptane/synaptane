@@ -26,7 +26,7 @@ AI agent on a Claude or ChatGPT subscription: for that,
 configuration and the server scripts. Clone the release, then start the published image:
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env
 chmod 600 .env                # it holds the database password
@@ -72,7 +72,7 @@ prefer not to pull a prebuilt image. `compose.yaml` alone never builds: the buil
 in `compose.build.yaml`, which you add through `COMPOSE_FILE`.
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env
 nano .env                     # as above, plus these two lines:

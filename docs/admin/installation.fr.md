@@ -27,7 +27,7 @@ configuration nginx et les scripts du serveur. Clonez la version, puis lancez l'
 publiée :
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env
 chmod 600 .env                # il contient le mot de passe de la base
@@ -74,7 +74,7 @@ construit jamais : la construction est déclarée dans `compose.build.yaml`, que
 par `COMPOSE_FILE`.
 
 ```sh
-git clone --branch v1.0.0-rc.1 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env
 nano .env                     # comme plus haut, plus ces deux lignes :

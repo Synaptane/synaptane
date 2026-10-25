@@ -10,6 +10,8 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-10-25
+
 ### Changed
 - Semantic search with Voyage AI: pages and queries are embedded with the prompts Voyage
   prepends for its `input_type` ("document" and "query"), which its models are tuned for.
@@ -233,5 +235,6 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/synaptane/synaptane/releases/tag/v1.0.0-rc.1
