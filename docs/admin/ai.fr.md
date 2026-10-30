@@ -98,8 +98,9 @@ Il n'a ni shell, ni accès aux fichiers, ni web : un contenu malveillant dépos�
 ne peut pas lire le serveur.
 
 Cette garantie tient à des options de ligne de commande (`--tools ""` et
-`--strict-mcp-config` pour Claude Code ; `--disable …`, bac à sable en lecture seule et
-approbations refusées pour Codex). Une montée de version peut les renommer ou en changer le
+`--strict-mcp-config` pour Claude Code, avec le chargement différé des outils coupé par
+`ENABLE_TOOL_SEARCH=false` ; `--disable …`, bac à sable en lecture seule et approbations
+refusées pour Codex). Une montée de version peut les renommer ou en changer le
 sens : `synaptane check-clis` le **vérifie automatiquement**, sans connexion ni appel au
 modèle, et sans réseau :
 - l'aide de Claude Code cite encore chaque option utilisée, avec le même sens ;

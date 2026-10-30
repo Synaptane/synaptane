@@ -2,8 +2,9 @@
 
 With a subscription, the tidy-up agent runs in the official CLI (`cli_agents`). That it only
 has Synaptane's tools rests solely on command-line options: `--tools ""` and
-`--strict-mcp-config` for Claude Code, `--disable …` for Codex. A version upgrade can rename
-an option or a feature, change its meaning, or add a feature enabled by default: the agent
+`--strict-mcp-config` for Claude Code (plus `ENABLE_TOOL_SEARCH=false`), `--disable …` for
+Codex. A version upgrade can rename an option or a feature, change its meaning, or add a
+feature enabled by default: the agent
 would then get a shell back in the worker, and a prompt injection through the inbox would be
 enough to read the server.
 
@@ -37,7 +38,7 @@ from pathlib import Path
 
 from synaptane.ai import cli_agents
 from synaptane.ai.base import AIConfig, AIError, ToolSpec
-from synaptane.ai.cli_agents import CODEX_DISABLED
+from synaptane.ai.cli_agents import CLAUDE_ENVIRONMENT, CODEX_DISABLED
 
 TIMEOUT = 60  # seconds, per command
 
@@ -59,7 +60,7 @@ CLAUDE_MEANINGS = (
 )
 
 # Codex features enabled by default, reviewed and judged free of execution, file access and
-# web access (Codex 0.160.0 to 0.163.0, from its sources). Any other enabled feature fails the
+# web access (Codex 0.160.0 to 0.166.0, from its sources). Any other enabled feature fails the
 # contract: it must be classified here, or turned off in `cli_agents.CODEX_DISABLED` (when in
 # doubt, turned off). "removed" features are ignored: they can no longer be set.
 CODEX_ALLOWED = frozenset(
@@ -67,6 +68,7 @@ CODEX_ALLOWED = frozenset(
         "api_key_cyber_access_programs",  # access program of the model, with an API key
         "api_key_model_discovery",  # model catalog, with an API key
         "auth_elicitation",  # authentication request from an MCP server
+        "bedrock_setup_wizard",  # Amazon Bedrock offer at sign-in, interactive
         "cli_daybreak",  # choice of the model's access program (cyber treatment), no tool
         "code_mode_interrupt",  # stops code mode cells on interruption: code mode turned off
         "compaction_image_budget",  # image size during context summarization
@@ -79,9 +81,13 @@ CODEX_ALLOWED = frozenset(
         "in_app_dictation",  # desktop app
         "in_app_updates",  # desktop app
         "in_app_voice",  # desktop app
+        "incremental_tools",  # describes the tools already declared in the context, adds none
         "instant_interrupt",  # interruption by the user, interactive
+        "mcp_oauth_refresh_coordination",  # OAuth of MCP servers: Synaptane's uses a token
         "mentions_v2",  # mentions in the typed text
+        "prediction_preserve_parent_tools",  # prediction forks keep the run's tools, add none
         "realtime_conversation",  # voice conversation, interactive
+        "reasoning_effort_override",  # reasoning effort changes, in the context
         "sleep_tool",  # waiting
         "system_proxy_fallback",  # system network proxy
         "tool_call_mcp_elicitation",  # questions from an MCP server
@@ -329,7 +335,7 @@ def probe(provider: str, home: Path) -> tuple[list[list[Tool]], str]:
     ):
         command = _probe_command(provider, home, api, url, token)
         extra = (
-            {"ANTHROPIC_BASE_URL": api, "ANTHROPIC_API_KEY": PROBE_KEY}
+            {"ANTHROPIC_BASE_URL": api, "ANTHROPIC_API_KEY": PROBE_KEY, **CLAUDE_ENVIRONMENT}
             if provider == "claude_code"
             else {"SYNAPTANE_TIDY_TOKEN": token, "SYNAPTANE_CONTRACT_KEY": PROBE_KEY}
         )

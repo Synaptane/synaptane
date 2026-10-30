@@ -95,7 +95,8 @@ short-lived local MCP server protected by a single-use token. It has no shell, n
 and no web: malicious content dropped into the inbox cannot read the server.
 
 This guarantee rests on command-line options (`--tools ""` and `--strict-mcp-config` for
-Claude Code; `--disable …`, a read-only sandbox and refused approvals for Codex). A new
+Claude Code, with deferred tool loading switched off by `ENABLE_TOOL_SEARCH=false`;
+`--disable …`, a read-only sandbox and refused approvals for Codex). A new
 version may rename them or change their meaning: `synaptane check-clis` **checks this
 automatically**, with no login, no model call and no network:
 - Claude Code's help still lists every option used, with the same meaning;

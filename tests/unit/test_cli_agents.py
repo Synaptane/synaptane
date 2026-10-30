@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import httpx2
 import pytest
@@ -47,6 +48,22 @@ def test_environment_never_carries_api_keys(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("SYNAPTANE_DATABASE_URL", "postgresql://secret")
     env = cli_agents._environment()
     assert not {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SYNAPTANE_DATABASE_URL"} & env.keys()
+
+
+@pytest.mark.parametrize("config", [CLAUDE, CODEX])
+def test_claude_runs_without_tool_search(monkeypatch: pytest.MonkeyPatch, config: AIConfig) -> None:
+    """Since 2.1.310, Claude Code offers the model a placeholder tool while it is active."""
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+    seen: dict[str, str] = {}
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(command, 1, "", "stop")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(AIError):
+        cli_agents.run_agent(config, "System.", "Prompt.", [PING], lambda name, arguments: "ok")
+    assert seen.get("ENABLE_TOOL_SEARCH") == ("false" if config is CLAUDE else None)
 
 
 def test_usage_parsing() -> None:

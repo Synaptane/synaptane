@@ -17,7 +17,7 @@ import pytest
 from synaptane.ai import cli_agents, cli_contract
 from synaptane.cli import main
 
-FIXTURE = Path(__file__).parents[1] / "fixtures" / "codex-features-0.163.0.txt"
+FIXTURE = Path(__file__).parents[1] / "fixtures" / "codex-features-0.166.0.txt"
 REPORT = {"type": "function", "name": "mcp__synaptane_tidy__report"}
 SEARCH = {
     "type": "tool_search",
@@ -83,6 +83,7 @@ def simulate(
         if command[-2:] == ["features", "list"]:
             return Done("WARNING: proceeding\n" + features)
         if name == "claude":
+            assert env["ENABLE_TOOL_SEARCH"] == "false"  # the environment of a run
             url = env["ANTHROPIC_BASE_URL"] + "/v1/messages"
             tools = [REPORT] if claude_tools is None else claude_tools
         else:
