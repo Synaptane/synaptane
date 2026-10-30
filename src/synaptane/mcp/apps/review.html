@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pages to review · Synaptane</title>
+<style>
+  /* Synaptane's "Paper" and "Slate" colors; the host's theme decides which. */
+  :root {
+    --bg: #fbfaf7; --surface: #ffffff; --ink: #1b1d22; --ink-2: #5b606b; --border: #e4e1da;
+    --accent: #1f6f6a; --on-accent: #ffffff; --warn-bg: #fdf1dc; --warn-ink: #7a4b00;
+    --ok-bg: #e3f2ee; --ok-ink: #145a4f;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --surface: #161a21; --ink: #e8eaee; --ink-2: #9aa1ad; --border: #262c36;
+    --accent: #b6f36a; --on-accent: #0e1116; --warn-bg: #3a2a10; --warn-ink: #f3c977;
+    --ok-bg: #12302a; --ok-ink: #8fe0c8;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  h1 { font-size: 15px; margin: 0; }
+  .muted { color: var(--ink-2); font-size: 13px; }
+  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  li.card.done { opacity: .6; }
+  .title { font-weight: 600; word-break: break-word; }
+  .where { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink-2); word-break: break-all; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; margin-right: 6px; }
+  .badge.stale { background: var(--warn-bg); color: var(--warn-ink); }
+  .badge.reported { background: var(--warn-bg); color: var(--warn-ink); font-weight: 600; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok-ink); }
+  .reports { margin: 6px 0 0; padding-left: 16px; font-size: 13px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  button {
+    font: inherit; font-size: 13px; border-radius: 8px; padding: 4px 10px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .empty { padding: 16px; text-align: center; color: var(--ink-2); }
+  .error { color: var(--warn-ink); font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header><h1 id="heading"></h1><span class="muted" id="count"></span></header>
+<ol id="list"></ol>
+<p class="empty" id="empty" hidden></p>
+<script>
+(function () {
+  "use strict";
+  // Texts of the view, in the host's language (French or English).
+  var TEXTS = {
+    en: {
+      heading: "Pages to review", one: "1 page", count: "{n} pages", more: "the first {shown} of {n}",
+      empty: "No page to review: none is due, none is reported as outdated.",
+      stale: "Due since {date}", never: "Never verified", verified: "Verified on {date}",
+      owner: "Owner: {name}", reported: "Reported outdated ×{n}", by: "{date}, {name}: ",
+      formerMember: "a former member",
+      holds: "Still right", update: "Needs an update", open: "Open",
+      verifiedNow: "Verified", asked: "Asked the assistant",
+      updateMessage: "The page {title} ({url}) in {space} needs an update. Read it, check what no longer holds{reasons}, and propose the changes before writing anything.",
+      reasonsIntro: " (readers say: {reasons})", failed: "Could not do it: {error}"
+    },
+    fr: {
+      heading: "Pages à revoir", one: "1 page", count: "{n} pages", more: "les {shown} premières sur {n}",
+      empty: "Aucune page à revoir : aucune n'est échue, aucune n'est signalée obsolète.",
+      stale: "À revoir depuis le {date}", never: "Jamais vérifiée", verified: "Vérifiée le {date}",
+      owner: "Propriétaire : {name}", reported: "Signalée obsolète ×{n}", by: "{date}, {name} : ",
+      formerMember: "un ancien membre",
+      holds: "Toujours juste", update: "À mettre à jour", open: "Ouvrir",
+      verifiedNow: "Vérifiée", asked: "Demandé à l'assistant",
+      updateMessage: "La page {title} ({url}) de {space} doit être mise à jour. Lis-la, vérifie ce qui n'est plus juste{reasons}, et propose les modifications avant d'écrire quoi que ce soit.",
+      reasonsIntro: " (des lecteurs disent : {reasons})", failed: "Impossible : {error}"
+    }
+  };
+  var lang = "en";
+  function day(iso) {
+    if (!iso) return "";
+    var date = new Date(iso + "T12:00:00");
+    if (isNaN(date)) return iso;
+    return date.toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "long", year: "numeric" });
+  }
+  function t(key, values) {
+    var text = (TEXTS[lang] || TEXTS.en)[key];
+    for (var name in values || {}) text = text.split("{" + name + "}").join(String(values[name]));
+    return text;
+  }
+
+  // --- Bridge to the host (MCP Apps, JSON-RPC over postMessage) -----------------------------
+  var nextId = 1, waiting = {}, handlers = {};
+  function send(message) { message.jsonrpc = "2.0"; window.parent.postMessage(message, "*"); }
+  function request(method, params) {
+    var id = nextId++;
+    send({ id: id, method: method, params: params || {} });
+    return new Promise(function (resolve, reject) { waiting[id] = { resolve: resolve, reject: reject }; });
+  }
+  function notify(method, params) { send({ method: method, params: params || {} }); }
+  window.addEventListener("message", function (event) {
+    var message = event.data;
+    if (event.source !== window.parent || !message || message.jsonrpc !== "2.0") return;
+    if (message.id != null && !message.method) {
+      var pending = waiting[message.id];
+      delete waiting[message.id];
+      if (!pending) return;
+      if (message.error) pending.reject(new Error(message.error.message || "error"));
+      else pending.resolve(message.result);
+      return;
+    }
+    if (message.method === "ui/resource-teardown" || message.method === "ping") {
+      send({ id: message.id, result: {} });
+      return;
+    }
+    var handler = handlers[message.method];
+    if (handler) handler(message.params || {});
+  });
+
+  function applyContext(context) {
+    if (!context) return;
+    if (context.theme) document.documentElement.setAttribute("data-theme", context.theme);
+    var locale = (context.locale || navigator.language || "en").toLowerCase();
+    lang = locale.indexOf("fr") === 0 ? "fr" : "en";
+    document.documentElement.lang = lang;
+  }
+
+  // The host sizes the frame to the view.
+  var lastHeight = 0;
+  new ResizeObserver(function () {
+    var height = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    if (height !== lastHeight) {
+      lastHeight = height;
+      notify("ui/notifications/size-changed", { height: height });
+    }
+  }).observe(document.body);
+
+  // --- The view -----------------------------------------------------------------------------
+  function element(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;  // never HTML: titles and reasons are untrusted
+    return node;
+  }
+
+  function render(data) {
+    var pages = (data && data.pages) || [];
+    var total = (data && data.total) || pages.length;
+    document.getElementById("heading").textContent = t("heading");
+    document.getElementById("count").textContent =
+      total > pages.length ? t("more", { shown: pages.length, n: total })
+        : total === 1 ? t("one") : t("count", { n: total });
+    var list = document.getElementById("list");
+    list.textContent = "";
+    var empty = document.getElementById("empty");
+    empty.hidden = pages.length > 0;
+    empty.textContent = t("empty");
+    pages.forEach(function (page) { list.appendChild(card(page)); });
+  }
+
+  function card(page) {
+    var item = element("li", "card");
+    item.appendChild(element("div", "title", page.title));
+    item.appendChild(element("div", "where", page.space + " · " + page.path));
+    var line = element("div", "muted");
+    if (page.reports && page.reports.length) {
+      line.appendChild(element("span", "badge reported", t("reported", { n: page.reports.length })));
+    }
+    var state = page.stale ? t("stale", { date: day(page.due) })
+      : page.verified ? t("verified", { date: day(page.verified) }) : t("never");
+    line.appendChild(element("span", page.stale ? "badge stale" : "badge", state));
+    if (page.owner) line.appendChild(element("span", null, t("owner", { name: page.owner })));
+    item.appendChild(line);
+    if (page.reports && page.reports.length) {
+      var reasons = element("ul", "reports");
+      page.reports.forEach(function (report) {
+        var entry = element("li");
+        entry.appendChild(element("span", "muted", t("by", { date: day(report.at), name: report.by || t("formerMember") })));
+        entry.appendChild(element("span", null, report.reason));
+        reasons.appendChild(entry);
+      });
+      item.appendChild(reasons);
+    }
+    var actions = element("div", "actions");
+    var error = element("div", "error");
+    error.hidden = true;
+    if (page.can_verify) {
+      var holds = element("button", "primary", t("holds"));
+      holds.type = "button";
+      holds.addEventListener("click", function () {
+        holds.disabled = true;
+        request("tools/call", { name: "verify_page", arguments: { space: page.space, path: page.path } })
+          .then(function (result) {
+            if (result && result.isError) throw new Error(textOf(result));
+            item.classList.add("done");
+            holds.textContent = t("verifiedNow");
+            request("ui/update-model-context", {
+              content: [{ type: "text", text: "The user confirmed and verified " + page.space + "/" + page.path + "." }]
+            }).catch(function () {});  // the host may not keep it: the verification is done anyway
+          })
+          .catch(function (e) { holds.disabled = false; showError(error, e); });
+      });
+      actions.appendChild(holds);
+    }
+    var update = element("button", null, t("update"));
+    update.type = "button";
+    update.addEventListener("click", function () {
+      var said = (page.reports || []).map(function (r) { return "« " + r.reason + " »"; }).join(", ");
+      var text = t("updateMessage", {
+        title: page.title, url: page.url, space: page.space,
+        reasons: said ? t("reasonsIntro", { reasons: said }) : ""
+      });
+      update.disabled = true;
+      request("ui/message", { role: "user", content: [{ type: "text", text: text }] })
+        .then(function () { update.textContent = t("asked"); })
+        .catch(function (e) { update.disabled = false; showError(error, e); });
+    });
+    actions.appendChild(update);
+    var open = element("button", null, t("open"));
+    open.type = "button";
+    open.addEventListener("click", function () {
+      request("ui/open-link", { url: page.url }).catch(function () { window.open(page.url, "_blank", "noopener"); });
+    });
+    actions.appendChild(open);
+    item.appendChild(actions);
+    item.appendChild(error);
+    return item;
+  }
+
+  function textOf(result) {
+    return ((result && result.content) || []).map(function (c) { return c.text || ""; }).join(" ");
+  }
+  function showError(node, e) {
+    node.hidden = false;
+    node.textContent = t("failed", { error: (e && e.message) || e });
+  }
+
+  handlers["ui/notifications/host-context-changed"] = applyContext;
+  handlers["ui/notifications/tool-result"] = function (result) {
+    render(result.structuredContent || {});
+  };
+
+  request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "synaptane-review", version: "1" },
+    appCapabilities: { availableDisplayModes: ["inline"] }
+  }).then(function (result) {
+    applyContext(result && result.hostContext);
+    notify("ui/notifications/initialized", {});
+  }, function () {
+    notify("ui/notifications/initialized", {});
+  });
+})();
+</script>
+</body>
+</html>

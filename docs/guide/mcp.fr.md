@@ -34,6 +34,23 @@ connexion en lecture seule ne voit pas les outils d'écriture ; une connexion li
 ne voit, en plus de la lecture, que `inbox_add`, `inbox_update` et `inbox_delete`, et une
 écriture dans une page est refusée avec la raison.
 
+## Des vues dans la conversation (MCP Apps)
+
+Dans un hôte qui affiche les MCP Apps (Claude sur le web et l'application de bureau,
+ChatGPT, VS Code avec Copilot), `pages_to_review` vient avec une vue : une carte par page,
+avec son état (à revoir, signalée obsolète, et les raisons des lecteurs) et trois boutons :
+
+- **Toujours juste** : vérifie la page (`verify_page`, contributeurs ; l'hôte peut demander
+  confirmation, comme pour toute écriture) ;
+- **À mettre à jour** : demande à l'assistant, dans la conversation, de lire la page et de
+  proposer les modifications ;
+- **Ouvrir** : ouvre la page dans Synaptane.
+
+La vue ne contient aucune donnée (elle reçoit le résultat de l'outil de l'hôte), ne charge
+rien d'ailleurs, affiche titres et raisons en texte seulement, et suit le thème et la langue
+de l'hôte (français ou anglais). Les autres clients, dont Claude Code, reçoivent la même liste
+en texte, à parcourir avec l'utilisateur.
+
 ## ChatGPT
 
 Dans les réglages de ChatGPT, activez le mode développeur (section Applications ou
@@ -87,6 +104,7 @@ sont relatifs au contenu de l'espace, par exemple `infra/proxmox.md`.
 | `inbox_update`, `inbox_delete` | Corriger (seuls les champs passés changent) ou retirer une note déposée par erreur, par son `id`, tant qu'elle n'est pas rangée | contributeur |
 | `write_page`, `edit_page` | Créer, remplacer ou modifier un fichier texte (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Remplacer un fichier existant exige son `base_sha` (le `sha` donné par `read`) : on ne réécrit pas une page sans l'avoir lue. Les deux renvoient la nouvelle empreinte, et signalent les liens cassés de la page. Les champs de vérification du front matter (`owner`, `verified`, `review_every`) sont gardés tels quels : seul `verify_page` les change | contributeur |
 | `append_page` | Ajouter du texte à la fin d'un fichier, avec le `base_sha` de l'appel précédent : un fichier trop long pour un seul appel s'écrit en plusieurs morceaux | contributeur |
+| `pages_to_review` | Pages à revoir ou signalées obsolètes par des lecteurs, dans un espace (`space`) ou tous, `mine` pour celles dont l'utilisateur est propriétaire : en texte, et en vue dans les hôtes qui affichent les apps (voir plus bas). Les pages signalées d'abord, 30 au plus | lecteur |
 | `verify_page` | Marquer une page Markdown comme vérifiée aujourd'hui, seulement quand l'utilisateur confirme qu'elle est juste et à jour ; `owner` et `review_every` (`90d`, `6m`, `1y`, `never`, `default` : celle de l'espace) facultatifs. Sans propriétaire, la page devient celle de l'utilisateur. Un commit qui ne change que le front matter, non signalé au rangement | contributeur |
 | `move`, `delete` | Déplacer ou supprimer un fichier. `move` met à jour les liens dans le même commit (ceux du fichier déplacé, et ceux des pages qui pointaient vers lui), puis liste les pages mises à jour et les liens encore cassés | contributeur |
 | `restore` | Remettre un fichier tel qu'il était dans une version passée (`commit`, donné par `history`), un fichier supprimé aussi : un nouveau commit, le texte remplacé reste dans l'historique. Une page garde ses champs de vérification actuels | contributeur |

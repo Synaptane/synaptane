@@ -29,7 +29,7 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import prompts, reading
+from synaptane.mcp import prompts, reading, review
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -260,7 +260,9 @@ class SynaptaneMCP(MCPServer):
 
 def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServer:
     provider = SynaptaneOAuthProvider(database, settings.public_url)
+    kit = Kit(settings, database, ws)
     server = SynaptaneMCP(
+        extensions=[review.build(kit)],  # MCP Apps: the "pages to review" view
         name="synaptane",
         title="Synaptane",
         description="Team second brain stored in Git",
@@ -328,7 +330,6 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
 
     server.space_prompts = list_team_prompts
     server.run_prompt = run_team_prompt
-    kit = Kit(settings, database, ws)
     reading.register(server, kit)
     prompts.register(server)
     call, space_of = kit.call, kit.space_of
