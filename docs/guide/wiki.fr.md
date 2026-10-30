@@ -210,6 +210,12 @@ review_every: 6m      # 90d, 12w, 6m, 1y ; absent : celle de l'espace ; never : 
   est multiplicatif, la pertinence reste le premier critère.
 - **Périodicité de l'espace** : *Paramètres → Général*, « Pages vérifiées : à revoir »
   (1, 3 ou 6 mois, 1 ou 2 ans, ou jamais). Une page qui porte `review_every` garde la sienne.
+- **Une page qui tient attend plus longtemps** : vérifiée de nouveau sans changement depuis sa
+  vérification précédente, sa périodicité double (6 mois, puis 1 an, puis 2 ans au plus), et
+  `reconfirmed: N` dans son front matter compte ces vérifications successives. Une
+  modification de la page, par qui que ce soit, ou une périodicité choisie à la main repart
+  de sa périodicité. « Sans changement » compare le texte à celui qu'avait la page lors de sa
+  dernière vérification, pas les messages de commit.
 - **Rappels** : l'accueil liste, dans « En attente », les pages à revoir dont vous êtes
   propriétaire (reconnu par votre identifiant ou votre adresse e-mail). Un e-mail groupé part
   au plus une fois par semaine, un jour ouvré, à chaque propriétaire de pages échues (adresse

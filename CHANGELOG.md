@@ -17,6 +17,11 @@ of the target version.
   `search` and `fetch`, `edited:` in the `read` header). The server guidance asks assistants
   to be more careful with a page last written by an AI and not verified since. Computed from
   the Git history in one walk per space, then only the new commits.
+- **A page that still holds waits longer**: verified again with no change since its previous
+  verification, its review interval doubles, up to two years (`reconfirmed: N` in its front
+  matter, protected from AI agents like the other verification fields). A change to the page,
+  or an interval chosen by hand, starts again from its interval. The verification panel says
+  so, and the REST API gives `reconfirmed` (MCP: `review_due` already accounts for it).
 
 ## [1.1.0] - 2026-10-30
 

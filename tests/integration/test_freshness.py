@@ -126,6 +126,68 @@ def test_verifying_keeps_the_text_and_is_not_a_change_for_tidying(
     assert pending(db, ctx, wiki) == [f"Page changed: {PROXMOX}"]
 
 
+def test_a_page_verified_again_unchanged_waits_longer(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each verification with no change since the previous one doubles the interval; a change
+    (even under a commit message that looks like a verification) or a new interval chosen by
+    a person starts again from it."""
+    day = date(2026, 1, 5)
+    monkeypatch.setattr(freshness, "today_for", lambda space, now=None: day)
+
+    def verify(**kwargs: object) -> freshness.Freshness:
+        result = freshness.verify_page(
+            db,
+            database,
+            wiki.alice,
+            ctx,
+            wiki.infra,
+            PROXMOX,
+            **kwargs,  # type: ignore[arg-type]
+        )
+        db.commit()
+        return result.freshness
+
+    write(db, database, ctx, wiki, PROXMOX, "---\nreview_every: 3m\n---\n# Proxmox\n\n2h.\n")
+    assert (verify().period, verify().reconfirmed) == ("3m", 0)  # first time: nothing to count
+    for expected, period in ((1, "6m"), (2, "1y"), (3, "2y"), (4, "2y")):
+        day += timedelta(days=30)
+        state = verify()
+        assert (state.reconfirmed, state.period) == (expected, period)
+    assert "reconfirmed: 4\n" in blob(ctx, wiki, PROXMOX)
+    assert state.due == date(2028, 5, 5)  # two years at most
+
+    # Changed by an assistant, with a message that imitates a verification: counted as a change.
+    page = content.read_file(wiki.alice, ctx, wiki.infra, PROXMOX)
+    content.write_file(
+        db,
+        database,
+        wiki.alice,
+        ctx,
+        wiki.infra,
+        PROXMOX,
+        (page.text or "").replace("2h", "3h").encode(),
+        message=f"Page verified: {PROXMOX}",
+        base_sha=page.sha,
+        source="mcp",
+    )
+    db.commit()
+    day += timedelta(days=30)
+    state = verify()
+    assert (state.reconfirmed, state.period) == (0, "3m")
+    assert "reconfirmed" not in blob(ctx, wiki, PROXMOX)
+
+    day += timedelta(days=30)
+    assert verify().reconfirmed == 1
+    # A person chooses another interval: it applies as is.
+    state = verify(review_every="1m", verify=False)
+    assert (state.reconfirmed, state.period) == (0, "1m")
+
+
 def test_a_verification_pushed_from_git_is_not_a_change_either(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
@@ -371,6 +433,7 @@ def test_rest_verify_read_and_search_fields(
         "owner": "alice",
         "review_due": (day + timedelta(days=90)).isoformat(),
         "review_every": "90d",
+        "reconfirmed": 0,
     }
     read = client.get(f"{base}/files/{PROXMOX}", headers=bob).json()
     assert read["freshness"]["verified"] is True and "verified: " in read["text"]

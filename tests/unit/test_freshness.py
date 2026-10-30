@@ -125,6 +125,7 @@ def test_states() -> None:
         "owner": None,
         "review_due": "2026-10-07",
         "review_every": "6m",
+        "reconfirmed": 0,
     }
     assert state_of(Meta(), "6m", TODAY) == Freshness("never", period="6m", inherited=True)
 
@@ -231,3 +232,24 @@ def test_owner_matching_and_local_day() -> None:
     assert freshness.today_for(space, late) == date(2026, 10, 8)
     assert freshness.today_for(Space(tidy_timezone="Nulle/Part"), late) == date(2026, 10, 7)
     assert freshness.is_page("a/B.MD") and not freshness.is_page("a.pdf")
+
+
+def test_reconfirmed_pages_wait_longer() -> None:
+    assert [str(Period(6, "m").stretched(n)) for n in range(4)] == ["6m", "1y", "2y", "2y"]
+    assert [str(Period(90, "d").stretched(n)) for n in range(5)] == [
+        "90d",
+        "180d",
+        "360d",
+        "720d",
+        "2y",
+    ]
+    assert str(Period(3, "y").stretched(2)) == "3y"  # already longer: kept
+    text = "---\nverified: 2026-01-01\nreview_every: 6m\nreconfirmed: 1\n---\n# P\n"
+    state = of_text(text, "", TODAY)
+    assert (state.period, state.reconfirmed, state.due) == ("1y", 1, date(2027, 1, 1))
+    assert read_meta(text.replace("reconfirmed: 1", "reconfirmed: oui")).reconfirmed == 0
+    # Never verified: the count means nothing.
+    assert of_text("---\nreconfirmed: 3\n---\n", "6m", TODAY).period == "6m"
+    # An AI agent can no more lengthen the interval than verify a page.
+    forged, fixed = keep_verification(text, text.replace("reconfirmed: 1", "reconfirmed: 9"))
+    assert fixed and "reconfirmed: 1\n" in forged
