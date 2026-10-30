@@ -69,6 +69,7 @@ from synaptane.services import (
 )
 from synaptane.services import related as related_service
 from synaptane.services import search as search_service
+from synaptane.services import verdicts as verdicts_service
 from synaptane.services.ai_settings import config_for
 from synaptane.services.content import content_path, kind_of, window
 from synaptane.services.deposits import free_item_path, list_items, tidy_soon
@@ -311,6 +312,7 @@ class RoutineTools:
         self.allowed = {t.name for t in tool_specs(spec)}
         self.report: str | None = None
         self.proposals: list[Proposal] = []
+        self.verdicts: list[verdicts_service.Verdict] = []  # judged problems: not again
         self.finished: str | None = None
         self.calls = 0
 
@@ -492,6 +494,12 @@ class RoutineTools:
         self._no_secret(f"{title}\n{body}", "the item")
         if any(p.title == title for p in self.proposals):
             raise ToolFailure("An item already has this title in this run.")
+        if judged := verdicts_service.same_title(title, self.verdicts):
+            raise ToolFailure(
+                f"Already judged ({judged.line()[2:]}), and its pages have not changed since: "
+                "do not deposit it again. Mention it in the report only if you found something "
+                "new about it."
+            )
         self.proposals.append(Proposal(title, body, tuple(dict.fromkeys(checked))))
         return f"Item noted ({len(self.proposals)}/{MAX_INBOX}), deposited at the end of the run."
 
@@ -564,6 +572,7 @@ class Context:
     sample_label: str
     known: list[str]  # items already deposited by the routine, not filed yet
     pairs: list[str] = field(default_factory=list)  # possible duplicates (consistency check)
+    verdicts: list[verdicts_service.Verdict] = field(default_factory=list)  # judged problems
 
 
 def _since(spec: Spec, now: datetime) -> datetime:
@@ -661,6 +670,9 @@ def gather(
         except SynaptaneError:
             items = []
         known = [i.title for i in items if i.origin in spec.origins][:50]
+    judged = (
+        verdicts_service.standing(session, ws, space, spec.origins) if spec.output_inbox else []
+    )
     pairs = []
     if spec.template == "coherence":  # duplicates: very close pairs among the pages to review
         found = related_service.close_pairs(
@@ -678,7 +690,7 @@ def gather(
             f"{round(p.closeness * 100)} %)"
             for p in found
         ]
-    return Context(since, "\n".join(lines), sample, label, known, pairs)
+    return Context(since, "\n".join(lines), sample, label, known, pairs, judged)
 
 
 def _tidy_activity(session: Session, space: Space, since: datetime) -> list[str]:
@@ -772,8 +784,9 @@ def system_prompt(space: Space, spec: Spec, language: str = "") -> str:
         outputs.append("items deposited in the inbox (add_to_inbox)")
         rules.append(
             f"- add_to_inbox deposits a fix to make (at most {MAX_INBOX} per run): a short "
-            "title, the problem, the pages and excerpts concerned, the fix suggested. Do not "
-            "deposit again a problem this routine already deposited."
+            "title, the problem, the pages and excerpts concerned (`pages`), the fix suggested. "
+            "Do not deposit again a problem this routine already deposited, or one already "
+            "judged (list given as input)."
         )
     scope = (
         "within the routine's scope (" + ", ".join(spec.scope) + ")"
@@ -820,6 +833,13 @@ def first_message(
         parts.append(
             "Items already deposited in the inbox by this routine, not filed yet:\n"
             + tools.wrap("known", "\n".join(f"- {t}" for t in context.known))
+        )
+    if context.verdicts:
+        parts.append(
+            "Problems this routine reported before, already judged, whose pages have not "
+            "changed since: do not deposit them again (a false alarm stays one); mention one in "
+            "the report only if you found something new about it.\n"
+            + tools.wrap("verdicts", "\n".join(v.line() for v in context.verdicts))
         )
     last = f"{spec.last_run_at:%Y-%m-%d %H:%M} (UTC)" if spec.last_run_at else "none"
     parts.append(
@@ -972,6 +992,7 @@ def execute(
     )
     with database.session() as session:
         context = gather(session, ws, space, spec, overlay, now)
+    tools.verdicts = context.verdicts
     purpose = read_vocation(repo, base)
     first = first_message(tools, context, purpose, now, spec)
     system = system_prompt(space, spec, vocation.space_language(repo, base, purpose))

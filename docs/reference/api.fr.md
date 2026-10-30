@@ -200,7 +200,7 @@ anciennes.
 | `POST …/spaces/{space}/inbox` | contributeur | `{"title": …, "content": …, "hint": …, "source": …, "attachments": [{"name": …, "content_base64": …}]}` (201). `source` : provenance de l'information (URL, réunion…), enregistrée dans `origin` |
 | `GET …/spaces/{space}/inbox/{name}` | lecteur | Un élément, avec `body` : le texte d'une note, ou les commits et le diff d'une page modifiée |
 | `PATCH …/spaces/{space}/inbox/{name}` | contributeur | Corrige une note : `title`, `content`, `hint`, `source`, `allow_secrets` ; un champ absent reste inchangé. Une note laissée par le rangement redevient à traiter. Renvoie la note |
-| `DELETE …/spaces/{space}/inbox/{name}` | contributeur | Retire une note et ses pièces jointes (204) |
+| `DELETE …/spaces/{space}/inbox/{name}` | contributeur | Retire une note et ses pièces jointes (204). Pour un problème signalé par une routine d'agent, `?not_a_problem=…` (pourquoi, 500 caractères au plus) retient que ce n'en est pas un : la routine ne le signalera plus tant que ses pages restent les mêmes |
 | `POST …/spaces/{space}/inbox/{name}/move` | contributeur des deux espaces | `{"space": "acme/autre"}` : déplace la note dans l'inbox d'un autre espace ; renvoie `space` et `path` |
 | `POST …/spaces/{space}/inbox/{name}/seen` | contributeur | Marque une page modifiée (`change`) comme vue : elle ne demande rien au rangement, jusqu'à sa prochaine modification (204) |
 | `GET …/spaces/{space}/inbox/{name}/files/{filename}` | lecteur | Pièce jointe d'une note, en octets bruts (téléchargée, jamais exécutée) |

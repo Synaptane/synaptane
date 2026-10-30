@@ -196,7 +196,7 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `POST …/spaces/{space}/inbox` | contributor | `{"title": …, "content": …, "hint": …, "source": …, "attachments": [{"name": …, "content_base64": …}]}` (201). `source`: where the information comes from (URL, meeting…), stored in `origin` |
 | `GET …/spaces/{space}/inbox/{name}` | reader | One item, with `body`: the text of a note, or the commits and the diff of a changed page |
 | `PATCH …/spaces/{space}/inbox/{name}` | contributor | Corrects a note: `title`, `content`, `hint`, `source`, `allow_secrets`; an absent field stays unchanged. A note left by the tidy-up goes back to "to process". Returns the note |
-| `DELETE …/spaces/{space}/inbox/{name}` | contributor | Removes a note and its attachments (204) |
+| `DELETE …/spaces/{space}/inbox/{name}` | contributor | Removes a note and its attachments (204). For a problem an agent routine reported, `?not_a_problem=…` (why, 500 characters at most) records that it is not one: the routine will not report it again while its pages stay the same |
 | `POST …/spaces/{space}/inbox/{name}/move` | contributor of both spaces | `{"space": "acme/other"}`: moves the note to the inbox of another space; returns `space` and `path` |
 | `POST …/spaces/{space}/inbox/{name}/seen` | contributor | Marks a changed page (`change`) as seen: it asks nothing of the tidy-up until its next change (204) |
 | `GET …/spaces/{space}/inbox/{name}/files/{filename}` | reader | Attachment of a note, as raw bytes (downloaded, never executed) |

@@ -682,3 +682,27 @@ class PageReport(Base):
     resolved_at: Mapped[datetime | None]
     resolved_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     resolution: Mapped[str | None] = mapped_column(String(16))
+
+
+class FindingVerdict(Base):
+    """What became of a problem an agent routine reported (an inbox item it deposited):
+    judged not a problem by a person, removed from the inbox, or handled by the tidy-up
+    (`services.verdicts`). Bound to the state of the pages concerned at that moment: the
+    routine is told not to report it again as long as these pages have not changed."""
+
+    __tablename__ = "finding_verdicts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('dismissed', 'deleted', 'filed')", name="kind"),
+        Index("ix_finding_verdicts_space_id_decided_at", "space_id", "decided_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    origin: Mapped[str] = mapped_column(String(200))  # the item's `origin`: 'Routine "…"'
+    title: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    # Page (relative to content/) → digest of its content then; null: the page did not exist.
+    pages: Mapped[dict[str, str | None]] = mapped_column(JSONB, default=dict)
+    decided_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime] = mapped_column(default=utcnow)

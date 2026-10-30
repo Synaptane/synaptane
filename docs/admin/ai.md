@@ -330,6 +330,18 @@ Added in one click (**Enable**), or after adjusting them (**Customize first**):
   which it checks by reading them). Output: the `reports/consistency.md` page and one inbox
   item per problem to fix, with the pages and excerpts concerned. It does not drop again a
   problem already dropped and not yet filed.
+
+  **A false alarm does not come back.** When an item a routine dropped leaves the inbox, what
+  became of it is remembered, bound to the pages concerned as they were then:
+  - **Not a problem** (button on the item, with why: contributors; REST:
+    `DELETE …/inbox/{name}?not_a_problem=…`);
+  - deleted from the inbox;
+  - handled by the tidy-up (filed, with its summary).
+
+  At its next runs, the routine is given these verdicts and does not drop the problem again,
+  as long as none of its pages has changed; a change to one of them makes the verdict lapse.
+  An item with the same title is refused outright. Verdicts are kept a year (90 days for a
+  problem bound to no page).
 - **Weekly digest**, every Friday at 16:00: what the team learned and decided during the
   week, based on the wiki's Git history (pages created, heavily changed) and tidy-up runs
   (items filed, left). Output: the `reports/weekly-digest.md` page and an email to the
