@@ -174,8 +174,10 @@ apparaît comme élément `change` dans l'inbox, calculé depuis l'historique Gi
 La recherche porte sur tous les espaces lisibles si `spaces` est absent. Chaque résultat
 donne `space`, `path`, `title`, `score`, `match` (`text` : par les mots, `meaning` : par le
 sens, `both`), `extracted` (trouvé dans du texte extrait), `verified` et `stale` (page
-vérifiée et à jour, ou à revoir), `freshness` (détail, `null` hors pages Markdown) et
-jusqu'à trois `snippets` (`line`, `text`, `before`, `after`). `mode=text` : par les mots
+vérifiée et à jour, ou à revoir), `freshness` (détail, `null` hors pages Markdown), la
+dernière modification (`edited`, sa date ; `edited_by`, son auteur ; `edited_by_ai` : `tidy`,
+`routine` ou `assistant` quand une IA l'a écrite, `null` pour une personne) et jusqu'à trois
+`snippets` (`line`, `text`, `before`, `after`). `mode=text` : par les mots
 seulement. Une page vérifiée et à jour est classée un peu plus haut (+10 %), une page à
 revoir un peu plus bas (−7 %).
 

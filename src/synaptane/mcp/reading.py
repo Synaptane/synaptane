@@ -194,6 +194,16 @@ def _fetch_freshness(state: freshness.Freshness) -> dict[str, object]:
     }
 
 
+def _edit_fields(edit: activity.LastEdit | None) -> dict[str, object]:
+    """Last change of a result: its day, its author (a person's display name), and `ai`
+    (tidy, routine or assistant) when an AI wrote it. The client's own name stays out of
+    these fields: it is chosen by the client (see `history`)."""
+    if edit is None:
+        return {}
+    fields: dict[str, object] = {"edited": edit.date[:10], "edited_by": edit.author}
+    return fields | ({"ai": edit.origin} if edit.ai else {})
+
+
 def _excerpts(hit: search_service.Hit) -> str:
     """Excerpts of a search result: page content, fenced off as untrusted."""
     lines = [(f"L{s.line}: " if s.line else "") + s.text.strip() for s in hit.snippets]
@@ -313,6 +323,9 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                 header += f"kind: {file.kind}\nsize: {file.size}\n"
             else:
                 header += f"kind: {file.kind}\nsha: {file.sha}\nsize: {file.size}\n"
+            if not commit and (edit := activity.last_edits(c.ws, found).get(file.path)):
+                header += f"edited: {edit.date[:10]} by {edit.author}"
+                header += f" (AI: {edit.origin})\n" if edit.ai else "\n"
             if file.kind == "markdown" and text is not None and not commit:
                 header += _verification_header(c, found, file, text)
             if text is None:
@@ -425,6 +438,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                     "match": hit.match,
                     "verified": hit.verified,
                     "stale": hit.stale,
+                    **_edit_fields(hit.edit),
                     "extracted": hit.extracted,
                     "excerpts": _excerpts(hit),
                 }
@@ -528,6 +542,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                     "extracted": extracted,
                     "truncated": truncated,
                     **(_fetch_freshness(state) if state is not None else {}),
+                    **_edit_fields(activity.last_edits(c.ws, found).get(file.path)),
                 },
             }
             return json.dumps(document, ensure_ascii=False)

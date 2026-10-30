@@ -11,13 +11,14 @@ from the `Source:` and `Via:` lines Synaptane adds to the others. A commit pushe
 elsewhere is `git`: its message is not Synaptane's, whatever it claims.
 """
 
-from collections import Counter
+import threading
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from synaptane.core.access import Action, require
 from synaptane.core.errors import SynaptaneError
-from synaptane.git.repo import Commit, Identity
+from synaptane.git.repo import Commit, GitError, Identity
 from synaptane.services import Actor
 from synaptane.services.inbox import CONTENT_DIR, INBOX_DIR, is_routine_agent, is_tidy_agent
 from synaptane.services.workspace import Workspace
@@ -179,3 +180,62 @@ def ai_share(
     origins = (origin_of(c, ws.committer)[0] for c in commits if c.paths)
     counts = Counter(origin for origin in origins if origin != "system")
     return Share(days, dict(counts), len(commits) < MAX_SCAN)
+
+
+@dataclass(frozen=True)
+class LastEdit:
+    """Last change of a file, to weigh it: when, who, person or AI."""
+
+    date: str  # ISO 8601
+    author: str
+    origin: str  # see ORIGINS, or system
+    client: str
+    by: str  # in words, for an assistant: see `written_by`
+
+    @property
+    def ai(self) -> bool:
+        return self.origin in AI_ORIGINS
+
+
+_EDITS_LOCK = threading.Lock()
+_EDITS: OrderedDict[str, tuple[str, dict[str, LastEdit]]] = OrderedDict()  # copy → (head, …)
+_EDITS_MAX = 32
+
+
+def last_edits(ws: Workspace, space: Space) -> dict[str, LastEdit]:
+    """Last change of each file of content/ (paths relative to it), for search results: one
+    walk of the history per space, then only the new commits. Rights are the caller's."""
+    try:
+        repo = ws.local_repository(space)
+        head = repo.head()
+    except SynaptaneError:
+        return {}
+    if head is None:
+        return {}
+    key = str(repo.path)
+    with _EDITS_LOCK:
+        known = _EDITS.get(key)
+    if known is not None and known[0] == head:
+        return known[1]
+    try:
+        since = known[0] if known is not None and repo.is_ancestor(known[0], head) else None
+        commits = repo.last_commits(CONTENT_DIR, head, since=since)
+    except GitError:
+        return known[1] if known is not None else {}
+    edits = dict(known[1]) if since and known is not None else {}
+    prefix = CONTENT_DIR + "/"
+    for path, commit in commits.items():
+        relative = path.removeprefix(prefix)
+        if commit is None:
+            edits.pop(relative, None)
+            continue
+        origin, client = origin_of(commit, ws.committer)
+        edits[relative] = LastEdit(
+            commit.date, commit.author.name, origin, client, written_by(commit, ws.committer)
+        )
+    with _EDITS_LOCK:
+        _EDITS[key] = (head, edits)
+        _EDITS.move_to_end(key)
+        while len(_EDITS) > _EDITS_MAX:
+            _EDITS.popitem(last=False)
+    return edits

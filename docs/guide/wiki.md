@@ -235,6 +235,10 @@ It behaves like `grep`:
   or the exact phrase, come first;
 - **Regular expression** for patterns, for example `back\w+ night`.
 
+Each result gives its last change: when, by whom, with an **AI** badge when an AI wrote it
+(the nightly tidy-up, a routine, an assistant). With "verified" or "to review", it says how
+far to trust the page.
+
 In spaces where **semantic search** is enabled, it also finds pages that are close in meaning
 (a question in English about a page in French, a paraphrase…). These results are labeled "by
 meaning", or "words and meaning". Enabling semantic search on a space never pushes down its
