@@ -78,7 +78,12 @@ CODEX_DISABLED = (
     "workspace_dependencies",
     "worktrees",
     "daemon_auto_start",
+    "plugin_discovery_prefetch",  # downloads the plugin catalog at startup
 )
+# Claude Code: deferred tool loading ("tool search") turned off. Since 2.1.310 it keeps itself
+# active with a placeholder tool offered to the model, and it can add its own search tool: the
+# model must see Synaptane's tools only, all of them upfront. Checked by `cli_contract`.
+CLAUDE_ENVIRONMENT = {"ENABLE_TOOL_SEARCH": "false"}
 AGENT_HOME = "SYNAPTANE_AGENT_HOME"
 
 ToolHandler = Callable[[str, dict[str, Any]], str]
@@ -392,6 +397,7 @@ def run_agent(
             system_file = workdir / "system.md"
             system_file.write_text(system)
             system_file.chmod(0o600)
+            env.update(CLAUDE_ENVIRONMENT)
             command, parse = _claude_command(config, system_file, mcp_file), _claude_usage
             given = prompt
         elif config.provider == "codex":

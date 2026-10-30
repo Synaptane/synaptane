@@ -10,6 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+### Changed
+- Agent CLIs of the image (subscription mode): Claude Code 2.1.314 and Codex 0.166.0.
+  - Claude Code now offers the model a placeholder tool to keep deferred tool loading
+    ("tool search") active. Runs switch it off (`ENABLE_TOOL_SEARCH=false`), so the model
+    still sees Synaptane's tools only, all of them upfront. The isolation contract
+    (`synaptane check-clis`) checks it with that same setting.
+  - Codex's new `plugin_discovery_prefetch` feature, which downloads the plugin catalog at
+    startup, is turned off on each run. Its other new features enabled by default (Bedrock
+    sign-in, MCP OAuth refresh, tool descriptions in the context, prediction forks, reasoning
+    effort changes) open nothing.
+
 ## [1.0.0-rc.2] - 2026-10-25
 
 ### Changed
