@@ -20,7 +20,15 @@ from synaptane.ai.base import SUBSCRIPTION_PROVIDERS, AIConfig, AIError
 from synaptane.ai.embeddings import check_embeddings
 from synaptane.ai.providers import check_connection
 from synaptane.core.errors import SynaptaneError, invalid
-from synaptane.services import ai_settings, budget, organizations, semantic, tidy, tidy_journal
+from synaptane.services import (
+    ai_settings,
+    budget,
+    organizations,
+    semantic,
+    tidy,
+    tidy_journal,
+    tidy_undo,
+)
 from synaptane.storage.models import Space
 from synaptane.web.pages import (
     Csrf,
@@ -320,6 +328,54 @@ def space_tidy_revert(
     except SynaptaneError as error:
         return failure(target, page, error)
     return redirect(target, page, "Run undone: filed items are back in the inbox.")
+
+
+@router.get("/o/{org_slug}/{space_slug}/-/tidy/{run_id}/pages", response_class=HTMLResponse)
+def space_tidy_pages(page: WebPage, org_slug: str, space_slug: str, run_id: UUID) -> Response:
+    """The pages a run changed, each with its diff; a contributor undoes some of them."""
+    actor = page.user_actor()
+    space = find_space(page, actor, org_slug, space_slug)
+    run, pages = tidy_undo.run_pages(page.db, actor, page.workspace, space, run_id)
+    return page.render(
+        "tidy-undo.html",
+        org=space.organization,
+        space=space,
+        run=run,
+        pages=pages,
+        contribute=page.can_contribute(actor, space),
+    )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/tidy/{run_id}/pages")
+def space_tidy_undo_pages(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    run_id: UUID,
+    csrf: Csrf,
+    path: Annotated[list[str] | None, Form()] = None,
+) -> Response:
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    target = f"{space_url(space)}/-/tidy/{run_id}/pages"
+    try:
+        done = tidy_undo.undo_pages(
+            page.db, page.database, actor, page.workspace, space, run_id, path or []
+        )
+    except SynaptaneError as error:
+        return failure(target, page, error)
+    back = ", ".join(f"“{title}”" for title in done.notes_back)
+    kept = ", ".join(f"“{title}”" for title, _ in done.notes_kept)
+    message = (
+        "Undone for {pages}. Back in the inbox: {back}. Still filed, other pages keep them: {kept}."
+        if back and kept
+        else "Undone for {pages}. Back in the inbox: {back}."
+        if back
+        else "Undone for {pages}. Still filed, other pages keep them: {kept}."
+        if kept
+        else "Undone for {pages}."
+    )
+    return redirect(target, page, message, pages=", ".join(done.pages), back=back, kept=kept)
 
 
 # --- Semantic search ------------------------------------------------------------------------------

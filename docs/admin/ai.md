@@ -429,8 +429,13 @@ Organization page → **Artificial intelligence**, "Cost and budget" section (or
   drops at most 120 notes per hour into inboxes, across all spaces and interfaces (web, REST,
   MCP), notes moved to another space included. Beyond that, the request is refused (HTTP 429,
   `too_many_requests`).
-- **Undo this run** (in the tidy-up log) creates a reverse commit; the items return to the
-  inbox.
+- **Undo this run** (in the tidy-up log, administrators) creates a reverse commit; the items
+  return to the inbox. It fails once a page of the run was changed since.
+- **Undo some pages…** (contributors) lists the pages the run changed, each with its diff, and
+  puts the ones you tick back as they were before the run, in one commit under your name. A
+  page changed since the run is refused: restore it from its history. A note the run filed
+  returns to the inbox once all the pages it went into are undone; before that, the next run
+  would write it again into the pages kept.
 
 ## Semantic search (embeddings, optional)
 

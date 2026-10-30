@@ -453,8 +453,13 @@ Page de l'organisation → **Intelligence artificielle**, rubrique « Coût et b
   de l'eau ne sont pas concernés. Un compte dépose au plus 120 notes par heure dans les
   inbox, tous espaces et toutes interfaces confondus (web, REST, MCP), notes déplacées vers un
   autre espace comprises. Au-delà, la demande est refusée (HTTP 429, `too_many_requests`).
-- **Annuler ce passage** (journal du rangement) crée un commit inverse ; les éléments
-  reviennent dans l'inbox.
+- **Annuler ce passage** (journal du rangement, administrateurs) crée un commit inverse ; les
+  éléments reviennent dans l'inbox. Il échoue dès qu'une page du passage a été modifiée depuis.
+- **Annuler certaines pages…** (contributeurs) liste les pages modifiées par le passage, chacune
+  avec sa différence, et remet celles que vous cochez telles qu'avant le passage, en un commit
+  à votre nom. Une page modifiée depuis le passage est refusée : restaurez-la depuis son
+  historique. Une note rangée revient dans l'inbox une fois annulées toutes les pages où elle a
+  été intégrée ; avant, le passage suivant la réécrirait dans les pages gardées.
 
 ## Recherche sémantique (embeddings, facultative)
 

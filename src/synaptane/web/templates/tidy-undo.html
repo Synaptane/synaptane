@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import csrf_field, when with context %}
+{% set tab = 'tidy' %}
+{% block title %}{{ _("Pages of a tidy-up run") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}/tidy">{{ _("Tidy-up") }}</a>{{ sep() }}<span aria-current="page">{{ _("Pages of a run") }}</span>{% endblock %}
+{% block content %}
+{% set space_tab = "tidy" %}{% include "space-tabs.html" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug %}
+{% set labels = {"created": _("created"), "edited": _("edited"), "deleted": _("deleted"), "moved": _("moved")} %}
+<h2 class="settings-title">{{ _("Pages changed by a tidy-up run") }}</h2>
+<p class="muted">{{ when(run.started_at) }}{% if run.summary %} · {{ run.summary }}{% endif %}</p>
+<p class="muted">{{ _("Each page leads to what the run changed in it. Undoing a page puts it back as it was before the run, in a commit under your name; a note the run filed returns to the inbox once all the pages it went into are undone.") }}</p>
+{% if run.reverted_at %}<div class="notice">{{ _("This whole run was undone.") }}</div>{% endif %}
+{% if pages %}
+<form method="post" action="{{ base }}/-/tidy/{{ run.id }}/pages" data-confirm="{{ _('Undo the selected pages? They go back to their state before the run.') }}">
+  {{ csrf_field() }}
+  <ul class="file-list undo-pages section-gap-small">
+    {% for p in pages %}
+    <li data-test="run-page">
+      {% if contribute and p.state == 'undoable' and not run.reverted_at %}<input type="checkbox" name="path" value="{{ p.path }}" id="undo-{{ loop.index }}" aria-label="{{ _('Undo {path}', path=p.path) }}">{% endif %}
+      <a href="{{ base }}/diff/{{ run.commit }}/{{ p.path|pathurl }}">{{ p.path }}</a>
+      <span class="muted">{{ labels[p.status] }}{% if p.old %} · {{ _("from {path}", path=p.old) }}{% endif %}</span>
+      {% if p.state == 'undone' %}<span class="badge badge-quiet">{{ _("undone") }}</span>{% elif p.state == 'changed' %}<span class="badge badge-quiet" title="{{ _('Changed since the run: restore it from its history instead.') }}">{{ _("changed since") }}</span> <a class="muted" href="{{ base }}/history/{{ p.path|pathurl }}">{{ _("History") }}</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if contribute and not run.reverted_at and pages|selectattr('state', 'equalto', 'undoable')|list %}
+  <div class="actions"><button class="button button-danger" type="submit" data-test="undo-pages">{{ _("Undo the selected pages") }}</button></div>
+  {% endif %}
+</form>
+{% else %}
+<p class="empty">{{ _("This run changed no page.") }}</p>
+{% endif %}
+<p class="section-gap-small"><a href="{{ base }}/tidy">{{ _("Back to the tidy-up log") }}</a></p>
+{% endblock %}

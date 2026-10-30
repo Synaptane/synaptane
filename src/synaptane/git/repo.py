@@ -962,15 +962,18 @@ class Repository:
         ).stdout
         return out.decode("utf-8", "replace")
 
-    def renamed_to(self, sha: str, path: str) -> str | None:
-        """New name of `path` if the commit `sha` moved it (None: deleted, or kept)."""
+    def changes_in(self, sha: str) -> list[tuple[str, str, str]]:
+        """Files changed by the commit `sha`: (status A, M, D or R, path, old path if moved)."""
         out = self._git(
             "log", "-1", "--name-status", "-z", "--find-renames", LOG_FORMAT, sha, check=False
         ).stdout
-        for _commit, entries in parse_log(out):
-            for status, new, old in entries:
-                if status == "R" and old == path:
-                    return new
+        return [entry for _commit, entries in parse_log(out) for entry in entries]
+
+    def renamed_to(self, sha: str, path: str) -> str | None:
+        """New name of `path` if the commit `sha` moved it (None: deleted, or kept)."""
+        for status, new, old in self.changes_in(sha):
+            if status == "R" and old == path:
+                return new
         return None
 
     def changed_paths(self, old: str, new: str) -> set[str]:

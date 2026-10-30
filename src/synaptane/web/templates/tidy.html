@@ -127,7 +127,10 @@
       {% if run.status != 'running' and (run.model or entry.tokens or run.commit) %}
       <div class="tidy-run-foot">
         <span>{% if run.model %}{{ _("Model: {model}", model=run.model) }} · {% endif %}{{ _(pl(entry.tokens, "{n} token", "{n} tokens"), n="{:,}".format(entry.tokens).replace(",", " ")) }}{% if entry.cost is not none %} · {{ _("≈ {amount}", amount=entry.cost|euros) }}{% endif %}{% if run.quota %} · {{ _("subscription quota: {usage}", usage=run.quota|quota_summary) }}{% endif %}{% if run.commit %} · <code>{{ run.commit[:10] }}</code>{% endif %}</span>
-        {% if manage and run.commit and not run.reverted_at %}{{ action(base ~ "/-/tidy/" ~ run.id ~ "/revert", _("Undo this run"), confirm=_("Undo this run? Its changes are removed from the wiki and the tidied items return to the inbox."), kind="danger") }}{% endif %}
+        {% if run.commit %}<div class="tidy-run-actions">
+          <a class="button button-small" href="{{ base }}/-/tidy/{{ run.id }}/pages" data-test="run-pages">{{ _("Pages changed") if not contribute or run.reverted_at else _("Undo some pages…") }}</a>
+          {% if manage and not run.reverted_at %}{{ action(base ~ "/-/tidy/" ~ run.id ~ "/revert", _("Undo this run"), confirm=_("Undo this run? Its changes are removed from the wiki and the tidied items return to the inbox."), kind="danger") }}{% endif %}
+        </div>{% endif %}
       </div>
       {% endif %}
     </div>

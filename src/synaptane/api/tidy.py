@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from synaptane.ai.base import SUBSCRIPTION_PROVIDERS, AIError
 from synaptane.ai.providers import check_connection
 from synaptane.core.errors import invalid
-from synaptane.services import ai_settings, budget, organizations, semantic, tidy
+from synaptane.services import ai_settings, budget, organizations, semantic, tidy, tidy_undo
 from synaptane.storage.models import TidyRun
 
 from .content import SPACE, _db, _ws
@@ -213,6 +213,55 @@ def tidy_revert(
     found = find_space(session, actor, org, space)
     sha = tidy.revert(session, _db(request), actor, _ws(request), found, run_id)
     return MessageOut(message=api_text(request, "Run reverted ({sha}).", sha=sha[:10]))
+
+
+class RunPageOut(BaseModel):
+    path: str = Field(description="Where the run left the page (relative to content/)")
+    status: str = Field(description="created, edited, deleted or moved")
+    old: str = Field(description="Former path of a moved page")
+    state: str = Field(description="undoable, changed (since the run: refused) or undone")
+
+
+@router.get(SPACE + "/tidy/runs/{run_id}/pages", tags=["tidy"])
+def tidy_run_pages(
+    org: str, space: str, run_id: UUID, request: Request, session: DbSession, actor: CurrentActor
+) -> list[RunPageOut]:
+    found = find_space(session, actor, org, space)
+    _, pages = tidy_undo.run_pages(session, actor, _ws(request), found, run_id)
+    return [RunPageOut(path=p.path, status=p.status, old=p.old, state=p.state) for p in pages]
+
+
+class UndoPagesIn(BaseModel):
+    paths: list[str] = Field(description="Pages to put back as they were before the run")
+
+
+class UndoPagesOut(BaseModel):
+    commit: str | None
+    pages: list[str]
+    notes_back: list[str] = Field(description="Titles of the notes back in the inbox")
+    notes_kept: list[str] = Field(description="Notes still filed: other pages keep them")
+
+
+@router.post(SPACE + "/tidy/runs/{run_id}/undo-pages", tags=["tidy"])
+def tidy_undo_pages(
+    org: str,
+    space: str,
+    run_id: UUID,
+    body: UndoPagesIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> UndoPagesOut:
+    found = find_space(session, actor, org, space)
+    done = tidy_undo.undo_pages(
+        session, _db(request), actor, _ws(request), found, run_id, body.paths, source="api"
+    )
+    return UndoPagesOut(
+        commit=done.commit,
+        pages=done.pages,
+        notes_back=done.notes_back,
+        notes_kept=[title for title, _ in done.notes_kept],
+    )
 
 
 class EmbeddingsOut(BaseModel):
