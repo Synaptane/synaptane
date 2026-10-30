@@ -548,7 +548,7 @@ def verify_page(
     `owner`, `review_every`: None, unchanged; "" removes them (no owner; the space's
     interval). `verify=False`: only the owner and the interval. This commit is not a change
     for the tidy run to review."""
-    from synaptane.services import content  # late import: content imports a lot
+    from synaptane.services import content, reports  # late import: content imports a lot
 
     full = content.content_path(path)
     if full == CONTENT_DIR or not is_page(full):
@@ -601,6 +601,8 @@ def verify_page(
             text = updated
     if sha:
         content.after_write(session, actor, space, "content.verified", full, source)
+    if verify:  # reread and found right: the reports that it was outdated are answered
+        reports.resolve(session, actor, space, relative, reports.VERIFIED)
     return Verification(sha, of_text(text, space.review_every or "", today), relative)
 
 

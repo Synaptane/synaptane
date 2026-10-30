@@ -197,6 +197,12 @@ review_every: 6m      # 90d, 12w, 6m, 1y; absent: the space's interval; never: n
   first criterion.
 - **Space interval**: *Settings → General*, **Verified pages: review** (1, 3 or 6 months, 1 or
   2 years, or never). A page that carries `review_every` keeps its own.
+- **Report as outdated** (anyone who reads the page, ⋮ menu): say what no longer holds. The
+  page then shows a banner to everyone with the reports (who, when, why), search marks it
+  "reported as outdated", the space's **Health** tab lists it, and assistants see it. A report
+  stays open until someone **verifies** the page (reread and found right), a contributor
+  **dismisses** it (the page still holds), or its author withdraws it. A moved page keeps its
+  reports.
 - **A page that still holds waits longer**: verified again with no change since its previous
   verification, its interval doubles (6 months, then 1 year, then 2 years at most), and
   `reconfirmed: N` in its front matter counts these verifications in a row. A change to the

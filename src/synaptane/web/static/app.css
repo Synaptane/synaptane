@@ -195,6 +195,10 @@ fieldset.form-section>legend+*{clear:both}
 .notice>*+*{margin-top:6px}
 .notice-error,.notice-validation,.notice-denied{background:var(--danger-bg);border-color:transparent;color:var(--danger)}
 .notice-warning{background:var(--warn-bg);border-color:transparent;color:var(--warn-ink)}
+.report-notice ul{margin:6px 0 10px;padding-left:18px}
+.report-notice li{margin:2px 0}
+.report-withdraw{display:inline;margin-left:6px}
+.report-notice p{margin:0}
 .notice-success{background:var(--ok-bg);border-color:transparent;color:var(--ink)}
 .notice-empty,.notice-loading{border-style:dashed;color:var(--ink-3);background:transparent}
 .notice-empty h2{font-size:15px;color:var(--ink);margin-bottom:4px}

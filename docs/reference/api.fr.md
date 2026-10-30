@@ -153,6 +153,9 @@ Les chemins sont relatifs à `content/` :
 | `POST …/spaces/{space}/move` | contributeur | `{"from": "a.md", "to": "b/a.md"}` ; les liens vers le fichier et les siens sont réécrits dans le même commit |
 | `GET …/spaces/{space}/files/{path}/related?limit=8` | lecteur | Pages proches (panneau « Voir aussi ») : `path`, `title`, `score` (0 à 1, rien sous 0,2), `reason` (signal principal : `meaning` même sujet, `words` mots en commun, `backlink` cite cette page, `link` liée par un lien, `shared` liens en commun, `folder` même dossier), `reasons` (tous, du plus fort au plus faible), `label` (la raison en clair) et `linked` (la page pointe déjà vers elle). Liste vide s'il n'y a rien d'assez proche ; `limit` de 1 à 20. Un fichier nommé exactement `related` se lit par `…/raw/{path}` |
 | `POST …/spaces/{space}/verify/{path}` | contributeur | Marque une page Markdown comme vérifiée aujourd'hui : `{"owner": …, "review_every": "6m", "verify": true}`, tout facultatif (`owner` absent : inchangé, la personne si la page n'en a pas ; `review_every` `""` : celle de l'espace ; `"verify": false` : propriétaire et périodicité seulement). Renvoie `commit` (`null` si rien n'a changé), `path` et `freshness`. Le commit ne touche que le front matter et n'est pas signalé au rangement ; 400 pour un fichier qui n'est pas une page Markdown |
+| `GET …/spaces/{space}/reports/{path}` | lecteur | Signalements ouverts indiquant que la page est obsolète : `reason`, `by`, `at` |
+| `POST …/spaces/{space}/reports/{path}` | lecteur | `{"reason": "…"}` (500 caractères au plus) : signale une page Markdown comme obsolète ; de nouveau : met à jour votre raison. 201 |
+| `DELETE …/spaces/{space}/reports/{path}` | lecteur | Retire votre signalement ; `?all=true` les écarte tous (contributeur). Une vérification de la page les clôt aussi |
 | `GET …/spaces/{space}/history/{path}` | lecteur | Commits qui ont touché le fichier (même supprimé) : `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributeur | Remet un fichier tel qu'il était dans une version passée, un fichier supprimé aussi : `{"path": …, "commit": …}` (`commit` : un `sha` de l'historique), avec `message`, `base_sha` (le `sha` actuel, 409 si le fichier a changé depuis ; `""` pour un fichier supprimé) et `allow_secrets`, facultatifs. Renvoie `commit` (`null` si cette version est déjà l'actuelle). Une page garde ses champs de vérification actuels |
 | `GET …/spaces/{space}/health?months=12&limit=500` | lecteur | Santé du wiki : `broken` (page, lien, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages à revoir : `path`, `owner`, `verified`, `due`), `unowned` (vérifiées sans propriétaire) et leurs totaux `counts` (avec `verified` : pages vérifiées et à jour) |
@@ -176,7 +179,8 @@ donne `space`, `path`, `title`, `score`, `match` (`text` : par les mots, `meanin
 sens, `both`), `extracted` (trouvé dans du texte extrait), `verified` et `stale` (page
 vérifiée et à jour, ou à revoir), `freshness` (détail, `null` hors pages Markdown), la
 dernière modification (`edited`, sa date ; `edited_by`, son auteur ; `edited_by_ai` : `tidy`,
-`routine` ou `assistant` quand une IA l'a écrite, `null` pour une personne) et jusqu'à trois
+`routine` ou `assistant` quand une IA l'a écrite, `null` pour une personne),
+`reported_outdated` (signalements ouverts indiquant que la page est obsolète) et jusqu'à trois
 `snippets` (`line`, `text`, `before`, `after`). `mode=text` : par les mots
 seulement. Une page vérifiée et à jour est classée un peu plus haut (+10 %), une page à
 revoir un peu plus bas (−7 %).

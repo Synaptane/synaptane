@@ -34,7 +34,7 @@ from synaptane.mcp.kit import (
     relative,
     since_date,
 )
-from synaptane.services import activity, deposits, freshness, spaces, vocation
+from synaptane.services import activity, deposits, freshness, reports, spaces, vocation
 from synaptane.services import content as files
 from synaptane.services import related as related_service
 from synaptane.services import search as search_service
@@ -204,6 +204,24 @@ def _edit_fields(edit: activity.LastEdit | None) -> dict[str, object]:
     return fields | ({"ai": edit.origin} if edit.ai else {})
 
 
+def _reported(c: Call, space: Space, path: str) -> dict[str, object]:
+    found = reports.open_reports(c.session, c.actor, space, path) if path.endswith(".md") else []
+    return {"reported_outdated": len(found)} if found else {}
+
+
+def _reports_header(c: Call, space: Space, path: str) -> str:
+    """Open reports that the page is outdated: their count, then what their authors wrote
+    (untrusted text)."""
+    found = reports.open_reports(c.session, c.actor, space, path)
+    if not found:
+        return ""
+    lines = [f"{r.at.date().isoformat()} {r.by or 'a former member'}: {r.reason}" for r in found]
+    return (
+        f"reported_outdated: {len(found)} (readers say it no longer holds: say so when citing "
+        "the page)\n" + quoted("reports", "\n".join(lines), f"{space.address}/{path}") + "\n"
+    )
+
+
 def _excerpts(hit: search_service.Hit) -> str:
     """Excerpts of a search result: page content, fenced off as untrusted."""
     lines = [(f"L{s.line}: " if s.line else "") + s.text.strip() for s in hit.snippets]
@@ -328,6 +346,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                 header += f" (AI: {edit.origin})\n" if edit.ai else "\n"
             if file.kind == "markdown" and text is not None and not commit:
                 header += _verification_header(c, found, file, text)
+                header += _reports_header(c, found, file.path)
             if text is None:
                 return header + f"url: {url}\n\nNo text available for this file."
             markdown = file.kind == "markdown"
@@ -439,6 +458,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                     "verified": hit.verified,
                     "stale": hit.stale,
                     **_edit_fields(hit.edit),
+                    **({"reported_outdated": hit.reported} if hit.reported else {}),
                     "extracted": hit.extracted,
                     "excerpts": _excerpts(hit),
                 }
@@ -543,6 +563,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                     "truncated": truncated,
                     **(_fetch_freshness(state) if state is not None else {}),
                     **_edit_fields(activity.last_edits(c.ws, found).get(file.path)),
+                    **_reported(c, found, file.path),
                 },
             }
             return json.dumps(document, ensure_ascii=False)

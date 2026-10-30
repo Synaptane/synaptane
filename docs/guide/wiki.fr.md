@@ -210,6 +210,12 @@ review_every: 6m      # 90d, 12w, 6m, 1y ; absent : celle de l'espace ; never : 
   est multiplicatif, la pertinence reste le premier critère.
 - **Périodicité de l'espace** : *Paramètres → Général*, « Pages vérifiées : à revoir »
   (1, 3 ou 6 mois, 1 ou 2 ans, ou jamais). Une page qui porte `review_every` garde la sienne.
+- **Signaler comme obsolète** (toute personne qui lit la page, menu ⋮) : dites ce qui n'est
+  plus juste. La page affiche alors à tous un bandeau avec les signalements (qui, quand,
+  pourquoi), la recherche la marque « signalée obsolète », l'onglet **Santé** de l'espace la
+  liste, et les assistants le voient. Un signalement reste ouvert jusqu'à ce que quelqu'un
+  **vérifie** la page (relue et jugée juste), qu'un contributeur l'**écarte** (la page est
+  toujours juste), ou que son auteur le retire. Une page déplacée garde ses signalements.
 - **Une page qui tient attend plus longtemps** : vérifiée de nouveau sans changement depuis sa
   vérification précédente, sa périodicité double (6 mois, puis 1 an, puis 2 ans au plus), et
   `reconfirmed: N` dans son front matter compte ces vérifications successives. Une
