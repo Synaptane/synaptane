@@ -117,6 +117,19 @@ class MoveIn(BaseModel):
     message: str = ""
 
 
+class RestoreIn(BaseModel):
+    path: str
+    commit: str = Field(description="Version to put back (sha from …/history/{path})")
+    message: str = ""
+    base_sha: str | None = Field(
+        default=None,
+        description='Current sha, to refuse (409) a change made since; "" for a deleted file.',
+    )
+    allow_secrets: bool = Field(
+        default=False, description="Restore despite a detected likely secret (422 otherwise)."
+    )
+
+
 class CommitOut(BaseModel):
     sha: str
     author: str
@@ -363,6 +376,28 @@ def history(
         CommitOut(sha=c.sha, author=c.author.name, date=c.date, subject=c.subject)
         for c in content.history(actor, _ws(request), found, path)
     ]
+
+
+@router.post(SPACE + "/restore", tags=["content"])
+def restore(
+    org: str, space: str, body: RestoreIn, request: Request, session: DbSession, actor: CurrentActor
+) -> WriteOut:
+    """Puts a file back as it was in a past version, a deleted file too: a new commit."""
+    found = find_space(session, actor, org, space)
+    sha = content.restore_version(
+        session,
+        _db(request),
+        actor,
+        _ws(request),
+        found,
+        body.path,
+        body.commit,
+        message=body.message,
+        base_sha=body.base_sha,
+        source="api",
+        allow_secrets=body.allow_secrets,
+    )
+    return WriteOut(commit=sha)
 
 
 class PendingOut(BaseModel):

@@ -23,6 +23,14 @@
   <div class="menu-panel">{{ caller() }}</div>
 </details>
 {%- endmacro %}
+{# Put a version back (contributor): a new commit, the replaced text stays in the history. #}
+{% macro restore_form(sha) -%}
+<form class="restore-form" method="post" action="{{ home }}/-/restore" data-confirm="{{ _("Restore this version? The current text is replaced; the history keeps it.") if current_sha else _("Restore this version? The deleted file comes back.") }}">
+  {{ csrf_field() }}<input type="hidden" name="path" value="{{ path }}"><input type="hidden" name="sha" value="{{ sha }}"><input type="hidden" name="base_sha" value="{{ current_sha }}">
+  {% if restoring == sha %}{{ secret_confirm(error) }}{% endif %}
+  <button class="button button-small" type="submit" data-test="restore-version">{{ icon('refresh', 14) }}{{ _("Restore this version") }}</button>
+</form>
+{%- endmacro %}
 {% block topbar_end %}
 {% if view == 'file' %}
 <div class="topbar-doc">
@@ -127,9 +135,12 @@
 
   {% elif view == 'missing' %}
   {% set wanted = path.rsplit('/', 1) %}
-  <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('file', 18) }}</span><div><h1 class="doc-title">{{ _("This page does not exist yet") }}</h1><p class="doc-meta"><code>{{ path }}</code></p></div></div></header>
+  {% set gone, moved = removed or (none, '') %}
+  <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('file', 18) }}</span><div><h1 class="doc-title">{{ _("This page was moved") if moved else _("This page was deleted") if gone else _("This page does not exist yet") }}</h1><p class="doc-meta"><code>{{ path }}</code>{% if gone %} · {{ gone.author.name }} · <time datetime="{{ gone.date }}" data-local="full">{{ gone.date[:16].replace('T', ' ') }}</time>{% endif %}</p></div></div></header>
   <div class="wiki-actions">
-    {% if contribute %}<a class="button button-primary button-small" data-test="page-create" href="{{ home }}/new?folder={{ (wanted[0] if wanted|length > 1 else '')|urlencode }}&amp;name={{ (wanted[-1] if wanted[-1].endswith('.md') else wanted[-1] ~ '.md')|urlencode }}">{{ icon('plus') }}{{ _("Create this page") }}</a>{% endif %}
+    {% if moved %}<a class="button button-primary button-small" data-test="page-moved" href="{{ page_url(moved) }}">{{ icon('file') }}{{ _("Open it at its new address") }}</a>
+    {% elif gone %}<a class="button button-primary button-small" data-test="page-deleted-history" href="{{ home }}/history/{{ path|pathurl }}">{{ icon('refresh') }}{{ _("See its history to restore it") if contribute else _("See its history") }}</a>
+    {% elif contribute %}<a class="button button-primary button-small" data-test="page-create" href="{{ home }}/new?folder={{ (wanted[0] if wanted|length > 1 else '')|urlencode }}&amp;name={{ (wanted[-1] if wanted[-1].endswith('.md') else wanted[-1] ~ '.md')|urlencode }}">{{ icon('plus') }}{{ _("Create this page") }}</a>{% endif %}
     <a class="button button-small" href="/search?q={{ wanted[-1].rsplit('.', 1)[0]|urlencode }}&amp;space={{ org.slug }}/{{ space.slug }}">{{ icon('search') }}{{ _("Search for “{name}”", name=wanted[-1].rsplit('.', 1)[0]) }}</a>
   </div>
 
@@ -195,18 +206,23 @@
   </div>
 
   {% elif view == 'history' %}
-    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{{ _("History") }} · {{ crumbs[-1][0] }}</h1><p class="doc-meta"><a href="{{ page_url(path) }}">{{ _("Back to the document") }}</a></p></div></div></header>
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{{ _("History") }} · {{ crumbs[-1][0] }}</h1><p class="doc-meta">{% if current_sha %}<a href="{{ page_url(path) }}">{{ _("Back to the document") }}</a>{% else %}{{ _("This file was deleted: restore one of its versions to bring it back.") }}{% endif %}</p></div></div></header>
+    {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
     <ul class="history-list">
       {% for commit in commits %}
       <li>
         <a href="{{ home }}/diff/{{ commit.sha }}/{{ path|pathurl }}"><strong>{{ commit.subject }}</strong></a>
-        <span class="muted">{{ commit.author.name }} · <time datetime="{{ commit.date }}" data-local="full">{{ commit.date[:16].replace('T', ' ') }}</time> · <code>{{ commit.sha[:8] }}</code></span>
+        <span class="muted">{{ commit.author.name }} · <time datetime="{{ commit.date }}" data-local="full">{{ commit.date[:16].replace('T', ' ') }}</time> · <code>{{ commit.sha[:8] }}</code>{% if loop.first and current_sha %} · {{ _("current version") }}{% endif %}</span>
+        {% if contribute and not loop.first %}{{ restore_form(commit.sha) }}{% endif %}
       </li>
       {% endfor %}
     </ul>
 
   {% elif view == 'diff' %}
-    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{{ _("Change", context="noun") }} <code>{{ sha[:8] }}</code></h1><p class="doc-meta"><a href="{{ home }}/history/{{ path|pathurl }}">{{ _("Back to history") }}</a></p></div></div></header>
+    <header class="doc-bar"><div class="doc-bar-main"><span class="doc-icon">{{ icon('refresh', 18) }}</span><div><h1 class="doc-title">{% if current %}{{ _("Restoring version {sha}", sha=sha[:8]) }}{% else %}{{ _("Change", context="noun") }} <code>{{ sha[:8] }}</code>{% endif %}</h1><p class="doc-meta"><a href="{{ home }}/history/{{ path|pathurl }}">{{ _("Back to history") }}</a> · {% if current %}<a href="{{ home }}/diff/{{ sha }}/{{ path|pathurl }}">{{ _("See the change made by this version") }}</a>{% else %}<a href="{{ home }}/diff/{{ sha }}/{{ path|pathurl }}?current=1" data-test="compare-current">{{ _("Compare with the current version") }}</a>{% endif %}</p></div></div>
+      {% if contribute %}<div class="doc-bar-actions">{{ restore_form(sha) }}</div>{% endif %}
+    </header>
+    {% if current %}<p class="muted">{{ _("Removed lines: the current version; added lines: this version, as restoring would put it back.") }}</p>{% endif %}
     <pre class="diff">{% for kind, line in diff_lines %}<span class="diff-{{ kind }}">{{ line }}</span>{% endfor %}</pre>
 
   {% elif view == 'edit' %}

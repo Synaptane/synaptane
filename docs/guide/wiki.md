@@ -24,7 +24,13 @@ Each space shows the `content/` folder of its Git repository as a wiki.
   - other types: download.
 - **Pages linking here**: the Markdown pages that link to the page shown.
 - **See also**: related pages, found without searching (see below).
-- **History**: each change, with its author and the detail of the changed lines.
+- **History**: each change, with its author and the detail of the changed lines. A
+  contributor can **restore** an earlier version: **Compare with the current version** shows
+  what it would change, then **Restore this version** puts it back in a new commit, under
+  their name. Nothing is lost: the replaced text stays in the history. The page keeps its
+  current verification (owner, date): going back to an old text does not verify it.
+- **Deleted or moved page**: its old address says so. A moved page gives its new address; a
+  deleted one links to its history, where restoring a version brings it back.
 
 ### See also: related pages
 

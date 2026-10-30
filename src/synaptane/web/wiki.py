@@ -1,8 +1,8 @@
 """A space's wiki: the `content/` tree on the left, the page on the right; editing; search.
 
 URLs: `/o/<org>/<space>/p/<path>` (page or folder), `/raw/<path>` (raw file),
-`/history/<path>`, `/diff/<commit>/<path>`, `/edit/<path>`, `/new`, `/-/verify`
-(mark a page as verified, choose its owner and its cadence).
+`/history/<path>`, `/diff/<commit>/<path>`, `/-/restore` (put a version back), `/edit/<path>`,
+`/new`, `/-/verify` (mark a page as verified, choose its owner and its cadence).
 """
 
 import difflib
@@ -208,8 +208,10 @@ def wiki_page(
         if error.code != ErrorCode.NOT_FOUND:
             raise
         # Link to a page that does not exist yet: stay in the wiki, and a contributor can
-        # create it here.
-        return _wiki(page, actor, space, path, status_code=404, view="missing")
+        # create it here. A deleted page says so (its history can bring it back), a moved one
+        # gives its new address.
+        removed = content.gone(actor, ws, space, path)
+        return _wiki(page, actor, space, path, status_code=404, view="missing", removed=removed)
     rendered: Markup | None = None
     title = file.name
     toc: list[tuple[int, str, str]] = []
@@ -391,23 +393,107 @@ def wiki_raw(
 def wiki_history(page: WebPage, org_slug: str, space_slug: str, path: str) -> Response:
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
+    return _history(page, actor, space, path)
+
+
+def _history(
+    page: Page, actor: Actor, space: Space, path: str, status_code: int = 200, **extra: object
+) -> HTMLResponse:
+    """History of a file, with "Restore" on its versions; also that of a deleted file."""
     commits = content.history(actor, page.workspace, space, path)
     if not commits:
         raise not_found("Page not found.")
-    return _wiki(page, actor, space, path, view="history", commits=commits)
+    return _wiki(
+        page,
+        actor,
+        space,
+        path,
+        status_code=status_code,
+        view="history",
+        commits=commits,
+        current_sha=_current_sha(page, actor, space, path),
+        **extra,
+    )
 
 
-@router.get("/o/{org_slug}/{space_slug}/diff/{sha}/{path:path}", response_class=HTMLResponse)
-def wiki_diff(page: WebPage, org_slug: str, space_slug: str, sha: str, path: str) -> Response:
-    actor = page.user_actor()
-    space = find_space(page, actor, org_slug, space_slug)
-    patch = content.diff(actor, page.workspace, space, path, sha)
-    lines = [
+def _current_sha(page: Page, actor: Actor, space: Space, path: str) -> str:
+    """Digest of the file as displayed, so a restore never replaces a change made since;
+    "" for a deleted file (the restore must then be a creation)."""
+    try:
+        return content.read_file(actor, page.workspace, space, path).sha
+    except SynaptaneError:
+        return ""
+
+
+def _diff_lines(patch: str) -> list[tuple[str, str]]:
+    return [
         ("add" if line.startswith("+") else "del" if line.startswith("-") else "ctx", line)
         for line in patch.splitlines()
         if not line.startswith(("diff --git", "index ", "--- ", "+++ "))
     ]
-    return _wiki(page, actor, space, path, view="diff", sha=sha, diff_lines=lines)
+
+
+@router.get("/o/{org_slug}/{space_slug}/diff/{sha}/{path:path}", response_class=HTMLResponse)
+def wiki_diff(
+    page: WebPage, org_slug: str, space_slug: str, sha: str, path: str, current: bool = False
+) -> Response:
+    """The change made by a commit; `current`: what restoring this version would change."""
+    actor = page.user_actor()
+    space = find_space(page, actor, org_slug, space_slug)
+    head = page.workspace.local_repository(space).head() if current else None
+    if head:
+        patch = content.diff_range(actor, page.workspace, space, path, head, sha)
+    else:
+        patch = content.diff(actor, page.workspace, space, path, sha)
+    return _wiki(
+        page,
+        actor,
+        space,
+        path,
+        view="diff",
+        sha=sha,
+        current=bool(head),
+        diff_lines=_diff_lines(patch),
+        current_sha=_current_sha(page, actor, space, path),
+    )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/restore", response_class=HTMLResponse)
+def wiki_restore(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    path: Annotated[str, Form()],
+    sha: Annotated[str, Form()],
+    base_sha: Annotated[str, Form()],
+    allow_secrets: Annotated[bool, Form()] = False,
+) -> Response:
+    """Puts the file back as it was in this version (contributor), in a new commit."""
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        commit = content.restore_version(
+            page.db,
+            page.database,
+            actor,
+            page.workspace,
+            space,
+            path,
+            sha,
+            base_sha=base_sha,
+            allow_secrets=allow_secrets,
+        )
+    except SynaptaneError as error:
+        page.db.rollback()
+        if error.code == ErrorCode.CONFLICT:
+            error = conflict("The page changed since you opened its history: check it again.")
+        # The history again, the error above the version concerned (with, for a probable
+        # secret, the box to confirm).
+        return _history(page, actor, space, path, _write_status(error), error=error, restoring=sha)
+    if commit is None:
+        return redirect(page_url(space, path), page, "This version is already the current one.")
+    return redirect(page_url(space, path), page, "Version restored.")
 
 
 # --- Editing --------------------------------------------------------------------------------------

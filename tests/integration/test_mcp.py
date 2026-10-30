@@ -75,7 +75,7 @@ def live(settings: Settings, database: Database, db: Session, tmp_path: Path) ->
     thread.join(timeout=10)
 
 
-WRITE_TOOLS = {"inbox_add", "write_page", "edit_page", "move", "delete"}
+WRITE_TOOLS = {"inbox_add", "write_page", "edit_page", "move", "delete", "restore"}
 
 
 async def _session_calls(
@@ -680,7 +680,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
         return tools, listed, texts
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
-    assert len(tools) == 20  # related and verify_page included
+    assert len(tools) == 21  # related, verify_page and restore included
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -693,7 +693,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
     limit = by_name["search"]["limit"]
     assert (limit["minimum"], limit["maximum"]) == (1, 50)
     assert {"offset", "path", "since"} <= by_name["search"].keys()
-    assert {"section", "outline"} <= by_name["read"].keys()
+    assert {"section", "outline", "commit"} <= by_name["read"].keys()
     assert "depth" in by_name["tree"] and "since" in by_name["recent_changes"]
     assert {"from_commit", "to_commit"} <= by_name["diff"].keys()
     # List re-read on every turn: 12,000 characters before the guidance work, about 18,000
@@ -897,6 +897,40 @@ def test_tree_depth_recent_changes_since_and_diff_between_versions(live: Live) -
     assert not error and "-8 To" in changed and "+12 To" in changed
 
 
+def test_a_past_version_is_read_then_restored(live: Live) -> None:
+    """`read` with `commit` gives the old text (without a sha to write with), `restore` puts it
+    back, a deleted file too."""
+    alice = token_for(live.database, "alice")
+    infra: dict[str, object] = {"space": "acme/infra", "path": "a/e.md"}
+    mcp_calls(
+        live,
+        alice,
+        ("write_page", {**infra, "content": "# E\n\n8 To\n"}),
+        ("edit_page", {**infra, "old": "8 To", "new": "12 To"}),
+        ("delete", infra),
+    )
+    [(_, history)] = mcp_calls(live, alice, ("history", infra))
+    shas = [line.split()[0] for line in framed(history, "history").strip().splitlines()]
+    results = mcp_calls(
+        live,
+        alice,
+        ("read", {**infra, "commit": shas[2]}),
+        ("read", {**infra, "commit": shas[0]}),
+        ("restore", {**infra, "commit": shas[2]}),
+        ("restore", {**infra, "commit": shas[2]}),
+        ("read", infra),
+    )
+    errors = [error for error, _ in results]
+    texts = [text for _, text in results]
+    assert errors == [False, True, False, False, False], texts
+    assert f"version: {shas[2]}" in texts[0] and "\nsha:" not in texts[0]
+    assert "8 To" in framed(texts[0])
+    assert "this change deleted it" in texts[1]
+    assert texts[2].startswith("Restored. sha: ")
+    assert texts[3] == "No change: this version is already the current one."
+    assert "8 To" in framed(texts[4]) and "12 To" not in texts[4]
+
+
 def test_a_note_deposited_by_mistake_is_corrected_or_removed(live: Live) -> None:
     """`inbox_update` and `inbox_delete`, by the note's id."""
     alice = token_for(live.database, "alice")
@@ -947,7 +981,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 20 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 21 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------

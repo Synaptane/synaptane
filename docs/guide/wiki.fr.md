@@ -24,7 +24,15 @@ Chaque espace affiche le dossier `content/` de son dépôt Git sous forme de wik
   - autres types : téléchargement.
 - **Pages qui pointent ici** : les pages Markdown qui ont un lien vers la page affichée.
 - **Voir aussi** : les pages proches, découvertes sans rien chercher (voir ci-dessous).
-- **Historique** : chaque modification, avec son auteur et le détail des lignes changées.
+- **Historique** : chaque modification, avec son auteur et le détail des lignes changées. Un
+  contributeur peut **restaurer** une version antérieure : **Comparer avec la version
+  actuelle** montre ce qu'elle changerait, puis **Restaurer cette version** la remet en place
+  dans un nouveau commit, à son nom. Rien n'est perdu : le texte remplacé reste dans
+  l'historique. La page garde sa vérification actuelle (propriétaire, date) : revenir à un
+  ancien texte ne la vérifie pas.
+- **Page supprimée ou déplacée** : son ancienne adresse le dit. Une page déplacée donne sa
+  nouvelle adresse ; une page supprimée renvoie vers son historique, où restaurer une version
+  la fait revenir.
 
 ### Voir aussi : les pages proches
 
