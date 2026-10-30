@@ -10,6 +10,15 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **A first view in the conversation (MCP Apps)**: the new MCP tool `pages_to_review` lists
+  the pages due for review and those reported as outdated (text for any client), and comes
+  with a view in hosts that render apps (Claude web and desktop, ChatGPT, VS Code): one card
+  per page, **Still right** (verifies it), **Needs an update** (asks the assistant to propose
+  one), **Open**. The view holds no data, loads nothing from elsewhere and shows titles and
+  reasons as text only. The server now declares the MCP Apps extension in its `initialize`
+  answer, which hosts require before rendering a view.
+
 ## [1.3.0] - 2026-10-30
 
 Assistants (MCP): measured with a new bench, limited to the inbox if you choose, with your

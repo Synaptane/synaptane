@@ -33,6 +33,7 @@ from synaptane.core.errors import SynaptaneError, unavailable
 from synaptane.core.security import SecretBox
 from synaptane.core.throttle import LoginThrottle, RateLimit
 from synaptane.git.repo import GitError
+from synaptane.mcp.review import AdvertiseApps
 from synaptane.mcp.server import build_mcp, transport_security
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
@@ -263,10 +264,12 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.mount(
         "/",
         _OnlyPaths(
-            mcp.streamable_http_app(
-                stateless_http=True,
-                json_response=True,
-                transport_security=transport_security(settings),
+            AdvertiseApps(
+                mcp.streamable_http_app(
+                    stateless_http=True,
+                    json_response=True,
+                    transport_security=transport_security(settings),
+                )
             ),
             ("/mcp", "/authorize", "/token", "/register", "/revoke", "/.well-known/"),
         ),

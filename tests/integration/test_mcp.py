@@ -464,6 +464,44 @@ def test_team_prompts_reach_assistants(live: Live) -> None:
     assert text.startswith("Sujet : sauvegardes.") and 'untrusted="true"' in text
 
 
+def test_pages_to_review_come_with_their_view(live: Live) -> None:
+    """MCP App: `pages_to_review` names its view (`ui://synaptane/review`), served as an app
+    resource; it lists the pages due for review and those reported as outdated, as text for
+    the model and as data for the view."""
+    from synaptane.services import freshness, reports
+
+    with live.database.session() as session:
+        alice = actor_of(session, accounts.get_user(session, "alice"))
+        infra = session.scalar(select(Space).where(Space.slug == "infra"))
+        assert infra is not None and live.ws is not None
+        reports.report(session, alice, live.ws, infra, "README.md", "La sauvegarde tourne à 3h.")
+    token = token_for(live.database, "alice")
+
+    async def work(session: ClientSession) -> tuple[Any, Any, Any, Any]:
+        init = await session.initialize()
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+        view = await session.read_resource("ui://synaptane/review")
+        result = await session.call_tool("pages_to_review", {})
+        return init, tools["pages_to_review"], view, result
+
+    init, tool, view, result = in_session(live, token, work)
+    assert tool.meta and tool.meta["ui"]["resourceUri"] == "ui://synaptane/review"
+    assert tool.annotations and tool.annotations.read_only_hint
+    [content] = view.contents
+    assert content.mime_type == "text/html;profile=mcp-app"
+    assert "ui/initialize" in content.text and "textContent" in content.text
+    assert "innerHTML" not in content.text  # titles and reasons are never HTML
+    extensions = (init.capabilities.extensions or {}) if init.capabilities else {}
+    assert "io.modelcontextprotocol/ui" in extensions
+    [page] = result.structured_content["pages"]
+    assert (page["path"], page["can_verify"]) == ("README.md", True)
+    assert page["reports"][0]["reason"] == "La sauvegarde tourne à 3h." and page["title"] == "Infra"
+    text = "".join(getattr(c, "text", "") for c in result.content)
+    assert "1 page(s) to review" in text and 'untrusted="true"' in text
+    assert "verify_page only for a page they confirm" in text
+    del freshness
+
+
 def test_superadmin_assistant_sees_only_real_memberships(live: Live) -> None:
     with live.database.session() as session:
         root = actor_of(session, accounts.get_user(session, "root"))
@@ -756,7 +794,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
         return tools, listed, texts
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
-    assert len(tools) == 21  # related, verify_page and restore included
+    assert len(tools) == 22  # related, verify_page, restore and pages_to_review included
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -1109,7 +1147,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 21 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 22 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------

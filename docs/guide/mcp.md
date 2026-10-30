@@ -32,6 +32,23 @@ assistant. A read-only connection does not see the write tools; one limited to t
 sees, besides reading, `inbox_add`, `inbox_update` and `inbox_delete`, and a page write is
 refused with the reason.
 
+## Views in the conversation (MCP Apps)
+
+In a host that renders MCP Apps (Claude on the web and desktop, ChatGPT, VS Code with
+Copilot), `pages_to_review` comes with a view: one card per page, with its state (due for
+review, reported as outdated, and the readers' reasons) and three buttons:
+
+- **Still right**: verifies the page (`verify_page`, contributors; the host may ask for
+  confirmation, as for any write);
+- **Needs an update**: asks the assistant, in the conversation, to read the page and propose
+  the changes;
+- **Open**: opens the page in Synaptane.
+
+The view holds no data (it receives the tool's result from the host), loads nothing from
+anywhere, shows titles and reasons as text only, and follows the host's theme and language
+(French or English). Other clients, Claude Code among them, get the same list as text, to go
+through with the user.
+
 ## ChatGPT
 
 In ChatGPT settings, turn on developer mode (Apps or Connectors section), create a connector
@@ -83,6 +100,7 @@ space's content, for example `infra/proxmox.md`.
 | `inbox_update`, `inbox_delete` | Correct (only the fields passed change) or remove a note dropped by mistake, by its `id`, as long as it is not filed | contributor |
 | `write_page`, `edit_page` | Create, replace or edit a text file (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Replacing an existing file requires its `base_sha` (the `sha` given by `read`): a page is not rewritten without being read. Both return the new hash and report the page's broken links. The verification fields of the front matter (`owner`, `verified`, `review_every`) are kept as they are: only `verify_page` changes them | contributor |
 | `append_page` | Add text at the end of a file, with the `base_sha` of the previous call: a file too long for a single call is written in several parts | contributor |
+| `pages_to_review` | Pages due for review or reported as outdated by readers, in one space (`space`) or all, `mine` for those the user owns: as text, and as a view in hosts that render apps (see below). Reported pages first, 30 at most | reader |
 | `verify_page` | Mark a Markdown page as verified today, only when the user confirms it is correct and up to date; `owner` and `review_every` (`90d`, `6m`, `1y`, `never`, `default`: the space's) are optional. Without an owner, the page becomes the user's. A commit that changes only the front matter, not reported to the tidy-up | contributor |
 | `move`, `delete` | Move or delete a file. `move` updates links in the same commit (those of the moved file, and those of pages that pointed to it), then lists the updated pages and the links still broken | contributor |
 | `restore` | Put a file back as it was in a past version (`commit`, from `history`), a deleted file too: a new commit, the replaced text stays in the history. A page keeps its current verification fields | contributor |
