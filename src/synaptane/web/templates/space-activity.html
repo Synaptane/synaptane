@@ -7,7 +7,14 @@
 {% set base = '/o/' ~ org.slug ~ '/' ~ space.slug %}
 <h2 class="settings-title">{{ _("Activity") }}</h2>
 <p class="muted">{{ _("Everything that changes in the space, from the Git history: pages, inbox and tidy-up, from Synaptane or pushed from elsewhere.") }}</p>
-{% set filters = [('', _("All")), ('page', _("Pages")), ('inbox', _("Inbox")), ('tidy', _("Tidy-up runs")), ('external', _("Pushed outside Synaptane"))] %}
+{% set origin_labels = {"tidy": _("tidy-up"), "routine": _("routines"), "assistant": _("assistants"), "web": _("web interface"), "api": _("REST API"), "git": _("pushed with Git")} %}
+{% if share.total %}
+<section class="card ai-share section-gap-small" data-test="ai-share">
+  <p><strong>{{ _("{percent}% written by AI", percent=share.ai_percent) }}</strong> <span class="muted">· {{ _(pl(share.total, "{n} page change over the last {days} days", "{n} page changes over the last {days} days"), n=share.total, days=share.days) }}{% if not share.complete %} ({{ _("the latest ones") }}){% endif %}</span></p>
+  <p class="muted ai-share-detail">{% for origin, label in origin_labels.items() if share.counts.get(origin) %}{% if not loop.first %} · {% endif %}{% if origin in ai_origins %}<span class="badge badge-ai">{{ _("AI") }}</span> {% endif %}{{ label }} {{ share.counts[origin] }}{% endfor %}</p>
+</section>
+{% endif %}
+{% set filters = [('', _("All")), ('page', _("Pages")), ('inbox', _("Inbox")), ('tidy', _("Tidy-up runs")), ('ai', _("Written by AI")), ('external', _("Pushed outside Synaptane"))] %}
 <nav class="segmented section-gap-small" aria-label="{{ _('Filter activity') }}">
   {% for value, label in filters %}<a class="segmented-option" href="{{ base }}/activity{% if value %}?kind={{ value }}{% endif %}" {% if kind == value %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
 </nav>
@@ -17,7 +24,8 @@
   <li class="activity-item activity-{{ event.kind }}">
     <div class="activity-head">
       <span class="badge {{ 'badge-quiet' if event.kind != 'page' else '' }}">{{ labels[event.kind] }}</span>
-      <strong>{{ event.author }}</strong>
+      {% if event.ai %}<span class="badge badge-ai" title="{{ _('Written by an AI') }}">{{ _("AI") }}</span>{% endif %}
+      <strong>{{ event.author }}</strong>{% if event.origin == 'assistant' %} <span class="muted">{{ _("via {client}", client=event.client) if event.client else _("via an MCP assistant") }}</span>{% elif event.origin == 'api' %} <span class="muted">{{ _("via the REST API") }}{% if event.client %} ({{ event.client }}){% endif %}</span>{% endif %}
       <span class="muted"><time datetime="{{ event.date }}" data-local="full">{{ event.date[:16].replace('T', ' ') }}</time>{% if event.external %} · {{ _("pushed outside Synaptane") }}{% endif %}</span>
     </div>
     <p class="activity-subject" title="{{ event.subject }}">{% if event.kind == 'tidy' %}<a href="{{ base }}/tidy">{{ event.subject|commit_label }}</a>{% else %}{{ event.subject|commit_label }}{% endif %}</p>

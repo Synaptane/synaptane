@@ -33,6 +33,16 @@ def is_tidy_agent(author: str) -> bool:
     return author == AGENT_NAME or author in LEGACY_AGENT_NAMES
 
 
+# Author of a routine's commits, followed by the routine's name in parentheses.
+ROUTINE_NAME = "Synaptane routine"
+LEGACY_ROUTINE_NAME = "Synaptane – routine"
+
+
+def is_routine_agent(author: str) -> bool:
+    """True for a commit of an agent routine (any routine, current or earlier name)."""
+    return author.startswith((ROUTINE_NAME, LEGACY_ROUTINE_NAME))
+
+
 @dataclass
 class InboxItem:
     path: str  # in the repository

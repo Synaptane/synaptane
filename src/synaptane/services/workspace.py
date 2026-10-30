@@ -84,3 +84,11 @@ def author_identity(user: User, committer: Identity) -> Identity:
     """Git author of a human action: the account's display name and email."""
     domain = committer.email.split("@", 1)[1]
     return Identity(user.display_name, user.email or f"{user.username}@users.{domain}")
+
+
+def trailers(source: str, via: str) -> str:
+    """End of a commit message: where the change comes from. `via` (a token or an OAuth
+    application's name, chosen by its owner) on a single line: a line break would add a
+    forged trailer, read by the activity as Synaptane's."""
+    via = " ".join(via.split())
+    return f"\n\nSource: {source}" + (f"\nVia: {via}" if via else "")

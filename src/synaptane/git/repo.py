@@ -161,6 +161,10 @@ class Commit:
     subject: str
     paths: tuple[str, ...]
     date: str = ""  # ISO 8601, filled in by `history`
+    # Trailers written by Synaptane (`Source:` web, api, mcp…; `Via:` the client): only
+    # meaningful for a commit Synaptane made, anyone can write them elsewhere.
+    source: str = ""
+    via: str = ""
 
 
 @dataclass(frozen=True)
@@ -194,7 +198,11 @@ def safe_path(path: str) -> str:
 
 # NUL-separated Git log: paths and messages cannot break the parsing
 # (quotes, backslash, tab, newline or control character in a subject).
-LOG_FORMAT = "--format=%x00%H%x00%an%x00%ae%x00%ce%x00%cI%x00%s"
+LOG_FORMAT = (
+    "--format=%x00%H%x00%an%x00%ae%x00%ce%x00%cI%x00%s"
+    "%x00%(trailers:key=Source,valueonly,separator=%x2C)"
+    "%x00%(trailers:key=Via,valueonly,separator=%x2C)"
+)
 # Header of a `cat-file --batch=%(objectname) %(objecttype) %(objectsize)` answer.
 BATCH_HEADER = re.compile(rb"([0-9a-f]{40,64}) ([a-z]+) ([0-9]+)")
 
@@ -208,11 +216,11 @@ def parse_log(raw: bytes) -> list[tuple[Commit, list[tuple[str, str, str]]]]:
         if tokens[i]:  # each commit starts with a NUL; resync otherwise
             i += 1
             continue
-        header = tokens[i + 1 : i + 7]
-        if len(header) < 6:
+        header = tokens[i + 1 : i + 9]
+        if len(header) < 8:
             break
-        i += 7
-        sha, name, email, committer, date, subject = header
+        i += 9
+        sha, name, email, committer, date, subject, source, via = header
         entries: list[tuple[str, str, str]] = []
         while i < len(tokens) and tokens[i]:
             status = tokens[i].lstrip("\n")[:1]
@@ -224,9 +232,8 @@ def parse_log(raw: bytes) -> list[tuple[Commit, list[tuple[str, str, str]]]]:
                 i += 2
             else:
                 break
-        commit = Commit(
-            sha, Identity(name, email), committer, subject, tuple(e[1] for e in entries), date
-        )
+        paths = tuple(e[1] for e in entries)
+        commit = Commit(sha, Identity(name, email), committer, subject, paths, date, source, via)
         found.append((commit, entries))
     return found
 

@@ -72,7 +72,7 @@ space's content, for example `infra/proxmox.md`.
 | `tree` | Tree of a space or a folder; with `depth` (1 or 2), deeper folders are summarized by their number of files | reader |
 | `backlinks` | Pages that link to a page, wiki links `[[name]]` included | reader |
 | `related` | Pages close to a page, without a query (see [Related pages](wiki.md#see-also-related-pages)): same topic (by meaning, where `semantic` is on), rare words in common, links, same folder. JSON: `space`, `path`, `semantic`, `results` (`title`, `path`, `url`, plain-language `reason`, `score` from 0 to 1, `linked`: the page already links to it; `false`: a link to add), 8 by default, 20 at most (`limit`); empty when nothing is close enough | reader |
-| `recent_changes` | Latest changes, in one space or all, since a date (`since`) if needed | reader |
+| `recent_changes` | Latest changes, in one space or all, since a date (`since`) if needed. The author says what an AI wrote: "Alice via Claude (AI)", "Synaptane tidy-up (AI)"; also in `history` | reader |
 | `history`, `diff` | History of a file, a deleted one too (200 commits at most); changes made by a commit (`commit`), or between two versions (`from_commit`, `to_commit`), 50,000 characters at most | reader |
 | `inbox_list` | Items waiting in the inbox, paginated (`limit`, `offset`, `kind`: `note`, `change` or `left`); each note with its `id`, each changed page with its path | reader |
 | `inbox_add` | Drop information (with attachments) to be filed tonight. The response gives the note's `id` and points out pages and notes already there on the same topic, to complete rather than repeat. 120 notes per hour per account at most, across all interfaces | contributor |

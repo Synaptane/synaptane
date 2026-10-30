@@ -162,6 +162,9 @@ nav.segmented{flex-wrap:wrap;max-width:100%}
 .activity-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px}
 .activity-subject{margin:4px 0 0}
 .activity-pages{list-style:none;padding:0;margin:4px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+.badge-ai{background:var(--accent-soft);color:var(--ink);font-weight:600}
+.ai-share p{margin:0}
+.ai-share-detail{margin-top:4px;font-size:13px}
 .theme-control{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px;color:var(--ink-3)}
 
 /* ---------- Surfaces ---------- */

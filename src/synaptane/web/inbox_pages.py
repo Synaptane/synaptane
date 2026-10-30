@@ -478,6 +478,8 @@ def space_activity_page(
         "space-activity.html",
         org=space.organization,
         space=space,
+        share=activity.ai_share(actor, page.workspace, space),
+        ai_origins=activity.AI_ORIGINS,
         events=events,
         kind=kind if kind in activity.KINDS else "",
         following=following,

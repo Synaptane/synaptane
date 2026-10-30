@@ -263,3 +263,12 @@ time to extract it. You never see a result from a space you do not have access t
 - **Activity**: everything that changes in the space, according to the Git history (pages,
   inbox, tidy-ups), with commits pushed outside Synaptane flagged. Each page touched leads to
   the detail of the change.
+  - **Person or AI**: a change written by an AI carries an **AI** badge: the nightly
+    tidy-up, a routine, or an assistant connected over MCP, named ("Alice via Claude"). A
+    change through the REST API gives the token's name. The **Written by AI** filter keeps
+    only those.
+  - At the top, the **share of the AI** in the page changes of the last 30 days, with the
+    count for each origin (tidy-up, routines, assistants, web interface, REST API, pushed with
+    Git).
+  - A commit pushed from elsewhere always counts as **pushed with Git**, whatever its message
+    says: only Synaptane's own commits are read for their origin.
