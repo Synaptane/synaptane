@@ -72,7 +72,7 @@ from synaptane.services import search as search_service
 from synaptane.services.ai_settings import config_for
 from synaptane.services.content import content_path, kind_of, window
 from synaptane.services.deposits import free_item_path, list_items, tidy_soon
-from synaptane.services.inbox import CONTENT_DIR, note_item
+from synaptane.services.inbox import CONTENT_DIR, LEGACY_ROUTINE_NAME, ROUTINE_NAME, note_item
 from synaptane.services.routines import ROUTINE
 from synaptane.services.tidy_tools import (
     Nearby,
@@ -110,8 +110,8 @@ MAX_COMMITS = 120  # commits shown in the activity
 HISTORY = 5
 FIRST_WINDOW = timedelta(days=7)  # first time: the last week
 MAX_WINDOW = timedelta(days=31)  # never more than a month of activity
-AUTHOR = "Synaptane routine"  # author of the commits (address: Synaptane's)
-LEGACY_AUTHOR = "Synaptane – routine"  # author of the commits of older versions
+AUTHOR = ROUTINE_NAME  # author of the commits (address: Synaptane's)
+LEGACY_AUTHOR = LEGACY_ROUTINE_NAME  # author of the commits of older versions
 SOURCE = "routine"  # `source` field of the deposited items
 
 

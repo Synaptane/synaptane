@@ -20,6 +20,17 @@ of the target version.
 - The address of a deleted page says so and links to its history; that of a moved page gives
   its new address.
 - Versions from before a rename are read and restored under the name the file had then.
+- **Person or AI** in a space's activity: an **AI** badge on what the nightly tidy-up, a
+  routine or an MCP assistant (named: "Alice via Claude") wrote, a **Written by AI** filter,
+  and the share of the AI in the page changes of the last 30 days, by origin. MCP
+  `recent_changes` and `history` give the same origin in the author. Read from the `Source:`
+  and `Via:` lines of Synaptane's commits; a commit pushed from elsewhere counts as pushed
+  with Git, whatever its message says.
+- Notes dropped in the inbox carry the same `Source:` and `Via:` lines in their commit.
+
+### Security
+- The name of an OAuth application or token goes on a single line in the `Via:` line of a
+  commit: a line break in it could add a forged line.
 
 ## [1.0.0] - 2026-10-30
 

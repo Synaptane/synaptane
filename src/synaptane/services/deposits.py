@@ -30,7 +30,7 @@ from synaptane.services.inbox import (
     note_item,
     parse_front_matter,
 )
-from synaptane.services.workspace import Workspace, author_identity
+from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database
 from synaptane.storage.models import AuditEvent, Space
 
@@ -126,7 +126,7 @@ def deposit(
         folder = attachments_dir(item_path)
         files: dict[str, bytes | None] = {f"{folder}/{name}": data for name, data in cleaned}
         files[item_path] = item
-        repo.commit_changes(files, author, f"Inbox: {title}")
+        repo.commit_changes(files, author, f"Inbox: {title}" + trailers(source, actor.via))
     jobs.enqueue(session, "sync", space.id)
     tidy_soon(session, space)
     audit(

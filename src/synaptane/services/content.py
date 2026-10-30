@@ -26,7 +26,7 @@ from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Blob, Commit, GitError, PathRefused, Repository, safe_path
 from synaptane.services import Actor, audit, freshness, jobs, links, webhooks
 from synaptane.services.inbox import CONTENT_DIR
-from synaptane.services.workspace import Workspace, author_identity
+from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import Space
 
@@ -375,7 +375,7 @@ def _commit(
     author = author_identity(actor.user, ws.committer)
     # No inbox item: the commit is enough, the tidy run will find it in the history.
     subject = message.strip().splitlines()[0][:200] if message.strip() else _summary(actions)
-    subject += f"\n\nSource: {source}" + (f"\nVia: {actor.via}" if actor.via else "")
+    subject += trailers(source, actor.via)
     try:
         return repo.commit_changes(files, author, subject)
     except PathRefused as refused:

@@ -280,4 +280,13 @@ n'avez pas accès.
 - **Activité** : tout ce qui change dans l'espace, d'après l'historique Git (pages, inbox,
   rangements), avec les commits poussés hors de Synaptane signalés. Chaque page touchée mène
   au détail de la modification.
+  - **Personne ou IA** : une modification écrite par une IA porte un badge **IA** : le
+    rangement nocturne, une routine, ou un assistant connecté en MCP, nommé (« Alice via
+    Claude »). Une modification par l'API REST donne le nom du jeton. Le filtre **Écrit par
+    l'IA** ne garde qu'elles.
+  - En haut, la **part de l'IA** dans les modifications de pages des 30 derniers jours, avec le
+    nombre pour chaque origine (rangement, routines, assistants, interface web, API REST,
+    poussé avec Git).
+  - Un commit poussé d'ailleurs compte toujours comme **poussé avec Git**, quoi que dise son
+    message : seuls les commits de Synaptane lui-même sont lus pour leur origine.
 

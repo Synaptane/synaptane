@@ -76,7 +76,7 @@ def test_move_delete_history_and_diff_through_mcp(
     assert not error, history
     lines = test_mcp.framed(history, "history").strip().split("\n")
     assert len(lines) == 3, history  # write, edit, move: rename followed
-    assert all(" Alice — " in line for line in lines)  # author: the person, not the server
+    assert all(" Alice via tests (AI) — " in line for line in lines)  # the person, not the server
     assert lines[0].endswith("— Range la fiche du NAS")
     shas = [line.split(" ", 1)[0] for line in lines]
     assert all(re.fullmatch(r"[0-9a-f]{10}", sha) for sha in shas)

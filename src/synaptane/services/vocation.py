@@ -34,7 +34,7 @@ from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Commit, Identity, Repository
 from synaptane.services import Actor, audit, jobs
 from synaptane.services.inbox import CONTENT_DIR
-from synaptane.services.workspace import Workspace, author_identity
+from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import Space
 
@@ -367,7 +367,7 @@ def save(
                     path=kind.path,
                 )
             subject = kind.commit if data is not None else kind.removed
-            subject += f"\n\nSource: {source}" + (f"\nVia: {actor.via}" if actor.via else "")
+            subject += trailers(source, actor.via)
             changes: dict[str, bytes | None] = {kind.path: data}
             if kind.legacy and repo.exists_at(kind.legacy):
                 changes[kind.legacy] = None  # moves to the new name (or removes the old file)

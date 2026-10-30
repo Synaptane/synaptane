@@ -1046,7 +1046,7 @@ def test_page_and_note_content_is_framed_as_untrusted(live: Live) -> None:
     head, items = listed.split("\n", 1)
     assert head.startswith("2 item(s): 1 note(s), 1 changed page(s)"), listed
     assert "Consigne" in framed(items, "inbox_index", "acme/infra")
-    assert " Alice — " in framed(history, "history", "acme/infra/piege.md")
+    assert " Alice via tests (AI) — " in framed(history, "history", "acme/infra/piege.md")
     assert "acme/infra" in framed(recent, "history")
     sha = history.split("\n")[1].split(" ", 1)[0]
     [(error, changed)] = mcp_calls(live, alice, ("diff", {**page, "commit": sha}))
