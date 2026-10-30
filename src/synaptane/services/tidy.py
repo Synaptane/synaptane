@@ -55,6 +55,7 @@ from synaptane.services import (
     tidy_commit,
     tidy_metrics,
     tidy_notices,
+    verdicts,
     vocation,
     webhooks,
 )
@@ -65,6 +66,7 @@ from synaptane.services.deposits import list_items
 from synaptane.services.inbox import (
     AGENT_NAME,
     CONTENT_DIR,
+    InboxItem,
     attachments_dir,
     front_matter,
 )
@@ -464,6 +466,10 @@ def tidy_space(
                 files, _agent_identity(ws), _commit_message(outcome)
             )
     _record_changes(database, ws, space, closing.decisions, base)
+    if outcome.commit and closing.filed:  # a routine's problem handled: not reported again
+        with database.session() as session:
+            for item, summary in closing.filed:
+                verdicts.record(session, ws, space, item, "filed", summary)
     return outcome
 
 
@@ -485,6 +491,7 @@ class Closing:
     untreated: int = 0
     given_up: list[str] = field(default_factory=list)
     notices: list[tidy_notices.Notice] = field(default_factory=list)  # notices to depositors
+    filed: list[tuple[InboxItem, str]] = field(default_factory=list)  # notes filed, summary
 
     @staticmethod
     def note_paths(state: RunState) -> list[str]:
@@ -532,6 +539,7 @@ def _close(
                 continue
             for path in note:
                 closing.notes[path] = None
+            closing.filed.append((item, summary))
             pages = state.integrated.get(name) or []
             if notice := tidy_notices.of(item, "done", summary, pages):
                 closing.notices.append(notice)

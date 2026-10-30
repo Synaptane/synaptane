@@ -20,7 +20,7 @@ from synaptane.core.access import Action, require
 from synaptane.core.errors import Label, SynaptaneError, invalid, not_found, too_many
 from synaptane.core.secret_scan import added_findings, refuse_secrets, scan_file, scan_text
 from synaptane.git.repo import GitError, Repository, safe_path
-from synaptane.services import Actor, audit, changes, jobs, webhooks
+from synaptane.services import Actor, audit, changes, jobs, verdicts, webhooks
 from synaptane.services.content import MAX_UPLOAD, writable
 from synaptane.services.inbox import (
     INBOX_DIR,
@@ -326,9 +326,18 @@ def update_item(
 
 
 def delete_item(
-    session: Session, database: Database, actor: Actor, ws: Workspace, space: Space, name: str
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    name: str,
+    *,
+    not_a_problem: str | None = None,
 ) -> InboxItem:
-    """Removes a note and its attachments (they stay in the Git history)."""
+    """Removes a note and its attachments (they stay in the Git history). For a problem an
+    agent routine reported, what became of it is remembered (`services.verdicts`), so that
+    the routine does not report it again: `not_a_problem`, the reason why it is not one."""
     item = _note(actor, ws, space, name)
     files: dict[str, bytes | None] = {item.path: None}
     for attachment in item.attachments:
@@ -336,6 +345,8 @@ def delete_item(
     author = author_identity(actor.user, ws.committer)
     with writable(session, database, actor, ws, space) as repo:
         repo.commit_changes(files, author, f"Inbox: delete “{item.title}”")
+    kind = "deleted" if not_a_problem is None else "dismissed"
+    verdicts.record(session, ws, space, item, kind, not_a_problem or "", actor.user.id)
     jobs.enqueue(session, "sync", space.id)
     audit(session, actor, "inbox.deleted", space=space, path=item.path)
     return item

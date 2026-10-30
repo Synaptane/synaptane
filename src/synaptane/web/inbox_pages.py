@@ -251,6 +251,36 @@ def inbox_item_delete(
     return redirect(_item_url(space), page, "Note “{title}” deleted.", title=item.title)
 
 
+@router.post("/o/{org_slug}/{space_slug}/-/inbox/{name}/not-a-problem")
+def inbox_item_not_a_problem(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    name: str,
+    csrf: Csrf,
+    reason: Annotated[str, Form()] = "",
+) -> Response:
+    """A problem reported by a routine, judged not to be one: the note leaves the inbox and
+    the routine will not report it again while its pages stay the same."""
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        if not reason.strip():
+            raise invalid("Say why it is not a problem: the routine will be told.")
+        item = deposits.delete_item(
+            page.db, page.database, actor, page.workspace, space, name, not_a_problem=reason
+        )
+    except SynaptaneError as error:
+        return failure(_item_url(space, name), page, error)
+    return redirect(
+        _item_url(space),
+        page,
+        "“{title}”: not a problem. The routine will not report it again while its pages stay "
+        "the same.",
+        title=item.title,
+    )
+
+
 @router.post("/o/{org_slug}/{space_slug}/-/inbox/{name}/move")
 def inbox_item_move(
     page: WebPage,

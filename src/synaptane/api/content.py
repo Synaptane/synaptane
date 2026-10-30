@@ -732,11 +732,26 @@ def update_inbox_item(
 
 @router.delete(ITEM, status_code=status.HTTP_204_NO_CONTENT, tags=["inbox"])
 def delete_inbox_item(
-    org: str, space: str, name: str, request: Request, session: DbSession, actor: CurrentActor
+    org: str,
+    space: str,
+    name: str,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+    not_a_problem: Annotated[
+        str | None,
+        Query(
+            max_length=500,
+            description="For a problem an agent routine reported: why it is not one. The "
+            "routine will not report it again while its pages stay the same.",
+        ),
+    ] = None,
 ) -> Response:
     """Remove a note and its attachments (the history keeps them)."""
     found = find_space(session, actor, org, space)
-    deposits.delete_item(session, _db(request), actor, _ws(request), found, name)
+    deposits.delete_item(
+        session, _db(request), actor, _ws(request), found, name, not_a_problem=not_a_problem
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

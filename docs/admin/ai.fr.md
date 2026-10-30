@@ -348,6 +348,19 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   la page `rapports/coherence.md` et un élément d'inbox par problème à corriger, avec les
   pages et extraits concernés. Il ne redépose pas un problème déjà déposé et pas encore
   rangé.
+
+  **Une fausse alerte ne revient pas.** Quand un élément déposé par une routine quitte
+  l'inbox, ce qu'il est devenu est retenu, lié aux pages concernées telles qu'elles étaient
+  alors :
+  - **Pas un problème** (bouton sur l'élément, avec la raison : contributeurs ; REST :
+    `DELETE …/inbox/{name}?not_a_problem=…`) ;
+  - supprimé de l'inbox ;
+  - traité par le rangement (rangé, avec son résumé).
+
+  À ses passages suivants, la routine reçoit ces verdicts et ne redépose pas le problème, tant
+  qu'aucune de ses pages n'a changé ; une modification de l'une d'elles rend le verdict
+  caduc. Un élément de même titre est refusé d'office. Les verdicts sont gardés un an (90
+  jours pour un problème lié à aucune page).
 - **Résumé hebdomadaire**, chaque vendredi à 16:00 : ce que l'équipe a appris et décidé dans
   la semaine, d'après l'historique Git du wiki (pages créées, très modifiées) et les passages
   du rangement (éléments rangés, laissés). Sortie : la page `rapports/semaine.md` et un

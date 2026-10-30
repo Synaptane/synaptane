@@ -10,7 +10,8 @@ of the target version.
 
 ## [Unreleased]
 
-Upgrade: one migration (`0024`, new table `page_reports`), applied on start as usual.
+Upgrade: two migrations (`0024` and `0025`, new tables `page_reports` and
+`finding_verdicts`), applied on start as usual.
 
 ### Added
 - **Report a page as outdated**: anyone who reads a page can say what no longer holds (⋮
@@ -19,6 +20,11 @@ Upgrade: one migration (`0024`, new table `page_reports`), applied on start as u
   in the `read` header, framed as untrusted). A report stays open until the page is verified,
   a contributor dismisses it, or its author withdraws it; a moved page keeps its reports.
   REST: `GET`, `POST` and `DELETE …/spaces/{space}/reports/{path}`.
+- **A false alarm from a routine does not come back every week**: when an item a routine
+  dropped leaves the inbox (**Not a problem**, with why; deleted; or handled by the tidy-up),
+  the verdict is remembered, bound to the pages concerned. The routine is given the standing
+  verdicts and does not drop the problem again until one of its pages changes; an item with
+  the same title is refused. REST: `DELETE …/inbox/{name}?not_a_problem=…`.
 - **Last change in search results**: when, by whom, and whether an AI wrote it (the tidy-up,
   a routine or an assistant). In the web search (date, author, **AI** badge), the REST API
   (`edited`, `edited_by`, `edited_by_ai`) and the MCP tools (`edited`, `edited_by`, `ai` in

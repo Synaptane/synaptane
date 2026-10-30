@@ -29,6 +29,16 @@
       </form>
     </details>
     {% endif %}
+    {% if item.source == 'routine' and item.origin %}
+    <details class="menu"><summary class="button button-small" data-test="not-a-problem">{{ _("Not a problem") }}</summary>
+      <form class="menu-panel" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/inbox/{{ item.name }}/not-a-problem">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="field"><label for="not-a-problem-reason">{{ _("Why it is not one") }}</label><textarea id="not-a-problem-reason" name="reason" rows="3" maxlength="500" required></textarea></div>
+        <p class="muted">{{ _("The note leaves the inbox, and the routine will not report this problem again as long as the pages concerned stay the same.") }}</p>
+        <button class="button button-primary" type="submit">{{ _("Not a problem") }}</button>
+      </form>
+    </details>
+    {% endif %}
     {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox/" ~ item.name ~ "/delete", _("Delete"), confirm=_("Delete the note “{title}” and its attachments? They will remain in the Git history.", title=item.title), kind="danger") }}
     {% else %}
     {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox/" ~ item.name ~ "/dismiss", _("Mark as seen")) }}
