@@ -152,7 +152,7 @@ class SynaptaneOAuthProvider:
         scopes: list[str],
         resource: str | None,
         family: UUID,
-        grant: tuple[bool, list[str] | None] = (False, None),
+        grant: tuple[bool, list[str] | None, bool] = (False, None, False),
     ) -> OAuthToken:
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         now = _now()
@@ -172,6 +172,7 @@ class SynaptaneOAuthProvider:
                         resource=resource,
                         read_only=grant[0],
                         space_ids=grant[1],
+                        inbox_only=grant[2],
                         expires_at=now + ttl,
                     )
                 )
@@ -188,7 +189,7 @@ class SynaptaneOAuthProvider:
             row = session.get(OAuthCode, token_hash(code.code))
             if row is None:
                 raise TokenError("invalid_grant", "Code already used or expired.")
-            user_id, grant = row.user_id, (row.read_only, row.space_ids)
+            user_id, grant = row.user_id, (row.read_only, row.space_ids, row.inbox_only)
             session.delete(row)  # single use
         return self._issue(code.client_id, user_id, code.scopes, code.resource, uuid4(), grant)
 
@@ -251,7 +252,8 @@ class SynaptaneOAuthProvider:
             row = session.get(TokenRow, token_hash(token.token))
             assert row is not None
             row.revoked_at = _now()  # rotation: the old token will not be used again
-            family, user_id, grant = row.family, row.user_id, (row.read_only, row.space_ids)
+            family, user_id = row.family, row.user_id
+            grant = (row.read_only, row.space_ids, row.inbox_only)
         return self._issue(
             token.client_id, user_id, scopes or token.scopes, token.resource, family, grant
         )
@@ -324,11 +326,13 @@ def token_identity(session: Any, client_id: str, token: str) -> tuple[str, Limit
         row = session.scalar(select(ApiToken).where(ApiToken.token_hash == token_hash(token)))
         if row is None:
             return "MCP", Limits(members_only=True)
-        limits = accounts.token_limits(row.read_only, row.space_ids, members_only=True)
+        limits = accounts.token_limits(
+            row.read_only, row.space_ids, row.inbox_only, members_only=True
+        )
         return f"MCP · {row.name}", limits
     found = session.get(TokenRow, token_hash(token))
     limits = (
-        accounts.token_limits(found.read_only, found.space_ids, members_only=True)
+        accounts.token_limits(found.read_only, found.space_ids, found.inbox_only, members_only=True)
         if found is not None
         else Limits(members_only=True)
     )
@@ -401,11 +405,13 @@ def decide(
     *,
     read_only: bool = False,
     space_ids: list[str] | None = None,
+    inbox_only: bool = False,
 ) -> str | None:
     """Accept (user) or deny (None) a request. Return the client's redirect URL.
 
-    `read_only` and `space_ids` (None: all spaces, future ones included) restrict the tokens
-    issued for this connection, refreshes included."""
+    `read_only`, `inbox_only` (reading and the inbox, no direct change) and `space_ids`
+    (None: all spaces, future ones included) restrict the tokens issued for this connection,
+    refreshes included."""
     from mcp.server.auth.provider import construct_redirect_uri
 
     row = session.get(OAuthRequest, request_id)
@@ -424,6 +430,7 @@ def decide(
             user_id=user.id,
             params=row.params,
             read_only=read_only,
+            inbox_only=inbox_only and not read_only,
             space_ids=space_ids,
             expires_at=_now() + CODE_TTL,
         )

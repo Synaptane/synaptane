@@ -388,6 +388,46 @@ def test_restricted_oauth_connection_stays_read_only_after_refresh(live: Live) -
     assert again[1][0]  # the restriction carries over on refresh
 
 
+def test_inbox_only_connection_drops_notes_but_changes_no_page(live: Live) -> None:
+    """Chosen at consent: reading and the inbox. Only the read and inbox tools are offered,
+    a page write is refused with its reason, and the limit carries over on refresh."""
+    client_id, tokens, _, _ = oauth_tokens(live, consent={"access": "inbox"})
+
+    infra: dict[str, object] = {"space": "acme/infra"}
+    calls: list[tuple[str, dict[str, object]]] = [
+        ("list_spaces", {}),
+        ("inbox_add", {**infra, "title": "Nouveau NAS", "content": "12 To."}),
+        ("write_page", {**infra, "path": "x.md", "content": "# X\n"}),
+        ("edit_page", {**infra, "path": "README.md", "old": "Infra", "new": "X"}),
+    ]
+
+    async def work(session: ClientSession) -> tuple[set[str], list[tuple[bool, str]]]:
+        names = {t.name for t in (await session.list_tools()).tools}
+        results = []
+        for name, arguments in calls:
+            result = await session.call_tool(name, arguments)
+            text = "".join(getattr(c, "text", "") for c in result.content)
+            results.append((bool(result.is_error), text))
+        return names, results
+
+    names, (spaces_listed, note, page, _) = in_session(live, tokens["access_token"], work)
+    assert {"inbox_add", "inbox_update", "inbox_delete", "search", "read"} <= names
+    assert not names & {"write_page", "edit_page", "append_page", "move", "delete", "restore"}
+    assert "Connection limited to the inbox" in spaces_listed[1]
+    assert not note[0] and note[1].startswith("Dropped in the inbox")
+    assert page[0] and "Connection limited to the inbox" in page[1]
+    renewed = httpx2.post(
+        f"{live.url}/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+            "client_id": client_id,
+        },
+    ).json()
+    _, again = in_session(live, renewed["access_token"], work)
+    assert again[3][0] and "limited to the inbox" in again[3][1]  # kept on refresh
+
+
 def test_superadmin_assistant_sees_only_real_memberships(live: Live) -> None:
     with live.database.session() as session:
         root = actor_of(session, accounts.get_user(session, "root"))

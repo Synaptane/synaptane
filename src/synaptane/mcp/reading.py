@@ -28,6 +28,7 @@ from synaptane.mcp.kit import (
     PathArg,
     SinceArg,
     SpaceArg,
+    inbox_only_note,
     note_id,
     quoted,
     read_only_note,
@@ -263,9 +264,10 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
             for entry, s in zip(result, visible, strict=True):
                 if excerpt := _vocation_excerpt(c, s):
                     entry["vocation"] = excerpt
-            if c.read_only:
+            if c.read_only or c.inbox_only:
+                note = read_only_note(c) if c.read_only else inbox_only_note(c)
                 for entry in result:
-                    entry["note"] = read_only_note(c)
+                    entry["note"] = note
             return json.dumps(result, ensure_ascii=False)
 
     @server.tool(title="File tree", annotations=READ_ONLY, structured_output=False)

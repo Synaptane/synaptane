@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -176,6 +177,7 @@ class ApiToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     hint: Mapped[str] = mapped_column(String(16))  # last characters, for display
     read_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    inbox_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     space_ids: Mapped[list[str] | None] = mapped_column(JSONB)  # None: all, future ones included
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     expires_at: Mapped[datetime | None]
@@ -279,6 +281,7 @@ class OAuthCode(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     params: Mapped[dict[str, object]] = mapped_column(JSONB)
     read_only: Mapped[bool] = mapped_column(Boolean, default=False)  # chosen at consent
+    inbox_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     space_ids: Mapped[list[str] | None] = mapped_column(JSONB)
     expires_at: Mapped[datetime]
 
@@ -300,6 +303,7 @@ class OAuthToken(Base):
     scopes: Mapped[list[str]] = mapped_column(JSONB)
     resource: Mapped[str | None] = mapped_column(Text)
     read_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    inbox_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     space_ids: Mapped[list[str] | None] = mapped_column(JSONB)  # None: all, future ones included
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     expires_at: Mapped[datetime]

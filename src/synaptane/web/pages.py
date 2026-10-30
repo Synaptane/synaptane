@@ -790,16 +790,24 @@ def member_spaces(page: "Page", actor: Actor) -> list[Space]:
     return spaces.list_all_visible_spaces(page.db, real)
 
 
-def chosen_limits(
-    access: str, scope: str, space: list[str] | None
-) -> tuple[bool, list[UUID] | None]:
-    """Choice from the `access_limits` form: (read-only, spaces or None for all). A checked space
+@dataclass(frozen=True)
+class Chosen:
+    """Choice from the `access_limits` form."""
+
+    read_only: bool
+    inbox_only: bool
+    space_ids: list[UUID] | None  # None: all spaces, future ones included
+
+
+def chosen_limits(access: str, scope: str, space: list[str] | None) -> Chosen:
+    """Choice from the `access_limits` form: `access` write, inbox or read. A checked space
     means "only these spaces", even if "all" stayed selected: never grant more than what the
     person believed they limited."""
+    read_only, inbox_only = access == "read", access == "inbox"
     if scope != "some" and not space:
-        return access == "read", None
+        return Chosen(read_only, inbox_only, None)
     try:
-        return access == "read", [UUID(value) for value in space or []]
+        return Chosen(read_only, inbox_only, [UUID(value) for value in space or []])
     except ValueError:
         raise invalid("Invalid space.") from None
 

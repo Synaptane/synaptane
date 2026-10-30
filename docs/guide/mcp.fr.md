@@ -12,8 +12,9 @@ espaces, et y déposer ce que vous apprenez. L'adresse du serveur est indiquée 
 2. Collez l'adresse du serveur MCP.
 3. Claude ouvre Synaptane. Connectez-vous si besoin, puis cliquez sur **Autoriser**.
 
-Sur l'écran d'autorisation, vous pouvez limiter l'assistant : **lecture seule**, et/ou
-**certains espaces seulement**. Avec **Tous mes espaces, y compris les futurs**, il a vos
+Sur l'écran d'autorisation, vous pouvez limiter l'assistant : **lecture seule**, ou **lecture,
+et dépôt de notes dans l'inbox** (aucune modification directe des pages : ce qu'il note passe
+par le rangement de nuit), et/ou **certains espaces seulement**. Avec **Tous mes espaces, y compris les futurs**, il a vos
 droits sur tous vos espaces, y compris ceux auxquels vous aurez accès plus tard. Si vous êtes
 membre d'une seule organisation, c'est le choix par défaut. Si vous l'êtes de plusieurs,
 seuls les espaces de la première organisation (par ordre alphabétique) sont cochés par
@@ -29,7 +30,9 @@ lancé la connexion vous-même.
 
 Par un assistant, chacun n'atteint que les espaces dont il est membre (ou dont il administre
 l'organisation) : le super-admin n'expose pas toute l'instance à son assistant. Une
-connexion en lecture seule ne voit pas les outils d'écriture.
+connexion en lecture seule ne voit pas les outils d'écriture ; une connexion limitée à l'inbox
+ne voit, en plus de la lecture, que `inbox_add`, `inbox_update` et `inbox_delete`, et une
+écriture dans une page est refusée avec la raison.
 
 ## ChatGPT
 
@@ -43,7 +46,8 @@ recherche approfondie n'a pas été testée. Tous les outils d'écriture, `inbox
 `verify_page` compris, sont déclarés destructifs : Claude et ChatGPT demandent alors
 confirmation avant chacun. C'est voulu : c'est par une écriture qu'une consigne cachée dans
 une page ferait passer un contenu d'un espace à un autre. Pour un connecteur prudent,
-autorisez-le en lecture seule.
+autorisez-le en lecture seule, ou limité à l'inbox : il peut encore noter ce qu'il apprend, et
+le rangement de nuit décide où le ranger.
 
 ## Vérifier la connexion
 

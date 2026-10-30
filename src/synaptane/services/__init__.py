@@ -40,6 +40,7 @@ def load_actor(session: Session, user: User, via: str = "", limits: Limits | Non
         is_superadmin=user.is_superadmin and not (limits.restricted or limits.members_only),
         org_roles=org_roles,
         space_roles=space_roles,
+        inbox_only=limits.inbox_only,
     )
     return Actor(user=user, access=access, via=via, restricted=limits.restricted)
 

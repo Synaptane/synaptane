@@ -79,7 +79,7 @@ def deposit(
 
     A likely secret (text or attachment) is refused before any commit, unless `allow_secrets`
     (confirmed by the person)."""
-    require(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id)
+    require(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
     check_rate(session, actor)
     title = names.display_name(title, field="Title")
     if not body.strip() and not attachments:
@@ -121,7 +121,7 @@ def deposit(
             safe_path(f"{attachments_dir(item_path)}/{name}")
         except GitError:
             raise invalid("Invalid or duplicate attachment name.") from None
-    with writable(session, database, actor, ws, space) as repo:
+    with writable(session, database, actor, ws, space, Action.DEPOSIT_SPACE) as repo:
         item_path = free_item_path(repo, item_path)
         folder = attachments_dir(item_path)
         files: dict[str, bytes | None] = {f"{folder}/{name}": data for name, data in cleaned}
@@ -275,7 +275,7 @@ def read_attachment(actor: Actor, ws: Workspace, space: Space, item: str, name: 
 
 
 def _note(actor: Actor, ws: Workspace, space: Space, name: str) -> InboxItem:
-    require(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id)
+    require(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
     item = read_item(actor, ws, space, name)
     if item.type != "note":
         raise invalid("Only dropped notes can be edited this way.")
@@ -318,7 +318,7 @@ def update_item(
         fields.pop(key, None)
     data = (front_matter(fields) + "\n" + body.strip() + "\n").encode()
     author = author_identity(actor.user, ws.committer)
-    with writable(session, database, actor, ws, space) as locked:
+    with writable(session, database, actor, ws, space, Action.DEPOSIT_SPACE) as locked:
         locked.commit_changes({item.path: data}, author, f"Inbox: edit “{title}”")
     jobs.enqueue(session, "sync", space.id)
     tidy_soon(session, space)  # a note left then completed is picked up without waiting
@@ -343,7 +343,7 @@ def delete_item(
     for attachment in item.attachments:
         files[f"{attachments_dir(item.path)}/{attachment}"] = None
     author = author_identity(actor.user, ws.committer)
-    with writable(session, database, actor, ws, space) as repo:
+    with writable(session, database, actor, ws, space, Action.DEPOSIT_SPACE) as repo:
         repo.commit_changes(files, author, f"Inbox: delete “{item.title}”")
     kind = "deleted" if not_a_problem is None else "dismissed"
     verdicts.record(session, ws, space, item, kind, not_a_problem or "", actor.user.id)
@@ -367,7 +367,7 @@ def move_item(
     in between leaves a duplicate, never a loss."""
     if target.id == space.id:
         raise invalid("Choose another space.")
-    require(actor.access, Action.CONTRIBUTE_SPACE, org_id=target.org_id, space_id=target.id)
+    require(actor.access, Action.DEPOSIT_SPACE, org_id=target.org_id, space_id=target.id)
     check_rate(session, actor)
     item = _note(actor, ws, space, name)
     repo = ws.local_repository(space)
@@ -381,7 +381,7 @@ def move_item(
         files[path] = repo.blob(path) or b""
     author = author_identity(actor.user, ws.committer)
     address = target.address
-    with writable(session, database, actor, ws, target) as destination:
+    with writable(session, database, actor, ws, target, Action.DEPOSIT_SPACE) as destination:
         placed = free_item_path(destination, item.path)  # name already taken in the target?
         moved: dict[str, bytes | None] = {placed: files[item.path]}
         for attachment in item.attachments:
@@ -391,7 +391,7 @@ def move_item(
         destination.commit_changes(moved, author, f"Inbox: “{item.title}” from another space")
     jobs.enqueue(session, "sync", target.id)
     tidy_soon(session, target)
-    with writable(session, database, actor, ws, space) as origin:
+    with writable(session, database, actor, ws, space, Action.DEPOSIT_SPACE) as origin:
         origin.commit_changes(
             dict.fromkeys(files), author, f"Inbox: “{item.title}” moved to {address}"
         )

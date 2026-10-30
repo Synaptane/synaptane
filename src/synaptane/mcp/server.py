@@ -143,22 +143,33 @@ def _lean(tool: MCPTool) -> MCPTool:
     return tool.model_copy(update={"input_schema": _untitled(tool.input_schema)})
 
 
+INBOX_TOOLS = frozenset({"inbox_add", "inbox_update", "inbox_delete"})
+
+
 class SynaptaneMCP(MCPServer):
     """Write tools are only offered to connections that can contribute to at least one
-    space (not to a read-only token, or a reader everywhere). Every call is still checked."""
+    space (not to a read-only token, or a reader everywhere); a connection limited to the
+    inbox gets the inbox ones only. Every call is still checked."""
 
-    can_write: Callable[[str, str, str], bool] | None = None
+    can_write: Callable[[str, str, str], str] | None = None  # "write", "inbox" or ""
 
     async def list_tools(self) -> list[MCPTool]:
         tools = [_lean(t) for t in await super().list_tools()]
         token = get_access_token()
         if self.can_write is None or token is None or token.subject is None:
             return tools
-        if await anyio.to_thread.run_sync(
+        level = await anyio.to_thread.run_sync(
             self.can_write, token.subject, token.client_id, token.token
-        ):
+        )
+        if level == "write":
             return tools
-        return [t for t in tools if t.annotations is None or t.annotations.read_only_hint]
+        return [
+            t
+            for t in tools
+            if t.annotations is None
+            or t.annotations.read_only_hint
+            or (level == "inbox" and t.name in INBOX_TOOLS)
+        ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Errors without the SDK prefix; invalid arguments explained from the published
@@ -206,17 +217,21 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         ),
     )
 
-    def can_write(subject: str, client_id: str, value: str) -> bool:
+    def can_write(subject: str, client_id: str, value: str) -> str:
+        """What the connection may write: "write" (pages), "inbox" (notes only) or ""."""
         with database.session() as session:
             user = session.get(User, UUID(subject))
             if user is None or not user.is_active:
-                return False
+                return ""
             via, limits = token_identity(session, client_id, value)
             actor = load_actor(session, user, via, limits)
-            return any(
+            contributes = any(
                 spaces.role_in(actor, space) is SpaceRole.CONTRIBUTOR
                 for space in spaces.list_all_visible_spaces(session, actor)
             )
+            if not contributes:
+                return ""
+            return "inbox" if limits.inbox_only else "write"
 
     server.can_write = can_write
     kit = Kit(settings, database, ws)
