@@ -2,7 +2,7 @@
 {% from "icons.html" import icon, sep %}
 {% set tab = 'settings' %}
 {% set items = [] %}
-{% if manage %}{% set items = items + [("general", "/-/settings", _("General")), ("vocation", "/-/vocation", _("Purpose"))] %}{% endif %}
+{% if manage %}{% set items = items + [("general", "/-/settings", _("General")), ("vocation", "/-/vocation", _("Purpose")), ("prompts", "/-/prompts", _("Assistant prompts"))] %}{% endif %}
 {% set items = items + [("git", "/-/git", _("Git repository")), ("members", "/-/members", _("Members"))] %}
 {% if manage %}{% set items = items + [("tidy", "/-/tidy-settings", _("Tidy-up")), ("semantic", "/-/semantic", _("Semantic search"))] %}{% endif %}
 {% if contribute %}{% set items = items + [("routines", "/-/routines", _("Routines"))] %}{% endif %}

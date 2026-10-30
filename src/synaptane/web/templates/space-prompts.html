@@ -1,0 +1,48 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% set section = "prompts" %}
+{% block section %}
+<p class="muted">{{ _("Your team's rituals (meeting notes, a decision, a weekly review…), offered to every assistant connected to Synaptane: in Claude, the “/” or “+” menu; the assistant receives the text with the arguments filled in. One file per prompt, .synaptane/prompts/<name>.md, saved in the repository like the purpose.") }}</p>
+<details class="card section-gap-small">
+  <summary>{{ _("How to write one") }}</summary>
+  <ul>
+    <li>{{ _("Front matter: title, description, and arguments (names separated by commas; a final ? makes one optional).") }}</li>
+    <li>{{ _("{{name}} is replaced by the argument's value; {{include folder/page.md}} inserts a page of the space, read with the rights of the person who runs the prompt, as data for the assistant.") }}</li>
+    <li>{{ _("Assistants see it as org-space-name, titled with the space. Only the organization's administrators write prompts: they are instructions given to assistants.") }}</li>
+  </ul>
+</details>
+
+{% for p in prompts %}
+{% set doc = documents[p.name] %}
+<section class="card vocation-card" id="prompt-{{ p.name }}">
+  <div class="section-heading"><h2>{{ p.title }}</h2><code>/{{ p.mcp_name }}</code></div>
+  {% if p.description %}<p class="muted">{{ p.description }}</p>{% endif %}
+  {% if error and error_for == p.name %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts/{{ p.name }}" class="vocation-form">
+    {{ csrf_field() }}
+    <input type="hidden" name="base_sha" value="{{ doc.sha or '' }}">
+    <div class="field">
+      <label for="prompt-{{ p.name }}-text">{{ _("Text (Markdown)") }} · <code>{{ doc.path }}</code></label>
+      <textarea id="prompt-{{ p.name }}-text" name="text" class="editor vocation-editor" rows="12" spellcheck="true">{{ drafts[p.name] if p.name in drafts else doc.text }}</textarea>
+      <p class="muted">{{ _("An empty text removes the prompt.") }}</p>
+    </div>
+    <div class="actions"><button class="button button-primary" type="submit">{{ _("Save") }}</button></div>
+  </form>
+</section>
+{% else %}
+<p class="empty">{{ _("No prompt yet.") }}</p>
+{% endfor %}
+
+{% if prompts|length < limit %}
+<section class="card vocation-card" id="new-prompt">
+  <div class="section-heading"><h2>{{ _("New prompt") }}</h2></div>
+  {% if error and not error_for %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts" class="vocation-form">
+    {{ csrf_field() }}
+    <div class="field"><label for="new-prompt-name">{{ _("Name (file name)") }}</label><input id="new-prompt-name" name="name" value="{{ new_name }}" required maxlength="40" pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ _('meeting-notes') }}" autocomplete="off"></div>
+    <div class="field"><label for="new-prompt-text">{{ _("Text (Markdown)") }}</label><textarea id="new-prompt-text" name="text" class="editor vocation-editor" rows="14" spellcheck="true">{{ drafts[""] if "" in drafts else example }}</textarea></div>
+    <div class="actions"><button class="button button-primary" type="submit" data-test="create-prompt">{{ _("Create the prompt") }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

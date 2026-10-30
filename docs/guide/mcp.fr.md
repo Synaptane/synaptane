@@ -146,6 +146,32 @@ outils appeler, et comment rendre compte.
 | `answer_with_sources` | `question`, `spaces` (facultatif) | Cherche en deux ou trois requêtes courtes, lit les meilleurs résultats (les pages vérifiées d'abord), répond en citant le titre et l'URL de chaque source, signale une page à revoir, et dit ce qui manque |
 | `briefing` | `space` (tous vos espaces par défaut), `since` (AAAA-MM-JJ, 7 jours par défaut), `topic` (tous facultatifs) | Appelle `recent_changes`, lit les pages touchées et l'inbox, puis synthétise : changements, décisions, questions ouvertes |
 
+### Les prompts de votre équipe
+
+Chaque espace peut ajouter les siens : un fichier Markdown par prompt dans
+`.synaptane/prompts/` (écrit dans **Paramètres → Prompts d'assistant**, par les
+administrateurs de l'organisation, ou par un push). L'assistant les liste avec les trois
+ci-dessus, sous le nom `<org>-<espace>-<nom>` et avec leur espace dans le titre, pour chaque
+espace que la personne lit.
+
+```markdown
+---
+title: Compte rendu de réunion
+description: Met en forme des notes de réunion et les dépose dans l'inbox
+arguments: sujet, notes, date?
+---
+Voici mes notes de la réunion sur {{sujet}} ({{date}}) : {{notes}}
+Suis notre modèle : {{include modeles/compte-rendu.md}}
+```
+
+- `arguments` : des noms séparés par des virgules ; un `?` final rend l'argument facultatif.
+  `{{nom}}` est remplacé par sa valeur.
+- `{{include chemin}}` insère une page de l'espace (relative à `content/`, 50 000 caractères au
+  plus), lue avec les droits de la personne qui lance le prompt et encadrée comme non fiable,
+  comme toute page lue par un assistant.
+- 30 prompts au plus par espace ; `tidy.md` contient les règles du rangement, pas un prompt.
+
+
 ## L'inbox
 
 Chaque espace a une inbox : **onglet Inbox** dans le web, `inbox_add` (et `inbox_update`,

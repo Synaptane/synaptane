@@ -376,8 +376,7 @@ CARRIED = (
     CONTENT_DIR,
     INBOX_DIR,
     vocation.VOCATION_FILE,
-    vocation.RULES_FILE,
-    vocation.LEGACY_RULES_FILE,
+    vocation.PROMPTS_DIR,  # tidy-up rules and team prompts
 )
 
 

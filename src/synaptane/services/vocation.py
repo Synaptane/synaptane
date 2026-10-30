@@ -39,7 +39,8 @@ from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import Space
 
 VOCATION_FILE = ".synaptane/vocation.md"
-RULES_FILE = ".synaptane/prompts/tidy.md"  # tidy-up rules
+PROMPTS_DIR = ".synaptane/prompts"  # tidy-up rules, and the team prompts (`team_prompts`)
+RULES_FILE = f"{PROMPTS_DIR}/tidy.md"  # tidy-up rules
 LEGACY_RULES_FILE = ".synaptane/prompts/rangement.md"  # former name, read if alone
 MAX_LENGTH = 20_000  # characters, for each of the two files
 EXCERPT_LENGTH = 600  # excerpt of the vocation in `list_spaces` (MCP)
