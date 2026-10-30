@@ -23,10 +23,6 @@ of the target version.
   `base.css`, inlined when served). A view drawn again follows a change of the host's
   language.
 
-### Fixed
-- **Still right** no longer shows in the "pages to review" view for a connection allowed to
-  read only: the verification would have been refused.
-
 ## [1.4.0] - 2026-10-30
 
 A first view in the conversation: assistants that render MCP Apps show the pages to review as
