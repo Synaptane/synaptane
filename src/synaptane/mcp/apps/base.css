@@ -1,0 +1,40 @@
+  /* Shared by the views. Synaptane's "Paper" and "Slate" colors; the host's theme decides. */
+  :root {
+    --bg: #fbfaf7; --surface: #ffffff; --ink: #1b1d22; --ink-2: #5b606b; --border: #e4e1da;
+    --accent: #1f6f6a; --on-accent: #ffffff; --warn-bg: #fdf1dc; --warn-ink: #7a4b00;
+    --ok-bg: #e3f2ee; --ok-ink: #145a4f;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --surface: #161a21; --ink: #e8eaee; --ink-2: #9aa1ad; --border: #262c36;
+    --accent: #b6f36a; --on-accent: #0e1116; --warn-bg: #3a2a10; --warn-ink: #f3c977;
+    --ok-bg: #12302a; --ok-ink: #8fe0c8;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  h1 { font-size: 15px; margin: 0; }
+  h2 { font-size: 14px; margin: 14px 0 6px; }
+  .muted { color: var(--ink-2); font-size: 13px; }
+  ol, ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  li.card.done { opacity: .6; }
+  .title { font-weight: 600; word-break: break-word; }
+  .where { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink-2); word-break: break-all; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; margin-right: 6px; background: var(--border); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+  .badge.strong { font-weight: 600; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok-ink); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  button {
+    font: inherit; font-size: 13px; border-radius: 8px; padding: 4px 10px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .empty { padding: 16px; text-align: center; color: var(--ink-2); }
+  .error { color: var(--warn-ink); font-size: 13px; margin-top: 6px; }

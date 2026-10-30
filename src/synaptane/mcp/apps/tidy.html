@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Last tidy-up · Synaptane</title>
+<style>
+/* synaptane:base.css */
+  li.card { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  li.card .where { flex: 1 1 220px; color: var(--ink); font-size: 13px; }
+  li.card .actions { margin-top: 0; }
+  li.card .error { flex-basis: 100%; }
+  .summary { margin: 0 0 10px; }
+  .notes { margin: 0; padding-left: 18px; font-size: 13px; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
+</style>
+</head>
+<body>
+<header><h1 id="heading"></h1><span class="muted" id="when"></span></header>
+<p class="muted summary" id="summary" hidden></p>
+<p class="empty" id="empty" hidden></p>
+<ol id="pages"></ol>
+<div id="filed" hidden><h2 id="notesHeading"></h2><ul class="notes" id="notes"></ul></div>
+<p class="muted" id="footer"></p>
+<script>
+/* synaptane:bridge.js */
+(function () {
+  "use strict";
+  var t = App.t, element = App.element;
+  var TEXTS = {
+    en: {
+      heading: "Last tidy-up · {space}", none: "No tidy-up has changed pages in this space yet.",
+      noPage: "This run changed no page.",
+      created: "Created", edited: "Edited", deleted: "Deleted", moved: "Moved", from: "from {path}",
+      changed: "Changed since: restore it from its history", undone: "Undone",
+      reverted: "This whole run was undone.",
+      see: "See the change", open: "Open", undo: "Undo", confirm: "Put it back as before the run?",
+      notes: "Notes filed", back: "Back in the inbox: {titles}",
+      kept: "Still filed, other pages hold it: {titles}",
+      more: "Open in Synaptane", failed: "Could not do it: {error}"
+    },
+    fr: {
+      heading: "Dernier rangement · {space}", none: "Aucun rangement n'a encore modifié de page dans cet espace.",
+      noPage: "Ce passage n'a modifié aucune page.",
+      created: "Créée", edited: "Modifiée", deleted: "Supprimée", moved: "Déplacée", from: "depuis {path}",
+      changed: "Modifiée depuis : à restaurer depuis son historique", undone: "Annulée",
+      reverted: "Ce passage a été annulé en entier.",
+      see: "Voir le changement", open: "Ouvrir", undo: "Annuler", confirm: "La remettre comme avant le passage ?",
+      notes: "Notes rangées", back: "De retour dans l'inbox : {titles}",
+      kept: "Toujours rangée, d'autres pages la gardent : {titles}",
+      more: "Ouvrir dans Synaptane", failed: "Impossible : {error}"
+    }
+  };
+  var data = null;
+
+  function render(result) {
+    data = result;
+    var run = data.run;
+    document.getElementById("heading").textContent = t("heading", { space: data.space || "" });
+    document.getElementById("when").textContent = run ? App.moment(run.started) : "";
+    var summary = document.getElementById("summary");
+    summary.hidden = !(run && (run.summary || run.reverted));
+    summary.textContent = run ? (run.reverted ? t("reverted") + " " : "") + (run.summary || "") : "";
+    var pages = data.pages || [];
+    var empty = document.getElementById("empty");
+    empty.hidden = pages.length > 0;
+    empty.textContent = run ? t("noPage") : t("none");
+    var list = document.getElementById("pages");
+    list.textContent = "";
+    pages.forEach(function (page) { list.appendChild(row(page)); });
+    var notes = document.getElementById("notes");
+    notes.textContent = "";
+    (data.notes || []).forEach(function (note) {
+      notes.appendChild(element("li", null, note.title + " → " + note.pages.join(", ")));
+    });
+    document.getElementById("filed").hidden = !(data.notes || []).length;
+    document.getElementById("notesHeading").textContent = t("notes");
+    var footer = document.getElementById("footer");
+    footer.textContent = "";
+    if (data.url) {
+      var more = App.button(t("more"), false, function () { App.open(data.url); });
+      more.className = "link";
+      footer.appendChild(more);
+    }
+  }
+
+  function row(page) {
+    var item = element("li", "card" + (page.state === "undone" ? " done" : ""));
+    var label = element("span", page.status === "deleted" ? "badge warn" : "badge",
+      t(page.status) + (page.old ? " " + t("from", { path: page.old }) : ""));
+    item.appendChild(label);
+    item.appendChild(element("span", "where", page.path));
+    var actions = element("span", "actions");
+    var error = element("div", "error");
+    error.hidden = true;
+    var state = element("span", "muted", page.state === "changed" ? t("changed") : page.state === "undone" ? t("undone") : "");
+    actions.appendChild(App.button(t("see"), false, function () { App.open(page.diff); }));
+    var open = App.button(t("open"), false, function () { App.open(page.url); });
+    if (page.url && page.state !== "undone") actions.appendChild(open);
+    if (data.can_undo && page.state === "undoable") {
+      var undo = App.button(t("undo"), true, function () {
+        if (undo.dataset.armed !== "1") {  // a second click confirms
+          undo.dataset.armed = "1";
+          undo.textContent = t("confirm");
+          return;
+        }
+        undo.disabled = true;
+        App.callTool("undo_tidy_pages", { space: data.space, run: data.run.id, paths: [page.path] })
+          .then(function (result) {
+            page.state = "undone";
+            item.classList.add("done");
+            undo.remove();
+            open.remove();  // the page is no longer where the run left it
+            state.textContent = t("undone");
+            var done = (result && result.structuredContent) || {};
+            if ((done.notes_back || []).length) state.textContent += " · " + t("back", { titles: done.notes_back.join(", ") });
+            else if ((done.notes_kept || []).length) state.textContent += " · " + t("kept", { titles: done.notes_kept.join(", ") });
+            App.tellModel("The user undid the tidy-up of " + data.space + "/" + page.path + " (run " + data.run.id + ").");
+          })
+          .catch(function (e) {
+            undo.disabled = false;
+            undo.dataset.armed = "";
+            undo.textContent = t("undo");
+            App.showError(error, e);
+          });
+      });
+      actions.appendChild(undo);
+    }
+    item.appendChild(actions);
+    item.appendChild(state);
+    item.appendChild(error);
+    return item;
+  }
+
+  App.start("tidy", TEXTS, render);
+})();
+</script>
+</body>
+</html>

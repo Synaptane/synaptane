@@ -35,8 +35,10 @@ refused with the reason.
 ## Views in the conversation (MCP Apps)
 
 In a host that renders MCP Apps (Claude on the web and desktop, ChatGPT, VS Code with
-Copilot), `pages_to_review` comes with a view: one card per page, with its state (due for
-review, reported as outdated, and the readers' reasons) and three buttons:
+Copilot), two tools come with a view.
+
+**Pages to review** (`pages_to_review`): one card per page, with its state (due for review,
+reported as outdated, and the readers' reasons) and three buttons:
 
 - **Still right**: verifies the page (`verify_page`, contributors; the host may ask for
   confirmation, as for any write);
@@ -44,10 +46,21 @@ review, reported as outdated, and the readers' reasons) and three buttons:
   the changes;
 - **Open**: opens the page in Synaptane.
 
-The view holds no data (it receives the tool's result from the host), loads nothing from
-anywhere, shows titles and reasons as text only, and follows the host's theme and language
-(French or English). Other clients, Claude Code among them, get the same list as text, to go
-through with the user.
+**Last tidy-up** (`last_tidy`): the pages the last run of the nightly filing created, edited,
+moved or deleted in a space (or a given run), and the notes it filed. For each page:
+
+- **See the change**: its diff in Synaptane;
+- **Open**: the page;
+- **Undo** (contributors, a second click confirms): puts the page back as it was before the
+  run, in a commit under your name, as on the run's page in Synaptane. A page changed since
+  is restored from its history instead; a note comes back to the inbox once all the pages
+  it went into are undone. The view does it through `undo_tidy_pages`, a tool meant for the
+  view: hosts that render views do not offer it to the assistant.
+
+A view holds no data (it receives the tool's result from the host), loads nothing from
+anywhere, shows titles, paths and reasons as text only, and follows the host's theme and
+language (French or English). Other clients, Claude Code among them, get the same content as
+text.
 
 ## ChatGPT
 
@@ -100,7 +113,8 @@ space's content, for example `infra/proxmox.md`.
 | `inbox_update`, `inbox_delete` | Correct (only the fields passed change) or remove a note dropped by mistake, by its `id`, as long as it is not filed | contributor |
 | `write_page`, `edit_page` | Create, replace or edit a text file (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Replacing an existing file requires its `base_sha` (the `sha` given by `read`): a page is not rewritten without being read. Both return the new hash and report the page's broken links. The verification fields of the front matter (`owner`, `verified`, `review_every`) are kept as they are: only `verify_page` changes them | contributor |
 | `append_page` | Add text at the end of a file, with the `base_sha` of the previous call: a file too long for a single call is written in several parts | contributor |
-| `pages_to_review` | Pages due for review or reported as outdated by readers, in one space (`space`) or all, `mine` for those the user owns: as text, and as a view in hosts that render apps (see below). Reported pages first, 30 at most | reader |
+| `last_tidy` | What the last tidy-up run that changed pages did in a space (`space`), or a given run (`run`): pages created, edited, moved or deleted, with what can still be undone, and the notes filed; as text, and as a view in hosts that render apps (see above) | reader |
+| `pages_to_review` | Pages due for review or reported as outdated by readers, in one space (`space`) or all, `mine` for those the user owns: as text, and as a view in hosts that render apps (see above). Reported pages first, 30 at most | reader |
 | `verify_page` | Mark a Markdown page as verified today, only when the user confirms it is correct and up to date; `owner` and `review_every` (`90d`, `6m`, `1y`, `never`, `default`: the space's) are optional. Without an owner, the page becomes the user's. A commit that changes only the front matter, not reported to the tidy-up | contributor |
 | `move`, `delete` | Move or delete a file. `move` updates links in the same commit (those of the moved file, and those of pages that pointed to it), then lists the updated pages and the links still broken | contributor |
 | `restore` | Put a file back as it was in a past version (`commit`, from `history`), a deleted file too: a new commit, the replaced text stays in the history. A page keeps its current verification fields | contributor |

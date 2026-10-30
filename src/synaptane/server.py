@@ -33,8 +33,8 @@ from synaptane.core.errors import SynaptaneError, unavailable
 from synaptane.core.security import SecretBox
 from synaptane.core.throttle import LoginThrottle, RateLimit
 from synaptane.git.repo import GitError
-from synaptane.mcp.review import AdvertiseApps
 from synaptane.mcp.server import build_mcp, transport_security
+from synaptane.mcp.views import AdvertiseApps
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.web import (

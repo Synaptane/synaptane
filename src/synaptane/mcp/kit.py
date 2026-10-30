@@ -24,6 +24,7 @@ from pydantic import Field
 from sqlalchemy.orm import Session
 
 from synaptane.config import Settings
+from synaptane.core.access import Action, can
 from synaptane.core.errors import ErrorCode, SynaptaneError
 from synaptane.mcp.oauth import token_identity
 from synaptane.services import Actor, assistants, load_actor, organizations, spaces
@@ -219,6 +220,16 @@ class Kit:
             ) from None
         c.space = found.address
         return found
+
+    def can_write(self, c: Call, space: Space) -> bool:
+        """Whether the person changes pages of the space through this connection (contributor,
+        a connection allowed to write)."""
+        return not c.read_only and can(
+            c.actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id
+        )
+
+    def space_url(self, space: Space) -> str:
+        return f"{self.settings.public_url}/o/{space.address}"
 
     def web_url(self, org: str, space: str, path: str, anchor: str = "") -> str:
         url = f"{self.settings.public_url}/o/{org}/{space}/p/{quote(path, safe='/')}"
