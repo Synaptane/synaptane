@@ -64,12 +64,14 @@ server's cache, and rebuilt by `synaptane reindex`. Details:
 owner: ada            # account username, or a free-form name
 verified: 2026-10-03  # date of the last verification
 review_every: 6m      # 90d, 12w, 6m, 1y; absent: the space's period; never: never
+reconfirmed: 1        # verified again with no change: period doubled (written by Synaptane)
 ---
 # Failover procedure
 ```
 
 A page is **verified** (a date, and the review date not yet reached), **due for review** (the
-review date has passed) or **never verified**. A commit that only changes these fields is not
+review date has passed) or **never verified**. Each verification with no change since the
+previous one doubles the period (`reconfirmed`, up to two years). A commit that only changes these fields is not
 reported to the tidy-up, and AI agents cannot change or remove them by rewriting a page: only
 **Mark as verified** (web), `verify_page` (MCP) or the REST API do. See
 [Verify a page](../guide/wiki.md#verify-a-page).

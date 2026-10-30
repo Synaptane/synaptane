@@ -65,12 +65,14 @@ serveur, et reconstruit par `synaptane reindex`. Détails :
 owner: ada            # identifiant d'un compte, ou nom libre
 verified: 2026-10-03  # date de la dernière vérification
 review_every: 6m      # 90d, 12w, 6m, 1y ; absent : celle de l'espace ; never : jamais
+reconfirmed: 1        # vérifiée de nouveau sans changement : périodicité doublée (écrit par Synaptane)
 ---
 # Procédure de bascule
 ```
 
 Une page est **vérifiée** (une date, et l'échéance pas encore atteinte), **à revoir**
-(échéance passée) ou **jamais vérifiée**. Un commit qui ne change que ces champs n'est pas
+(échéance passée) ou **jamais vérifiée**. Chaque vérification sans changement depuis la
+précédente double la périodicité (`reconfirmed`, jusqu'à deux ans). Un commit qui ne change que ces champs n'est pas
 signalé au rangement, et les agents IA ne peuvent ni les changer ni les effacer en réécrivant
 une page : seuls **Marquer comme vérifiée** (web), `verify_page` (MCP) ou l'API REST le font.
 Voir [Vérifier une page](../guide/wiki.fr.md#vérifier-une-page).

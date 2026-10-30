@@ -765,7 +765,7 @@ def wiki_verify(
     space = find_space(page, actor, org_slug, space_slug)
     verify = action != "save"
     try:
-        freshness.verify_page(
+        result = freshness.verify_page(
             page.db,
             page.database,
             actor,
@@ -778,6 +778,15 @@ def wiki_verify(
         )
     except SynaptaneError as error:
         return failure(page_url(space, path), page, error)
+    state = result.freshness
+    if verify and state.reconfirmed and state.due:
+        return redirect(
+            page_url(space, path),
+            page,
+            "Page marked as verified. Unchanged since its last verification: next review on "
+            "{date}.",
+            date=state.due.isoformat(),
+        )
     message = "Page marked as verified." if verify else "Page follow-up saved."
     return redirect(page_url(space, path), page, message)
 

@@ -6,11 +6,16 @@ when: the history tells):
     owner: ada            # username of an account, or free-form name
     verified: 2026-10-03  # date of the last verification
     review_every: 6m      # 90d, 12w, 6m, 1y; missing: the space's interval; never: never
+    reconfirmed: 2        # verified again twice with no change in between: interval × 4
     ---
 
 State of a Markdown page: **verified** (verification date, and due date not reached yet),
 **to review** (due date passed) or **never verified**. A page without an interval (neither
 its own nor the space's) stays verified. Other files have no state.
+
+A page that still holds needs less attention: each verification with no change since the
+previous one doubles its interval (`reconfirmed`), up to two years. A change to the page, or
+a new interval chosen by a person, starts again from its interval.
 
 Lenient reading: a missing or malformed front matter or an unreadable value never raises; the
 field concerned is simply ignored. Minimal writing: only the lines of the three fields change
@@ -46,8 +51,10 @@ from synaptane.storage.models import AuditEvent, Space, User
 
 log = logging.getLogger("synaptane.freshness")
 
-OWNER, VERIFIED, REVIEW = "owner", "verified", "review_every"
-FIELDS = (OWNER, VERIFIED, REVIEW)
+OWNER, VERIFIED, REVIEW, RECONFIRMED = "owner", "verified", "review_every", "reconfirmed"
+FIELDS = (OWNER, VERIFIED, REVIEW, RECONFIRMED)
+MAX_RECONFIRMED = 10
+STRETCH_LIMIT_DAYS = 730  # a doubled interval stops at two years (a longer one stays as is)
 VERIFIED_STATE, STALE_STATE, NEVER_STATE = "verified", "stale", "never"
 NEVER = "never"  # explicit interval: never to review, even if the space has one
 MARKDOWN = (".md", ".markdown")
@@ -84,6 +91,24 @@ class Period:
 
     def __str__(self) -> str:
         return f"{self.count}{self.unit}"
+
+    @property
+    def days(self) -> float:
+        return self.count * {"d": 1, "w": 7, "m": 365.25 / 12, "y": 365.25}[self.unit]
+
+    def stretched(self, times: int) -> "Period":
+        """The interval doubled `times` times, two years at most (unless it is longer)."""
+        period = self
+        for _ in range(times):
+            doubled = Period(period.count * 2, period.unit)
+            if doubled.days > STRETCH_LIMIT_DAYS + 1:
+                limit = Period(2, "y")
+                period = limit if limit.days > period.days else period
+                break
+            period = doubled
+        if period.unit == "m" and period.count % 12 == 0:
+            return Period(period.count // 12, "y")
+        return period
 
     def after(self, start: date) -> date:
         if self.unit == "d":
@@ -151,6 +176,7 @@ class Meta:
     verified: date | None = None
     review_every: str = ""
     raw: dict[str, str] = field(default_factory=dict)  # field present → value as written
+    reconfirmed: int = 0  # verifications in a row with no change: interval doubled each time
 
     @property
     def empty(self) -> bool:
@@ -217,7 +243,9 @@ def read_meta(text: str) -> Meta:
         return Meta()
     owner = _value(raw.get(OWNER, ""))[:MAX_OWNER]
     verified = _date(_value(raw.get(VERIFIED, ""))) if VERIFIED in raw else None
-    return Meta(owner, verified, _value(raw.get(REVIEW, "")), raw)
+    count = _value(raw.get(RECONFIRMED, ""))
+    reconfirmed = min(int(count), MAX_RECONFIRMED) if count.isdigit() else 0
+    return Meta(owner, verified, _value(raw.get(REVIEW, "")), raw, reconfirmed)
 
 
 # --- State -----------------------------------------------------------------------------------
@@ -229,8 +257,9 @@ class Freshness:
     owner: str = ""
     verified: date | None = None
     due: date | None = None  # date on which the page is due for review (None: never)
-    period: str = ""  # effective interval (`6m`, `never`, "")
+    period: str = ""  # effective interval (`6m`, `never`, ""), stretched if reconfirmed
     inherited: bool = False  # interval inherited from the space
+    reconfirmed: int = 0  # times the interval was doubled (verified again, unchanged)
 
     @property
     def is_verified(self) -> bool:
@@ -255,6 +284,7 @@ class Freshness:
             "owner": self.owner or None,
             "review_due": self.due.isoformat() if self.due else None,
             "review_every": self.period or None,
+            "reconfirmed": self.reconfirmed,
         }
 
 
@@ -267,12 +297,15 @@ def state_of(meta: Meta, default: str, today: date) -> Freshness:
     own = parse_period(meta.review_every)
     inherited = own is None
     period = parse_period(default) if inherited else own
+    stretch = meta.reconfirmed if isinstance(period, Period) and meta.verified else 0
+    if isinstance(period, Period) and stretch:
+        period = period.stretched(stretch)
     shown = str(period) if period is not None else ""
     if meta.verified is None:
         return Freshness(NEVER_STATE, meta.owner, None, None, shown, inherited)
     due = period.after(meta.verified) if isinstance(period, Period) else None
     state = STALE_STATE if due is not None and today >= due else VERIFIED_STATE
-    return Freshness(state, meta.owner, meta.verified, due, shown, inherited)
+    return Freshness(state, meta.owner, meta.verified, due, shown, inherited, stretch)
 
 
 def of_text(text: str | None, default: str, today: date) -> Freshness:
@@ -482,6 +515,20 @@ class Verification:
     path: str
 
 
+def _unchanged_since_verification(repo: Repository, full: str, text: str, verified: date) -> bool:
+    """True if the page reads as it did when it was last verified, verification fields
+    aside: compared with the oldest version of its history that has the same `verified`
+    date (not trusting commit messages, which anyone can write)."""
+    then = None
+    for commit in repo.history(full, limit=50):
+        data = repo.blob(commit.paths[0], commit.sha)
+        old = data.decode("utf-8", "replace") if data is not None else ""
+        if read_meta(old).verified != verified:
+            break
+        then = old
+    return then is not None and same_but_verification(then, text)
+
+
 def verify_page(
     session: Session,
     database: Database,
@@ -521,12 +568,24 @@ def verify_page(
             raise invalid("Page too large to be verified here (2 MB at most).")
         current = read_meta(text)
         values: dict[str, str | None] = {}
+        own = parse_period(current.review_every)
+        new_interval = period is not None and period != (str(own) if own is not None else "")
         if verify:
             values[VERIFIED] = today.isoformat()
             if who is None and not current.owner:
                 who = actor.user.username
             elif who == "":
                 who = current.owner or actor.user.username
+            if current.verified != today:  # verified twice the same day: counted once
+                again = (
+                    current.verified is not None
+                    and not new_interval
+                    and _unchanged_since_verification(repo, full, text, current.verified)
+                )
+                count = min(current.reconfirmed + 1, MAX_RECONFIRMED) if again else 0
+                values[RECONFIRMED] = str(count) if count else None
+        elif new_interval:
+            values[RECONFIRMED] = None  # a person's choice: the interval starts again from it
         if who is not None and (who != current.owner or OWNER not in current.raw):
             values[OWNER] = scalar(who) if who else None  # unchanged: the line stays as is
         if period is not None:

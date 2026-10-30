@@ -197,6 +197,11 @@ review_every: 6m      # 90d, 12w, 6m, 1y; absent: the space's interval; never: n
   first criterion.
 - **Space interval**: *Settings → General*, **Verified pages: review** (1, 3 or 6 months, 1 or
   2 years, or never). A page that carries `review_every` keeps its own.
+- **A page that still holds waits longer**: verified again with no change since its previous
+  verification, its interval doubles (6 months, then 1 year, then 2 years at most), and
+  `reconfirmed: N` in its front matter counts these verifications in a row. A change to the
+  page, by anyone, or an interval chosen by hand starts again from its interval. "No change"
+  compares the text with the one the page had when it was last verified, not commit messages.
 - **Reminders**: the home page lists, under **Waiting**, the pages due for review that you own
   (recognized by your username or your email address). A grouped email goes out at most once
   a week, on a working day, to each owner of overdue pages (verified address; uncheck

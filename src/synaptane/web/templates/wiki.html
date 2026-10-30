@@ -52,7 +52,7 @@
           <p class="verify-details">
             {%- if v.owner_name %}{{ _("Owner: {name}", name=v.owner_name) }}{% else %}{{ _("No owner") }}{% endif %}
             {%- if v.state.stale %} · {{ _("verified on") }} {{ day(v.state.verified) }}{% elif v.state.due %} · {{ _("review on") }} {{ day(v.state.due) }}{% endif %}
-            {%- if v.state.period %} · {{ period_label(v.state.period) }}{% if v.state.inherited %} ({{ _("space setting") }}){% endif %}{% endif %}
+            {%- if v.state.period %} · {{ period_label(v.state.period) }}{% if v.state.reconfirmed %} ({{ _(pl(v.state.reconfirmed, "lengthened: verified again {n} time with no change", "lengthened: verified again {n} times with no change"), n=v.state.reconfirmed) }}){% elif v.state.inherited %} ({{ _("space setting") }}){% endif %}{% endif %}
             {%- if v.modified %} · <strong>{{ _("modified since it was verified") }}</strong>{% endif %}
           </p>
           {% if contribute %}
@@ -67,7 +67,7 @@
               <button class="button button-small button-primary" type="submit" name="action" value="verify" data-test="verify-page">{{ icon('check', 14) }}{{ _("Mark as verified") }}</button>
               <button class="button button-small" type="submit" name="action" value="save">{{ _("Save") }}</button>
             </div>
-            <p class="muted">{{ _("Content correct and up to date? The date goes into the page's front matter, in a commit under your name; with no owner yet, it becomes you.") }}</p>
+            <p class="muted">{{ _("Content correct and up to date? The date goes into the page's front matter, in a commit under your name; with no owner yet, it becomes you.") }} {{ _("Verified again with no change since, it waits twice as long before its next review, up to two years.") }}</p>
           </form>
           {% endif %}
         </div>

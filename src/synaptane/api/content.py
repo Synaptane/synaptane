@@ -49,6 +49,9 @@ class FreshnessOut(BaseModel):
     owner: str | None = Field(description="Owner (account username or free-form name)")
     review_due: str | None = Field(description="Verification due date; null: none")
     review_every: str | None = Field(description="Effective review cadence (6m, 1y, never…)")
+    reconfirmed: int = Field(
+        default=0, description="Times verified again with no change: cadence doubled each time"
+    )
 
 
 def _freshness(state: freshness.Freshness | None) -> FreshnessOut | None:
