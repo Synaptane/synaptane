@@ -37,7 +37,7 @@ ne voit, en plus de la lecture, que `inbox_add`, `inbox_update` et `inbox_delete
 ## Des vues dans la conversation (MCP Apps)
 
 Dans un hôte qui affiche les MCP Apps (Claude sur le web et l'application de bureau,
-ChatGPT, VS Code avec Copilot), deux outils viennent avec une vue.
+ChatGPT, VS Code avec Copilot), trois outils viennent avec une vue.
 
 **Pages à revoir** (`pages_to_review`) : une carte par page, avec son état (à revoir,
 signalée obsolète, et les raisons des lecteurs) et trois boutons :
@@ -59,6 +59,20 @@ qu'il a rangées. Pour chaque page :
   modifiée depuis se restaure depuis son historique ; une note revient dans l'inbox une fois
   annulées toutes les pages où elle est allée. La vue passe par `undo_tidy_pages`, un outil
   réservé à la vue : les hôtes qui affichent les vues ne le proposent pas à l'assistant.
+
+**Inbox** (`inbox_list`) : ce qui attend le rangement de nuit, une carte par élément, avec
+les boutons qui lui conviennent :
+
+- une note : **Supprimer** (un second clic confirme), **Ouvrir** ;
+- une note mise de côté par le rangement (avec la raison) : **Ranger avec l'assistant**, qui
+  demande à l'assistant, dans la conversation, de la lire et de proposer où la ranger ;
+- un problème signalé par une routine : **Corriger avec l'assistant**, ou **Pas un problème**
+  avec la raison, pour que la routine ne le signale plus tant que ses pages ne changent pas ;
+- une page modifiée à la main : **Rien à ranger**, jusqu'à sa prochaine modification ;
+- pour toute l'inbox : **Ranger maintenant** (contributeurs, dans la limite quotidienne des
+  passages à la demande).
+
+La vue passe par `inbox_delete` et `inbox_triage`, un outil réservé à la vue.
 
 Une vue ne contient aucune donnée (elle reçoit le résultat de l'outil de l'hôte), ne charge
 rien d'ailleurs, affiche titres, chemins et raisons en texte seulement, et suit le thème et
@@ -113,7 +127,7 @@ sont relatifs au contenu de l'espace, par exemple `infra/proxmox.md`.
 | `related` | Pages proches d'une page, sans requête (voir [Voir aussi](wiki.fr.md#voir-aussi--les-pages-proches)) : même sujet (par le sens, là où `semantic` est actif), mots rares en commun, liens, même dossier. JSON : `space`, `path`, `semantic`, `results` (`title`, `path`, `url`, `reason` en clair, `score` de 0 à 1, `linked` : la page pointe déjà vers elle ; `false` : un lien à ajouter), 8 par défaut, 20 au plus (`limit`) ; vide s'il n'y a rien d'assez proche | lecteur |
 | `recent_changes` | Dernières modifications, dans un espace ou dans tous, depuis une date (`since`) si besoin. L'auteur dit ce qu'une IA a écrit : « Alice via Claude (AI) », « Synaptane tidy-up (AI) » ; de même dans `history` | lecteur |
 | `history`, `diff` | Historique d'un fichier, même supprimé (200 commits au plus) ; différence apportée par un commit (`commit`), ou entre deux versions (`from_commit`, `to_commit`), 50 000 caractères au plus | lecteur |
-| `inbox_list` | Éléments en attente dans l'inbox, paginés (`limit`, `offset`, `kind` : `note`, `change` ou `left`) ; chaque note avec son `id`, chaque page modifiée avec son chemin | lecteur |
+| `inbox_list` | Éléments en attente dans l'inbox, paginés (`limit`, `offset`, `kind` : `note`, `change` ou `left`) ; chaque note avec son `id`, chaque page modifiée avec son chemin ; en vue dans les hôtes qui affichent les apps (voir plus haut) | lecteur |
 | `inbox_add` | Déposer une information (avec pièces jointes) à ranger cette nuit. La réponse donne l'`id` de la note et signale les pages et notes déjà là sur le même sujet, pour compléter plutôt que répéter. 120 notes par heure et par compte au plus, toutes interfaces confondues | contributeur |
 | `inbox_update`, `inbox_delete` | Corriger (seuls les champs passés changent) ou retirer une note déposée par erreur, par son `id`, tant qu'elle n'est pas rangée | contributeur |
 | `write_page`, `edit_page` | Créer, remplacer ou modifier un fichier texte (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Remplacer un fichier existant exige son `base_sha` (le `sha` donné par `read`) : on ne réécrit pas une page sans l'avoir lue. Les deux renvoient la nouvelle empreinte, et signalent les liens cassés de la page. Les champs de vérification du front matter (`owner`, `verified`, `review_every`) sont gardés tels quels : seul `verify_page` les change | contributeur |

@@ -30,7 +30,7 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import last_tidy, prompts, reading, review
+from synaptane.mcp import inbox_view, last_tidy, prompts, reading, review
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -265,6 +265,7 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
     apps = Apps()  # MCP Apps: views in the conversation (see `views`)
     review.register(apps, kit)
     last_tidy.register(apps, kit)
+    inbox_view.register(apps, kit)
     server = SynaptaneMCP(
         extensions=[apps],
         name="synaptane",

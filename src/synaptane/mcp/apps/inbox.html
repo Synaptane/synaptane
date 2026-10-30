@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbox · Synaptane</title>
+<style>
+/* synaptane:base.css */
+  .meta { margin-top: 2px; }
+  .reason { margin-top: 4px; font-size: 13px; }
+  .ask { display: flex; gap: 6px; margin-top: 8px; }
+  input[type=text] {
+    flex: 1; font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--ink);
+  }
+  footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
+</style>
+</head>
+<body>
+<header><h1 id="heading"></h1><span class="muted" id="count"></span></header>
+<p class="empty" id="empty" hidden></p>
+<ol id="items"></ol>
+<footer id="footer"></footer>
+<script>
+/* synaptane:bridge.js */
+(function () {
+  "use strict";
+  var t = App.t, element = App.element;
+  var TEXTS = {
+    en: {
+      heading: "Inbox · {space}", count: "{notes} note(s), {changes} changed page(s)",
+      empty: "The inbox is empty: nothing waits for the filing.",
+      note: "Note", change: "Changed page", left: "Left aside", routine: "Problem found",
+      by: "{name}, {date}", origin: "Source: {origin}", attachments: "{n} attachment(s)",
+      why: "Left aside: {reason}",
+      open: "Open", remove: "Remove", confirmRemove: "Remove it?", removed: "Removed",
+      seen: "Nothing to file", seenDone: "Seen",
+      fileIt: "File it with the assistant", fix: "Fix it with the assistant", asked: "Asked the assistant",
+      notProblem: "Not a problem", whyNot: "Why it is not one", send: "Confirm", dismissed: "Not a problem",
+      fileMessage: "The note \"{title}\" ({id}) was left aside by the nightly filing of {space} ({reason}). Read it with fetch, then propose where and how to file it before writing anything.",
+      fixMessage: "An agent routine reported a problem in {space}: \"{title}\" ({id}). Read it with fetch, check the pages concerned, and propose a fix before writing anything.",
+      tidyNow: "Tidy up now", tidyAsked: "The filing will run in a moment",
+      more: "{n} more", all: "Open the inbox in Synaptane", failed: "Could not do it: {error}"
+    },
+    fr: {
+      heading: "Inbox · {space}", count: "{notes} note(s), {changes} page(s) modifiée(s)",
+      empty: "L'inbox est vide : rien n'attend le rangement.",
+      note: "Note", change: "Page modifiée", left: "Mise de côté", routine: "Problème signalé",
+      by: "{name}, {date}", origin: "Source : {origin}", attachments: "{n} pièce(s) jointe(s)",
+      why: "Mise de côté : {reason}",
+      open: "Ouvrir", remove: "Supprimer", confirmRemove: "La supprimer ?", removed: "Supprimée",
+      seen: "Rien à ranger", seenDone: "Vue",
+      fileIt: "Ranger avec l'assistant", fix: "Corriger avec l'assistant", asked: "Demandé à l'assistant",
+      notProblem: "Pas un problème", whyNot: "Pourquoi ce n'en est pas un", send: "Valider", dismissed: "Pas un problème",
+      fileMessage: "La note « {title} » ({id}) a été mise de côté par le rangement de nuit de {space} ({reason}). Lis-la avec fetch, puis propose où et comment la ranger avant d'écrire quoi que ce soit.",
+      fixMessage: "Une routine a signalé un problème dans {space} : « {title} » ({id}). Lis-le avec fetch, vérifie les pages concernées et propose une correction avant d'écrire quoi que ce soit.",
+      tidyNow: "Ranger maintenant", tidyAsked: "Le rangement va passer dans un instant",
+      more: "{n} de plus", all: "Ouvrir l'inbox dans Synaptane", failed: "Impossible : {error}"
+    }
+  };
+  var data = null;
+
+  function render(result) {
+    data = result;
+    var counts = data.counts || {};
+    var items = data.items || [];
+    document.getElementById("heading").textContent = t("heading", { space: data.space || "" });
+    document.getElementById("count").textContent = t("count", { notes: counts.note || 0, changes: counts.change || 0 });
+    var empty = document.getElementById("empty");
+    empty.hidden = items.length > 0;
+    empty.textContent = t("empty");
+    var list = document.getElementById("items");
+    list.textContent = "";
+    items.forEach(function (item) { list.appendChild(card(item)); });
+    var footer = document.getElementById("footer");
+    footer.textContent = "";
+    var error = element("div", "error");
+    error.hidden = true;
+    if (data.can_contribute && counts.total) {
+      var now = App.button(t("tidyNow"), true, function () {
+        now.disabled = true;
+        App.callTool("inbox_triage", { space: data.space, action: "tidy_now" })
+          .then(function () { now.textContent = t("tidyAsked"); App.tellModel("The user asked the filing of " + data.space + " to run now."); })
+          .catch(function (e) { now.disabled = false; App.showError(error, e); });
+      });
+      footer.appendChild(now);
+    }
+    if (data.more > 0) footer.appendChild(element("span", "muted", t("more", { n: data.more })));
+    if (data.url) {
+      var all = App.button(t("all"), false, function () { App.open(data.url); });
+      all.className = "link";
+      footer.appendChild(all);
+    }
+    footer.appendChild(error);
+  }
+
+  function card(item) {
+    var node = element("li", "card");
+    var line = element("div");
+    var kind = item.routine ? "routine" : item.left ? "left" : item.type === "change" ? "change" : "note";
+    line.appendChild(element("span", item.routine || item.left ? "badge warn" : "badge", t(kind)));
+    line.appendChild(element("span", "title", item.title));
+    node.appendChild(line);
+    var meta = element("div", "muted meta", t("by", { name: item.by, date: App.moment(item.at) }));
+    if (item.page && item.page !== item.title) meta.textContent += " · " + item.page;
+    if (item.attachments) meta.textContent += " · " + t("attachments", { n: item.attachments });
+    node.appendChild(meta);
+    if (item.origin) node.appendChild(element("div", "muted", t("origin", { origin: item.origin })));
+    if (item.left && item.reason) node.appendChild(element("div", "reason", t("why", { reason: item.reason })));
+    var actions = element("div", "actions");
+    var error = element("div", "error");
+    error.hidden = true;
+    function done(label) {
+      node.classList.add("done");
+      actions.textContent = "";
+      actions.appendChild(element("span", "badge ok", label));
+    }
+    function fail(control) {
+      return function (e) { if (control) control.disabled = false; App.showError(error, e); };
+    }
+    function askAssistant(label, message) {
+      var asking = App.button(label, true, function () {
+        asking.disabled = true;
+        App.ask(message).then(function () { asking.textContent = t("asked"); }).catch(fail(asking));
+      });
+      return asking;
+    }
+
+    if (item.routine) {
+      actions.appendChild(askAssistant(t("fix"), t("fixMessage", { title: item.title, id: item.id, space: data.space })));
+      if (data.can_deposit) {
+        var dismiss = App.button(t("notProblem"), false, function () {
+          dismiss.remove();
+          // No <form>: hosts frame the view without allow-forms, which blocks submitting one.
+          var form = element("div", "ask");
+          var why = element("input");
+          why.type = "text";
+          why.maxLength = 500;
+          why.placeholder = t("whyNot");
+          why.setAttribute("aria-label", t("whyNot"));
+          var send = App.button(t("send"), true, function () {
+            if (!why.value.trim()) { why.focus(); return; }
+            send.disabled = true;
+            App.callTool("inbox_triage", { space: data.space, action: "not_a_problem", item: item.name, reason: why.value.trim() })
+              .then(function () {
+                form.remove();
+                done(t("dismissed"));
+                App.tellModel("The user judged \"" + item.title + "\" in " + data.space + " not a problem: " + why.value.trim());
+              })
+              .catch(fail(send));
+          });
+          why.addEventListener("keydown", function (event) { if (event.key === "Enter") send.click(); });
+          form.appendChild(why);
+          form.appendChild(send);
+          node.insertBefore(form, error);
+          why.focus();
+        });
+        actions.appendChild(dismiss);
+      }
+    } else if (item.left) {
+      actions.appendChild(askAssistant(t("fileIt"), t("fileMessage", { title: item.title, id: item.id, space: data.space, reason: item.reason })));
+    }
+    if (item.type === "change") {
+      if (data.can_contribute) {
+        var seen = App.button(t("seen"), false, function () {
+          seen.disabled = true;
+          App.callTool("inbox_triage", { space: data.space, action: "seen", item: item.name })
+            .then(function () { done(t("seenDone")); })
+            .catch(fail(seen));
+        });
+        actions.appendChild(seen);
+      }
+    } else if (data.can_deposit && !item.routine) {
+      var remove = App.button(t("remove"), false, function () {
+        if (remove.dataset.armed !== "1") {  // a second click confirms
+          remove.dataset.armed = "1";
+          remove.textContent = t("confirmRemove");
+          return;
+        }
+        remove.disabled = true;
+        App.callTool("inbox_delete", { id: item.id })
+          .then(function () {
+            done(t("removed"));
+            App.tellModel("The user removed the note \"" + item.title + "\" from the inbox of " + data.space + ".");
+          })
+          .catch(fail(remove));
+      });
+      actions.appendChild(remove);
+    }
+    actions.appendChild(App.button(t("open"), false, function () { App.open(item.url); }));
+    node.appendChild(actions);
+    node.appendChild(error);
+    return node;
+  }
+
+  App.start("inbox", TEXTS, render);
+})();
+</script>
+</body>
+</html>

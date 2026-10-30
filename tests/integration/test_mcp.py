@@ -551,6 +551,67 @@ def test_last_tidy_comes_with_its_view_and_undoes_a_page(live: Live) -> None:
     assert after.structured_content["pages"][0]["state"] == "undone"
 
 
+def test_inbox_list_comes_with_its_view_to_sort_the_inbox(live: Live) -> None:
+    """MCP App: `inbox_list` names its view (`ui://synaptane/inbox`) and gives the items as
+    data; `inbox_triage`, for the view only, judges a routine's problem "not a problem" (with
+    why, only for a routine's), and asks for a tidy-up now."""
+    from synaptane.services import deposits
+
+    with live.database.session() as session:
+        alice = actor_of(session, accounts.get_user(session, "alice"))
+        infra = session.scalar(select(Space).where(Space.slug == "infra"))
+        assert infra is not None and live.ws is not None
+        routine = deposits.deposit(
+            session,
+            live.database,
+            alice,
+            live.ws,
+            infra,
+            title="Deux dates de sauvegarde",
+            body="README.md dit 2h, backup.md dit 3h.",
+            source="routine",
+            origin="routine:coherence",
+            hint="Pages: README.md",
+        )
+        note = deposits.deposit(
+            session, live.database, alice, live.ws, infra, title="À jeter", body="x", source="web"
+        )
+    routine, note = routine.rsplit("/", 1)[-1], note.rsplit("/", 1)[-1]
+    token = token_for(live.database, "alice")
+
+    async def work(session: ClientSession) -> tuple[Any, ...]:
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+        view = await session.read_resource("ui://synaptane/inbox")
+        listed = await session.call_tool("inbox_list", {"space": "acme/infra"})
+        triage = "inbox_triage"
+        args = {"space": "acme/infra", "action": "not_a_problem"}
+        no_reason = await session.call_tool(triage, {**args, "item": routine})
+        not_routine = await session.call_tool(triage, {**args, "item": note, "reason": "non"})
+        judged = await session.call_tool(
+            triage, {**args, "item": routine, "reason": "backup.md parle d'un autre serveur"}
+        )
+        now = await session.call_tool(triage, {"space": "acme/infra", "action": "tidy_now"})
+        after = await session.call_tool("inbox_list", {"space": "acme/infra"})
+        return tools, view, listed, no_reason, not_routine, judged, now, after
+
+    tools, view, listed, no_reason, not_routine, judged, now, after = in_session(live, token, work)
+    assert tools["inbox_list"].meta["ui"]["resourceUri"] == "ui://synaptane/inbox"
+    assert tools["inbox_triage"].meta["ui"]["visibility"] == ["app"]
+    [content] = view.contents
+    assert "ui/initialize" in content.text and "innerHTML" not in content.text
+    data = listed.structured_content
+    assert data["can_deposit"] and data["can_contribute"]
+    items = {i["name"]: i for i in data["items"]}
+    assert items[routine]["routine"] and not items[note]["routine"]
+    assert items[note]["id"] == f"inbox:acme/infra/{note}"
+    assert items[note]["url"].endswith(f"/o/acme/infra/inbox/{note}")
+    text = "".join(getattr(c, "text", "") for c in listed.content)
+    assert "[note] À jeter" in text and 'untrusted="true"' in text
+    assert no_reason.is_error and not_routine.is_error
+    assert not judged.is_error and not now.is_error
+    assert routine not in {i["name"] for i in after.structured_content["items"]}
+
+
 def test_superadmin_assistant_sees_only_real_memberships(live: Live) -> None:
     with live.database.session() as session:
         root = actor_of(session, accounts.get_user(session, "root"))
@@ -844,7 +905,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
     # related, verify_page, restore, and the tools of the views (MCP Apps) included
-    assert len(tools) == 24
+    assert len(tools) == 25
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -1200,7 +1261,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 24 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 25 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------
@@ -1293,6 +1354,7 @@ def test_instructions_and_annotations_make_writes_confirmed(live: Live) -> None:
         "append_page",
         "verify_page",
         "undo_tidy_pages",
+        "inbox_triage",
     }
     for name, hints in writes.items():
         assert hints.destructive_hint is True and hints.open_world_hint is False, name

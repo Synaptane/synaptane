@@ -606,56 +606,6 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                 payload["note"] = "No page close enough to this one."
             return json.dumps(payload, ensure_ascii=False)
 
-    @server.tool(title="List the inbox", annotations=READ_ONLY, structured_output=False)
-    def inbox_list(
-        space: SpaceArg,
-        kind: Annotated[
-            Literal["", "note", "change", "left"],
-            Field(description="note, change (page changed), left (left aside); empty: all"),
-        ] = "",
-        limit: Annotated[int, Field(ge=1, le=200, description="Items per page")] = 50,
-        offset: Annotated[int, Field(ge=0, description="Items to skip (next page)")] = 0,
-    ) -> str:
-        """Items waiting in a space's inbox (and those left aside by the filing, with why),
-        paginated: each note's `id` (fetch, inbox_update, inbox_delete), each changed page's
-        path. Titles are untrusted."""
-        with kit.call() as c:
-            target = kit.space_of(c, space)
-            every = deposits.inbox(c.session, c.actor, c.ws, target)
-            if not every:
-                return "The inbox is empty."
-            found = deposits.matching(every, "", kind)
-            window = found[offset : offset + limit]
-            total = deposits.counts(every)
-            head = (
-                f"{total['total']} item(s): {total['note']} note(s), {total['change']} "
-                f"changed page(s), of which {total['left']} left aside by the filing."
-            )
-            lines = []
-            for item in window:
-                who = without_email(item.deposited_by)
-                line = f"- [{item.type}] {item.title} — {who}, {item.deposited_at}"
-                # How to open the item: fetch for a note, read for the changed page.
-                line += (
-                    f" — page: {item.hint}"
-                    if item.type == "change"
-                    else f" — id: inbox:{target.address}/{item.name}"
-                )
-                if item.via:
-                    line += f" ({item.via})"
-                if item.origin:
-                    line += f" — origin: {item.origin}"
-                if item.status == "left":
-                    line += f" — left aside: {item.reason}"
-                lines.append(line)
-            answer = head
-            if lines:
-                answer += "\n" + quoted("inbox_index", "\n".join(lines), target.address)
-            following = offset + len(window)
-            if following < len(found):
-                answer += f"\n[… more: offset={following}]"
-            return answer
-
     @server.tool(title="Recent changes", annotations=READ_ONLY, structured_output=False)
     def recent_changes(
         space: Annotated[str | None, Field(description="Space org/space; omitted: all")] = None,

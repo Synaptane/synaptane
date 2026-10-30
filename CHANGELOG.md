@@ -18,6 +18,13 @@ of the target version.
   back as before the run, as on the run's page in Synaptane, through `undo_tidy_pages`, a
   tool meant for the view (hosts do not offer it to the assistant).
 
+- **A third view: the inbox**. `inbox_list` (same text as before) now comes with a view in
+  hosts that render MCP Apps: one card per item, with **Remove** for a note, **File it with
+  the assistant** for a note the filing left aside, **Fix it with the assistant** or **Not a
+  problem** (with why) for a problem an agent routine reported, **Nothing to file** for a
+  page changed by hand, and **Tidy up now**. The view acts through `inbox_delete` and
+  `inbox_triage`, a tool meant for the view.
+
 ### Changed
 - The views share their bridge to the host and their style (`mcp/apps/bridge.js` and
   `base.css`, inlined when served). A view drawn again follows a change of the host's

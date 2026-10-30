@@ -35,7 +35,7 @@ refused with the reason.
 ## Views in the conversation (MCP Apps)
 
 In a host that renders MCP Apps (Claude on the web and desktop, ChatGPT, VS Code with
-Copilot), two tools come with a view.
+Copilot), three tools come with a view.
 
 **Pages to review** (`pages_to_review`): one card per page, with its state (due for review,
 reported as outdated, and the readers' reasons) and three buttons:
@@ -56,6 +56,20 @@ moved or deleted in a space (or a given run), and the notes it filed. For each p
   is restored from its history instead; a note comes back to the inbox once all the pages
   it went into are undone. The view does it through `undo_tidy_pages`, a tool meant for the
   view: hosts that render views do not offer it to the assistant.
+
+**Inbox** (`inbox_list`): what waits for the nightly filing, one card per item, with the
+buttons that fit it:
+
+- a note: **Remove** (a second click confirms), **Open**;
+- a note the filing left aside (with why): **File it with the assistant**, which asks the
+  assistant, in the conversation, to read it and propose where to file it;
+- a problem an agent routine reported: **Fix it with the assistant**, or **Not a problem**
+  with why, so that the routine does not report it again while its pages stay the same;
+- a page changed by hand: **Nothing to file**, until its next change;
+- for the whole inbox: **Tidy up now** (contributors, within the daily limit of manual
+  runs).
+
+The view acts through `inbox_delete` and `inbox_triage`, a tool meant for the view.
 
 A view holds no data (it receives the tool's result from the host), loads nothing from
 anywhere, shows titles, paths and reasons as text only, and follows the host's theme and
@@ -108,7 +122,7 @@ space's content, for example `infra/proxmox.md`.
 | `related` | Pages close to a page, without a query (see [Related pages](wiki.md#see-also-related-pages)): same topic (by meaning, where `semantic` is on), rare words in common, links, same folder. JSON: `space`, `path`, `semantic`, `results` (`title`, `path`, `url`, plain-language `reason`, `score` from 0 to 1, `linked`: the page already links to it; `false`: a link to add), 8 by default, 20 at most (`limit`); empty when nothing is close enough | reader |
 | `recent_changes` | Latest changes, in one space or all, since a date (`since`) if needed. The author says what an AI wrote: "Alice via Claude (AI)", "Synaptane tidy-up (AI)"; also in `history` | reader |
 | `history`, `diff` | History of a file, a deleted one too (200 commits at most); changes made by a commit (`commit`), or between two versions (`from_commit`, `to_commit`), 50,000 characters at most | reader |
-| `inbox_list` | Items waiting in the inbox, paginated (`limit`, `offset`, `kind`: `note`, `change` or `left`); each note with its `id`, each changed page with its path | reader |
+| `inbox_list` | Items waiting in the inbox, paginated (`limit`, `offset`, `kind`: `note`, `change` or `left`); each note with its `id`, each changed page with its path; as a view in hosts that render apps (see above) | reader |
 | `inbox_add` | Drop information (with attachments) to be filed tonight. The response gives the note's `id` and points out pages and notes already there on the same topic, to complete rather than repeat. 120 notes per hour per account at most, across all interfaces | contributor |
 | `inbox_update`, `inbox_delete` | Correct (only the fields passed change) or remove a note dropped by mistake, by its `id`, as long as it is not filed | contributor |
 | `write_page`, `edit_page` | Create, replace or edit a text file (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Replacing an existing file requires its `base_sha` (the `sha` given by `read`): a page is not rewritten without being read. Both return the new hash and report the page's broken links. The verification fields of the front matter (`owner`, `verified`, `review_every`) are kept as they are: only `verify_page` changes them | contributor |
