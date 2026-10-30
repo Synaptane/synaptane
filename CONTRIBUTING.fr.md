@@ -5,8 +5,7 @@
 Merci de l'intérêt que vous portez à Synaptane. Signalements de bugs, corrections de la
 documentation, traductions et code : tout est bienvenu.
 
-Synaptane est en **alpha (préversion)**. Il est fourni tel quel et maintenu au mieux par une
-seule personne. Les relectures peuvent prendre du temps, et certaines propositions seront
+Synaptane est fourni tel quel et maintenu au mieux par une seule personne. Les relectures peuvent prendre du temps, et certaines propositions seront
 refusées pour garder le projet simple et cohérent. Ne le prenez pas mal.
 
 Toute personne qui participe au projet respecte le [code de conduite](CODE_OF_CONDUCT.md)

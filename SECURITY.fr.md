@@ -35,7 +35,7 @@ En repli, utilisez le signalement d'abus de GitHub : <https://github.com/contact
 
 | Version | Prise en charge |
 |---|---|
-| Dernière version 1.0.x, préversions (release candidates) comprises | Oui |
+| Dernière version 1.x | Oui |
 | Branche `main` | Oui |
 | Toute version plus ancienne | Non |
 

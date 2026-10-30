@@ -33,7 +33,7 @@ abuse report: <https://github.com/contact/report-abuse>.
 
 | Version | Supported |
 |---|---|
-| Latest 1.0.x release, including release candidates | Yes |
+| Latest 1.x release | Yes |
 | `main` branch | Yes |
 | Anything older | No |
 

@@ -2,8 +2,7 @@
 
 # Obtenir de l'aide
 
-Synaptane est un projet en **alpha (préversion)**, fourni tel quel et maintenu au mieux par
-une seule personne. Il n'y a **aucun support garanti ni support commercial**. Les réponses
+Synaptane est fourni tel quel et maintenu au mieux par une seule personne. Il n'y a **aucun support garanti ni support commercial**. Les réponses
 arrivent quand le temps le permet, souvent de la part d'autres utilisateurs.
 
 Où aller, dans cet ordre :

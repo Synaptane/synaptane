@@ -5,8 +5,7 @@ English | [Français](CONTRIBUTING.fr.md)
 Thank you for your interest in Synaptane. Bug reports, documentation fixes, translations and
 code are all welcome.
 
-Synaptane is in **alpha / preview**. It is provided as is and maintained on a best-effort basis
-by a single person. Reviews may take a while, and some proposals will be declined to keep the
+Synaptane is provided as is and maintained on a best-effort basis by a single person. Reviews may take a while, and some proposals will be declined to keep the
 project small and coherent. Please do not take it personally.
 
 Everyone taking part in the project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
