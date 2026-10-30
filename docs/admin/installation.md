@@ -26,7 +26,7 @@ AI agent on a Claude or ChatGPT subscription: for that,
 configuration and the server scripts. Clone the release, then start the published image:
 
 ```sh
-git clone --branch v1.0.0 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.1.0 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env
 chmod 600 .env                # it holds the database password
@@ -72,7 +72,7 @@ prefer not to pull a prebuilt image. `compose.yaml` alone never builds: the buil
 in `compose.build.yaml`, which you add through `COMPOSE_FILE`.
 
 ```sh
-git clone --branch v1.0.0 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.1.0 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env
 nano .env                     # as above, plus these two lines:
@@ -148,8 +148,8 @@ downtime.
 cd ~/synaptane
 umask 077   # the backup contains the master key
 docker compose exec -T app synaptane backup --output - > synaptane-before-upgrade.tar.gz
-git fetch --tags && git checkout v1.0.0      # Compose file and scripts of the new version
-nano .env                                    # SYNAPTANE_VERSION=1.0.0
+git fetch --tags && git checkout v1.1.0      # Compose file and scripts of the new version
+nano .env                                    # SYNAPTANE_VERSION=1.1.0
 docker compose pull
 docker compose up -d
 docker compose exec app synaptane --version  # the expected version?
@@ -161,7 +161,7 @@ the server:
 
 ```sh
 cd ~/synaptane
-deploy/host/deploy.sh v1.0.0      # a tag, a branch or a commit
+deploy/host/deploy.sh v1.1.0      # a tag, a branch or a commit
 ```
 
 The script takes a backup, keeps the image in service, builds the new one with its commit,
@@ -177,7 +177,7 @@ By hand, if the script does not suit you:
 ```sh
 umask 077
 docker compose exec -T app synaptane backup --output - > synaptane-before-upgrade.tar.gz
-git fetch --tags && git checkout v1.0.0
+git fetch --tags && git checkout v1.1.0
 docker compose pull --ignore-buildable      # downloaded images: PostgreSQL, certbot
 GIT_SHA=$(git rev-parse HEAD) docker compose build --pull --no-cache  # with Debian fixes
 docker compose up -d
@@ -204,8 +204,8 @@ database: also restore the backup taken just before the faulty upgrade
 
 ```sh
 docker compose stop app worker
-git checkout --detach v1.0.0-rc.2               # the previous version
-nano .env                                       # published image: SYNAPTANE_VERSION=1.0.0-rc.2
+git checkout --detach v1.0.0                    # the previous version
+nano .env                                       # published image: SYNAPTANE_VERSION=1.0.0
 # self-built image: GIT_SHA=$(git rev-parse HEAD) docker compose build
 docker compose run --rm --no-deps -T app synaptane restore --force - < synaptane-before-upgrade.tar.gz
 docker compose up -d
