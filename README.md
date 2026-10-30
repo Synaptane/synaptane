@@ -16,7 +16,7 @@ over MCP. Every night, an AI agent files those notes into the wiki and commits t
 
 [![License: Apache-2.0](https://img.shields.io/github/license/synaptane/synaptane)](LICENSE)
 [![CI](https://github.com/synaptane/synaptane/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/synaptane/synaptane/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
-[![Release](https://img.shields.io/github/v/release/synaptane/synaptane?include_prereleases&sort=semver)](https://github.com/synaptane/synaptane/releases)
+[![Release](https://img.shields.io/github/v/release/synaptane/synaptane?sort=semver)](https://github.com/synaptane/synaptane/releases)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![Image: ghcr.io/synaptane/synaptane](https://img.shields.io/badge/image-ghcr.io%2Fsynaptane%2Fsynaptane-blue?logo=docker)](https://github.com/synaptane/synaptane/pkgs/container/synaptane)
 
@@ -124,11 +124,12 @@ of the old `.doc` and `.xls` is read by catdoc (included in the Docker image), t
 
 ## Status
 
-Synaptane is **alpha software (preview)**. It is provided as is and maintained on a
-best-effort basis by one person. The first public release is `v1.0.0-rc.1`.
+Synaptane is **stable** since `v1.0.0`. It is provided as is and maintained on a best-effort
+basis by one person.
 
-The REST API, the MCP tools and the configuration may still change. Every change is listed in
-the [changelog](CHANGELOG.md). Back up before each upgrade.
+Versions follow [Semantic Versioning](https://semver.org/): within 1.x, the REST API, the MCP
+tools and the configuration only change in a compatible way. Every change is listed in the
+[changelog](CHANGELOG.md). Back up before each upgrade.
 
 ### Known limitations
 
@@ -177,7 +178,7 @@ On your server, get the files for the release (Compose file, nginx configuration
 then start the published image:
 
 ```sh
-git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.0.0 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env   # it holds the database password
 openssl rand -hex 24                     # copy into POSTGRES_PASSWORD
@@ -205,8 +206,8 @@ building the image yourself.
 ## Try it locally in 2 minutes
 
 ```sh
-git clone --branch v1.0.0-rc.2 https://github.com/synaptane/synaptane.git && cd synaptane
-printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.0.0-rc.2\n' \
+git clone --branch v1.0.0 https://github.com/synaptane/synaptane.git && cd synaptane
+printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.0.0\n' \
   "$(openssl rand -hex 24)" > .env
 chmod 600 .env                                                        # database password
 echo 'COMPOSE_FILE=compose.yaml:examples/compose.demo.yaml' >> .env   # demo only

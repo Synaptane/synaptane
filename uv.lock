@@ -1307,7 +1307,7 @@ wheels = [
 
 [[package]]
 name = "synaptane"
-version = "1.0.0rc2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

@@ -10,7 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-30
+
+First stable release. It contains no change of behavior or data since 1.0.0-rc.2 apart from
+the items below: upgrading from 1.0.0-rc.2 needs no migration and no setting.
+
 ### Changed
+- **Stable status**: Synaptane is no longer presented as alpha software. Versions follow
+  Semantic Versioning: within 1.x, the REST API, the MCP tools and the configuration only
+  change in a compatible way, and an incompatible change waits for 2.0. Security fixes go to
+  the latest 1.x release (`SECURITY.md`).
+- Dependencies: anthropic 2.3.0, FastAPI 0.162.0, Alembic 1.20.1.
 - Agent CLIs of the image (subscription mode): Claude Code 2.1.314 and Codex 0.166.0.
   - Claude Code now offers the model a placeholder tool to keep deferred tool loading
     ("tool search") active. Runs switch it off (`ENABLE_TOOL_SEARCH=false`), so the model
@@ -246,6 +256,7 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/synaptane/synaptane/releases/tag/v1.0.0-rc.1

@@ -2,8 +2,7 @@ English | [Français](SUPPORT.fr.md)
 
 # Getting help
 
-Synaptane is an **alpha / preview** project, provided as is and maintained on a best-effort
-basis by a single person. There is **no guaranteed support and no commercial support**.
+Synaptane is provided as is and maintained on a best-effort basis by a single person. There is **no guaranteed support and no commercial support**.
 Answers come when time allows, often from other users.
 
 Where to go, in this order:

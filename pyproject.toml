@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "synaptane"
-version = "1.0.0rc2"
+version = "1.0.0"
 description = "Self-hosted team second brain stored in Git: wiki, search, MCP server and AI tidy-up."
 readme = "README.md"
 license = "Apache-2.0"
@@ -24,7 +24,7 @@ keywords = [
     "self-hosted",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",
     "Framework :: FastAPI",
     "Intended Audience :: Information Technology",
