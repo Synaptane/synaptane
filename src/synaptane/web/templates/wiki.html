@@ -73,6 +73,14 @@
         </div>
         <hr>
         {% endif %}
+        {% if file.kind == 'markdown' %}
+        <form class="report-form" method="post" action="{{ home }}/-/report">
+          {{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}">
+          <div class="field"><label for="report-reason">{{ _("Report as outdated") }}</label><textarea id="report-reason" name="reason" rows="2" maxlength="500" required placeholder="{{ _('What no longer holds?') }}"></textarea></div>
+          <button class="button button-small" type="submit" data-test="report-page">{{ _("Report") }}</button>
+        </form>
+        <hr>
+        {% endif %}
         <a class="menu-item narrow-only" href="{{ home }}/history/{{ file.path|pathurl }}">{{ icon('refresh', 14) }}{{ _("History") }}</a>
         <a class="menu-item" href="{{ raw_url(file.path) }}?download=1">{{ icon('download', 14) }}{{ _("Download") }}</a>
         {% if file.name.lower().endswith(('.html', '.htm')) %}<a class="menu-item" href="{{ page_url(file.path) }}{% if html_page %}?source=1{% endif %}">{{ icon('file', 14) }}{{ _("View source") if html_page else _("View rendered page") }}</a>{% endif %}
@@ -169,6 +177,19 @@
 
   {% elif view == 'file' %}
   {% if not has_title %}<h1 class="sr-only">{{ title }}</h1>{% endif %}
+  {% if reports %}
+  <div class="notice notice-warning report-notice" role="status" data-test="page-reports">
+    <p><strong>{{ _(pl(reports|length, "Reported as outdated", "Reported as outdated by {n} people"), n=reports|length) }}</strong>{% if contribute %} · {{ _("Reread it, then “Mark as verified” (⋮ menu) closes the reports.") }}{% endif %}</p>
+    <ul>
+      {% for r in reports %}
+      <li>{{ r.by or _("a former member") }} · <time datetime="{{ r.at.isoformat() }}" data-local="date">{{ r.at.strftime('%Y-%m-%d') }}</time> · {{ _("“{reason}”", reason=r.reason) }}
+        {% if r.by_id == user.id %}<form class="report-withdraw" method="post" action="{{ home }}/-/report/close">{{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}"><button class="button button-small button-quiet" type="submit" name="action" value="withdraw">{{ _("Withdraw") }}</button></form>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if contribute %}<form method="post" action="{{ home }}/-/report/close" data-confirm="{{ _('Dismiss these reports? The page stays as it is, not verified.') }}">{{ csrf_field() }}<input type="hidden" name="path" value="{{ file.path }}"><button class="button button-small" type="submit" name="action" value="dismiss" data-test="dismiss-reports">{{ _("Dismiss: the page still holds") }}</button></form>{% endif %}
+  </div>
+  {% endif %}
   <div class="doc-layout{% if toc %} with-toc{% endif %}">
   <div class="doc-body">
   {% if file.kind == 'markdown' and rendered is not none %}

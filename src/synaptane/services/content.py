@@ -24,7 +24,7 @@ from synaptane.core.errors import SynaptaneError, conflict, invalid, not_found
 from synaptane.core.markdown import WikiIndex, broken_links, links_of, title_of
 from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Blob, Commit, GitError, PathRefused, Repository, safe_path
-from synaptane.services import Actor, audit, freshness, jobs, links, webhooks
+from synaptane.services import Actor, audit, freshness, jobs, links, reports, webhooks
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database, try_space_lock
@@ -567,4 +567,5 @@ def move_file(
         message = message or f"{relative_path(old)} moved to {relative_path(new)}"
         _commit(repo, ws, actor, source, {old: None, **writes}, actions, message)
     _after_write(session, actor, space, "content.moved", new, source)
+    reports.follow_move(session, space, relative_path(old), relative_path(new))
     return [relative_path(page) for page in updated]

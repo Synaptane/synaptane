@@ -152,6 +152,9 @@ Paths are relative to `content/`:
 | `POST …/spaces/{space}/move` | contributor | `{"from": "a.md", "to": "b/a.md"}`; links to the file and its own links are rewritten in the same commit |
 | `GET …/spaces/{space}/files/{path}/related?limit=8` | reader | Related pages (**See also** panel): `path`, `title`, `score` (0 to 1, nothing below 0.2), `reason` (main signal: `meaning` same topic, `words` shared words, `backlink` cites this page, `link` linked from this page, `shared` shared links, `folder` same folder), `reasons` (all of them, strongest first), `label` (the reason in plain words) and `linked` (the page already links to it). Empty list if nothing is close enough; `limit` from 1 to 20. A file named exactly `related` is read through `…/raw/{path}` |
 | `POST …/spaces/{space}/verify/{path}` | contributor | Marks a Markdown page as verified today: `{"owner": …, "review_every": "6m", "verify": true}`, all optional (`owner` absent: unchanged, or the caller if the page has none; `review_every` `""`: the space's interval; `"verify": false`: owner and interval only). Returns `commit` (`null` if nothing changed), `path` and `freshness`. The commit only touches the front matter and is not reported to the tidy-up; 400 for a file that is not a Markdown page |
+| `GET …/spaces/{space}/reports/{path}` | reader | Open reports that the page is outdated: `reason`, `by`, `at` |
+| `POST …/spaces/{space}/reports/{path}` | reader | `{"reason": "…"}` (500 characters at most): reports a Markdown page as outdated; again: updates your reason. 201 |
+| `DELETE …/spaces/{space}/reports/{path}` | reader | Withdraws your report; `?all=true` dismisses them all (contributor). A verification of the page closes them too |
 | `GET …/spaces/{space}/history/{path}` | reader | Commits that touched the file (a deleted one too): `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributor | Puts a file back as it was in a past version, a deleted file too: `{"path": …, "commit": …}` (`commit`: a `sha` from the history), with `message`, `base_sha` (the current `sha`, 409 if the file changed since; `""` for a deleted file) and `allow_secrets`, optional. Returns `commit` (`null` if this version is already the current one). A page keeps its current verification fields |
 | `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner) and their totals `counts` (with `verified`: verified, up-to-date pages) |
@@ -175,7 +178,8 @@ Search covers all readable spaces if `spaces` is absent. Each result gives `spac
 in extracted text), `verified` and `stale` (page verified and up to date, or due for review),
 `freshness` (details, `null` for non-Markdown files), the last change (`edited`, its date;
 `edited_by`, its author; `edited_by_ai`: `tidy`, `routine` or `assistant` when an AI wrote
-it, `null` for a person) and up to three `snippets` (`line`, `text`, `before`, `after`). `mode=text`: by words only. A verified, up-to-date page ranks a
+it, `null` for a person), `reported_outdated` (open reports that the page is outdated) and
+up to three `snippets` (`line`, `text`, `before`, `after`). `mode=text`: by words only. A verified, up-to-date page ranks a
 little higher (+10%), a page due for review a little lower (−7%).
 
 **Pending notes.** A dropped note can only be found among the pages once it has been tidied.

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from synaptane.core.errors import ErrorCode, SynaptaneError, conflict, invalid
 from synaptane.core.names import without_email
-from synaptane.services import content, deposits, freshness, related, spaces
+from synaptane.services import content, deposits, freshness, related, reports, spaces
 from synaptane.services import search as search_service
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
 from synaptane.services.workspace import Workspace
@@ -162,6 +162,7 @@ class HitOut(BaseModel):
     edited_by_ai: str | None = Field(
         description="tidy, routine or assistant when an AI wrote the last change; null: a person"
     )
+    reported_outdated: int = Field(description="Open reports that the page is outdated")
     snippets: list[SnippetOut]
 
 
@@ -408,6 +409,57 @@ def restore(
     return WriteOut(commit=sha)
 
 
+class ReportIn(BaseModel):
+    reason: str = Field(description="What no longer holds (500 characters at most)")
+
+
+class ReportOut(BaseModel):
+    reason: str
+    by: str
+    at: str
+
+
+@router.get(SPACE + "/reports/{path:path}", tags=["content"])
+def page_reports(
+    org: str, space: str, path: str, session: DbSession, actor: CurrentActor
+) -> list[ReportOut]:
+    """Open reports that a page is outdated."""
+    found = find_space(session, actor, org, space)
+    return [
+        ReportOut(reason=r.reason, by=r.by, at=r.at.isoformat())
+        for r in reports.open_reports(session, actor, found, path)
+    ]
+
+
+@router.post(SPACE + "/reports/{path:path}", status_code=status.HTTP_201_CREATED, tags=["content"])
+def report_page(
+    org: str,
+    space: str,
+    path: str,
+    body: ReportIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> Response:
+    """Reports a page as outdated (reader); again: updates the reason."""
+    found = find_space(session, actor, org, space)
+    reports.report(session, actor, _ws(request), found, path, body.reason)
+    return Response(status_code=status.HTTP_201_CREATED)
+
+
+@router.delete(
+    SPACE + "/reports/{path:path}", status_code=status.HTTP_204_NO_CONTENT, tags=["content"]
+)
+def close_reports(
+    org: str, space: str, path: str, session: DbSession, actor: CurrentActor, all: bool = False
+) -> Response:
+    """Withdraws one's own report, or with `all=true` dismisses them all (contributor)."""
+    found = find_space(session, actor, org, space)
+    resolution = reports.DISMISSED if all else reports.WITHDRAWN
+    reports.resolve(session, actor, found, path, resolution)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 class PendingOut(BaseModel):
     space: str = Field(description="org/space")
     name: str = Field(description="Note name, for GET …/inbox/{name}")
@@ -471,6 +523,7 @@ def search(
             edited=h.edit.date if h.edit else None,
             edited_by=h.edit.author if h.edit else None,
             edited_by_ai=h.edit.origin if h.edit and h.edit.ai else None,
+            reported_outdated=h.reported,
             snippets=[SnippetOut(**vars(s)) for s in h.snippets],
         )
         for h in hits

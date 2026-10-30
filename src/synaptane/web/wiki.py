@@ -29,7 +29,7 @@ from synaptane.core.errors import (
     not_found,
 )
 from synaptane.core.markdown import WikiIndex, outline, title_of
-from synaptane.services import Actor, content, deposits, freshness, related, spaces
+from synaptane.services import Actor, content, deposits, freshness, related, reports, spaces
 from synaptane.services import search as search_service
 from synaptane.services.content import Folder, build_tree, folder_index
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
@@ -254,6 +254,11 @@ def wiki_page(
         backlinks=backlinks,
         verification=_verification(page, actor, space, file, last),
         related_url=related_url,
+        reports=(
+            reports.open_reports(page.db, actor, space, file.path)
+            if file.kind == "markdown"
+            else []
+        ),
     )
 
 
@@ -788,6 +793,52 @@ def wiki_verify(
             date=state.due.isoformat(),
         )
     message = "Page marked as verified." if verify else "Page follow-up saved."
+    return redirect(page_url(space, path), page, message)
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/report")
+def wiki_report(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    path: Annotated[str, Form()],
+    reason: Annotated[str, Form()] = "",
+) -> Response:
+    """Report a page as outdated (anyone who reads it)."""
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        reports.report(page.db, actor, page.workspace, space, path, reason)
+    except SynaptaneError as error:
+        return failure(page_url(space, path), page, error)
+    return redirect(
+        page_url(space, path),
+        page,
+        "Page reported as outdated: everyone sees it until someone verifies it.",
+    )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/report/close")
+def wiki_report_close(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    path: Annotated[str, Form()],
+    action: Annotated[str, Form()] = "withdraw",
+) -> Response:
+    """Withdraw one's own report, or dismiss them all (contributor)."""
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    dismiss = action == "dismiss"
+    try:
+        reports.resolve(
+            page.db, actor, space, path, reports.DISMISSED if dismiss else reports.WITHDRAWN
+        )
+    except SynaptaneError as error:
+        return failure(page_url(space, path), page, error)
+    message = "Report dismissed." if dismiss else "Your report is withdrawn."
     return redirect(page_url(space, path), page, message)
 
 

@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, Response
 
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.services import health
+from synaptane.services import health, reports
 from synaptane.web.pages import WebPage, find_space
 from synaptane.web.wiki import owner_label
 
@@ -32,6 +32,7 @@ def space_health_page(
         org=space.organization,
         space=space,
         report=report,
+        reported=reports.space_reports(page.db, actor, space),
         contribute=page.can_contribute(actor, space),
         owner_label=lambda owner: owner_label(page, owner),
     )

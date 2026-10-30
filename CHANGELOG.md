@@ -10,7 +10,15 @@ of the target version.
 
 ## [Unreleased]
 
+Upgrade: one migration (`0024`, new table `page_reports`), applied on start as usual.
+
 ### Added
+- **Report a page as outdated**: anyone who reads a page can say what no longer holds (⋮
+  menu). The page shows a banner with the reports, search marks it, the space's **Health**
+  tab lists it, and assistants see it (`reported_outdated` in `search` and `fetch`, the reasons
+  in the `read` header, framed as untrusted). A report stays open until the page is verified,
+  a contributor dismisses it, or its author withdraws it; a moved page keeps its reports.
+  REST: `GET`, `POST` and `DELETE …/spaces/{space}/reports/{path}`.
 - **Last change in search results**: when, by whom, and whether an AI wrote it (the tidy-up,
   a routine or an assistant). In the web search (date, author, **AI** badge), the REST API
   (`edited`, `edited_by`, `edited_by_ai`) and the MCP tools (`edited`, `edited_by`, `ai` in

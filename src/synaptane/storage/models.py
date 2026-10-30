@@ -653,3 +653,32 @@ class ChangeMark(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     __table_args__ = (CheckConstraint("status IN ('done', 'left', 'pending')", name="status"),)
+
+
+class PageReport(Base):
+    """A page reported as outdated by someone who reads it (`services.reports`): readers
+    cannot write to the page, so the report lives here. Open until the page is verified,
+    the report dismissed by a contributor, or withdrawn by its author."""
+
+    __tablename__ = "page_reports"
+    __table_args__ = (
+        CheckConstraint(
+            "resolution IS NULL OR resolution IN ('verified', 'dismissed', 'withdrawn')",
+            name="resolution",
+        ),
+        Index(
+            "ix_page_reports_open", "space_id", "path", postgresql_where=text("resolved_at IS NULL")
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    path: Mapped[str] = mapped_column(Text)  # relative to content/
+    reported_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    reason: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    resolved_at: Mapped[datetime | None]
+    resolved_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolution: Mapped[str | None] = mapped_column(String(16))

@@ -48,6 +48,18 @@
   {% else %}<p class="muted">{{ _("Every page has a title and some content.") }}</p>{% endif %}
 </section>
 
+<section class="card" id="health-reported" aria-labelledby="health-reports">
+  <h3 id="health-reports">{{ _("Reported as outdated") }} <span class="badge badge-quiet">{{ reported|length }}</span></h3>
+  {% if reported %}
+  <p class="muted">{{ _("Readers say these pages no longer hold. Reread each one: “Mark as verified” closes its reports.") }}</p>
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Page") }}</th><th>{{ _("Latest report") }}</th></tr></thead>
+    <tbody>{% for path, items in reported[:shown] %}<tr><td>{{ page_link(path) }}{% if items|length > 1 %} <span class="badge badge-quiet">{{ items|length }}</span>{% endif %}</td><td>{{ items[0].by or _("a former member") }} · <time datetime="{{ items[0].at.isoformat() }}" data-local="date">{{ items[0].at.strftime('%Y-%m-%d') }}</time> · {{ _("“{reason}”", reason=items[0].reason) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {{ more(reported) }}
+  {% else %}<p class="muted">{{ _("No page reported.") }}</p>{% endif %}
+</section>
+
 <section class="card" id="health-review" aria-labelledby="health-due">
   <h3 id="health-due">{{ _("Pages to review") }} <span class="badge badge-quiet">{{ report.due|length }}</span></h3>
   <p class="muted">{{ _(pl(report.verified, "{n} verified, up-to-date page.", "{n} verified, up-to-date pages."), n=report.verified) }} {% if report.review_every %}{{ _("Space review period: {period}.", period=period_label(report.review_every)) }}{% else %}{{ _("With no review period set for the space, only pages that have their own (review_every) become due for review.") }}{% endif %}{% if can(actor.access, Action.MANAGE_ORG, org_id=space.org_id) %} <a href="{{ base }}/-/settings">{{ _("Change", context="link") }}</a>{% endif %}</p>

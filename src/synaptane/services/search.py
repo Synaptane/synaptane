@@ -43,7 +43,7 @@ from synaptane.ai.base import AIError
 from synaptane.ai.embeddings import Embedder, EmbeddingConfig, prefixes
 from synaptane.core import markdown
 from synaptane.core.errors import invalid, not_found, unavailable
-from synaptane.services import Actor, activity, freshness, semantic, spaces
+from synaptane.services import Actor, activity, freshness, reports, semantic, spaces
 from synaptane.services.activity import LastEdit
 from synaptane.services.freshness import Freshness
 from synaptane.services.inbox import CONTENT_DIR
@@ -97,6 +97,7 @@ class Hit:
     modified: float = 0.0  # file modification date (tie-breaker on equal scores)
     freshness: Freshness | None = None  # Markdown page: verified, due for review…
     edit: LastEdit | None = None  # last change: when, who, person or AI
+    reported: int = 0  # open reports that the page is outdated (services.reports)
 
     @property
     def verified(self) -> bool:
@@ -1003,7 +1004,16 @@ def search(
         visible = [s for s in visible if s.address in wanted]
     for space in visible:
         _ = space.organization  # loaded here: the search threads do not use the session
+    counts = reports.open_counts(session, (s.id for s in visible))
+    address = {s.id: s.address for s in visible}
+    reported = {(address[i], path): n for (i, path), n in counts.items()}
     session.commit()  # connection returned to the pool during ripgrep (sometimes seconds)
+
+    def done(found: list[Hit]) -> list[Hit]:
+        for hit in found:
+            hit.reported = reported.get((hit.address, hit.path), 0)
+        return found
+
     # Two **global** passes: all spaces ranked (counts), then snippets for the best results
     # only, whatever the number of spaces.
     keep = max(min(limit, 100) * 2, 20)
@@ -1037,7 +1047,7 @@ def search(
     if not meaning:
         hits = [hit for space_hits in lexical.values() for hit in space_hits]
         hits.sort(key=lambda h: (-h.score, -h.modified, h.address, h.path))
-        return hits[: max(1, min(limit, 100))]
+        return done(hits[: max(1, min(limit, 100))])
     # RRF fusion: **global** lexical rank (word scores compare across spaces), then the
     # contribution of meaning added where it exists. A page is never penalized because its
     # space has embeddings.
@@ -1059,4 +1069,4 @@ def search(
     ranked = sorted(
         fused.values(), key=lambda item: (-item[0], -item[1].score, item[1].address, item[1].path)
     )
-    return [hit for _, hit in ranked[: max(1, min(limit, 100))]]
+    return done([hit for _, hit in ranked[: max(1, min(limit, 100))]])
