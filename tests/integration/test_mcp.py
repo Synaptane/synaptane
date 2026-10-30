@@ -772,10 +772,10 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
     assert {"section", "outline", "commit"} <= by_name["read"].keys()
     assert "depth" in by_name["tree"] and "since" in by_name["recent_changes"]
     assert {"from_commit", "to_commit"} <= by_name["diff"].keys()
-    # List re-read on every turn: 12,000 characters before the guidance work, about 18,000
-    # after, plus `related` (similar pages) and `verify_page` (page verification).
+    # List re-read on every turn: about 20,800 characters with 21 tools, 17,100 once the
+    # descriptions were shortened (October 30, 2026, measured with ./scripts/eval.sh mcp).
     size = len(json.dumps([t.model_dump(by_alias=True, exclude_none=True) for t in tools]))
-    assert size < 21_500, size
+    assert size < 18_000, size
 
     assert {(p.name, bool(p.title)) for p in listed} == {
         ("save", True),

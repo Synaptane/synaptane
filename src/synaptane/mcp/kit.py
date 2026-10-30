@@ -48,22 +48,20 @@ ADDS = ToolAnnotations(
 )
 
 # Common parameters: a short description, the same everywhere.
-SpaceArg = Annotated[str, Field(description='Space as "organization/space", e.g. acme/infra')]
-PathArg = Annotated[
-    str, Field(description="Path relative to the space content, e.g. infra/proxmox.md")
-]
+SpaceArg = Annotated[str, Field(description="Space org/space, e.g. acme/infra")]
+PathArg = Annotated[str, Field(description="Path in the space, e.g. infra/proxmox.md")]
 MessageArg = Annotated[str, Field(description="Commit message (optional)")]
 SecretArg = Annotated[
     bool,
-    Field(description="true only if the user confirms this is not a secret"),
+    Field(description="true only if the user confirms it is not a secret"),
 ]
 SinceArg = Annotated[
     str,
-    Field(description="Only since this date, YYYY-MM-DD (or YYYY-MM-DDTHH:MM); empty: no limit"),
+    Field(description="Since this date, YYYY-MM-DD[THH:MM]; empty: no limit"),
 ]
 NoteIdArg = Annotated[
     str,
-    Field(description="Note id inbox:org/space/note.md (given by inbox_add or inbox_list)"),
+    Field(description="Note id inbox:org/space/note.md, from inbox_add or inbox_list"),
 ]
 
 READ_LIMIT = 50_000  # characters per read: beyond that, the rest is read with `offset`
