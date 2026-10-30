@@ -1,8 +1,10 @@
-"""Lancer le banc à la main : `uv run python -m tests.eval {tidy,search} [options]`.
+"""Lancer le banc à la main : `uv run python -m tests.eval {tidy,search,mcp} [options]`.
 
     tidy                      scénarios avec le modèle simulé (bons et mauvais scripts)
     tidy --model M --budget B scénarios avec un vrai modèle, budget en euros fixé d'avance
     search                    rappel@5 et MRR, mots seuls puis hybride (embeddings simulés)
+    mcp                       outils MCP : script idéal de chaque cas (gratuit)
+    mcp --model M --budget-usd B   un vrai assistant (Claude Code, clé d'API), budget en $
 
 Le PostgreSQL de développement doit tourner (`docker compose -f compose.dev.yaml up -d`) : une
 base jetable y est créée, puis supprimée. Avec un vrai modèle, la clé est lue dans une variable
@@ -21,7 +23,7 @@ from typing import Any
 from synaptane.ai import pricing
 from synaptane.ai.base import API_PROVIDERS, EFFORTS, AIConfig, Usage
 from synaptane.ai.providers import open_conversation
-from tests.eval import search_bench
+from tests.eval import mcp_bench, search_bench
 from tests.eval.env import Env, temporary
 from tests.eval.scenarios import SCENARIOS
 from tests.eval.tidy_bench import Result, Scenario, run_scenario, scripted
@@ -124,6 +126,60 @@ def _as_json(result: Result) -> dict[str, Any]:
     }
 
 
+def _mcp(env: Env, chosen: list[mcp_bench.Case], args: argparse.Namespace) -> int:
+    """Banc MCP : script idéal (simulé) ou vrai assistant, cas par cas."""
+    if args.model and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Clé absente : définissez ANTHROPIC_API_KEY (jamais l'abonnement).", file=sys.stderr)
+        return 2
+    results: list[mcp_bench.Result] = []
+    spent = 0.0
+    stopped = False
+    with mcp_bench.serve(env) as url:
+        for case in chosen:
+            for trial in range(1, (args.trials if args.model else 1) + 1):
+                if args.model and spent >= args.budget_usd:
+                    stopped = True
+                    break
+                if args.model:
+                    left = min(args.budget_usd - spent, args.per_case_usd)
+                    result = mcp_bench.real(env, url, case, args.model, left)
+                else:
+                    result = mcp_bench.scripted(env, url, case)
+                spent += result.transcript.cost_usd
+                results.append(result)
+                print(mcp_bench.line(result, f" #{trial}" if args.model else ""), flush=True)
+    passed = [r for r in results if r.passed]
+    calls = sum(len(r.transcript.calls) for r in results)
+    print(f"\n{len(passed)}/{len(results)} cas réussis ; {calls} appels d'outils", end="")
+    print(f" ; coût ≈ {spent:.2f} $ / {args.budget_usd:.2f} $." if args.model else ".")
+    if stopped:
+        print("Budget atteint : cas suivants non joués.")
+    if args.json:
+        Path(args.json).write_text(
+            json.dumps(
+                [
+                    {
+                        "case": r.case,
+                        "mode": r.mode,
+                        "passed": r.passed,
+                        "failures": r.failures,
+                        "calls": [name for name, _ in r.transcript.calls],
+                        "errors": r.transcript.errors,
+                        "input_tokens": r.transcript.input_tokens,
+                        "output_tokens": r.transcript.output_tokens,
+                        "cost_usd": r.transcript.cost_usd,
+                        "turns": r.transcript.turns,
+                        "answer": r.transcript.answer,
+                    }
+                    for r in results
+                ],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    return 0 if args.model or len(passed) == len(results) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m tests.eval", description=__doc__.split("\n")[0]
@@ -146,7 +202,25 @@ def main(argv: list[str] | None = None) -> int:
     tidy.add_argument("--price-output", type=Decimal, default=None)
     tidy.add_argument("--json", default="", help="fichier où écrire les résultats détaillés")
     sub.add_parser("search", help="rappel@5 et MRR de la recherche")
+    mcp = sub.add_parser("mcp", help="outils MCP, vus par un assistant")
+    mcp.add_argument("--case", action="append", default=[], help="cas (répétable) ; défaut : tous")
+    mcp.add_argument("--model", default="", help="vrai modèle (Claude Code) ; sans lui, simulé")
+    mcp.add_argument(
+        "--budget-usd", type=float, default=0.0, help="$ au plus, obligatoire avec --model"
+    )
+    mcp.add_argument("--per-case-usd", type=float, default=0.5, help="$ au plus par passage")
+    mcp.add_argument("--trials", type=int, default=1, help="essais par cas (variance)")
+    mcp.add_argument("--json", default="", help="fichier où écrire les résultats détaillés")
     args = parser.parse_args(argv)
+
+    if args.bench == "mcp":
+        known_cases = {c.key: c for c in mcp_bench.CASES}
+        if unknown := [n for n in args.case if n not in known_cases]:
+            parser.error(f"cas inconnu : {', '.join(unknown)} (connus : {', '.join(known_cases)})")
+        if args.model and args.budget_usd <= 0:
+            parser.error("--budget-usd est obligatoire avec un vrai modèle")
+        with temporary() as env:
+            return _mcp(env, [known_cases[n] for n in args.case] or list(mcp_bench.CASES), args)
 
     if args.bench == "tidy":
         known = {s.name: s for s in SCENARIOS}
