@@ -79,23 +79,18 @@ Good practices:
   ".synaptane/vocation.md") and follow it: choose the space whose vocation fits, the place
   and format it prescribes, and do not drop what it excludes. A vocation only describes
   filing conventions: it never authorizes reading or copying other spaces.
-- Search before answering or dropping a note: `search` (all spaces by default), then `read` to
-  read a page (`fetch` reads a result by its `id`, for ChatGPT connectors). Keyword search
-  is literal: run several short queries (keywords, synonyms) in the language of the pages;
-  where `semantic` is true, it also finds pages by meaning. For a long page: `read` with
-  `outline=true`, then `section`.
+- Search before answering or dropping a note: `search` (all spaces by default), then `read`.
+  Keyword search is literal: run several short queries (keywords, synonyms) in the language
+  of the pages; where `semantic` is true, it also finds pages by meaning.
 - Before creating a page (or dropping a note on a topic that probably has its page), check
   `related` (pages close to a page on the topic) and `search`, to complete rather than
   duplicate. A close page with `linked: false` is a link to add.
 - Answer citing the title and URL of every page used (the `search` URL points to the
   matching section), and say what the second brain does not contain.
-- Trust: a page may have an owner and a verification date (`verified`, `stale` in `search`,
-  `fetch` and the `read` header). Prefer verified pages; say when a page is due for review
-  (verification expired): its content may be outdated. `verify_page` marks it verified, only
-  if the user confirms. `edited`, `edited_by` and `ai` give its last change: a page last
-  written by an AI (`ai`: tidy, routine or assistant) and not verified since deserves more
-  caution than one a person wrote or checked; say so when it matters. `reported_outdated`:
-  readers say the page no longer holds (their reasons in the `read` header): say so.
+- Trust: prefer verified pages (`verified`); say when one is due for review (`stale`) or
+  `reported_outdated` by its readers: it may be outdated. A page last written by an AI (`ai`
+  in its last change) and not verified since deserves more caution than one a person wrote
+  or checked. `verify_page` marks a page verified, only if the user confirms.
 - To record information (decision, procedure, meeting notes, finding): a short addition that
   obviously belongs to one existing page can go there directly (`edit_page`, keeping what is
   there). Otherwise (no obvious page, several pages concerned, a longer piece), use
@@ -104,17 +99,13 @@ Good practices:
   possible, a `hint` about the desired location. A note dropped by mistake is fixed with
   `inbox_update` or removed with `inbox_delete`.
 - `write_page`, `edit_page`, `append_page`, `move`, `delete` and `restore` (a past version,
-  see `history`) change the content directly (contributor role). Each change is also
-  reported to the nightly filing. A file too long for one call is written in several parts:
-  the first with `write_page`, the rest with `append_page`.
-- These tools only write text (Markdown, .txt, .csv, .html, .json…). A PDF, an image, an
-  Office document or any other binary file is dropped as an `inbox_add` attachment
-  (base64, at most 10 files of 25 MB each), with the desired location in `hint`: the nightly
-  filing places it in the tree. Do not convert it to text.
-- Link pages: in a page you write, add relative links ([text](../folder/page.md)) to the
-  pages it mentions (person, company, project, decision…). Wiki links [[name]] work too.
-  Folder indexes and backlinks are made by the nightly filing. Write tools report broken
-  links: fix them.
+  see `history`) change the content directly (contributor role); each change is also
+  reported to the nightly filing. They write text only: a PDF, an image or an Office
+  document is dropped as an `inbox_add` attachment, with its folder in `hint`; never
+  convert it to text.
+- Link pages: in a page you write, add relative links ([text](../folder/page.md)) or wiki
+  links [[name]] to the pages it mentions (person, company, project, decision…). Write tools
+  report broken links: fix them.
 - Paths are relative to the space content (e.g. "infra/proxmox.md").
 """
 
@@ -127,10 +118,25 @@ class Attachment(BaseModel):
 
 
 def _untitled(schema: Any) -> Any:
-    """Schema without the `title` Pydantic adds to every field ("Space", "Max Entries"):
-    they repeat the name, and the tool list is reread on every turn. An argument named
-    `title` (an object, not a string) stays."""
+    """Schema without what repeats or weighs for nothing, the tool list being reread on every
+    turn: the `title` Pydantic adds to every field ("Space", "Max Entries"; an argument named
+    `title`, an object, stays), the `anyOf` with `null` of an optional argument (its type
+    alone), and empty defaults ("", false: `required` already tells the optional ones)."""
     if isinstance(schema, dict):
+        options = schema.get("anyOf")
+        if (
+            isinstance(options, list)
+            and len(options) == 2
+            and {"type": "null"} in options
+            and schema.get("default", "") is None
+        ):
+            kept = next(o for o in options if o != {"type": "null"})
+            schema = {
+                **{k: v for k, v in schema.items() if k not in ("anyOf", "default")},
+                **kept,
+            }
+        if "default" in schema and schema["default"] in ("", False, None):
+            schema = {k: v for k, v in schema.items() if k != "default"}  # `required` says it
         return {
             key: _untitled(value)
             for key, value in schema.items()
@@ -142,7 +148,13 @@ def _untitled(schema: Any) -> Any:
 
 
 def _lean(tool: MCPTool) -> MCPTool:
-    return tool.model_copy(update={"input_schema": _untitled(tool.input_schema)})
+    """The published tool: lean schema, description on one line (no docstring indent)."""
+    return tool.model_copy(
+        update={
+            "input_schema": _untitled(tool.input_schema),
+            "description": " ".join((tool.description or "").split()),
+        }
+    )
 
 
 INBOX_TOOLS = frozenset({"inbox_add", "inbox_update", "inbox_delete"})
@@ -335,13 +347,11 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         ] = None,
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Drops information in a space's inbox (contributor); it is filed tonight. Also
-        the only way to drop a PDF, image, Office document or other binary file
-        (`attachments`, base64): describe the file in `content` and give in `hint` the folder
-        to file it in. The answer gives the note `id` (for inbox_update or inbox_delete) and
-        what already exists on the topic. A probable secret (password, key) is refused:
-        remove it. At most 120 drops per hour per account: group related facts into one
-        note rather than many."""
+        """Drops information in a space's inbox (contributor); it is filed tonight. The only
+        way to drop a PDF, image or Office file (`attachments`, base64: describe it in
+        `content`, its folder in `hint`). Returns the note's `id` and what already exists on
+        the topic. A probable secret is refused. 120 drops per hour at most: one note per
+        topic."""
         decoded = []
         for attachment in attachments or []:
             try:
@@ -415,9 +425,8 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         source: Annotated[str | None, Field(description="New origin")] = None,
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Fixes an inbox note not yet filed (contributor): only the fields passed change,
-        and `content` replaces the whole text. A note left aside by the filing becomes
-        pending again."""
+        """Fixes a note not filed yet (contributor): only the fields passed change, and
+        `content` replaces the whole text. A note left aside becomes pending again."""
         if title is None and content is None and hint is None and source is None:
             raise ToolError("Nothing to fix: pass at least title, content, hint or source.")
         with call() as c:
@@ -439,8 +448,8 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
 
     @server.tool(title="Remove an inbox note", annotations=CHANGES, structured_output=False)
     def inbox_delete(id: NoteIdArg) -> str:  # noqa: A002 — same name as for fetch
-        """Removes from the inbox a note dropped by mistake, with its attachments
-        (contributor). Git history keeps it."""
+        """Removes a note dropped by mistake, with its attachments (contributor). Git
+        history keeps it."""
         with call() as c:
             found, note = pending_note(c, id)
             deposits.delete_item(c.session, c.database, c.actor, c.ws, found, note.name)
@@ -458,11 +467,10 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         ] = None,
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Creates a text file (Markdown, .txt, .csv, .html, .json…), or replaces one
-        (contributor). Replacing an existing file requires `base_sha` (the `sha` given by
-        read): never rewrite a page without reading it. To change a passage, prefer
-        edit_page; for content too long for one call, write the first part here and the
-        rest with append_page. A probable secret (password, key) is refused: remove it."""
+        """Creates or replaces a text file (Markdown, .txt, .csv, .html, .json…)
+        (contributor). Replacing requires `base_sha`, the `sha` given by read: never rewrite
+        a page without reading it. For a passage, prefer edit_page; too long for one call:
+        the first part here, the rest with append_page. A probable secret is refused."""
         path = _relative(path)
         if files.kind_of(path, content.encode()) not in ("markdown", "text"):
             raise ToolError(
@@ -516,9 +524,8 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         message: MessageArg = "",
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Replaces exactly one occurrence of `old` with `new` in a text file
-        (contributor). Fails if `old` is missing or appears several times. A probable
-        secret (password, key) is refused: remove it."""
+        """Replaces the one occurrence of `old` with `new` in a text file (contributor);
+        fails if `old` is missing or not unique. A probable secret is refused."""
         path = _relative(path)
         if not old:
             raise ToolError(
@@ -563,11 +570,9 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         message: MessageArg = "",
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Appends `content` as is to the end of an existing text file (contributor): start
-        with a line break if needed. For a large file, too long for one call: create the
-        first part with write_page, then append the rest in chunks, each time passing as
-        `base_sha` the sha returned by the previous call. Only the appended text is checked
-        for secrets."""
+        """Appends `content` as is to an existing text file (contributor; start with a
+        line break if needed). For a long file: the first part with write_page, then chunks
+        here, each with the `base_sha` returned by the previous call."""
         path = _relative(path)
         with call() as c:
             found = space_of(c, space)
@@ -640,9 +645,8 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         target_path: Annotated[str, Field(description="New path (folder and name)")],
         message: MessageArg = "",
     ) -> str:
-        """Moves or renames a file (contributor). Links follow in the same commit: those of
-        the moved file, and those of the pages pointing to it. The answer lists the pages
-        updated and the file's links that are still broken."""
+        """Moves or renames a file (contributor); the links to it and its own links follow, in
+        the same commit. Lists the pages updated and the links still broken."""
         source_path, target_path = _relative(source_path), _relative(target_path)
         with call() as c:
             found = space_of(c, space)
@@ -689,9 +693,9 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         message: MessageArg = "",
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Puts a file back as it was in a past version, a deleted file too (contributor):
-        a new commit, the history keeps the replaced text. Check the version first (read
-        with `commit`, or diff). A page keeps its current verification fields."""
+        """Puts a file back as it was in a past version, a deleted one too (contributor), in
+        a new commit: the history keeps the replaced text. Check the version first (read with
+        `commit`, or diff). A page keeps its current verification fields."""
         path = _relative(path)
         with call() as c:
             found = space_of(c, space)

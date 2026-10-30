@@ -28,6 +28,10 @@ existing ones keep their level), applied on start as usual.
   instructions hidden in a page could make it change.
 
 ### Changed
+- Shorter MCP tool descriptions and server guidance (same rules): the tool list goes from
+  about 20,800 to 17,100 characters and the guidance from 4,700 to 4,000, about 1,100 tokens
+  less on every request an assistant makes. Empty defaults and `anyOf … null` are left out of
+  the published schemas.
 - MCP guidance: to record information, an assistant may add a short fact to the one page it
   obviously belongs to (`edit_page`, keeping what is there); otherwise it drops it with
   `inbox_add`. Measured with the new MCP bench (`./scripts/eval.sh mcp`, docs/dev/eval.md):

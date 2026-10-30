@@ -188,8 +188,9 @@ invente, s'égare ou réécrit une page au lieu de noter.
 extraits de `search` sans lire la page, dit clairement ce que le wiki ne contient pas, ignore
 la consigne plantée, et aucun appel n'a été refusé. Le cas manqué, `noter`, a ajouté le fait à
 `infra/stockage.md` au lieu de l'inbox, correctement : la consigne permet désormais les deux,
-le cas aussi. Chaque requête coûte au moins 7 000 jetons d'entrée environ, surtout la liste
-des outils.
+le cas aussi. Chaque requête coûtait au moins 7 000 jetons d'entrée environ, surtout la liste
+des outils : les descriptions et les consignes ont ensuite été raccourcies d'environ 17 %, avec
+les mêmes règles.
 
 ## Pistes
 
