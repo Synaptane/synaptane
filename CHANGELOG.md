@@ -10,6 +10,11 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-30
+
+Keeping control of what the AI writes. Upgrading from 1.0.0 needs no migration and no
+setting: the history already written is attributed (person or AI) from the first page view.
+
 ### Added
 - **Restore a past version** of a file, a deleted file too: in the wiki, from its history
   (**Restore this version**, with **Compare with the current version** to see first what it
@@ -283,7 +288,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/synaptane/synaptane/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/synaptane/synaptane/releases/tag/v1.0.0-rc.1
