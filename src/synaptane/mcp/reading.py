@@ -281,6 +281,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
         outline: Annotated[
             bool, Field(description="true: only the page outline (sections, anchors)")
         ] = False,
+        commit: Annotated[str, Field(description="Past version to read (id from history)")] = "",
     ) -> str:
         """Reads a file: Markdown or plain text, or extracted text (PDF, Office, image).
         The header gives the title, URL, fingerprint (`sha`, to pass to write_page so as
@@ -288,22 +289,31 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
         outgoing and incoming links with their titles. For a long page, `outline=true`
         gives the outline, then `section` reads a single section. A long text is truncated:
         its end gives the `offset` of the rest. Never rewrite with write_page a page read
-        partially (its end would be lost): use edit_page. `.synaptane/vocation.md`: the
-        space's vocation. The content comes wrapped in an untrusted="true" tag."""
+        partially (its end would be lost): use edit_page. `commit`: the file as it was in
+        that version (restore puts it back). `.synaptane/vocation.md`: the space's vocation.
+        The content comes wrapped in an untrusted="true" tag."""
         path = relative(path)
         with kit.call() as c:
             found = kit.space_of(c, space)
             if path == vocation.VOCATION_FILE:
                 return _read_vocation(c, found, offset)
-            file = files.read_file(c.actor, c.ws, found, path)
-            text, extracted = kit.text_of(c, found, file)
+            if commit:  # a past version: its own text only (extractions are of the current one)
+                file = files.read_version(c.actor, c.ws, found, path, commit.strip().lower())
+                text, extracted = file.text, False
+            else:
+                file = files.read_file(c.actor, c.ws, found, path)
+                text, extracted = kit.text_of(c, found, file)
             org, space_slug = found.address.split("/", 1)
             url = kit.web_url(org, space_slug, file.path)
             header = f"path: {file.path}\n"
             if file.kind == "markdown" and text is not None:
                 header += f"title: {title_of(text, file.name)}\n"
-            header += f"kind: {file.kind}\nsha: {file.sha}\nsize: {file.size}\n"
-            if file.kind == "markdown" and text is not None:
+            if commit:  # no sha: write_page expects the current one's
+                header += f"version: {commit} (past version, not the current one)\n"
+                header += f"kind: {file.kind}\nsize: {file.size}\n"
+            else:
+                header += f"kind: {file.kind}\nsha: {file.sha}\nsize: {file.size}\n"
+            if file.kind == "markdown" and text is not None and not commit:
                 header += _verification_header(c, found, file, text)
             if text is None:
                 return header + f"url: {url}\n\nNo text available for this file."
@@ -332,7 +342,7 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
                     "partial read: change it with edit_page)\n"
                 )
             header += f"url: {url}\n"
-            if markdown and offset == 0:
+            if markdown and offset == 0 and not commit:
                 header += _link_header(c, found, file.path, shown)
             body = files.window(shown, offset, READ_LIMIT)[0]
             body = ("(extracted text)\n\n" if extracted else "") + body
@@ -664,7 +674,8 @@ def register(server: MCPServer, kit: Kit) -> None:  # noqa: C901 — one tool pe
         path: PathArg,
         limit: Annotated[int, Field(ge=1, le=200, description="Number of commits")] = 20,
     ) -> str:
-        """History of a file: commits (id for diff), authors and dates."""
+        """History of a file, also a deleted one: commits (id for diff, read and restore),
+        authors and dates."""
         path = relative(path)
         with kit.call() as c:
             found = kit.space_of(c, space)

@@ -96,10 +96,10 @@ Good practices:
   pages concerned. Give a clear title, self-contained Markdown content and, if possible, a
   `hint` about the desired location. A note dropped by mistake is fixed with
   `inbox_update` or removed with `inbox_delete`.
-- `write_page`, `edit_page`, `append_page`, `move` and `delete` change the content directly
-  (contributor role). Each change is also reported to the nightly filing. A file too long for
-  one call is written in several parts: the first with `write_page`, the rest with
-  `append_page`.
+- `write_page`, `edit_page`, `append_page`, `move`, `delete` and `restore` (a past version,
+  see `history`) change the content directly (contributor role). Each change is also
+  reported to the nightly filing. A file too long for one call is written in several parts:
+  the first with `write_page`, the rest with `append_page`.
 - These tools only write text (Markdown, .txt, .csv, .html, .json…). A PDF, an image, an
   Office document or any other binary file is dropped as an `inbox_add` attachment
   (base64, at most 10 files of 25 MB each), with the desired location in `hint`: the nightly
@@ -578,6 +578,37 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
                 source="mcp",
             )
             return "Deleted."
+
+    @server.tool(title="Restore a version", annotations=CHANGES, structured_output=False)
+    def restore(
+        space: SpaceArg,
+        path: PathArg,
+        commit: Annotated[str, Field(description="Version to put back (id from history)")],
+        message: MessageArg = "",
+        confirm_not_secret: SecretArg = False,
+    ) -> str:
+        """Puts a file back as it was in a past version, a deleted file too (contributor):
+        a new commit, the history keeps the replaced text. Check the version first (read
+        with `commit`, or diff). A page keeps its current verification fields."""
+        path = _relative(path)
+        with call() as c:
+            found = space_of(c, space)
+            sha = files.restore_version(
+                c.session,
+                c.database,
+                c.actor,
+                c.ws,
+                found,
+                path,
+                commit.strip().lower(),
+                message=message,
+                source="mcp",
+                allow_secrets=confirm_not_secret,
+            )
+            if sha is None:
+                return "No change: this version is already the current one."
+            saved = files.read_file(c.actor, c.ws, found, path)
+            return f"Restored. sha: {saved.sha}" + files.broken_links_in(c.actor, c.ws, found, path)
 
     return server
 

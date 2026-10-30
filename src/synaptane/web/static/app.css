@@ -440,6 +440,7 @@ td .inline-form input:not([type=checkbox]){min-height:30px;flex:1 1 140px}
 .file-list a svg{color:var(--ink-3)}
 .history-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .history-list li{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-bottom:1px solid var(--border)}
+.restore-form{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
 .diff{font-size:12.5px;line-height:1.55;white-space:pre-wrap}
 .diff-add{background:var(--ok-bg);display:block}
 .diff-del{background:var(--danger-bg);display:block}

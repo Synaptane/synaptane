@@ -10,6 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Restore a past version** of a file, a deleted file too: in the wiki, from its history
+  (**Restore this version**, with **Compare with the current version** to see first what it
+  would change), with the MCP tool `restore`, and with `POST …/spaces/{space}/restore` in the
+  REST API. A new commit in the person's name: the replaced text stays in the history. A page
+  keeps its current verification fields.
+- MCP `read` takes `commit` to read a file as it was in a past version.
+- The address of a deleted page says so and links to its history; that of a moved page gives
+  its new address.
+- Versions from before a rename are read and restored under the name the file had then.
+
 ## [1.0.0] - 2026-10-30
 
 First stable release. It contains no change of behavior or data since 1.0.0-rc.2 apart from

@@ -873,20 +873,19 @@ class Repository:
         return result.stdout.decode().strip() or None
 
     def history(self, path: str, limit: int = 50) -> list[Commit]:
-        """Commits that touched `path`, most recent first (renames followed)."""
-        out = self._out(
+        """Commits that touched `path`, most recent first (renames followed). `paths`: the
+        file's name in each commit, the one it had before a rename for the older ones."""
+        out = self._git(
             "log",
             f"--max-count={limit}",
             "--follow",
-            "--format=%H%x1f%an%x1f%ae%x1f%ce%x1f%cI%x1f%s",
+            "--name-status",
+            "-z",
+            LOG_FORMAT,
             "--",
             safe_path(path),
-        )
-        commits = []
-        for line in filter(None, out.split("\n")):
-            sha, name, email, committer, date, subject = line.split("\x1f", 5)
-            commits.append(Commit(sha, Identity(name, email), committer, subject, (path,), date))
-        return commits
+        ).stdout
+        return [replace(commit, paths=commit.paths[:1] or (path,)) for commit, _ in parse_log(out)]
 
     def last_changes(
         self, prefix: str, rev: str = "HEAD", since: str | None = None
@@ -955,6 +954,17 @@ class Repository:
             safe_path(path),
         ).stdout
         return out.decode("utf-8", "replace")
+
+    def renamed_to(self, sha: str, path: str) -> str | None:
+        """New name of `path` if the commit `sha` moved it (None: deleted, or kept)."""
+        out = self._git(
+            "log", "-1", "--name-status", "-z", "--find-renames", LOG_FORMAT, sha, check=False
+        ).stdout
+        for _commit, entries in parse_log(out):
+            for status, new, old in entries:
+                if status == "R" and old == path:
+                    return new
+        return None
 
     def changed_paths(self, old: str, new: str) -> set[str]:
         """Files changed between two commits."""

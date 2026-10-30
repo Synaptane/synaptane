@@ -24,7 +24,7 @@ from synaptane.core.errors import SynaptaneError, conflict, invalid, not_found
 from synaptane.core.markdown import WikiIndex, broken_links, links_of, title_of
 from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Blob, Commit, GitError, PathRefused, Repository, safe_path
-from synaptane.services import Actor, audit, jobs, links, webhooks
+from synaptane.services import Actor, audit, freshness, jobs, links, webhooks
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.workspace import Workspace, author_identity
 from synaptane.storage.db import Database, try_space_lock
@@ -36,6 +36,7 @@ IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp"}
 OFFICE = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".doc", ".xls", ".ppt"}
 MAX_TEXT_VIEW = 2 * 1024 * 1024
 MAX_UPLOAD = 25 * 1024 * 1024
+MAX_VERSIONS = 1000  # versions of a file that can be read or restored
 # Types a browser would execute: never served as is from Synaptane's origin.
 SANDBOXED = {"text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml"}
 
@@ -250,6 +251,42 @@ def last_change(actor: Actor, ws: Workspace, space: Space, path: str) -> Commit 
     return commits[0] if commits else None
 
 
+def _check_commit(sha: str) -> None:
+    """Hexadecimal commit id: nothing else reaches git, not even an option."""
+    if not 7 <= len(sha) <= 64 or any(c not in "0123456789abcdef" for c in sha):
+        raise invalid("Invalid commit identifier: {sha}.", sha=sha[:80])
+
+
+def read_version(actor: Actor, ws: Workspace, space: Space, path: str, sha: str) -> File:
+    """File as it was right after commit `sha`, one of its history (renames followed: read
+    under the name it had then). `path` stays the current one."""
+    _check_commit(sha)
+    repo = _readable(actor, ws, space)
+    full = content_path(path)
+    commit = next(
+        (c for c in repo.history(full, limit=MAX_VERSIONS) if c.sha.startswith(sha)), None
+    )
+    if commit is None:
+        raise not_found("Version not found.")
+    entry = repo.blob_entry(commit.paths[0], commit.sha)
+    data = repo.object_data(entry[0]) if entry else None
+    if entry is None or data is None:
+        raise invalid("The file does not exist in this version: this change deleted it.")
+    return File(relative_path(full), entry[0], entry[1], kind_of(full, data), data)
+
+
+def gone(actor: Actor, ws: Workspace, space: Space, path: str) -> tuple[Commit, str] | None:
+    """A file that no longer exists: the commit that removed it, and its new path if that
+    commit moved it ("" if deleted). None if it never existed."""
+    repo = _readable(actor, ws, space)
+    full = content_path(path)
+    commits = repo.history(full, limit=1)
+    if not commits:
+        return None
+    moved = repo.renamed_to(commits[0].sha, full)
+    return commits[0], relative_path(moved) if moved else ""
+
+
 def diff(actor: Actor, ws: Workspace, space: Space, path: str, sha: str) -> str:
     try:
         return _readable(actor, ws, space).diff(sha, content_path(path))
@@ -258,11 +295,9 @@ def diff(actor: Actor, ws: Workspace, space: Space, path: str, sha: str) -> str:
 
 
 def diff_range(actor: Actor, ws: Workspace, space: Space, path: str, old: str, new: str) -> str:
-    """Diff of a file between two versions (hexadecimal commit ids: nothing else reaches
-    `git diff`, not even an option)."""
+    """Diff of a file between two versions (hexadecimal commit ids)."""
     for sha in (old, new):
-        if not 7 <= len(sha) <= 64 or any(c not in "0123456789abcdef" for c in sha):
-            raise invalid("Invalid commit identifier: {sha}.", sha=sha[:80])
+        _check_commit(sha)
     try:
         return _readable(actor, ws, space).compare_range(old, new, content_path(path))
     except GitError:
@@ -428,6 +463,49 @@ def write_file(
     if sha:
         _after_write(session, actor, space, "content.written", full, source)
     return sha
+
+
+def restore_version(
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    path: str,
+    sha: str,
+    *,
+    message: str = "",
+    base_sha: str | None = None,
+    source: str = "web",
+    allow_secrets: bool = False,
+) -> str | None:
+    """Puts a file back as it was after commit `sha` (see `read_version`), in a new commit:
+    the replaced text stays in the history, and a deleted file comes back. A page keeps its
+    current verification fields: going back to an old text does not verify it.
+
+    Returns the commit created, or None if this version is already the current one."""
+    version = read_version(actor, ws, space, path, sha)
+    data = version.data
+    try:
+        current = read_file(actor, ws, space, path)
+    except SynaptaneError:
+        current = None
+    old, new = current.text if current else None, version.text
+    if old is not None and new is not None and freshness.is_page(version.path):
+        data = freshness.keep_verification(old, new)[0].encode()
+    return write_file(
+        session,
+        database,
+        actor,
+        ws,
+        space,
+        path,
+        data,
+        message=message or f"{version.path}: restored to version {sha[:8]}",
+        base_sha=base_sha,
+        source=source,
+        allow_secrets=allow_secrets,
+    )
 
 
 def delete_file(
