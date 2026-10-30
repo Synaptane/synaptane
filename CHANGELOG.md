@@ -27,6 +27,11 @@ of the target version.
   and `Via:` lines of Synaptane's commits; a commit pushed from elsewhere counts as pushed
   with Git, whatever its message says.
 - Notes dropped in the inbox carry the same `Source:` and `Via:` lines in their commit.
+- **Undo a tidy-up run for some pages only**: **Undo some pages…** in the tidy-up log
+  (contributors) lists the pages the run changed, with their diff, and puts the ticked ones
+  back as they were before the run, in one commit. A page changed since is refused (restore it
+  from its history); a filed note returns to the inbox once all its pages are undone. REST:
+  `GET …/tidy/runs/{id}/pages` and `POST …/tidy/runs/{id}/undo-pages`.
 
 ### Security
 - The name of an OAuth application or token goes on a single line in the `Via:` line of a

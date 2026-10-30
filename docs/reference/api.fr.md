@@ -212,6 +212,8 @@ anciennes.
 | `POST …/spaces/{space}/tidy` | contributeur | Lance un rangement (202) ; 429 au-delà de la limite de passages manuels (voir [Erreurs](#erreurs)) |
 | `GET …/spaces/{space}/tidy/runs` | lecteur | Passages : `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, jetons consommés, `cost`, `error`, `reverted_at` |
 | `POST …/spaces/{space}/tidy/runs/{id}/revert` | admin | Annule un passage par un commit inverse |
+| `GET …/spaces/{space}/tidy/runs/{id}/pages` | lecteur | Pages modifiées par le passage : `path`, `status` (`created`, `edited`, `deleted`, `moved`), `old` (ancien chemin d'une page déplacée), `state` (`undoable`, `changed` depuis le passage, `undone`) |
+| `POST …/spaces/{space}/tidy/runs/{id}/undo-pages` | contributeur | `{"paths": […]}` : remet ces pages telles qu'avant le passage, en un commit. 409 pour une page modifiée depuis le passage (restaurez-la depuis son historique). Renvoie `commit`, `pages`, `notes_back` (notes revenues dans l'inbox : toutes leurs pages sont annulées) et `notes_kept` (toujours rangées : d'autres pages les gardent) |
 
 ## Routines d'agent
 

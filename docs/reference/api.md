@@ -209,6 +209,8 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `POST …/spaces/{space}/tidy` | contributor | Starts a tidy-up (202); 429 beyond the manual run limit (see [Errors](#errors)) |
 | `GET …/spaces/{space}/tidy/runs` | reader | Runs: `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, tokens used, `cost`, `error`, `reverted_at` |
 | `POST …/spaces/{space}/tidy/runs/{id}/revert` | admin | Reverts a run with an inverse commit |
+| `GET …/spaces/{space}/tidy/runs/{id}/pages` | reader | Pages the run changed: `path`, `status` (`created`, `edited`, `deleted`, `moved`), `old` (former path of a moved page), `state` (`undoable`, `changed` since the run, `undone`) |
+| `POST …/spaces/{space}/tidy/runs/{id}/undo-pages` | contributor | `{"paths": […]}`: puts these pages back as they were before the run, in one commit. 409 for a page changed since the run (restore it from its history). Returns `commit`, `pages`, `notes_back` (notes back in the inbox: all their pages are undone) and `notes_kept` (still filed: other pages keep them) |
 
 ## Agent routines
 
