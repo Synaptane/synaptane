@@ -717,7 +717,7 @@ def render_space_settings(
     **extra: object,
 ) -> HTMLResponse:
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
-    if section in ("general", "vocation", "tidy", "semantic") and not manage:
+    if section in ("general", "vocation", "prompts", "tidy", "semantic") and not manage:
         raise not_found("Page not found.")
     return page.render(
         template,

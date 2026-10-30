@@ -139,6 +139,31 @@ and how to report back.
 | `answer_with_sources` | `question`, `spaces` (optional) | Searches with two or three short queries, reads the best results (verified pages first), answers citing the title and URL of each source, flags a page due for review, and says what is missing |
 | `briefing` | `space` (all your spaces by default), `since` (YYYY-MM-DD, 7 days by default), `topic` (all optional) | Calls `recent_changes`, reads the pages changed and the inbox, then sums up: changes, decisions, open questions |
 
+### Your team's prompts
+
+Each space can add its own: one Markdown file per prompt in `.synaptane/prompts/` (written in
+**Settings → Assistant prompts**, by the organization's administrators, or by a push). The
+assistant lists them with the three above, named `<org>-<space>-<name>` and titled with their
+space, for every space the person reads.
+
+```markdown
+---
+title: Meeting notes
+description: Turns raw meeting notes into a summary dropped in the inbox
+arguments: topic, notes, date?
+---
+Here are my notes from the meeting about {{topic}} ({{date}}): {{notes}}
+Follow our template: {{include templates/meeting-notes.md}}
+```
+
+- `arguments`: names separated by commas; a final `?` makes one optional. `{{name}}` is
+  replaced by its value.
+- `{{include path}}` inserts a page of the space (relative to `content/`, 50,000 characters at
+  most), read with the rights of the person who runs the prompt and framed as untrusted, like
+  any page an assistant reads.
+- 30 prompts at most per space; `tidy.md` is the tidy-up rules, not a prompt.
+
+
 ## The inbox
 
 Each space has an inbox: the **Inbox** tab in the web UI, `inbox_add` (and `inbox_update`,

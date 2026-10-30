@@ -15,6 +15,7 @@ content/                          visible: wiki, search, MCP
 .synaptane/                       reserved for Synaptane
   vocation.md                     the space's purpose (optional)
   prompts/tidy.md                 tidy-up rules (optional)
+  prompts/<name>.md               the team's prompts for assistants (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -100,6 +101,15 @@ The former name of this file, `.synaptane/prompts/rangement.md`, is still read w
 only one present; the first save from Synaptane writes `tidy.md` instead.
 
 See [AI and tidy-up](../admin/ai.md).
+
+## `.synaptane/prompts/<name>.md`
+
+The team's **prompts for assistants**: every other Markdown file of the folder, one per prompt
+(30 at most), named with lowercase letters, digits and dashes. Front matter `title`,
+`description`, `arguments` (names separated by commas, `?` for an optional one); the body uses
+`{{argument}}` and `{{include page.md}}`. Written in **Settings → Assistant prompts**
+(organization administrators) or by a push. See [Your team's
+prompts](../guide/mcp.md#your-teams-prompts).
 
 ## `.synaptane/inbox/`
 

@@ -15,6 +15,7 @@ content/                          visible : wiki, recherche, MCP
 .synaptane/                       réservé à Synaptane
   vocation.md                     vocation de l'espace (facultatif)
   prompts/tidy.md                 consignes de rangement (facultatif)
+  prompts/<nom>.md                prompts d'équipe pour les assistants (facultatif)
   inbox/
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a.md   une note
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a/     ses pièces jointes éventuelles
@@ -103,6 +104,15 @@ L'ancien nom de ce fichier, `.synaptane/prompts/rangement.md`, est encore lu qua
 seul ; le premier enregistrement depuis Synaptane écrit `tidy.md` à la place.
 
 Voir [IA et rangement](../admin/ai.fr.md).
+
+## `.synaptane/prompts/<nom>.md`
+
+Les **prompts d'équipe pour les assistants** : tout autre fichier Markdown du dossier, un par
+prompt (30 au plus), nommé en lettres minuscules, chiffres et tirets. En-tête `title`,
+`description`, `arguments` (des noms séparés par des virgules, `?` pour un argument
+facultatif) ; le corps utilise `{{argument}}` et `{{include page.md}}`. Écrits dans
+**Paramètres → Prompts d'assistant** (administrateurs de l'organisation) ou par un push. Voir
+[Les prompts de votre équipe](../guide/mcp.fr.md#les-prompts-de-votre-équipe).
 
 ## `.synaptane/inbox/`
 

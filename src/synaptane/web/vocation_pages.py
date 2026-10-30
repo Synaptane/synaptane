@@ -12,8 +12,8 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
 
 from synaptane.core.access import Action, can
-from synaptane.core.errors import ErrorCode, SynaptaneError, not_found
-from synaptane.services import Actor, vocation
+from synaptane.core.errors import ErrorCode, SynaptaneError, invalid, not_found
+from synaptane.services import Actor, team_prompts, vocation
 from synaptane.storage.models import Space
 from synaptane.web.pages import (
     Csrf,
@@ -211,3 +211,126 @@ def space_rules_save(
         overwrite_sha,
         allow_secrets,
     )
+
+
+# --- Team prompts (`services.team_prompts`) ---------------------------------------------------
+
+
+def _prompts(
+    page: Page,
+    actor: Actor,
+    space: Space,
+    *,
+    drafts: dict[str, str] | None = None,
+    new_name: str = "",
+    error: SynaptaneError | None = None,
+    error_for: str = "",
+    status_code: int = 200,
+) -> Response:
+    if not can(actor.access, Action.MANAGE_ORG, org_id=space.org_id):
+        raise not_found("Page not found.")
+    found = team_prompts.of_space(page.workspace, space)
+    documents = {
+        p.name: vocation.document(actor, page.workspace, space, team_prompts.kind(p.name))
+        for p in found
+    }
+    return render_space_settings(
+        page,
+        actor,
+        space,
+        "prompts",
+        "space-prompts.html",
+        status_code=status_code,
+        prompts=found,
+        documents=documents,
+        drafts=drafts or {},
+        new_name=new_name,
+        example=team_prompts.EXAMPLES.get(page.locale, team_prompts.EXAMPLES["en"]),
+        error=error,
+        error_for=error_for,
+        limit=team_prompts.MAX_PROMPTS,
+    )
+
+
+@router.get("/o/{org_slug}/{space_slug}/-/prompts", response_class=HTMLResponse)
+def space_prompts_page(page: WebPage, org_slug: str, space_slug: str) -> Response:
+    actor = page.user_actor()
+    return _prompts(page, actor, find_space(page, actor, org_slug, space_slug))
+
+
+def _save_prompt(
+    page: WebPage, space: Space, actor: Actor, name: str, text: str, base_sha: str
+) -> Response:
+    kind = team_prompts.kind(name)
+    sha = vocation.save(
+        page.db, page.database, actor, page.workspace, space, kind, text, base_sha=base_sha
+    )
+    target = space_settings_url(space, "prompts")
+    if not vocation.document(actor, page.workspace, space, kind).synced:
+        return redirect(target, page, PENDING)
+    if not text.strip():
+        return redirect(target, page, "Prompt removed.")
+    return redirect(f"{target}#prompt-{name}", page, "Prompt saved." if sha else "Nothing changed.")
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/prompts", response_class=HTMLResponse)
+def space_prompt_create(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    name: Annotated[str, Form()] = "",
+    text: Annotated[str, Form()] = "",
+) -> Response:
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        clean = team_prompts.check_name(name)
+        existing = {p.name for p in team_prompts.of_space(page.workspace, space)}
+        if clean in existing:
+            raise invalid("A prompt named {name} already exists: edit it below.", name=clean)
+        if len(existing) >= team_prompts.MAX_PROMPTS:
+            raise invalid("{limit} prompts at most per space.", limit=team_prompts.MAX_PROMPTS)
+        if not text.strip():
+            raise invalid("Write the prompt's text.")
+        return _save_prompt(page, space, actor, clean, text, "")
+    except SynaptaneError as error:
+        page.db.rollback()
+        return _prompts(
+            page,
+            actor,
+            space,
+            drafts={"": text},
+            new_name=name,
+            error=error,
+            error_for="",
+            status_code=400,
+        )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/prompts/{name}", response_class=HTMLResponse)
+def space_prompt_save(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    name: str,
+    csrf: Csrf,
+    text: Annotated[str, Form()] = "",
+    base_sha: Annotated[str, Form()] = "",
+) -> Response:
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        return _save_prompt(page, space, actor, name, text, base_sha)
+    except SynaptaneError as error:
+        page.db.rollback()
+        status = 409 if error.code == ErrorCode.CONFLICT else 400
+        return _prompts(
+            page,
+            actor,
+            space,
+            drafts={name: text},
+            error=error,
+            error_for=name,
+            status_code=status,
+        )

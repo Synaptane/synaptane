@@ -38,6 +38,7 @@ from tests.integration.waiting import wait_until_started
 class Live:
     url: str
     database: Database
+    ws: Workspace | None = None  # the application's workspace (writes made by a test)
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ def live(settings: Settings, database: Database, db: Session, tmp_path: Path) ->
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     wait_until_started(server, thread, "MCP")
-    yield Live(url, database)
+    yield Live(url, database, ws)
     server.should_exit = True
     thread.join(timeout=10)
 
@@ -426,6 +427,41 @@ def test_inbox_only_connection_drops_notes_but_changes_no_page(live: Live) -> No
     ).json()
     _, again = in_session(live, renewed["access_token"], work)
     assert again[3][0] and "limited to the inbox" in again[3][1]  # kept on refresh
+
+
+def test_team_prompts_reach_assistants(live: Live) -> None:
+    """A space's prompts are listed with the built-in ones, named after the space, and
+    rendered with their arguments and included pages."""
+    from synaptane.services import team_prompts, vocation
+
+    with live.database.session() as session:
+        root = actor_of(session, accounts.get_user(session, "root"))
+        infra = session.scalar(select(Space).where(Space.slug == "infra"))
+        assert infra is not None
+        assert live.ws is not None
+        vocation.save(
+            session,
+            live.database,
+            root,
+            live.ws,
+            infra,
+            team_prompts.kind("compte-rendu"),
+            "---\ntitle: Compte rendu\narguments: sujet\n---\nSujet : {{sujet}}.\n"
+            "{{include README.md}}\n",
+        )
+    bob = token_for(live.database, "bob")
+
+    async def work(session: ClientSession) -> tuple[list[Any], str]:
+        listed = (await session.list_prompts()).prompts
+        got = await session.get_prompt("acme-infra-compte-rendu", {"sujet": "sauvegardes"})
+        return listed, "".join(getattr(m.content, "text", "") for m in got.messages)
+
+    listed, text = in_session(live, bob, work)
+    mine = next(p for p in listed if p.name == "acme-infra-compte-rendu")
+    assert mine.title == "Compte rendu (acme/infra)"
+    assert [(a.name, a.required) for a in mine.arguments or []] == [("sujet", True)]
+    assert {"save", "answer_with_sources", "briefing"} <= {p.name for p in listed}
+    assert text.startswith("Sujet : sauvegardes.") and 'untrusted="true"' in text
 
 
 def test_superadmin_assistant_sees_only_real_memberships(live: Live) -> None:

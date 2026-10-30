@@ -20,6 +20,8 @@ from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, Re
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import GetPromptResult, PromptArgument, PromptMessage, TextContent
+from mcp.types import Prompt as MCPPrompt
 from mcp.types import Tool as MCPTool
 from pydantic import BaseModel, Field, ValidationError
 
@@ -44,7 +46,7 @@ from synaptane.mcp.kit import (
 from synaptane.mcp.kit import relative as _relative
 from synaptane.mcp.oauth import SCOPE, SynaptaneOAuthProvider, token_identity
 from synaptane.services import content as files
-from synaptane.services import deposits, freshness, load_actor, spaces
+from synaptane.services import deposits, freshness, load_actor, spaces, team_prompts
 from synaptane.services import search as search_service
 from synaptane.services.inbox import InboxItem
 from synaptane.services.workspace import Workspace
@@ -152,6 +154,54 @@ class SynaptaneMCP(MCPServer):
     inbox gets the inbox ones only. Every call is still checked."""
 
     can_write: Callable[[str, str, str], str] | None = None  # "write", "inbox" or ""
+    # Team prompts of the connection's spaces, and their rendering (`services.team_prompts`).
+    space_prompts: Callable[[str, str, str], list[team_prompts.Prompt]] | None = None
+    run_prompt: Callable[[str, str, str, str, dict[str, str]], str | None] | None = None
+
+    async def list_prompts(self) -> list[MCPPrompt]:
+        listed = await super().list_prompts()
+        token = get_access_token()
+        if self.space_prompts is None or token is None or token.subject is None:
+            return listed
+        found = await anyio.to_thread.run_sync(
+            self.space_prompts, token.subject, token.client_id, token.token
+        )
+        return listed + [
+            MCPPrompt(
+                name=p.mcp_name,
+                title=p.mcp_title,
+                description=p.description or f"Prompt of the space {p.space}.",
+                arguments=[
+                    PromptArgument(name=a.name, description=a.name, required=a.required)
+                    for a in p.arguments
+                ],
+            )
+            for p in found
+        ]
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, Any] | None = None, context: Any = None
+    ) -> Any:
+        token = get_access_token()
+        if (
+            self._prompt_manager.get_prompt(name) is not None
+            or self.run_prompt is None
+            or token is None
+            or token.subject is None
+        ):
+            return await super().get_prompt(name, arguments, context)
+        values = {k: str(v) for k, v in (arguments or {}).items()}
+        try:
+            text = await anyio.to_thread.run_sync(
+                self.run_prompt, token.subject, token.client_id, token.token, name, values
+            )
+        except SynaptaneError as error:
+            raise ValueError(error.message) from None
+        if text is None:
+            raise ValueError(f"Unknown prompt: {name}")
+        return GetPromptResult(
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text=text))]
+        )
 
     async def list_tools(self) -> list[MCPTool]:
         tools = [_lean(t) for t in await super().list_tools()]
@@ -234,6 +284,38 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
             return "inbox" if limits.inbox_only else "write"
 
     server.can_write = can_write
+
+    def connection(session: Any, subject: str, client_id: str, value: str) -> Any:
+        user = session.get(User, UUID(subject))
+        if user is None or not user.is_active:
+            return None
+        via, limits = token_identity(session, client_id, value)
+        return load_actor(session, user, via, limits)
+
+    def list_team_prompts(subject: str, client_id: str, value: str) -> list[team_prompts.Prompt]:
+        with database.session() as session:
+            actor = connection(session, subject, client_id, value)
+            if actor is None:
+                return []
+            visible = spaces.list_all_visible_spaces(session, actor)
+            return team_prompts.available(actor, ws, visible)
+
+    def run_team_prompt(
+        subject: str, client_id: str, value: str, name: str, values: dict[str, str]
+    ) -> str | None:
+        with database.session() as session:
+            actor = connection(session, subject, client_id, value)
+            if actor is None:
+                return None
+            visible = spaces.list_all_visible_spaces(session, actor)
+            for prompt in team_prompts.available(actor, ws, visible):
+                if prompt.mcp_name == name:
+                    space = next(s for s in visible if s.address == prompt.space)
+                    return team_prompts.render(actor, ws, space, prompt, values).text
+        return None
+
+    server.space_prompts = list_team_prompts
+    server.run_prompt = run_team_prompt
     kit = Kit(settings, database, ws)
     reading.register(server, kit)
     prompts.register(server)

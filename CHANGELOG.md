@@ -14,6 +14,12 @@ Upgrade: one migration (`0026`, an `inbox_only` column on tokens and OAuth conne
 existing ones keep their level), applied on start as usual.
 
 ### Added
+- **Your team's prompts for assistants**: one Markdown file per prompt in a space's
+  `.synaptane/prompts/` (written in **Settings → Assistant prompts** by the organization's
+  administrators, or by a push), with arguments (`{{name}}`) and included pages
+  (`{{include page.md}}`, read with the person's rights, framed as untrusted). Every
+  assistant connected over MCP lists them with the built-in prompts, named
+  `<org>-<space>-<name>`.
 - **Connections limited to the inbox**: a third level next to "read only" and "read and
   write", on the OAuth consent screen and for personal tokens (web, and `inbox_only` in
   `POST /me/tokens`). The assistant reads, and drops, corrects or removes notes in the inbox,
