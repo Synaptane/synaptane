@@ -45,13 +45,16 @@ class Env:
     org_id: UUID
     template: Path  # dépôt nu modèle (le wiki du banc), copié pour chaque espace
     count: int = field(default=0)
+    settings: Settings | None = None  # réglages de l'application (banc MCP : serveur réel)
 
     def actor(self) -> Actor:
         with self.database.session() as session:
             return load_actor(session, accounts.get_user(session, "eval"))
 
 
-def prepare(database: Database, ws: Workspace, root_dir: Path) -> Env:
+def prepare(
+    database: Database, ws: Workspace, root_dir: Path, settings: Settings | None = None
+) -> Env:
     """Compte super-administrateur et organisation du banc, plus le dépôt modèle."""
     with database.session() as session:
         user = accounts.create_user(
@@ -69,7 +72,7 @@ def prepare(database: Database, ws: Workspace, root_dir: Path) -> Env:
     remote = Remote(root_dir / "modele")
     files: dict[str, str | None] = dict(PAGES)
     remote.push(files, "Wiki du banc d'évaluation")
-    return Env(database, ws, root_dir, org_id, remote.bare)
+    return Env(database, ws, root_dir, org_id, remote.bare, settings=settings)
 
 
 def new_space(env: Env, slug: str = "") -> Space:
@@ -118,7 +121,7 @@ def temporary(admin_url: str = ADMIN_URL) -> Iterator[Env]:
         settings.data_dir.mkdir()
         settings.key_file.write_bytes(SecretBox.generate_key())
         database = Database(url)
-        yield prepare(database, workspace_for(settings), root)
+        yield prepare(database, workspace_for(settings), root, settings)
     finally:
         if database is not None:
             database.dispose()
