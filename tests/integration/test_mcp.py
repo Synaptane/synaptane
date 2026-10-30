@@ -931,6 +931,29 @@ def test_a_past_version_is_read_then_restored(live: Live) -> None:
     assert "8 To" in framed(texts[4]) and "12 To" not in texts[4]
 
 
+def test_results_give_the_last_change_and_whether_an_ai_wrote_it(live: Live) -> None:
+    """`edited`, `edited_by` and `ai` in search and fetch, `edited:` in the read header; the
+    client's name stays out of them (it is chosen by the client)."""
+    alice = token_for(live.database, "alice")
+    infra: dict[str, object] = {"space": "acme/infra"}
+    results = mcp_calls(
+        live,
+        alice,
+        ("write_page", {**infra, "path": "ia.md", "content": "# IA\n\nSauvegarde par IA.\n"}),
+        ("search", {"query": "sauvegarde"}),
+        ("fetch", {"id": "acme/infra/ia.md"}),
+        ("read", {**infra, "path": "ia.md"}),
+    )
+    assert not any(error for error, _ in results), results
+    hits = {h["path"]: h for h in json.loads(results[1][1])["results"]}
+    assert (hits["ia.md"]["edited_by"], hits["ia.md"]["ai"]) == ("Alice", "assistant")
+    assert hits["README.md"]["edited_by"] == "Alice Externe" and "ai" not in hits["README.md"]
+    metadata = json.loads(results[2][1])["metadata"]
+    assert metadata["ai"] == "assistant" and metadata["edited"].startswith("20")
+    assert "\nedited: 20" in results[3][1] and " by Alice (AI: assistant)\n" in results[3][1]
+    assert "tests" not in json.dumps(hits["ia.md"])  # the token's name: not in the fields
+
+
 def test_a_note_deposited_by_mistake_is_corrected_or_removed(live: Live) -> None:
     """`inbox_update` and `inbox_delete`, by the note's id."""
     alice = token_for(live.database, "alice")

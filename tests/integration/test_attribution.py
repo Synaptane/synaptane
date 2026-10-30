@@ -96,3 +96,54 @@ def test_activity_page_shows_the_share_of_ai(
     assert "via Claude" in page and 'class="badge badge-ai"' in page
     only_ai = client.get("/o/acme/infra/activity?kind=ai").text
     assert "ia.md" in only_ai and 'aria-current="page">Écrit par l&#39;IA' in only_ai
+
+
+def test_last_edits_follow_new_commits(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    claude = replace(wiki.alice, via="MCP · Claude")
+    edits = activity.last_edits(ctx, wiki.infra)
+    assert edits["serveurs/proxmox.md"].origin == "git" and not edits["README.md"].ai
+    content.write_file(db, database, claude, ctx, wiki.infra, "ia.md", b"# IA\n", source="mcp")
+    content.delete_file(db, database, wiki.alice, ctx, wiki.infra, "serveurs/notes.txt")
+    edits = activity.last_edits(ctx, wiki.infra)  # only the new commits are walked
+    assert (edits["ia.md"].author, edits["ia.md"].origin, edits["ia.md"].ai) == (
+        "Alice",
+        "assistant",
+        True,
+    )
+    assert edits["ia.md"].by == "Alice via Claude (AI)"
+    assert "serveurs/notes.txt" not in edits and "serveurs/proxmox.md" in edits
+
+
+def test_search_results_say_who_edited_last(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    from synaptane.services import search as search_service
+    from tests.integration.conftest import token_for
+
+    claude = replace(wiki.alice, via="MCP · Claude")
+    page = content.read_file(wiki.alice, ctx, wiki.infra, "serveurs/proxmox.md")
+    text = (page.text or "") + "\nRéécrit par l'assistant.\n"
+    content.write_file(
+        db,
+        database,
+        claude,
+        ctx,
+        wiki.infra,
+        "serveurs/proxmox.md",
+        text.encode(),
+        base_sha=page.sha,
+        source="mcp",
+    )
+    db.commit()
+    [hit] = search_service.search(db, wiki.bob, ctx, "nocturne")
+    assert hit.edit is not None and hit.edit.ai and hit.edit.author == "Alice"
+
+    bob = {"Authorization": f"Bearer {token_for(database, 'bob')}"}
+    [found] = client.get("/api/v1/search", params={"q": "nocturne"}, headers=bob).json()
+    assert (found["edited_by"], found["edited_by_ai"]) == ("Alice", "assistant")
+    assert found["edited"].startswith("20")
+    login(client, "bob")
+    shown = client.get("/search", params={"q": "nocturne"}).text
+    assert "modifiée le" in shown and 'class="badge badge-ai"' in shown

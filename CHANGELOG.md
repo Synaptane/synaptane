@@ -10,6 +10,14 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Last change in search results**: when, by whom, and whether an AI wrote it (the tidy-up,
+  a routine or an assistant). In the web search (date, author, **AI** badge), the REST API
+  (`edited`, `edited_by`, `edited_by_ai`) and the MCP tools (`edited`, `edited_by`, `ai` in
+  `search` and `fetch`, `edited:` in the `read` header). The server guidance asks assistants
+  to be more careful with a page last written by an AI and not verified since. Computed from
+  the Git history in one walk per space, then only the new commits.
+
 ## [1.1.0] - 2026-10-30
 
 Keeping control of what the AI writes. Upgrading from 1.0.0 needs no migration and no

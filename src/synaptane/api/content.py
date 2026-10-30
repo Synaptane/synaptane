@@ -154,6 +154,11 @@ class HitOut(BaseModel):
     verified: bool = Field(description="Page verified and up to date (ranked slightly higher)")
     stale: bool = Field(description="Stale page: verification overdue (to be reported)")
     freshness: FreshnessOut | None = Field(description="Markdown page: verification details")
+    edited: str | None = Field(description="Date of the last change (ISO 8601)")
+    edited_by: str | None = Field(description="Author of the last change")
+    edited_by_ai: str | None = Field(
+        description="tidy, routine or assistant when an AI wrote the last change; null: a person"
+    )
     snippets: list[SnippetOut]
 
 
@@ -460,6 +465,9 @@ def search(
             verified=h.verified,
             stale=h.stale,
             freshness=_freshness(h.freshness),
+            edited=h.edit.date if h.edit else None,
+            edited_by=h.edit.author if h.edit else None,
+            edited_by_ai=h.edit.origin if h.edit and h.edit.ai else None,
             snippets=[SnippetOut(**vars(s)) for s in h.snippets],
         )
         for h in hits

@@ -173,8 +173,9 @@ up as a `change` item in the inbox, computed from the Git history.
 Search covers all readable spaces if `spaces` is absent. Each result gives `space`, `path`,
 `title`, `score`, `match` (`text`: by words, `meaning`: by meaning, `both`), `extracted` (found
 in extracted text), `verified` and `stale` (page verified and up to date, or due for review),
-`freshness` (details, `null` for non-Markdown files) and up to three `snippets` (`line`,
-`text`, `before`, `after`). `mode=text`: by words only. A verified, up-to-date page ranks a
+`freshness` (details, `null` for non-Markdown files), the last change (`edited`, its date;
+`edited_by`, its author; `edited_by_ai`: `tidy`, `routine` or `assistant` when an AI wrote
+it, `null` for a person) and up to three `snippets` (`line`, `text`, `before`, `after`). `mode=text`: by words only. A verified, up-to-date page ranks a
 little higher (+10%), a page due for review a little lower (−7%).
 
 **Pending notes.** A dropped note can only be found among the pages once it has been tidied.

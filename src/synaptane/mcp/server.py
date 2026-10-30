@@ -90,7 +90,9 @@ Good practices:
 - Trust: a page may have an owner and a verification date (`verified`, `stale` in `search`,
   `fetch` and the `read` header). Prefer verified pages; say when a page is due for review
   (verification expired): its content may be outdated. `verify_page` marks it verified, only
-  if the user confirms.
+  if the user confirms. `edited`, `edited_by` and `ai` give its last change: a page last
+  written by an AI (`ai`: tidy, routine or assistant) and not verified since deserves more
+  caution than one a person wrote or checked; say so when it matters.
 - To record information (decision, procedure, meeting notes, finding), prefer `inbox_add` in
   the most relevant space: every night an agent files it in the right place and updates the
   pages concerned. Give a clear title, self-contained Markdown content and, if possible, a

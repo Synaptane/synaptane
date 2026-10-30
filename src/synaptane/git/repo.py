@@ -913,6 +913,23 @@ class Repository:
                 dates.setdefault(path, date)  # most recent first
         return dates
 
+    def last_commits(
+        self, prefix: str, rev: str = "HEAD", since: str | None = None
+    ) -> dict[str, Commit | None]:
+        """Last commit that touched each file under `prefix` (author, date, trailers), in a
+        single walk of the history; `since` as for `last_changes`. None: the last commit
+        deleted the file (to drop it from a result computed earlier)."""
+        span = f"{since}..{rev}" if since else rev
+        out = self._git(
+            "log", "--name-status", "--no-renames", "-z", LOG_FORMAT, span, "--", prefix
+        ).stdout
+        found: dict[str, Commit | None] = {}
+        for commit, entries in parse_log(out):  # most recent first
+            for status, path, _old in entries:
+                if path not in found:
+                    found[path] = None if status == "D" else replace(commit, paths=(path,))
+        return found
+
     def recent(
         self,
         prefix: str | tuple[str, ...],

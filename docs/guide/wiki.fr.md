@@ -250,6 +250,10 @@ Le comportement est celui de `grep` :
   contiennent tous les mots, ou l'expression exacte, passent en premier ;
 - **Expression régulière** pour des motifs, par exemple `sauv\w+ noct`.
 
+Chaque résultat donne sa dernière modification : quand, par qui, avec un badge **IA** quand
+une IA l'a écrite (le rangement nocturne, une routine, un assistant). Avec « vérifiée » ou
+« à revoir », il dit quelle confiance accorder à la page.
+
 Dans les espaces où la **recherche sémantique** est activée, elle trouve aussi les pages
 proches par le sens (une question en anglais sur une page en français, une paraphrase…).
 Ces résultats portent la mention « par le sens », ou « mots et sens ». Activer la

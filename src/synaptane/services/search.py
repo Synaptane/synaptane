@@ -43,7 +43,8 @@ from synaptane.ai.base import AIError
 from synaptane.ai.embeddings import Embedder, EmbeddingConfig, prefixes
 from synaptane.core import markdown
 from synaptane.core.errors import invalid, not_found, unavailable
-from synaptane.services import Actor, freshness, semantic, spaces
+from synaptane.services import Actor, activity, freshness, semantic, spaces
+from synaptane.services.activity import LastEdit
 from synaptane.services.freshness import Freshness
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.workspace import Workspace
@@ -95,6 +96,7 @@ class Hit:
     section: str = ""  # title of that section, as text
     modified: float = 0.0  # file modification date (tie-breaker on equal scores)
     freshness: Freshness | None = None  # Markdown page: verified, due for review…
+    edit: LastEdit | None = None  # last change: when, who, person or AI
 
     @property
     def verified(self) -> bool:
@@ -605,6 +607,7 @@ class _Roots:
         self.extract = str(ws.extract_path(space.id)) + "/"
         self.paths = [r.rstrip("/") for r in (self.content, self.extract) if Path(r).is_dir()]
         self.states: dict[str, freshness.Freshness] = {}  # verified or due-for-review pages
+        self.edits: dict[str, LastEdit] = {}  # last change of each file
 
     def locate(self, raw: str) -> tuple[str, bool] | None:
         if raw.startswith(self.content):
@@ -818,6 +821,7 @@ def _rank_space(
         _SLOTS.release()
     _measure(roots, found.values(), stats)
     states = roots.states = freshness.space_states(ws, space)
+    roots.edits = activity.last_edits(ws, space)
     for entry in found.values():
         state = states.get(entry.path) if not entry.extracted else None
         entry.factor = state.search_factor() if state is not None else 1.0
@@ -862,6 +866,7 @@ def _hits(space: Space, roots: "_Roots", query: Query, best: list[_Candidate]) -
                 section=section.text if section else "",
                 modified=entry.modified,
                 freshness=_state(roots.states, entry.path, entry.extracted),
+                edit=roots.edits.get(entry.path),
             )
         )
     hits.sort(key=lambda h: (-h.score, -h.modified, h.path))
@@ -966,6 +971,7 @@ def _meaning(
                 anchor=section.anchor if section else "",
                 section=section.text if section else "",
                 freshness=_state(freshness.space_states(ws, space), found.path, False),
+                edit=activity.last_edits(ws, space).get(found.path),
             )
         found_pages.append((1 / (RRF_K + rank), hit))
     return found_pages
