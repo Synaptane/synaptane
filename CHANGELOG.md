@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
+A first view in the conversation: assistants that render MCP Apps show the pages to review as
+cards. Upgrading from 1.3.0: no migration. Hosts read a server's tools when the connector is
+added or refreshed: reconnect it (or start a new conversation) to see `pages_to_review`.
+
 ### Added
 - **A first view in the conversation (MCP Apps)**: the new MCP tool `pages_to_review` lists
   the pages due for review and those reported as outdated (text for any client), and comes
@@ -359,7 +365,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/synaptane/synaptane/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/synaptane/synaptane/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/synaptane/synaptane/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/synaptane/synaptane/compare/v1.0.0...v1.1.0
