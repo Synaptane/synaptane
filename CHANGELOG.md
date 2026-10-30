@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+### Changed
+- MCP guidance: to record information, an assistant may add a short fact to the one page it
+  obviously belongs to (`edit_page`, keeping what is there); otherwise it drops it with
+  `inbox_add`. Measured with the new MCP bench (`./scripts/eval.sh mcp`, docs/dev/eval.md):
+  Sonnet 5.5 did the former, correctly, against the previous "prefer `inbox_add`".
+
 ## [1.2.0] - 2026-10-30
 
 Trust in the content: who wrote a page last, pages that still hold, pages reported as

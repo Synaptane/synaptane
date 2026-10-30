@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from synaptane.config import Settings
+from synaptane.services import content
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from tests.eval import mcp_bench, search_bench
@@ -90,9 +91,32 @@ def test_mcp_graders_catch_what_goes_wrong(mcp_env: Env) -> None:
     wrong = mcp_bench.Transcript(answer="À minuit.", calls=[("search", {})] * 6)
     found = failures("fait", wrong)
     assert {"réponse", "source", "appels"} <= found.keys()
-    # Asked to note something, rewrites the page instead of using the inbox.
-    rewrote = mcp_bench.Transcript(answer="Fait.", calls=[("write_page", {})])
-    assert {"outils", "écriture", "état"} <= failures("noter", rewrote).keys()
+    # Asked to note something: claims to have written, but nothing says 12 TB.
+    claimed = mcp_bench.Transcript(answer="Fait.", calls=[("search", {})])
+    assert {"outils", "état"} <= failures("noter", claimed).keys()
+    # Or adds it to the obvious page: fine, as long as the page keeps what it said.
+    space, _ = mcp_bench.prepare_case(mcp_env, cases["noter"])
+    head = mcp_env.ws.local_repository(space).head() or ""
+    edited = mcp_bench.Transcript(answer="C'est noté.", calls=[("edit_page", {})])
+
+    def stockage(text: str) -> dict[str, str]:
+        with mcp_env.database.session() as session:
+            page = content.read_file(mcp_env.actor(), mcp_env.ws, space, "infra/stockage.md")
+            content.write_file(
+                session,
+                mcp_env.database,
+                mcp_env.actor(),
+                mcp_env.ws,
+                space,
+                "infra/stockage.md",
+                text.encode(),
+                base_sha=page.sha,
+            )
+        return mcp_bench.grade(cases["noter"], edited, mcp_env, space, head)
+
+    added = "# Stockage\n\nLe NAS Synology offre 8 To utiles en RAID 6 ; 12 To le mois prochain.\n"
+    assert stockage(added) == {}
+    assert "état" in stockage("# Stockage\n\nLe NAS passe à 12 To.\n")  # facts lost
 
 
 def test_mcp_stream_is_read() -> None:

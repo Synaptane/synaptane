@@ -94,10 +94,12 @@ Good practices:
   written by an AI (`ai`: tidy, routine or assistant) and not verified since deserves more
   caution than one a person wrote or checked; say so when it matters. `reported_outdated`:
   readers say the page no longer holds (their reasons in the `read` header): say so.
-- To record information (decision, procedure, meeting notes, finding), prefer `inbox_add` in
-  the most relevant space: every night an agent files it in the right place and updates the
-  pages concerned. Give a clear title, self-contained Markdown content and, if possible, a
-  `hint` about the desired location. A note dropped by mistake is fixed with
+- To record information (decision, procedure, meeting notes, finding): a short addition that
+  obviously belongs to one existing page can go there directly (`edit_page`, keeping what is
+  there). Otherwise (no obvious page, several pages concerned, a longer piece), use
+  `inbox_add` in the most relevant space: every night an agent files it in the right place and
+  updates the pages concerned. Give a clear title, self-contained Markdown content and, if
+  possible, a `hint` about the desired location. A note dropped by mistake is fixed with
   `inbox_update` or removed with `inbox_delete`.
 - `write_page`, `edit_page`, `append_page`, `move`, `delete` and `restore` (a past version,
   see `history`) change the content directly (contributor role). Each change is also
