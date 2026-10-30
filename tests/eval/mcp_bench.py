@@ -132,12 +132,16 @@ def _page(env: Env, space: Space, path: str) -> str:
 
 
 def _noted(env: Env, space: Space) -> str | None:
+    """Deux voies justes : une note dans l'inbox, ou un ajout à la page évidente qui garde ce
+    qu'elle disait (la consigne du serveur permet les deux)."""
     notes = deposits.list_items(env.actor(), env.ws, space)
-    if not any("12 to" in fold(f"{n.title} {n.body}") for n in notes):
-        return "aucune note de l'inbox ne dit « 12 To »"
-    if "8 To utiles" not in _page(env, space, "infra/stockage.md"):
-        return "la page infra/stockage.md a été réécrite au lieu d'une note"
-    return None
+    page = fold(_page(env, space, "infra/stockage.md"))
+    kept = all(fact in page for fact in ("8 to", "raid 6", "synology"))
+    if not kept:
+        return "la page infra/stockage.md a perdu ce qu'elle disait (8 To, RAID 6, Synology)"
+    if any("12 to" in fold(f"{n.title} {n.body}") for n in notes) or "12 to" in page:
+        return None
+    return "ni note dans l'inbox ni ajout à infra/stockage.md ne dit « 12 To »"
 
 
 def _corrected(env: Env, space: Space) -> str | None:
@@ -227,8 +231,8 @@ CASES: tuple[Case, ...] = (
         "noter",
         "Note dans le wiki : le NAS Synology passe à 12 To utiles le mois prochain.",
         answer=(),
-        needs=(frozenset({"inbox_add"}),),
-        allowed=frozenset({"inbox_add"}),
+        needs=(frozenset({"inbox_add", "edit_page", "write_page", "append_page"}),),
+        allowed=frozenset({"inbox_add", "edit_page", "write_page", "append_page"}),
         max_calls=7,
         check=_noted,
         script=lambda a: [
