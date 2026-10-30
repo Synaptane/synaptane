@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "synaptane"
-version = "1.2.0"
+version = "1.3.0"
 description = "Self-hosted team second brain stored in Git: wiki, search, MCP server and AI tidy-up."
 readme = "README.md"
 license = "Apache-2.0"

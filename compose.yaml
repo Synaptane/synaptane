@@ -26,7 +26,7 @@ x-synaptane: &synaptane
   # Image published by .github/workflows/release.yml, without the subscription CLIs (Claude
   # Code, Codex): for those, build the image (compose.build.yaml, docs/admin/ai.md).
   # SYNAPTANE_IMAGE replaces it (synaptane:local for an image built here).
-  image: ${SYNAPTANE_IMAGE:-ghcr.io/synaptane/synaptane:${SYNAPTANE_VERSION:-1.2.0}}
+  image: ${SYNAPTANE_IMAGE:-ghcr.io/synaptane/synaptane:${SYNAPTANE_VERSION:-1.3.0}}
   restart: unless-stopped
   logging: *logging
   # Hardening: read-only file system (data in /data, temporary files in memory), no Linux
@@ -128,7 +128,7 @@ services:
 
   nginx:
     profiles: [proxy]
-    image: ${SYNAPTANE_NGINX_IMAGE:-ghcr.io/synaptane/synaptane-nginx:${SYNAPTANE_VERSION:-1.2.0}}
+    image: ${SYNAPTANE_NGINX_IMAGE:-ghcr.io/synaptane/synaptane-nginx:${SYNAPTANE_VERSION:-1.3.0}}
     restart: unless-stopped
     logging: *logging
     environment:

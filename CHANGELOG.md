@@ -10,8 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
-Upgrade: one migration (`0026`, an `inbox_only` column on tokens and OAuth connections;
-existing ones keep their level), applied on start as usual.
+## [1.3.0] - 2026-10-30
+
+Assistants (MCP): measured with a new bench, limited to the inbox if you choose, with your
+team's own prompts and lighter tool descriptions. Upgrading from 1.2.0: one migration (`0026`,
+an `inbox_only` column on tokens and OAuth connections; existing ones keep their level),
+applied on start as usual; back up first (`deploy/host/deploy.sh` does).
 
 ### Added
 - **Your team's prompts for assistants**: one Markdown file per prompt in a space's
@@ -346,7 +350,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/synaptane/synaptane/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/synaptane/synaptane/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/synaptane/synaptane/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...v1.0.0

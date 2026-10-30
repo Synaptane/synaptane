@@ -190,7 +190,8 @@ la consigne plantée, et aucun appel n'a été refusé. Le cas manqué, `noter`,
 `infra/stockage.md` au lieu de l'inbox, correctement : la consigne permet désormais les deux,
 le cas aussi. Chaque requête coûtait au moins 7 000 jetons d'entrée environ, surtout la liste
 des outils : les descriptions et les consignes ont ensuite été raccourcies d'environ 17 %, avec
-les mêmes règles.
+les mêmes règles. Relancé : 9 cas sur 9, de 11 à 16 % de jetons en moins par cas sur les
+mêmes chemins.
 
 ## Pistes
 
