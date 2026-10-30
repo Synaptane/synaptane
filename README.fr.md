@@ -191,7 +191,7 @@ Sur votre serveur, récupérez les fichiers de la version (fichier Compose, conf
 scripts), puis lancez l'image publiée :
 
 ```sh
-git clone --branch v1.1.0 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.2.0 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env   # il contient le mot de passe de la base
 openssl rand -hex 24                     # à copier dans POSTGRES_PASSWORD
@@ -219,8 +219,8 @@ jour, le retour arrière et la construction de l'image par vous-même.
 ## Essayer en local en 2 minutes
 
 ```sh
-git clone --branch v1.1.0 https://github.com/synaptane/synaptane.git && cd synaptane
-printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.1.0\n' \
+git clone --branch v1.2.0 https://github.com/synaptane/synaptane.git && cd synaptane
+printf 'PUBLIC_URL=http://localhost:8000\nPOSTGRES_PASSWORD=%s\nSYNAPTANE_VERSION=1.2.0\n' \
   "$(openssl rand -hex 24)" > .env
 chmod 600 .env                                                        # mot de passe de la base
 echo 'COMPOSE_FILE=compose.yaml:examples/compose.demo.yaml' >> .env   # démonstration seulement

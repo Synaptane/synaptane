@@ -81,7 +81,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # Last: changing commits rebuilds no layer.
 # VERSION follows pyproject.toml (checked by tests/unit/test_image_metadata.py).
 ARG GIT_SHA=unknown
-ARG VERSION=1.1.0
+ARG VERSION=1.2.0
 LABEL org.opencontainers.image.title="Synaptane" \
       org.opencontainers.image.description="Self-hosted team second brain stored in Git" \
       org.opencontainers.image.source="https://github.com/synaptane/synaptane" \

@@ -10,8 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
-Upgrade: two migrations (`0024` and `0025`, new tables `page_reports` and
-`finding_verdicts`), applied on start as usual.
+## [1.2.0] - 2026-10-30
+
+Trust in the content: who wrote a page last, pages that still hold, pages reported as
+outdated, false alarms that do not come back. Upgrading from 1.1.0: two migrations (`0024`
+and `0025`, new tables `page_reports` and `finding_verdicts`), applied on start as usual;
+back up first (`deploy/host/deploy.sh` does, and restores the backup if the upgrade fails).
 
 ### Added
 - **Report a page as outdated**: anyone who reads a page can say what no longer holds (⋮
@@ -315,7 +319,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/synaptane/synaptane/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/synaptane/synaptane/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/synaptane/synaptane/compare/v1.0.0-rc.1...v1.0.0-rc.2
