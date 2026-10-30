@@ -22,6 +22,8 @@ mot de passe change ou si le compte est désactivé.
 Un jeton peut être **restreint** à sa création (web, ou `POST /me/tokens` avec
 `{"name": …, "days": …, "read_only": true, "spaces": ["acme/infra"]}`) :
 - `read_only` : lecture et recherche seulement, aucune écriture ni dépôt ;
+- `inbox_only` : lecture, recherche, et dépôt, correction ou retrait de notes dans l'inbox,
+  mais aucune modification directe des pages (pas avec `read_only`) ;
 - `spaces` : ces espaces seulement, parmi ceux dont le compte est membre (ou dont il
   administre l'organisation) ; absent : tous, y compris les futurs. Le formulaire web ne coche
   que les espaces de la première organisation (par ordre alphabétique) quand le compte est
@@ -79,8 +81,8 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | Méthode et chemin | Rôle |
 |---|---|
 | `GET /me` | Compte appelant : `username`, `display_name`, `email`, `locale`, `is_superadmin`, `is_active` |
-| `GET /me/tokens` | Jetons personnels : `id`, `name`, `hint` (4 derniers caractères), `created_at`, `expires_at`, `last_used_at`, `read_only`, `space_ids` |
-| `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "spaces": ["acme/infra"]}` (201) ; `days: null` : sans expiration. Renvoie le `token`, une seule fois |
+| `GET /me/tokens` | Jetons personnels : `id`, `name`, `hint` (4 derniers caractères), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
+| `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201) ; `days: null` : sans expiration. Renvoie le `token`, une seule fois |
 | `DELETE /me/tokens/{id}` | Révoque (204) |
 | `GET /spaces` | Tous les espaces visibles : `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` |
 

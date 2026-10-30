@@ -10,6 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+Upgrade: one migration (`0026`, an `inbox_only` column on tokens and OAuth connections;
+existing ones keep their level), applied on start as usual.
+
+### Added
+- **Connections limited to the inbox**: a third level next to "read only" and "read and
+  write", on the OAuth consent screen and for personal tokens (web, and `inbox_only` in
+  `POST /me/tokens`). The assistant reads, and drops, corrects or removes notes in the inbox,
+  but changes no page directly: what it notes goes through the nightly tidy-up. It is only
+  offered the read and inbox tools; a page write is refused with the reason. It limits what
+  instructions hidden in a page could make it change.
+
 ### Changed
 - MCP guidance: to record information, an assistant may add a short fact to the one page it
   obviously belongs to (`edit_page`, keeping what is there); otherwise it drops it with

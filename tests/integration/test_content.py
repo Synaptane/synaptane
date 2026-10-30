@@ -320,6 +320,30 @@ def test_rest_content(client: TestClient, database: Database, wiki: Wiki) -> Non
     assert hits[0]["snippets"][0]["line"] == 3
 
 
+def test_rest_token_limited_to_the_inbox(
+    client: TestClient, database: Database, wiki: Wiki
+) -> None:
+    alice = {"Authorization": f"Bearer {token_for(database, 'alice')}"}
+    made = client.post(
+        "/api/v1/me/tokens", json={"name": "assistant", "inbox_only": True}, headers=alice
+    )
+    assert made.status_code == 201 and made.json()["inbox_only"] is True
+    limited = {"Authorization": f"Bearer {made.json()['token']}"}
+    base = "/api/v1/organizations/acme/spaces/infra"
+    dropped = client.post(
+        f"{base}/inbox", json={"title": "NAS", "content": "12 To."}, headers=limited
+    )
+    assert dropped.status_code == 201
+    page = client.put(f"{base}/files/x.md", json={"content": "x"}, headers=limited)
+    assert page.status_code == 403
+    both = client.post(
+        "/api/v1/me/tokens",
+        json={"name": "x", "inbox_only": True, "read_only": True},
+        headers=alice,
+    )
+    assert both.status_code == 400
+
+
 def test_org_admin_reads_every_space(db: Session, ctx: Workspace, wiki: Wiki) -> None:
     dave = make_user(db, "dave")
     acme = wiki.infra.organization

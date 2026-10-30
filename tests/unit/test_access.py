@@ -57,3 +57,17 @@ def test_require_raises_forbidden() -> None:
     with pytest.raises(SynaptaneError) as error:
         require(access(), Action.MANAGE_INSTANCE)
     assert error.value.code == "forbidden"
+
+
+def test_inbox_only_connection_deposits_but_does_not_contribute() -> None:
+    """Reading and the inbox: a contributor's connection drops notes, changes no page; a
+    reader drops nothing, limit or not."""
+    where = {"org_id": ORG, "space_id": SPACE}
+    full = access(space_roles={SPACE: SpaceRole.CONTRIBUTOR})
+    assert can(full, Action.DEPOSIT_SPACE, **where) and can(full, Action.CONTRIBUTE_SPACE, **where)
+    limited = access(space_roles={SPACE: SpaceRole.CONTRIBUTOR}, inbox_only=True)
+    assert can(limited, Action.READ_SPACE, **where)
+    assert can(limited, Action.DEPOSIT_SPACE, **where)
+    assert not can(limited, Action.CONTRIBUTE_SPACE, **where)
+    reader = access(space_roles={SPACE: SpaceRole.READER})
+    assert not can(reader, Action.DEPOSIT_SPACE, **where)

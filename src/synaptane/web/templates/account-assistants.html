@@ -71,7 +71,7 @@
     {% for token in tokens %}
     <article class="card token-card">
       <div class="token-head"><h3>{{ token.name }}</h3><code>…{{ token.hint }}</code></div>
-      {% if token.read_only or token.space_ids is not none %}<p class="muted">{% if token.read_only %}<span class="badge badge-quiet">{{ _("read only") }}</span> {% endif %}{% if token.space_ids is not none %}{{ _("Spaces:") }} {% for sid in token.space_ids %}{{ space_labels.get(sid, _("deleted space")) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>{% endif %}
+      {% if token.read_only or token.inbox_only or token.space_ids is not none %}<p class="muted">{% if token.read_only %}<span class="badge badge-quiet">{{ _("read only") }}</span> {% elif token.inbox_only %}<span class="badge badge-quiet">{{ _("reading and inbox") }}</span> {% endif %}{% if token.space_ids is not none %}{{ _("Spaces:") }} {% for sid in token.space_ids %}{{ space_labels.get(sid, _("deleted space")) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>{% endif %}
       <div class="token-foot">
         <span>{% if token.expires_at %}{{ _("Expires") }} {{ when(token.expires_at, "date") }}{% else %}{{ _("No expiry") }}{% endif %}{% if token.last_used_at %} · {{ _("used") }} {{ when(token.last_used_at) }}{% endif %}</span>
         {{ action("/account/tokens/" ~ token.id ~ "/revoke", _("Revoke"), confirm=_("Revoke the token “{name}”? Tools using it will lose access.", name=token.name), kind="danger") }}

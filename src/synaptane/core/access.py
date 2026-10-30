@@ -28,7 +28,8 @@ class Action(StrEnum):
     MANAGE_ORG = "manage_org"  # spaces, members, AI keys, webhooks
     # Space
     READ_SPACE = "read_space"  # read, search
-    CONTRIBUTE_SPACE = "contribute_space"  # inbox, direct changes, manual tidy-up
+    DEPOSIT_SPACE = "deposit_space"  # drop, correct, move or remove notes in the inbox
+    CONTRIBUTE_SPACE = "contribute_space"  # direct changes, manual tidy-up (and the inbox)
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class Access:
     is_superadmin: bool = False
     org_roles: dict[UUID, OrgRole] = field(default_factory=dict)
     space_roles: dict[UUID, SpaceRole] = field(default_factory=dict)
+    inbox_only: bool = False  # connection limited to the inbox: a contributor drops notes only
 
     def is_org_admin(self, org_id: UUID) -> bool:
         return self.is_superadmin or self.org_roles.get(org_id) is OrgRole.ADMIN
@@ -56,10 +58,13 @@ class Limits:
     read_only: bool = False
     space_ids: frozenset[UUID] | None = None
     members_only: bool = False  # MCP: the super admin does not read the whole instance
+    # Reading, and dropping notes in the inbox, but no direct change to pages: what an
+    # assistant writes then goes through the nightly tidy-up.
+    inbox_only: bool = False
 
     @property
     def restricted(self) -> bool:
-        return self.read_only or self.space_ids is not None
+        return self.read_only or self.inbox_only or self.space_ids is not None
 
 
 def can(
@@ -75,8 +80,10 @@ def can(
             return org_id is not None and org_id in access.org_roles
         case Action.MANAGE_ORG:
             return org_id is not None and access.is_org_admin(org_id)
-        case Action.READ_SPACE | Action.CONTRIBUTE_SPACE:
+        case Action.READ_SPACE | Action.DEPOSIT_SPACE | Action.CONTRIBUTE_SPACE:
             if org_id is None or space_id is None:
+                return False
+            if action is Action.CONTRIBUTE_SPACE and access.inbox_only:
                 return False
             if access.is_org_admin(org_id):
                 return True

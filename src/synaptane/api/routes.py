@@ -55,7 +55,7 @@ def api_actor(session: DbSession, authorization: Annotated[str | None, Header()]
     if found is None:
         raise SynaptaneError(ErrorCode.UNAUTHENTICATED, "Missing, invalid or expired token.")
     user, api_token = found
-    limits = accounts.token_limits(api_token.read_only, api_token.space_ids)
+    limits = accounts.token_limits(api_token.read_only, api_token.space_ids, api_token.inbox_only)
     return load_actor(session, user, via=f"API · {api_token.name}", limits=limits)
 
 
@@ -203,6 +203,7 @@ class TokenOut(BaseModel):
     expires_at: datetime | None
     last_used_at: datetime | None
     read_only: bool
+    inbox_only: bool = Field(description="Reading and the inbox only: no direct change")
     space_ids: list[UUID] | None = Field(description="null: all spaces, future ones included")
 
     @classmethod
@@ -214,6 +215,10 @@ class TokenCreate(BaseModel):
     name: str
     days: int | None = Field(default=90, description="Validity in days; null = no expiry.")
     read_only: bool = Field(default=False, description="Read-only: no writes or drops.")
+    inbox_only: bool = Field(
+        default=False,
+        description="Reading, and dropping notes in the inbox, but no direct change to pages.",
+    )
     spaces: list[str] | None = Field(
         default=None, description='Spaces as "org/space"; null: all, including future ones.'
     )
@@ -245,7 +250,13 @@ def create_token(body: TokenCreate, session: DbSession, actor: CurrentActor) -> 
             org_slug, _, space_slug = address.strip().strip("/").partition("/")
             chosen.append(find_space(session, actor, org_slug, space_slug).id)
     value, token = accounts.create_api_token(
-        session, actor, body.name, body.days, read_only=body.read_only, space_ids=chosen
+        session,
+        actor,
+        body.name,
+        body.days,
+        read_only=body.read_only,
+        space_ids=chosen,
+        inbox_only=body.inbox_only,
     )
     return TokenCreated(token=value, **TokenOut.of(token).model_dump())
 

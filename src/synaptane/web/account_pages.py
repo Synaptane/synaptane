@@ -282,9 +282,15 @@ def account_token_create(
 ) -> Response:
     actor = page.check_csrf(csrf)
     try:
-        read_only, space_ids = chosen_limits(access, scope, space)
+        chosen = chosen_limits(access, scope, space)
         value, _ = accounts.create_api_token(
-            page.db, actor, name, days or None, read_only=read_only, space_ids=space_ids
+            page.db,
+            actor,
+            name,
+            days or None,
+            read_only=chosen.read_only,
+            space_ids=chosen.space_ids,
+            inbox_only=chosen.inbox_only,
         )
     except SynaptaneError as error:
         return failure("/account/assistants", page, error)

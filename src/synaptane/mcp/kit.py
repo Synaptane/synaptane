@@ -79,6 +79,7 @@ class Call:
     settings: Settings
     read_only: bool = False  # connection authorized read-only (chosen at consent)
     personal: bool = False  # personal token (not an OAuth application)
+    inbox_only: bool = False  # reading and the inbox, no direct change (chosen at consent)
     space: str = ""  # last designated space, for a refusal that names it
 
 
@@ -140,12 +141,28 @@ def read_only_note(c: Call) -> str:
     )
 
 
+def inbox_only_note(c: Call) -> str:
+    """What a connection limited to the inbox can do, and how to widen it."""
+    where = (
+        "create a token without this limit (My account → Personal tokens)"
+        if c.personal
+        else "reconnect the application without this limit"
+    )
+    return (
+        "Connection limited to the inbox, chosen when it was authorized: it reads, and drops "
+        "notes with inbox_add (the nightly tidy-up files them), but changes no page directly. "
+        f"To write pages, {where}."
+    )
+
+
 def refusal(c: Call, error: SynaptaneError) -> str:
     """A bare "Action not allowed." does not say what to do: the cause, and the fix."""
     if error.code is not ErrorCode.FORBIDDEN:
         return error.message
     if c.read_only:
         return read_only_note(c)
+    if c.inbox_only:
+        return inbox_only_note(c)
     where = c.space or "this space"
     return (
         f"You are a reader of {where}: only contributors drop notes and write. Ask an "
@@ -183,6 +200,7 @@ class Kit:
                     self.settings,
                     limits.read_only,
                     personal=token.client_id == "personal-token",
+                    inbox_only=limits.inbox_only,
                 )
                 try:
                     yield current

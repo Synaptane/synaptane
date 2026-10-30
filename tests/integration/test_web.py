@@ -180,6 +180,19 @@ def test_new_secrets_are_shown_once_and_never_from_the_url(client: TestClient, d
     assert "whsec_FAUX" not in forged.text
 
 
+def test_a_token_limited_to_the_inbox_is_offered_and_labeled(
+    client: TestClient, db: Session
+) -> None:
+    make_user(db, "alice")
+    db.commit()
+    login(client, "alice")
+    page = client.get("/account/assistants").text
+    assert 'name="access" value="inbox"' in page
+    token = csrf(client, "/account/assistants")
+    client.post("/account/tokens", data={"csrf": token, "name": "notes", "access": "inbox"})
+    assert "lecture et inbox" in client.get("/account/assistants").text
+
+
 def test_saturated_pool_answers_503_quickly(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

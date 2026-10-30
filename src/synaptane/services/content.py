@@ -347,9 +347,16 @@ def backlinks(
 
 @contextmanager
 def writable(
-    session: Session, database: Database, actor: Actor, ws: Workspace, space: Space
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    action: Action = Action.CONTRIBUTE_SPACE,
 ) -> Iterator[Repository]:
-    require(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id)
+    """The space's copy, locked for a write. `action`: the right it takes (the inbox only
+    needs DEPOSIT_SPACE)."""
+    require(actor.access, action, org_id=space.org_id, space_id=space.id)
     # The request's connection goes back to the pool during git (lock, write, commit):
     # otherwise each write would hold two, and the pool would quickly run dry.
     session.commit()

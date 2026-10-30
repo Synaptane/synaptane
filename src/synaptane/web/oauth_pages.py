@@ -63,8 +63,8 @@ def consent_decision(
     actor = page.check_csrf(csrf)
     approved = decision == "allow"
     try:
-        read_only, chosen = chosen_limits(access, scope, space)
-        space_ids = accounts.checked_spaces(page.db, actor, chosen) if approved else None
+        chosen = chosen_limits(access, scope, space)
+        space_ids = accounts.checked_spaces(page.db, actor, chosen.space_ids) if approved else None
     except SynaptaneError as error:
         # Incomplete choice: stay on the consent page, the request is not lost.
         return _consent(page, request, status_code=400, limits_error=error)
@@ -72,8 +72,9 @@ def consent_decision(
         page.db,
         request,
         actor.user if approved else None,
-        read_only=read_only,
+        read_only=chosen.read_only,
         space_ids=space_ids,
+        inbox_only=chosen.inbox_only,
     )
     if target is None:
         raise not_found(

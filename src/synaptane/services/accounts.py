@@ -319,8 +319,12 @@ def create_api_token(
     *,
     read_only: bool = False,
     space_ids: list[UUID] | None = None,
+    inbox_only: bool = False,
 ) -> tuple[str, ApiToken]:
-    """Personal token, optionally restricted: read-only, chosen spaces."""
+    """Personal token, optionally restricted: read-only, or reading and the inbox only (no
+    direct change to pages), chosen spaces."""
+    if read_only and inbox_only:
+        raise invalid("Choose either read only or the inbox only.")
     unrestricted(actor)
     if days is not None and not 1 <= days <= 3650:
         raise invalid("Validity: between 1 and 3650 days.")
@@ -331,12 +335,20 @@ def create_api_token(
         token_hash=token_hash(token),
         hint=token[-4:],
         read_only=read_only,
+        inbox_only=inbox_only,
         space_ids=checked_spaces(session, actor, space_ids),
         expires_at=_now() + timedelta(days=days) if days else None,
     )
     session.add(api_token)
     session.flush()
-    audit(session, actor, "token.created", name=api_token.name, read_only=read_only)
+    audit(
+        session,
+        actor,
+        "token.created",
+        name=api_token.name,
+        read_only=read_only,
+        inbox_only=inbox_only,
+    )
     return token, api_token
 
 
@@ -359,10 +371,13 @@ def revoke_api_token(session: Session, actor: Actor, token_id: UUID) -> None:
     audit(session, actor, "token.revoked", name=api_token.name)
 
 
-def token_limits(read_only: bool, space_ids: list[str] | None, **extra: bool) -> Limits:
+def token_limits(
+    read_only: bool, space_ids: list[str] | None, inbox_only: bool = False, **extra: bool
+) -> Limits:
     return Limits(
         read_only=read_only,
         space_ids=frozenset(UUID(s) for s in space_ids) if space_ids is not None else None,
+        inbox_only=inbox_only and not read_only,
         **extra,
     )
 

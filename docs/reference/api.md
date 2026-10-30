@@ -21,6 +21,8 @@ changes or the account is deactivated.
 A token can be **restricted** when it is created (web, or `POST /me/tokens` with
 `{"name": …, "days": …, "read_only": true, "spaces": ["acme/infra"]}`):
 - `read_only`: read and search only, no writes and no drops;
+- `inbox_only`: read, search, and drop, correct or remove notes in the inbox, but no direct
+  change to pages (not together with `read_only`);
 - `spaces`: only these spaces, among those the account is a member of (or whose organization
   it administers); absent: all of them, including future ones. The web form checks only the
   spaces of the first organization (in alphabetical order) when the account belongs to
@@ -78,8 +80,8 @@ the space). An organization admin has all rights on its spaces.
 | Method and path | Purpose |
 |---|---|
 | `GET /me` | Calling account: `username`, `display_name`, `email`, `locale`, `is_superadmin`, `is_active` |
-| `GET /me/tokens` | Personal tokens: `id`, `name`, `hint` (last 4 characters), `created_at`, `expires_at`, `last_used_at`, `read_only`, `space_ids` |
-| `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "spaces": ["acme/infra"]}` (201); `days: null`: no expiry. Returns the `token`, once only |
+| `GET /me/tokens` | Personal tokens: `id`, `name`, `hint` (last 4 characters), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
+| `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201); `days: null`: no expiry. Returns the `token`, once only |
 | `DELETE /me/tokens/{id}` | Revokes (204) |
 | `GET /spaces` | All visible spaces: `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` |
 

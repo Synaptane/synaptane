@@ -12,8 +12,9 @@ assistant (MCP)**, for example `https://brain.example.com/mcp`.
 2. Paste the MCP server address.
 3. Claude opens Synaptane. Sign in if needed, then click **Allow**.
 
-On the consent screen, you can limit the assistant: **read only**, and/or **only some
-spaces**. With **All my spaces, including future ones**, it has your rights on all your
+On the consent screen, you can limit the assistant: **read only**, or **read, and drop notes
+in the inbox** (no direct change to pages: what it notes goes through the nightly tidy-up),
+and/or **only some spaces**. With **All my spaces, including future ones**, it has your rights on all your
 spaces, including those you will get access to later. If you belong to a single
 organization, that is the default. If you belong to several, only the spaces of the first
 organization (in alphabetical order) are ticked by default: otherwise, malicious content in
@@ -27,7 +28,9 @@ its domains, a warning is shown: allow only if you started the connection yourse
 
 Through an assistant, each person reaches only the spaces they are a member of (or whose
 organization they administer): a super admin does not expose the whole instance to their
-assistant. A read-only connection does not see the write tools.
+assistant. A read-only connection does not see the write tools; one limited to the inbox only
+sees, besides reading, `inbox_add`, `inbox_update` and `inbox_delete`, and a page write is
+refused with the reason.
 
 ## ChatGPT
 
@@ -39,7 +42,8 @@ Tested with ChatGPT Pro in October 2026: search, reading and dropping notes into
 Deep research has not been tested. Every write tool, `inbox_add` and `verify_page` included,
 is declared destructive: Claude and ChatGPT then ask for confirmation before each one. This
 is deliberate: a write is how instructions hidden in a page could move content from one
-space to another. For a cautious connector, allow it read-only.
+space to another. For a cautious connector, allow it read-only, or limited to the inbox: it
+can still record what it learns, and the nightly tidy-up decides where it goes.
 
 ## Check the connection
 
