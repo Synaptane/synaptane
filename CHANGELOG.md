@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-31
+
+Two more views in the conversation: the last tidy-up, undoable page by page, and the inbox,
+to sort from the conversation. Upgrading from 1.4.0: no migration. Reconnect the connector
+(or start a new conversation) so the host sees `last_tidy` and the views.
+
 ### Added
 - **A second view: the last tidy-up**. The new MCP tool `last_tidy` shows what the last run
   of the nightly filing changed in a space (or a given run): pages created, edited, moved or
@@ -385,7 +391,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/synaptane/synaptane/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/synaptane/synaptane/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/synaptane/synaptane/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/synaptane/synaptane/compare/v1.1.0...v1.2.0
