@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import anyio
+from mcp.server.apps import Apps
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
@@ -29,7 +30,7 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import prompts, reading, review
+from synaptane.mcp import last_tidy, prompts, reading, review
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -261,8 +262,11 @@ class SynaptaneMCP(MCPServer):
 def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServer:
     provider = SynaptaneOAuthProvider(database, settings.public_url)
     kit = Kit(settings, database, ws)
+    apps = Apps()  # MCP Apps: views in the conversation (see `views`)
+    review.register(apps, kit)
+    last_tidy.register(apps, kit)
     server = SynaptaneMCP(
-        extensions=[review.build(kit)],  # MCP Apps: the "pages to review" view
+        extensions=[apps],
         name="synaptane",
         title="Synaptane",
         description="Team second brain stored in Git",

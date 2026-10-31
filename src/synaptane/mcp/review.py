@@ -7,21 +7,19 @@ right" verifies the page (`verify_page`, through the host, which asks for confir
 "Needs an update" asks the assistant to propose one, "Open" opens it in Synaptane. Any other
 client gets the same list as text, to go through with the user.
 
-The view (`apps/review.html`) holds no data: it receives the tool's result from the host,
-loads nothing from anywhere, and shows page titles and readers' reasons as text only.
+The view (`apps/review.html`, see `views`) holds no data: it receives the tool's result from
+the host, loads nothing from anywhere, and shows page titles and readers' reasons as text only.
 """
 
-import json
-from importlib.resources import files
 from pathlib import PurePosixPath
 from typing import Annotated, Any
 
-from mcp.server.apps import EXTENSION_ID, Apps
+from mcp.server.apps import Apps
 from mcp.types import CallToolResult, TextContent
 from pydantic import Field
 
-from synaptane.core.access import Action, can
 from synaptane.core.markdown import title_of
+from synaptane.mcp import views
 from synaptane.mcp.kit import READ_ONLY, Kit, quoted
 from synaptane.services import freshness, reports, spaces
 from synaptane.services.inbox import CONTENT_DIR
@@ -30,9 +28,7 @@ URI = "ui://synaptane/review"
 LIMIT = 30  # pages listed, the reported ones first
 
 
-def build(kit: Kit) -> Apps:
-    apps = Apps()
-
+def register(apps: Apps, kit: Kit) -> None:
     @apps.tool(
         resource_uri=URI,
         name="pages_to_review",
@@ -70,12 +66,7 @@ def build(kit: Kit) -> Apps:
                     continue
                 repo = c.ws.local_repository(target)
                 texts = repo.read_many([f"{CONTENT_DIR}/{p}" for p in sorted(paths)])
-                contribute = can(
-                    c.actor.access,
-                    Action.CONTRIBUTE_SPACE,
-                    org_id=target.org_id,
-                    space_id=target.id,
-                )
+                contribute = kit.can_write(c, target)
                 org, slug = target.address.split("/", 1)
                 for path in sorted(paths):
                     state = states.get(path)
@@ -112,13 +103,8 @@ def build(kit: Kit) -> Apps:
             )
 
     apps.add_html_resource(
-        URI,
-        files("synaptane.mcp").joinpath("apps/review.html").read_text(encoding="utf-8"),
-        name="review",
-        title="Pages to review",
-        prefers_border=True,
+        URI, views.page("review"), name="review", title="Pages to review", prefers_border=True
     )
-    return apps
 
 
 def _text(pages: list[dict[str, Any]], total: int) -> str:
@@ -149,65 +135,3 @@ def _text(pages: list[dict[str, Any]], total: int) -> str:
         + quoted("review", "\n".join(lines))
         + "\nGo through them with the user: verify_page only for a page they confirm still holds."
     )
-
-
-class AdvertiseApps:
-    """Puts the MCP Apps extension in the `initialize` answer (`capabilities.extensions`).
-
-    Hosts render a view only when both sides declare the extension. At the handshake era
-    (2025-11-25, what hosts open with today), the SDK writes the answer with that era's schema,
-    which has no `extensions` field yet, and drops it. The answer is a single JSON body
-    (`json_response=True`): it gets the field back here, nothing else changes."""
-
-    def __init__(self, app: Any) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") != "/mcp":
-            await self.app(scope, receive, send)
-            return
-        body = b""
-        more = True
-        received: list[Any] = []
-        while more:
-            message = await receive()
-            received.append(message)
-            body += message.get("body", b"")
-            more = message.get("more_body", False)
-        try:
-            initializing = json.loads(body).get("method") == "initialize"
-        except (ValueError, AttributeError):
-            initializing = False
-
-        async def replay() -> Any:
-            return received.pop(0) if received else await receive()
-
-        if not initializing:
-            await self.app(scope, replay, send)
-            return
-        start: dict[str, Any] = {}
-        chunks: list[bytes] = []
-
-        async def capture(message: Any) -> None:
-            if message["type"] == "http.response.start":
-                start.update(message)
-                return
-            chunks.append(message.get("body", b""))
-            if message.get("more_body"):
-                return
-            payload = b"".join(chunks)
-            try:
-                answer = json.loads(payload)
-                capabilities = answer["result"]["capabilities"]
-                capabilities.setdefault("extensions", {}).setdefault(EXTENSION_ID, {})
-                payload = json.dumps(answer, ensure_ascii=False).encode()
-            except (ValueError, KeyError, TypeError, AttributeError):
-                pass  # not a JSON answer to initialize (error, stream): left as is
-            headers = [
-                (k, v) for k, v in start.get("headers", []) if k.lower() != b"content-length"
-            ]
-            headers.append((b"content-length", str(len(payload)).encode()))
-            await send({**start, "headers": headers})
-            await send({"type": "http.response.body", "body": payload})
-
-        await self.app(scope, replay, capture)

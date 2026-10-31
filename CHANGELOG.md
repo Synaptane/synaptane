@@ -10,6 +10,19 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **A second view: the last tidy-up**. The new MCP tool `last_tidy` shows what the last run
+  of the nightly filing changed in a space (or a given run): pages created, edited, moved or
+  deleted, and the notes filed. In hosts that render MCP Apps, each page has **See the
+  change**, **Open** and **Undo** (contributors, confirmed by a second click), which puts it
+  back as before the run, as on the run's page in Synaptane, through `undo_tidy_pages`, a
+  tool meant for the view (hosts do not offer it to the assistant).
+
+### Changed
+- The views share their bridge to the host and their style (`mcp/apps/bridge.js` and
+  `base.css`, inlined when served). A view drawn again follows a change of the host's
+  language.
+
 ## [1.4.0] - 2026-10-30
 
 A first view in the conversation: assistants that render MCP Apps show the pages to review as

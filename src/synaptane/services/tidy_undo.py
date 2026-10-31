@@ -59,7 +59,7 @@ class Undone:
     notes_kept: list[tuple[str, tuple[str, ...]]]  # (title, pages still holding it)
 
 
-def _run(session: Session, space: Space, run_id: UUID) -> TidyRun:
+def find_run(session: Session, space: Space, run_id: UUID) -> TidyRun:
     record = session.get(TidyRun, run_id)
     if record is None or record.space_id != space.id or not record.commit:
         raise not_found("Run not found.")
@@ -100,11 +100,11 @@ def run_pages(
 ) -> tuple[TidyRun, list[RunPage]]:
     """The run and the pages it changed, with what can still be undone."""
     require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
-    record = _run(session, space, run_id)
+    record = find_run(session, space, run_id)
     return record, _pages(ws.local_repository(space), str(record.commit))
 
 
-def _notes(repo: Repository, record: TidyRun) -> list[Note]:
+def filed_notes(repo: Repository, record: TidyRun) -> list[Note]:
     """Notes removed from the inbox by the run, matched by title to the operations that
     give their pages (the log names a note by its title)."""
     parent = f"{record.commit}^"
@@ -142,7 +142,7 @@ def undo_pages(
     """Puts the chosen pages (relative to content/) back as they were before the run
     (contributor: the same changes could be made by hand)."""
     require(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id)
-    record = _run(session, space, run_id)
+    record = find_run(session, space, run_id)
     if record.reverted_at:
         raise invalid("This run has already been undone.")
     wanted = {p.strip().strip("/") for p in paths if p.strip()}
@@ -170,7 +170,7 @@ def undo_pages(
                 files[PREFIX + path] = repo.blob(PREFIX + path, parent)
         undone = {p.path for p in pages if p.state == "undone"} | {p.path for p in todo}
         back, kept = [], []
-        for note in _notes(repo, record):
+        for note in filed_notes(repo, record):
             if not set(note.pages) & {p.path for p in todo}:
                 continue  # not concerned by this undo
             if set(note.pages) <= undone and repo.blob_sha(note.files[0]) is None:
