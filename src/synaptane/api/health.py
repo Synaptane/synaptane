@@ -31,6 +31,19 @@ class DuePageOut(BaseModel):
     due: str = Field(description="Verification due date, past (YYYY-MM-DD)")
 
 
+class CellOut(BaseModel):
+    page: str
+    line: int = Field(description="Line of the row in the page (from 1)")
+    value: str = Field(description="Cell as written")
+
+
+class DriftOut(BaseModel):
+    key: str = Field(description="First cell of the row")
+    column: str = Field(description="Heading of the column that disagrees")
+    first: CellOut
+    second: CellOut
+
+
 class Counts(BaseModel):
     broken: int
     orphans: int
@@ -40,6 +53,7 @@ class Counts(BaseModel):
     due: int = Field(description="Stale pages: verification overdue")
     unowned: int = Field(description="Verified pages without an owner")
     verified: int = Field(description="Verified and up-to-date pages")
+    drifts: int = Field(description="Values that disagree between tables")
 
 
 class HealthOut(BaseModel):
@@ -54,6 +68,9 @@ class HealthOut(BaseModel):
     stale: list[StalePageOut]
     due: list[DuePageOut] = Field(description="Stale pages, oldest due date first")
     unowned: list[str] = Field(description="Verified pages without an owner")
+    drifts: list[DriftOut] = Field(
+        description="Same row, different value in two aligned tables of two pages"
+    )
 
 
 @router.get(SPACE + "/health", tags=["content"])
@@ -67,8 +84,8 @@ def space_health(
     limit: Annotated[int, Query(ge=1, le=10_000, description="Items per list")] = 500,
 ) -> HealthOut:
     """Wiki health (reader): broken links, orphan, empty, untitled and old pages, stale pages
-    (verification overdue) and verified pages without an owner. Deterministic computation,
-    no AI, at the latest commit."""
+    (verification overdue), verified pages without an owner and tables that disagree.
+    Deterministic computation, no AI, at the latest commit."""
     found = find_space(session, actor, org, space)
     report = health.space_health(actor, _ws(request), found, months)
     return HealthOut(
@@ -84,6 +101,7 @@ def space_health(
             due=len(report.due),
             unowned=len(report.unowned),
             verified=report.verified,
+            drifts=len(report.drifts),
         ),
         broken=[
             BrokenLinkOut(page=b.page, link=b.link, suggestion=b.suggestion)
@@ -98,4 +116,13 @@ def space_health(
             for d in report.due[:limit]
         ],
         unowned=report.unowned[:limit],
+        drifts=[
+            DriftOut(
+                key=d.key,
+                column=d.column,
+                first=CellOut(page=d.first.page, line=d.first.line, value=d.first.value),
+                second=CellOut(page=d.second.page, line=d.second.line, value=d.second.value),
+            )
+            for d in report.drifts[:limit]
+        ],
     )

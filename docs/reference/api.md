@@ -159,7 +159,7 @@ Paths are relative to `content/`:
 | `DELETE …/spaces/{space}/reports/{path}` | reader | Withdraws your report; `?all=true` dismisses them all (contributor). A verification of the page closes them too |
 | `GET …/spaces/{space}/history/{path}` | reader | Commits that touched the file (a deleted one too): `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributor | Puts a file back as it was in a past version, a deleted file too: `{"path": …, "commit": …}` (`commit`: a `sha` from the history), with `message`, `base_sha` (the current `sha`, 409 if the file changed since; `""` for a deleted file) and `allow_secrets`, optional. Returns `commit` (`null` if this version is already the current one). A page keeps its current verification fields |
-| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner) and their totals `counts` (with `verified`: verified, up-to-date pages) |
+| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner), `drifts` (tables that disagree: `key`, `column`, `first` and `second` with `page`, `line`, `value`) and their totals `counts` (with `verified`: verified, up-to-date pages) |
 
 `freshness` (page read, search results, verification): `state` (`verified`, `stale` or
 `never`), `verified` and `stale` (booleans), `verified_at`, `owner`, `review_due` (due date,

@@ -11,7 +11,7 @@
 {# Column of the "Edit" button: narrow, aligned right. #}
 {% macro more(items) -%}{% if items|length > shown %}<p class="muted">{{ _("and {count} more", count=items|length - shown) }}</p>{% endif %}{%- endmacro %}
 <h2 class="settings-title">{{ _("Wiki health") }}</h2>
-<p class="muted">{{ _("Check without AI, at the latest commit: broken links, pages with no incoming link, empty or untitled pages, pages to review, pages not modified for a long time.") }}</p>
+<p class="muted">{{ _("Check without AI, at the latest commit: broken links, pages with no incoming link, empty or untitled pages, tables that disagree, pages to review, pages not modified for a long time.") }}</p>
 {% if report is none %}
 <div class="notice notice-warning">{{ _("The space has not been synchronized yet: nothing to check for now.") }}</div>
 {% else %}
@@ -46,6 +46,18 @@
   </tbody></table></div>
   {{ more(report.empty) }}{{ more(report.untitled) }}
   {% else %}<p class="muted">{{ _("Every page has a title and some content.") }}</p>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="health-drifts">
+  <h3 id="health-drifts">{{ _("Tables that disagree") }} <span class="badge badge-quiet">{{ report.drifts|length }}</span></h3>
+  <p class="muted">{{ _("The same row has a different value in two tables of two pages: one of them is probably outdated, unless both are right (a history, for example). Check, then fix the outdated page.") }}</p>
+  {% if report.drifts %}
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Row") }}</th><th>{{ _("In one page") }}</th><th>{{ _("In the other") }}</th></tr></thead>
+    <tbody>{% for item in report.drifts[:shown] %}<tr><td>{{ item.key }} · {{ item.column }}</td><td><code>{{ item.first.value }}</code> {{ page_link(item.first.page) }}</td><td><code>{{ item.second.value }}</code> {{ page_link(item.second.page) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {{ more(report.drifts) }}
+  {% else %}<p class="muted">{{ _("No values that disagree.") }}</p>{% endif %}
 </section>
 
 <section class="card" id="health-reported" aria-labelledby="health-reports">

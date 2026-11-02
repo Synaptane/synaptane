@@ -10,7 +10,9 @@ For a space, at the last commit:
   heading nor `title:` in the front matter);
 - **old pages**: not changed for N months, from the date of the last commit;
 - **pages to review**: verified, but their verification due date has passed, and **pages
-  without an owner** among the verified pages (`services.freshness`).
+  without an owner** among the verified pages (`services.freshness`);
+- **tables that disagree**: the same row, in two aligned tables of two pages, with a different
+  value (`core.tables`).
 
 Computed live, with two caches: what a page says about itself (its links, its title) is kept
 per content digest, and the result per commit. A new commit only rereads the changed pages, and
@@ -24,6 +26,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
+from synaptane.core import tables as tables_of_pages
 from synaptane.core.access import Action, require
 from synaptane.core.markdown import (
     WikiIndex,
@@ -82,6 +85,7 @@ class Health:
     stale: list[StalePage] = field(default_factory=list)
     due: list[DuePage] = field(default_factory=list)  # to review, oldest due date first
     unowned: list[str] = field(default_factory=list)  # verified, without an owner
+    drifts: list[tables_of_pages.Drift] = field(default_factory=list)  # tables that disagree
     verified: int = 0  # verified, up-to-date pages
     review_every: str = ""  # default interval of the space
 
@@ -94,6 +98,7 @@ class Health:
             + len(self.untitled)
             + len(self.stale)
             + len(self.due)
+            + len(self.drifts)
         )
 
 
@@ -105,6 +110,7 @@ class _Facts:
     links: tuple[tuple[bool, str], ...]  # (wiki link, target as written)
     empty: bool
     titled: bool
+    tables: tuple[tables_of_pages.Table, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -123,6 +129,7 @@ class _Base:
     orphans: list[str]
     empty: list[str]
     untitled: list[str]
+    drifts: list[tables_of_pages.Drift]
 
 
 _LOCK = threading.Lock()
@@ -197,13 +204,15 @@ def analyze(
         stale,
         due,
         unowned,
+        base.drifts,
         sum(1 for s in states.values() if s.is_verified),
         review_every,
     )
 
 
 def _base(repo: Repository, head: str) -> _Base:
-    """Everything that only depends on the commit: broken links, orphans, empty, untitled."""
+    """Everything that only depends on the commit: broken links, orphans, empty, untitled,
+    tables that disagree."""
     key = (str(repo.path), head)
     with _LOCK:
         if (cached := _BASES.get(key)) is not None:
@@ -261,7 +270,10 @@ def _base(repo: Repository, head: str) -> _Base:
     orphans = [
         p for p in names if p not in incoming and p.rsplit("/", 1)[-1].lower() not in FOLDER_INDEXES
     ]
-    result = _Base(names, broken, orphans, empty, untitled)
+    drifts = tables_of_pages.drifts(
+        {p.removeprefix(PREFIX): f.tables for p, f in facts.items() if f.tables}
+    )
+    result = _Base(names, broken, orphans, empty, untitled, drifts)
     with _LOCK:
         _BASES[key] = result
         while len(_BASES) > _BASES_MAX:
@@ -294,7 +306,9 @@ def _facts(text: str) -> _Facts:
         body, titled = text[match.end() :], bool(_TITLE_FIELD.search(match.group(1)))
     plain = without_code(body)
     titled = titled or bool(_ATX_H1.search(plain) or _SETEXT_H1.search(plain))
-    return _Facts(links, not body.strip(), titled)
+    # Lines of the front matter left blank: the tables keep their line numbers.
+    tables = tables_of_pages.tables_of("\n" * text[: len(text) - len(body)].count("\n") + body)
+    return _Facts(links, not body.strip(), titled, tables)
 
 
 def _dates(repo: Repository, head: str) -> dict[str, str]:

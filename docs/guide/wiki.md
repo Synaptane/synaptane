@@ -227,7 +227,13 @@ latest commit:
 - **empty** or **untitled** pages (neither a `# Title` nor a `title:` in the front matter);
 - **pages to review**: verified, but the verification due date has passed (owner and date),
   and among verified pages, those **without an owner**;
-- **old pages**: not changed for 3, 6, 12 or 24 months, according to Git.
+- **old pages**: not changed for 3, 6, 12 or 24 months, according to Git;
+- **tables that disagree**: two pages each have a table about the same things (same first
+  column, at least two rows in common, a column of the same name) and give a different value
+  for the same row, the NAS with 8 TB here and 12 TB there. One of them is probably outdated.
+  Tables that disagree more than they agree describe different things (two companies' sheets),
+  and two dated notes (`veille-2026-11-02.md`) each hold on their day: neither is reported.
+  The agent routines receive these values too.
 
 Each line leads to the page, and to **Edit** for contributors. The same check is served by the
 REST API (`GET /api/v1/organizations/{org}/spaces/{space}/health`, parameters `months` and
