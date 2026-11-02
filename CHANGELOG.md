@@ -20,6 +20,15 @@ of the target version.
   a commit under the person's name, through `undo_assistant_pages`, a tool meant for the
   view. Until now only the nightly filing could be undone page by page.
 
+### Changed
+- **Edits that say where they went wrong, and writes that show what they saved**. When the
+  passage `edit_page` must replace is not in the file (a space, an accent or a number quoted
+  wrong), the error quotes the closest passage with its lines, so the assistant quotes it
+  again without reading the whole page; when it appears several times, the error gives the
+  line of each occurrence. `edit_page`, and `write_page` when it replaces a file, now return
+  the change saved as a short diff, to check it at once. The server log keeps only the first
+  line of a refusal: the page's text stays out of it.
+
 ## [1.5.0] - 2026-10-31
 
 Two more views in the conversation: the last tidy-up, undoable page by page, and the inbox,

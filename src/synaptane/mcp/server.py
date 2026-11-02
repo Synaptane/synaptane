@@ -30,7 +30,7 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import inbox_view, last_tidy, prompts, reading, review, runs
+from synaptane.mcp import editing, inbox_view, last_tidy, prompts, reading, review, runs
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -43,6 +43,7 @@ from synaptane.mcp.kit import (
     SecretArg,
     SpaceArg,
     note_id,
+    quoted,
 )
 from synaptane.mcp.kit import relative as _relative
 from synaptane.mcp.oauth import SCOPE, SynaptaneOAuthProvider, token_identity
@@ -255,7 +256,9 @@ class SynaptaneMCP(MCPServer):
             else:
                 message = without_prefix(str(error), name)
             where = arguments.get("path") or arguments.get("space") or arguments.get("id") or ""
-            log.warning("MCP tool %s refused (%s): %s", name, where, message[:300])
+            # First line only: what follows may quote the page (closest passage).
+            first = message.splitlines()[0] if message else ""
+            log.warning("MCP tool %s refused (%s): %s", name, where, first[:300])
             raise ToolError(message) from cause
 
 
@@ -520,7 +523,8 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
             state = "Saved" if sha else "No change"
             # The file's sha (not the commit's): the one `base_sha` expects.
             links = files.broken_links_in(c.actor, c.ws, found, path)
-            return f"{state}. sha: {saved.sha}{kept}{links}"
+            shown = _change(found, path, existing, saved) if sha and existing else ""
+            return f"{state}. sha: {saved.sha}{kept}{links}{shown}"
 
     @server.tool(title="Edit a passage", annotations=CHANGES, structured_output=False)
     def edit_page(
@@ -531,8 +535,9 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
         message: MessageArg = "",
         confirm_not_secret: SecretArg = False,
     ) -> str:
-        """Replaces the one occurrence of `old` with `new` in a text file (contributor);
-        fails if `old` is missing or not unique. A probable secret is refused."""
+        """Replaces the one occurrence of `old` with `new` in a text file (contributor) and
+        returns the change; if `old` is missing or not unique, says where. A probable secret
+        is refused."""
         path = _relative(path)
         if not old:
             raise ToolError(
@@ -545,10 +550,13 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
             if file.text is None:
                 raise ToolError("Only text files can be edited this way.")
             count = file.text.count(old)
-            if count != 1:
+            if count == 0:
+                raise ToolError(_missing(found, path, file.text, old))
+            if count > 1:
+                at = ", ".join(map(str, editing.lines_of(file.text, old)[:10]))
                 raise ToolError(
-                    f"`old` appears {count} times: it must appear exactly once (quote more "
-                    "surrounding text)."
+                    f"`old` appears {count} times (lines {at}): it must appear exactly once "
+                    "(quote more surrounding text)."
                 )
             edited, kept = _keep_verification(path, file, file.text.replace(old, new, 1))
             files.write_file(
@@ -566,7 +574,7 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
             )
             saved = files.read_file(c.actor, c.ws, found, path)
             links = files.broken_links_in(c.actor, c.ws, found, path)
-            return f"Edited. sha: {saved.sha}{kept}{links}"
+            return f"Edited. sha: {saved.sha}{kept}{links}{_change(found, path, file, saved)}"
 
     @server.tool(title="Append to a file", annotations=ADDS, structured_output=False)
     def append_page(
@@ -724,6 +732,31 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
             return f"Restored. sha: {saved.sha}" + files.broken_links_in(c.actor, c.ws, found, path)
 
     return server
+
+
+def _missing(space: Space, path: str, text: str, old: str) -> str:
+    """`old` is not in the page: the closest passage, to quote it again as it is."""
+    message = (
+        "`old` is not in the file: quote it exactly as read gives it (spaces, accents, line "
+        "breaks included)."
+    )
+    found = editing.closest(text, old)
+    if found is None:
+        return message + " No passage comes close: read the file again, it may have changed."
+    first, last, passage = found
+    where = f"line {first}" if first == last else f"lines {first}-{last}"
+    source = f"{space.address}/{path}"
+    return f"{message} Closest passage ({where}):\n" + quoted(
+        "page", editing.short(passage), source
+    )
+
+
+def _change(space: Space, path: str, before: files.File, after: files.File) -> str:
+    """The change saved, to check it: page content around it, so untrusted."""
+    text = editing.change(before.text or "", after.text or "")
+    if not text:
+        return ""
+    return "\nChange saved:\n" + quoted("diff", text, f"{space.address}/{path}")
 
 
 def _keep_verification(path: str, existing: files.File | None, text: str) -> tuple[str, str]:
