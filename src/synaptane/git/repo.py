@@ -937,16 +937,19 @@ class Repository:
         skip: int = 0,
         *,
         since: str | None = None,
+        first_parent: bool = False,
     ) -> list[Commit]:
         """Latest commits touching `prefix` (one or several directories), with the affected
         files under these directories; `skip` for the next page, `since` (ISO 8601 date,
-        already validated) to stop at a date."""
+        already validated) to stop at a date. `first_parent`: the line of commits made here,
+        a merge standing for the commits it brought."""
         prefixes = (prefix,) if isinstance(prefix, str) else prefix
         out = self._git(
             "log",
             f"--max-count={limit}",
             f"--skip={max(skip, 0)}",
             *([f"--since={since}"] if since else []),
+            *(["--first-parent"] if first_parent else []),
             "--name-status",
             "--no-renames",
             "-z",
@@ -985,6 +988,25 @@ class Repository:
             "log", "-1", "--name-status", "-z", "--find-renames", LOG_FORMAT, sha, check=False
         ).stdout
         return [entry for _commit, entries in parse_log(out) for entry in entries]
+
+    def changes_between(self, old: str, new: str, prefix: str) -> list[tuple[str, str, str]]:
+        """Files under `prefix` changed from `old` to `new`, net: (status A, M, D or R, path,
+        old path if moved), as `changes_in`."""
+        out = self._git(
+            "diff", "--name-status", "-z", "--find-renames", old, new, "--", prefix
+        ).stdout
+        tokens = out.decode("utf-8", "replace").split("\0")
+        found: list[tuple[str, str, str]] = []
+        i = 0
+        while i + 1 < len(tokens):
+            status = tokens[i][:1]
+            if status in ("R", "C") and i + 2 < len(tokens):
+                found.append(("R" if status == "R" else "A", tokens[i + 2], tokens[i + 1]))
+                i += 3
+            else:
+                found.append((status, tokens[i + 1], ""))
+                i += 2
+        return found
 
     def renamed_to(self, sha: str, path: str) -> str | None:
         """New name of `path` if the commit `sha` moved it (None: deleted, or kept)."""

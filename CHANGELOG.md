@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **A fourth view: what the assistants wrote**. The new MCP tool `assistant_runs` answers
+  "what did Claude do yesterday?": the pages that assistants connected over MCP wrote lately,
+  in one space or all, as runs (one assistant for one person in one go: consecutive changes,
+  no pause over 30 minutes, nobody else's change in between). In hosts that render MCP Apps,
+  each page has **See the change**, **Open** and **Undo**, and each run **Undo the whole
+  run** (contributors, confirmed by a second click): the page goes back as before the run, in
+  a commit under the person's name, through `undo_assistant_pages`, a tool meant for the
+  view. Until now only the nightly filing could be undone page by page.
+
 ## [1.5.0] - 2026-10-31
 
 Two more views in the conversation: the last tidy-up, undoable page by page, and the inbox,

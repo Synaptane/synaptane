@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What the assistants wrote · Synaptane</title>
+<style>
+/* synaptane:base.css */
+  .run { margin-bottom: 14px; }
+  .run > .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 4px; }
+  .subjects { margin: 0 0 6px; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+  li.card { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  li.card .where { flex: 1 1 220px; color: var(--ink); font-size: 13px; }
+  li.card .actions { margin-top: 0; }
+  li.card .error { flex-basis: 100%; }
+  .run > .actions .error { flex-basis: 100%; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
+</style>
+</head>
+<body>
+<header><h1 id="heading"></h1><span class="muted" id="span"></span></header>
+<p class="empty" id="empty" hidden></p>
+<div id="days"></div>
+<p class="muted" id="more" hidden></p>
+<script>
+/* synaptane:bridge.js */
+(function () {
+  "use strict";
+  var t = App.t, element = App.element;
+  var TEXTS = {
+    en: {
+      heading: "What the assistants wrote · {space}", all: "all spaces", span: "last {days} day(s)",
+      none: "No assistant wrote pages here over this period.",
+      assistant: "An assistant", by: "for {name}", commits: "{n} commit(s)",
+      created: "Created", edited: "Edited", deleted: "Deleted", moved: "Moved", from: "from {path}",
+      changed: "Changed since: restore it from its history", undone: "Undone",
+      see: "See the change", open: "Open", undo: "Undo", confirm: "Put it back as before the run?",
+      undoAll: "Undo the whole run", confirmAll: "Put its {n} pages back as before?",
+      more: "{n} older run(s) not shown: ask for fewer days or one space.", failed: "Could not do it: {error}"
+    },
+    fr: {
+      heading: "Ce qu'ont écrit les assistants · {space}", all: "tous les espaces", span: "{days} dernier(s) jour(s)",
+      none: "Aucun assistant n'a écrit de page ici sur cette période.",
+      assistant: "Un assistant", by: "pour {name}", commits: "{n} commit(s)",
+      created: "Créée", edited: "Modifiée", deleted: "Supprimée", moved: "Déplacée", from: "depuis {path}",
+      changed: "Modifiée depuis : à restaurer depuis son historique", undone: "Annulée",
+      see: "Voir le changement", open: "Ouvrir", undo: "Annuler", confirm: "La remettre comme avant le passage ?",
+      undoAll: "Annuler tout le passage", confirmAll: "Remettre ses {n} pages comme avant ?",
+      more: "{n} passage(s) plus ancien(s) non affiché(s) : demandez moins de jours ou un seul espace.",
+      failed: "Impossible : {error}"
+    }
+  };
+
+  // A button that asks again before acting: a second click confirms.
+  function armed(label, confirmLabel, primary, act) {
+    var node = App.button(label, primary, function () {
+      if (node.dataset.armed !== "1") {
+        node.dataset.armed = "1";
+        node.textContent = confirmLabel;
+        return;
+      }
+      node.disabled = true;
+      act(function reset() {
+        node.disabled = false;
+        node.dataset.armed = "";
+        node.textContent = label;
+      });
+    });
+    return node;
+  }
+
+  function render(data) {
+    document.getElementById("heading").textContent = t("heading", { space: data.space || t("all") });
+    document.getElementById("span").textContent = t("span", { days: data.days || 7 });
+    var runs = data.runs || [];
+    var empty = document.getElementById("empty");
+    empty.hidden = runs.length > 0;
+    empty.textContent = t("none");
+    var days = document.getElementById("days");
+    days.textContent = "";
+    var current = null;
+    runs.forEach(function (run) {
+      var label = App.day(run.ended);
+      if (label !== current) {
+        current = label;
+        days.appendChild(element("h2", null, label));
+      }
+      days.appendChild(block(data, run));
+    });
+    var more = document.getElementById("more");
+    more.hidden = !(data.more > 0);
+    more.textContent = data.more > 0 ? t("more", { n: data.more }) : "";
+  }
+
+  function hour(iso) {
+    var date = new Date(iso);
+    return isNaN(date) ? "" : date.toLocaleTimeString(document.documentElement.lang === "fr" ? "fr-FR" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function block(data, run) {
+    var node = element("section", "run");
+    var head = element("div", "head");
+    head.appendChild(element("span", "badge strong", run.client || t("assistant")));
+    head.appendChild(element("span", null, t("by", { name: run.author })));
+    var from = hour(run.started), to = hour(run.ended);
+    head.appendChild(element("span", "muted", from === to ? from : from + " – " + to));
+    head.appendChild(element("span", "muted", t("commits", { n: run.commits })));
+    if (!data.space) head.appendChild(element("span", "where", run.space));
+    node.appendChild(head);
+    var subjects = element("ul", "subjects");
+    (run.subjects || []).forEach(function (subject) { subjects.appendChild(element("li", null, subject)); });
+    if ((run.subjects || []).length) node.appendChild(subjects);
+    var list = element("ol");
+    var actions = element("div", "actions");
+    var rows = (run.pages || []).map(function (page) { return row(run, page, update); });
+    rows.forEach(function (r) { list.appendChild(r.node); });
+    node.appendChild(list);
+    function left() { return rows.filter(function (r) { return r.page.state === "undoable"; }); }
+    // "Undo the whole run" while two pages or more can still be undone.
+    function update() {
+      actions.textContent = "";
+      var undoable = left();
+      if (!run.can_undo || undoable.length < 2) return;
+      var error = element("div", "error");
+      error.hidden = true;
+      actions.appendChild(armed(t("undoAll"), t("confirmAll", { n: undoable.length }), false, function (reset) {
+        undo(run, undoable.map(function (r) { return r.page.path; })).then(function () {
+          undoable.forEach(function (r) { r.markUndone(); });
+          update();
+        }).catch(function (e) { reset(); App.showError(error, e); });
+      }));
+      actions.appendChild(error);
+    }
+    update();
+    node.appendChild(actions);
+    return node;
+  }
+
+  function undo(run, paths) {
+    return App.callTool("undo_assistant_pages", { space: run.space, run: run.id, paths: paths })
+      .then(function (result) {
+        App.tellModel("The user undid what " + (run.client || "an assistant") + " wrote in " + run.space +
+          " (run " + run.id + ") for: " + paths.join(", ") + ".");
+        return result;
+      });
+  }
+
+  function row(run, page, changed) {
+    var item = element("li", "card" + (page.state === "undone" ? " done" : ""));
+    item.appendChild(element("span", page.status === "deleted" ? "badge warn" : "badge",
+      t(page.status) + (page.old ? " " + t("from", { path: page.old }) : "")));
+    item.appendChild(element("span", "where", page.path));
+    var actions = element("span", "actions");
+    var error = element("div", "error");
+    error.hidden = true;
+    var state = element("span", "muted", page.state === "changed" ? t("changed") : page.state === "undone" ? t("undone") : "");
+    actions.appendChild(App.button(t("see"), false, function () { App.open(page.diff); }));
+    var open = App.button(t("open"), false, function () { App.open(page.url); });
+    if (page.url && page.state !== "undone") actions.appendChild(open);
+    var one = null;
+    function markUndone() {
+      page.state = "undone";
+      item.classList.add("done");
+      if (one) one.remove();
+      open.remove();  // the page is no longer where the run left it
+      state.textContent = t("undone");
+    }
+    if (run.can_undo && page.state === "undoable") {
+      one = armed(t("undo"), t("confirm"), true, function (reset) {
+        undo(run, [page.path]).then(function () { markUndone(); changed(); })
+          .catch(function (e) { reset(); App.showError(error, e); });
+      });
+      actions.appendChild(one);
+    }
+    item.appendChild(actions);
+    item.appendChild(state);
+    item.appendChild(error);
+    return { node: item, page: page, markUndone: markUndone };
+  }
+
+  App.start("runs", TEXTS, render);
+})();
+</script>
+</body>
+</html>

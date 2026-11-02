@@ -35,7 +35,7 @@ refused with the reason.
 ## Views in the conversation (MCP Apps)
 
 In a host that renders MCP Apps (Claude on the web and desktop, ChatGPT, VS Code with
-Copilot), three tools come with a view.
+Copilot), four tools come with a view.
 
 **Pages to review** (`pages_to_review`): one card per page, with its state (due for review,
 reported as outdated, and the readers' reasons) and three buttons:
@@ -70,6 +70,16 @@ buttons that fit it:
   runs).
 
 The view acts through `inbox_delete` and `inbox_triage`, a tool meant for the view.
+
+**What the assistants wrote** (`assistant_runs`): "what did Claude do yesterday?". The pages
+that assistants connected over MCP wrote lately, in one space or all, as runs: what one
+assistant wrote for one person in one go (consecutive changes, no pause over 30 minutes and
+nobody else's change in between), grouped by day. Each run shows the assistant, the person,
+the time and the commit messages; each page, **See the change**, **Open** and **Undo**
+(contributors, a second click confirms), plus **Undo the whole run**. Undoing puts the page
+back as it was before the run, in a commit under your name; a page changed since is restored
+from its history instead. The view does it through `undo_assistant_pages`, a tool meant for
+the view. Without the view, the text gives the version before each run, for `restore`.
 
 A view holds no data (it receives the tool's result from the host), loads nothing from
 anywhere, shows titles, paths and reasons as text only, and follows the host's theme and
@@ -127,6 +137,7 @@ space's content, for example `infra/proxmox.md`.
 | `inbox_update`, `inbox_delete` | Correct (only the fields passed change) or remove a note dropped by mistake, by its `id`, as long as it is not filed | contributor |
 | `write_page`, `edit_page` | Create, replace or edit a text file (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Replacing an existing file requires its `base_sha` (the `sha` given by `read`): a page is not rewritten without being read. Both return the new hash and report the page's broken links. The verification fields of the front matter (`owner`, `verified`, `review_every`) are kept as they are: only `verify_page` changes them | contributor |
 | `append_page` | Add text at the end of a file, with the `base_sha` of the previous call: a file too long for a single call is written in several parts | contributor |
+| `assistant_runs` | What AI assistants wrote lately (`days`, 7 by default, 30 at most), in one space (`space`) or all, as runs (one assistant for one person in one go), with the pages each one changed and what can still be undone; as text, and as a view in hosts that render apps (see above). The 20 latest runs | reader |
 | `last_tidy` | What the last tidy-up run that changed pages did in a space (`space`), or a given run (`run`): pages created, edited, moved or deleted, with what can still be undone, and the notes filed; as text, and as a view in hosts that render apps (see above) | reader |
 | `pages_to_review` | Pages due for review or reported as outdated by readers, in one space (`space`) or all, `mine` for those the user owns: as text, and as a view in hosts that render apps (see above). Reported pages first, 30 at most | reader |
 | `verify_page` | Mark a Markdown page as verified today, only when the user confirms it is correct and up to date; `owner` and `review_every` (`90d`, `6m`, `1y`, `never`, `default`: the space's) are optional. Without an owner, the page becomes the user's. A commit that changes only the front matter, not reported to the tidy-up | contributor |
