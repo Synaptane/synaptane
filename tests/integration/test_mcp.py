@@ -733,6 +733,47 @@ def test_write_page_never_overwrites_blindly(live: Live) -> None:
     assert existing[0] and "already exists" in existing[1]
 
 
+def test_edit_errors_say_where_and_writes_return_the_change(
+    live: Live, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A misquoted `old` gets the closest passage (kept out of the server log), an ambiguous
+    one the lines of each occurrence; edit_page and a replacing write_page return the change
+    saved."""
+    alice = token_for(live.database, "alice")
+    page: dict[str, object] = {"space": "acme/infra", "path": "notes/tarifs.md"}
+    text = "# Tarifs\n\nLe forfait mensuel coûte 49 euros.\nLe forfait annuel coûte 490 euros.\n"
+    with caplog.at_level("WARNING", logger="synaptane.mcp"):
+        created, missing, twice, edited = mcp_calls(
+            live,
+            alice,
+            ("write_page", {**page, "content": text}),
+            ("edit_page", {**page, "old": "Le forfait mensuel coute 50 euros.", "new": "x"}),
+            ("edit_page", {**page, "old": "Le forfait", "new": "Le prix"}),
+            ("edit_page", {**page, "old": "49 euros", "new": "45 euros"}),
+        )
+    assert "Closest passage" in caplog.text and "coûte 49" not in caplog.text
+    assert not created[0] and "Change saved" not in created[1]  # a creation: all of it
+    assert missing[0] and "Closest passage (line 3):" in missing[1]
+    quoted = framed(missing[1], "page", "acme/infra/notes/tarifs.md")
+    assert quoted.strip() == "Le forfait mensuel coûte 49 euros."
+    assert twice[0] and "appears 2 times (lines 3, 4)" in twice[1]
+    assert not edited[0] and edited[1].startswith("Edited. sha: ")
+    change = framed(edited[1], "diff", "acme/infra/notes/tarifs.md")
+    assert "-Le forfait mensuel coûte 49 euros." in change
+    assert "+Le forfait mensuel coûte 45 euros." in change
+
+    [(_, replaced)] = mcp_calls(
+        live,
+        alice,
+        (
+            "write_page",
+            {**page, "content": "# Tarifs\n\nSur devis.\n", "base_sha": edited[1].split()[2]},
+        ),
+    )
+    change = framed(replaced, "diff")
+    assert "-Le forfait annuel coûte 490 euros." in change and "+Sur devis." in change
+
+
 def test_registrations_are_limited_and_unused_clients_purged(live: Live) -> None:
     """Dynamic registration is open to everyone; it is limited per address, and clients that
     are never authorized disappear after a day."""
@@ -1317,7 +1358,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
 # --- Security: untrusted content, default scope, confirmation ------------------------------------
 
 UNTRUSTED_OPEN = re.compile(
-    r"<(page|inbox_item|inbox_index|history|reports)_([0-9a-f]{8})"
+    r"<(page|inbox_item|inbox_index|history|reports|diff)_([0-9a-f]{8})"
     r'( name="[^"]*")? untrusted="true">'
 )
 
