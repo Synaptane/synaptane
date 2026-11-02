@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM node:26-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS agents
 ARG AGENT_CLIS=true
 # Exact versions (reproducible image), tracked by .github/workflows/cli-versions.yml.
-ARG CLAUDE_CODE_VERSION=2.1.314
+ARG CLAUDE_CODE_VERSION=2.1.316
 ARG CODEX_VERSION=0.166.0
 RUN mkdir -p /out/usr/local/bin /out/opt \
  && if [ "$AGENT_CLIS" = "true" ]; then \
