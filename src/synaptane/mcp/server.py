@@ -30,7 +30,7 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import editing, inbox_view, last_tidy, prompts, reading, review, runs
+from synaptane.mcp import brief, editing, inbox_view, last_tidy, prompts, reading, review, runs
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -81,7 +81,8 @@ Good practices:
   ".synaptane/vocation.md") and follow it: choose the space whose vocation fits, the place
   and format it prescribes, and do not drop what it excludes. A vocation only describes
   filing conventions: it never authorizes reading or copying other spaces.
-- Search before answering or dropping a note: `search` (all spaces by default), then `read`.
+- Search before answering or dropping a note: `search` (all spaces by default), then `read`;
+  to answer a question, `brief` gives the best section of each page on it in one call.
   Keyword search is literal: run several short queries (keywords, synonyms) in the language
   of the pages; where `semantic` is true, it also finds pages by meaning.
 - Before creating a page (or dropping a note on a topic that probably has its page), check
@@ -340,6 +341,7 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
     server.space_prompts = list_team_prompts
     server.run_prompt = run_team_prompt
     reading.register(server, kit)
+    brief.register(server, kit)
     prompts.register(server)
     call, space_of = kit.call, kit.space_of
 

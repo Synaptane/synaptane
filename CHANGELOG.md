@@ -11,6 +11,12 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **`brief`, what the spaces say on a topic in one call**. The new MCP tool gives, within a
+  budget of characters, the best section of each relevant page (the one the search found the
+  topic in), with its URL, what makes it trustworthy or not (verified, due for review,
+  reported outdated, last change and whether an AI made it) and the pages it links to. An
+  assistant answers a question in one call instead of a search then a read per page. The list
+  of tools given to the model grows by about 700 characters.
 - **Tables that disagree**. Wiki health (the Health tab, the REST API and what agent routines
   receive) now reports the same row of two aligned tables of two pages with a different value:
   the NAS with 8 TB in the inventory and 12 TB in the backup plan. Tables that disagree more
