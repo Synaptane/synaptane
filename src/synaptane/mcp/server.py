@@ -30,7 +30,17 @@ from synaptane import __version__
 from synaptane.config import Settings
 from synaptane.core.access import SpaceRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
-from synaptane.mcp import brief, editing, inbox_view, last_tidy, prompts, reading, review, runs
+from synaptane.mcp import (
+    brief,
+    editing,
+    inbox_view,
+    last_tidy,
+    prompts,
+    reading,
+    review,
+    runs,
+    then_and_now,
+)
 from synaptane.mcp.errors import explain, without_prefix
 from synaptane.mcp.kit import (
     ADDS,
@@ -342,6 +352,7 @@ def build_mcp(settings: Settings, database: Database, ws: Workspace) -> MCPServe
     server.run_prompt = run_team_prompt
     reading.register(server, kit)
     brief.register(server, kit)
+    then_and_now.register(server, kit)
     prompts.register(server)
     call, space_of = kit.call, kit.space_of
 

@@ -455,6 +455,12 @@ class Repository:
     def head(self) -> str | None:
         return self.rev("HEAD")
 
+    def commit_before(self, when: str) -> str | None:
+        """The commit that was current at `when` (ISO 8601 date, already validated), on the
+        line of commits made here; None if the history starts later."""
+        out = self._out("rev-list", "-1", "--first-parent", f"--before={when}", "HEAD")
+        return out.strip() or None
+
     def remote_head(self) -> str | None:
         return self.rev(self.remote_ref)
 

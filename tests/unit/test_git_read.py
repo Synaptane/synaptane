@@ -84,3 +84,29 @@ def test_a_stream_closed_early_is_not_an_error(repo: Repository) -> None:
     chunks = repo.object_stream(entry[0], chunk=4)
     assert next(chunks) == b"\0\n\nf"
     chunks.close()  # client gone: git is stopped without error
+
+
+def test_the_commit_current_at_a_date(tmp_path: Path) -> None:
+    """`commit_before`: the last commit made before the date, None before the history."""
+    import os
+    import subprocess
+
+    path = tmp_path / "dates"
+    path.mkdir()
+    repository = Repository(path, "", "main", ME)
+    repository._git("init", "--quiet", "-b", "main")
+    made = []
+    for day in ("2026-01-10", "2026-03-10"):
+        stamp = f"{day}T12:00:00+00:00"
+        env = {**os.environ, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
+        env |= {"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "T"}
+        env |= {"GIT_COMMITTER_EMAIL": "t@x", "GIT_CONFIG_GLOBAL": os.devnull}
+        subprocess.run(
+            ["git", "-C", str(path), "commit", "-q", "--allow-empty", "-m", day],
+            env=env,
+            check=True,
+        )
+        made.append(repository.head())
+    assert repository.commit_before("2026-01-01T23:59:59") is None
+    assert repository.commit_before("2026-02-01T23:59:59") == made[0]
+    assert repository.commit_before("2026-12-31T23:59:59") == made[1]
