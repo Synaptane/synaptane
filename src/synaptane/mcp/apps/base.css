@@ -24,7 +24,7 @@
   li.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
   li.card.done { opacity: .6; }
   .title { font-weight: 600; word-break: break-word; }
-  .where { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink-2); word-break: break-all; }
+  .where { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
   .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; margin-right: 6px; background: var(--border); }
   .badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
   .badge.strong { font-weight: 600; }

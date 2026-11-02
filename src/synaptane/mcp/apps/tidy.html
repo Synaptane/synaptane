@@ -89,7 +89,7 @@
     var label = element("span", page.status === "deleted" ? "badge warn" : "badge",
       t(page.status) + (page.old ? " " + t("from", { path: page.old }) : ""));
     item.appendChild(label);
-    item.appendChild(element("span", "where", page.path));
+    item.appendChild(App.path("where", page.path));
     var actions = element("span", "actions");
     var error = element("div", "error");
     error.hidden = true;

@@ -29,24 +29,24 @@
   var t = App.t, element = App.element;
   var TEXTS = {
     en: {
-      heading: "What the assistants wrote · {space}", all: "all spaces", span: "last {days} day(s)",
+      heading: "What the assistants wrote · {space}", all: "all spaces", span: "{days:last day|last {days} days}",
       none: "No assistant wrote pages here over this period.",
-      assistant: "An assistant", by: "for {name}", commits: "{n} commit(s)",
+      assistant: "An assistant", by: "for {name}", commits: "{n} {n:commit|commits}",
       created: "Created", edited: "Edited", deleted: "Deleted", moved: "Moved", from: "from {path}",
       changed: "Changed since: restore it from its history", undone: "Undone",
       see: "See the change", open: "Open", undo: "Undo", confirm: "Put it back as before the run?",
       undoAll: "Undo the whole run", confirmAll: "Put its {n} pages back as before?",
-      more: "{n} older run(s) not shown: ask for fewer days or one space.", failed: "Could not do it: {error}"
+      more: "{n} older {n:run|runs} not shown: ask for fewer days or one space.", failed: "Could not do it: {error}"
     },
     fr: {
-      heading: "Ce qu'ont écrit les assistants · {space}", all: "tous les espaces", span: "{days} dernier(s) jour(s)",
+      heading: "Ce qu'ont écrit les assistants · {space}", all: "tous les espaces", span: "{days:dernier jour|{days} derniers jours}",
       none: "Aucun assistant n'a écrit de page ici sur cette période.",
-      assistant: "Un assistant", by: "pour {name}", commits: "{n} commit(s)",
+      assistant: "Un assistant", by: "pour {name}", commits: "{n} {n:commit|commits}",
       created: "Créée", edited: "Modifiée", deleted: "Supprimée", moved: "Déplacée", from: "depuis {path}",
       changed: "Modifiée depuis : à restaurer depuis son historique", undone: "Annulée",
       see: "Voir le changement", open: "Ouvrir", undo: "Annuler", confirm: "La remettre comme avant le passage ?",
       undoAll: "Annuler tout le passage", confirmAll: "Remettre ses {n} pages comme avant ?",
-      more: "{n} passage(s) plus ancien(s) non affiché(s) : demandez moins de jours ou un seul espace.",
+      more: "{n} {n:passage plus ancien non affiché|passages plus anciens non affichés} : demandez moins de jours ou un seul espace.",
       failed: "Impossible : {error}"
     }
   };
@@ -105,7 +105,7 @@
     var from = hour(run.started), to = hour(run.ended);
     head.appendChild(element("span", "muted", from === to ? from : from + " – " + to));
     head.appendChild(element("span", "muted", t("commits", { n: run.commits })));
-    if (!data.space) head.appendChild(element("span", "where", run.space));
+    if (!data.space) head.appendChild(App.path("where", run.space));
     node.appendChild(head);
     var subjects = element("ul", "subjects");
     (run.subjects || []).forEach(function (subject) { subjects.appendChild(element("li", null, subject)); });
@@ -149,7 +149,7 @@
     var item = element("li", "card" + (page.state === "undone" ? " done" : ""));
     item.appendChild(element("span", page.status === "deleted" ? "badge warn" : "badge",
       t(page.status) + (page.old ? " " + t("from", { path: page.old }) : "")));
-    item.appendChild(element("span", "where", page.path));
+    item.appendChild(App.path("where", page.path));
     var actions = element("span", "actions");
     var error = element("div", "error");
     error.hidden = true;

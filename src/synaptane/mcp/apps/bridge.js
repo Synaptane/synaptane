@@ -40,9 +40,16 @@ var App = (function () {
     if (lang !== before && data && draw) draw(data);  // in the new language
   }
 
+  // {name} is replaced by values.name; {name:one|other} by the form that fits its number
+  // (French: 0 and 1 take the singular).
   function t(key, values) {
+    values = values || {};
     var text = (texts[lang] || texts.en)[key];
-    for (var name in values || {}) text = text.split("{" + name + "}").join(String(values[name]));
+    text = text.replace(/\{(\w+):((?:[^|{}]|\{\w+\})*)\|((?:[^|{}]|\{\w+\})*)\}/g, function (all, name, one, other) {
+      var n = Math.abs(Number(values[name]));
+      return (lang === "fr" ? n < 2 : n === 1) ? one : other;
+    });
+    for (var name in values) text = text.split("{" + name + "}").join(String(values[name]));
     return text;
   }
   function locale() { return lang === "fr" ? "fr-FR" : "en-GB"; }
@@ -61,6 +68,15 @@ var App = (function () {
     var node = document.createElement(tag);
     if (className) node.className = className;
     if (text != null) node.textContent = text;  // never HTML: titles and paths are untrusted
+    return node;
+  }
+  // A path that wraps after its slashes rather than in the middle of a name.
+  function path(className, text) {
+    var node = element("span", className);
+    String(text || "").split("/").forEach(function (part, i, parts) {
+      node.appendChild(document.createTextNode(part + (i < parts.length - 1 ? "/" : "")));
+      if (i < parts.length - 1) node.appendChild(document.createElement("wbr"));
+    });
     return node;
   }
   function button(label, primary, onClick) {
@@ -122,7 +138,7 @@ var App = (function () {
   }
 
   return {
-    start: start, t: t, day: day, moment: moment, element: element, button: button,
+    start: start, t: t, day: day, moment: moment, element: element, path: path, button: button,
     callTool: callTool, tellModel: tellModel, ask: ask, open: open, showError: showError
   };
 })();
