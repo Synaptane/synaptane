@@ -551,6 +551,55 @@ def test_last_tidy_comes_with_its_view_and_undoes_a_page(live: Live) -> None:
     assert after.structured_content["pages"][0]["state"] == "undone"
 
 
+def test_assistant_runs_come_with_their_view_and_undo_a_page(live: Live) -> None:
+    """MCP App: `assistant_runs` lists what assistants wrote, as runs, with its view
+    (`ui://synaptane/runs`); `undo_assistant_pages`, for the view only, puts a page back as
+    before the run."""
+    token = token_for(live.database, "alice")
+    results = mcp_calls(
+        live,
+        token,
+        ("write_page", {"space": "acme/infra", "path": "ia/un.md", "content": "# Un\n"}),
+        ("write_page", {"space": "acme/infra", "path": "ia/deux.md", "content": "# Deux\n"}),
+    )
+    assert not any(error for error, _ in results)
+
+    async def work(session: ClientSession) -> tuple[Any, ...]:
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+        view = await session.read_resource("ui://synaptane/runs")
+        before = await session.call_tool("assistant_runs", {"space": "acme/infra"})
+        run = before.structured_content["runs"][0]["id"]
+        undone = await session.call_tool(
+            "undo_assistant_pages", {"space": "acme/infra", "run": run, "paths": ["ia/un.md"]}
+        )
+        everywhere = await session.call_tool("assistant_runs", {})
+        return tools, view, before, undone, everywhere
+
+    tools, view, before, undone, everywhere = in_session(live, token, work)
+    assert tools["assistant_runs"].meta["ui"]["resourceUri"] == "ui://synaptane/runs"
+    assert tools["undo_assistant_pages"].meta["ui"]["visibility"] == ["app"]
+    [content] = view.contents
+    assert "ui/initialize" in content.text and "synaptane:bridge.js" not in content.text
+    assert "innerHTML" not in content.text
+    [run] = before.structured_content["runs"]
+    assert (run["space"], run["author"], run["commits"], run["can_undo"]) == (
+        "acme/infra",
+        "Alice",
+        2,
+        True,
+    )
+    pages = {p["path"]: (p["status"], p["state"]) for p in run["pages"]}
+    assert pages == {"ia/un.md": ("created", "undoable"), "ia/deux.md": ("created", "undoable")}
+    assert "/o/acme/infra/diff/" in run["pages"][0]["diff"]  # one commit made each page
+    text = "".join(getattr(c, "text", "") for c in before.content)
+    assert "1 assistant run(s) in acme/infra" in text and 'untrusted="true"' in text
+    assert f"before it: {run['start']}" in text  # the version restore takes, without the view
+    assert not undone.is_error and undone.structured_content["pages"] == ["ia/un.md"]
+    [again] = [r for r in everywhere.structured_content["runs"] if r["id"] == run["id"]]
+    assert {p["path"]: p["state"] for p in again["pages"]}["ia/un.md"] == "undone"
+    assert everywhere.structured_content["space"] == ""
+
+
 def test_inbox_list_comes_with_its_view_to_sort_the_inbox(live: Live) -> None:
     """MCP App: `inbox_list` names its view (`ui://synaptane/inbox`) and gives the items as
     data; `inbox_triage`, for the view only, judges a routine's problem "not a problem" (with
@@ -905,7 +954,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
     # related, verify_page, restore, and the tools of the views (MCP Apps) included
-    assert len(tools) == 25
+    assert len(tools) == 27
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -923,11 +972,12 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
     assert {"from_commit", "to_commit"} <= by_name["diff"].keys()
     # List re-read on every turn: about 20,800 characters with 21 tools, 17,100 once the
     # descriptions were shortened (October 30, 2026, measured with ./scripts/eval.sh mcp),
-    # 18,400 with the tools of the first two views. Tools meant for a view only (visibility
-    # "app") are left out: hosts that render views do not give them to the model.
+    # 18,400 with the tools of the first two views, 19,000 with assistant_runs. Tools meant
+    # for a view only (visibility "app") are left out: hosts that render views do not give
+    # them to the model.
     seen = [t for t in tools if (t.meta or {}).get("ui", {}).get("visibility") != ["app"]]
     size = len(json.dumps([t.model_dump(by_alias=True, exclude_none=True) for t in seen]))
-    assert size < 18_500, size
+    assert size < 19_500, size
 
     assert {(p.name, bool(p.title)) for p in listed} == {
         ("save", True),
@@ -1261,7 +1311,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 25 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 27 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------
@@ -1355,6 +1405,7 @@ def test_instructions_and_annotations_make_writes_confirmed(live: Live) -> None:
         "verify_page",
         "undo_tidy_pages",
         "inbox_triage",
+        "undo_assistant_pages",
     }
     for name, hints in writes.items():
         assert hints.destructive_hint is True and hints.open_world_hint is False, name

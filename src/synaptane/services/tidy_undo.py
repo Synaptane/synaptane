@@ -72,9 +72,17 @@ def _shas(repo: Repository, rev: str) -> dict[str, str]:
 
 
 def _pages(repo: Repository, commit: str) -> list[RunPage]:
-    before, after, now = _shas(repo, f"{commit}^"), _shas(repo, commit), _shas(repo, "HEAD")
+    return page_states(repo, f"{commit}^", commit, repo.changes_in(commit))
+
+
+def page_states(
+    repo: Repository, start: str, end: str, changes: list[tuple[str, str, str]]
+) -> list[RunPage]:
+    """The pages among `changes` (made from `start` to `end`), each with whether it can still
+    be put back as at `start`: unchanged since `end`, or already back."""
+    before, after, now = _shas(repo, start), _shas(repo, end), _shas(repo, "HEAD")
     pages = []
-    for status, path, old in repo.changes_in(commit):
+    for status, path, old in changes:
         if not path.startswith(PREFIX):
             continue
         paths = (path, old) if old else (path,)

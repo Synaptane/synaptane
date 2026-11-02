@@ -1,6 +1,6 @@
 """MCP Apps: views an assistant shows in the conversation, in hosts that render them (Claude
 on the web and desktop, ChatGPT, VS Code). Each view is bound to a tool (`review`,
-`last_tidy`) that also answers in text for the other clients.
+`last_tidy`, `inbox_view`, `runs`) that also answers in text for the other clients.
 
 A view is one HTML page (`apps/<name>.html`) with the shared style and bridge to the host
 inlined here: it holds no data (the host passes it the tool's result), loads nothing from

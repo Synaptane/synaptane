@@ -37,7 +37,7 @@ ne voit, en plus de la lecture, que `inbox_add`, `inbox_update` et `inbox_delete
 ## Des vues dans la conversation (MCP Apps)
 
 Dans un hôte qui affiche les MCP Apps (Claude sur le web et l'application de bureau,
-ChatGPT, VS Code avec Copilot), trois outils viennent avec une vue.
+ChatGPT, VS Code avec Copilot), quatre outils viennent avec une vue.
 
 **Pages à revoir** (`pages_to_review`) : une carte par page, avec son état (à revoir,
 signalée obsolète, et les raisons des lecteurs) et trois boutons :
@@ -73,6 +73,18 @@ les boutons qui lui conviennent :
   passages à la demande).
 
 La vue passe par `inbox_delete` et `inbox_triage`, un outil réservé à la vue.
+
+**Ce qu'ont écrit les assistants** (`assistant_runs`) : « qu'a fait Claude hier ? ». Les pages
+qu'ont écrites ces derniers jours les assistants connectés par MCP, dans un espace ou dans
+tous, en passages : ce qu'un assistant a écrit pour une personne d'une traite (des
+modifications qui se suivent, sans pause de plus de 30 minutes ni modification de quelqu'un
+d'autre entre elles), regroupés par jour. Chaque passage montre l'assistant, la personne,
+l'heure et les messages des commits ; chaque page, **Voir le changement**, **Ouvrir** et
+**Annuler** (contributeurs, un second clic confirme), plus **Annuler tout le passage**.
+Annuler remet la page comme avant le passage, dans un commit à votre nom ; une page modifiée
+depuis se restaure depuis son historique. La vue passe par `undo_assistant_pages`, un outil
+réservé à la vue. Sans la vue, le texte donne la version d'avant chaque passage, pour
+`restore`.
 
 Une vue ne contient aucune donnée (elle reçoit le résultat de l'outil de l'hôte), ne charge
 rien d'ailleurs, affiche titres, chemins et raisons en texte seulement, et suit le thème et
@@ -132,6 +144,7 @@ sont relatifs au contenu de l'espace, par exemple `infra/proxmox.md`.
 | `inbox_update`, `inbox_delete` | Corriger (seuls les champs passés changent) ou retirer une note déposée par erreur, par son `id`, tant qu'elle n'est pas rangée | contributeur |
 | `write_page`, `edit_page` | Créer, remplacer ou modifier un fichier texte (Markdown, `.txt`, `.csv`, `.html`, `.json`…). Remplacer un fichier existant exige son `base_sha` (le `sha` donné par `read`) : on ne réécrit pas une page sans l'avoir lue. Les deux renvoient la nouvelle empreinte, et signalent les liens cassés de la page. Les champs de vérification du front matter (`owner`, `verified`, `review_every`) sont gardés tels quels : seul `verify_page` les change | contributeur |
 | `append_page` | Ajouter du texte à la fin d'un fichier, avec le `base_sha` de l'appel précédent : un fichier trop long pour un seul appel s'écrit en plusieurs morceaux | contributeur |
+| `assistant_runs` | Ce qu'ont écrit les assistants IA ces derniers jours (`days`, 7 par défaut, 30 au plus), dans un espace (`space`) ou tous, en passages (un assistant pour une personne, d'une traite), avec les pages modifiées par chacun et ce qui peut encore être annulé ; en texte, et en vue dans les hôtes qui affichent les apps (voir plus haut). Les 20 derniers passages | lecteur |
 | `last_tidy` | Ce qu'a fait, dans un espace (`space`), le dernier passage du rangement qui a modifié des pages, ou un passage donné (`run`) : pages créées, modifiées, déplacées ou supprimées, avec ce qui peut encore être annulé, et notes rangées ; en texte, et en vue dans les hôtes qui affichent les apps (voir plus haut) | lecteur |
 | `pages_to_review` | Pages à revoir ou signalées obsolètes par des lecteurs, dans un espace (`space`) ou tous, `mine` pour celles dont l'utilisateur est propriétaire : en texte, et en vue dans les hôtes qui affichent les apps (voir plus haut). Les pages signalées d'abord, 30 au plus | lecteur |
 | `verify_page` | Marquer une page Markdown comme vérifiée aujourd'hui, seulement quand l'utilisateur confirme qu'elle est juste et à jour ; `owner` et `review_every` (`90d`, `6m`, `1y`, `never`, `default` : celle de l'espace) facultatifs. Sans propriétaire, la page devient celle de l'utilisateur. Un commit qui ne change que le front matter, non signalé au rangement | contributeur |
