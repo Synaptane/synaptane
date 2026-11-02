@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-02
+
+A fourth view in the conversation: what the assistants wrote, undoable page by page; and edits
+that say where they went wrong, with the change saved shown after each write. Upgrading from
+1.5.0: no migration. Reconnect the connector (or start a new conversation) so the host sees
+`assistant_runs` and its view.
+
 ### Added
 - **A fourth view: what the assistants wrote**. The new MCP tool `assistant_runs` answers
   "what did Claude do yesterday?": the pages that assistants connected over MCP wrote lately,
@@ -410,7 +417,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/synaptane/synaptane/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/synaptane/synaptane/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/synaptane/synaptane/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/synaptane/synaptane/compare/v1.2.0...v1.3.0
