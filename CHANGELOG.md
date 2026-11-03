@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-03
+
+Two new MCP tools to answer from the spaces in one call, what they say on a topic and what they
+said at a past date; and wiki health that spots tables that disagree. Upgrading from 1.6.0: no
+migration. Reconnect the connector (or start a new conversation) so the host sees `brief` and
+`then_and_now`.
+
 ### Added
 - **`brief`, what the spaces say on a topic in one call**. The new MCP tool gives, within a
   budget of characters, the best section of each relevant page (the one the search found the
@@ -441,7 +448,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/synaptane/synaptane/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/synaptane/synaptane/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/synaptane/synaptane/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/synaptane/synaptane/compare/v1.3.0...v1.4.0
