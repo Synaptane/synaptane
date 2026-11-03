@@ -774,6 +774,32 @@ def test_edit_errors_say_where_and_writes_return_the_change(
     assert "-Le forfait annuel coûte 490 euros." in change and "+Sur devis." in change
 
 
+def test_a_brief_gives_the_best_section_of_each_page_with_its_trust(live: Live) -> None:
+    """`brief`: the section the topic was found in (cut to the budget), its URL with the
+    anchor, its last change, the pages it links to; nothing found says so."""
+    alice = token_for(live.database, "alice")
+    page = (
+        "# Sauvegardes\n\nIntro.\n\n## Planning\n\nLe NAS est copié chaque nuit à 3h, voir "
+        "[l'accueil](../README.md).\n\n" + "Détail du planning. " * 300 + "\n\n## Autre\n\nRien.\n"
+    )
+    _, (error, found), (_, nothing) = mcp_calls(
+        live,
+        alice,
+        ("write_page", {"space": "acme/infra", "path": "guides/sauvegardes.md", "content": page}),
+        ("brief", {"topic": "copié chaque nuit", "spaces": ["acme/infra"], "budget": 2000}),
+        ("brief", {"topic": "zzzintrouvable"}),
+    )
+    assert not error and found.startswith('1 page(s) on "copié chaque nuit"'), found
+    assert "## Sauvegardes — acme/infra/guides/sauvegardes.md (section planning)" in found
+    assert "url: http" in found and "/p/guides/sauvegardes.md#planning" in found
+    assert "trust: edited " in found and " by Alice" in found
+    assert "links: README.md" in found
+    body = framed(found, "page", "acme/infra/guides/sauvegardes.md")
+    assert body.lstrip().startswith("## Planning") and "Intro." not in body and "Rien." not in body
+    assert 'more characters: read with section="planning"]' in body and len(body) < 2_200
+    assert nothing.startswith('Nothing found on "zzzintrouvable"')
+
+
 def test_registrations_are_limited_and_unused_clients_purged(live: Live) -> None:
     """Dynamic registration is open to everyone; it is limited per address, and clients that
     are never authorized disappear after a day."""
@@ -995,7 +1021,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
     # related, verify_page, restore, and the tools of the views (MCP Apps) included
-    assert len(tools) == 27
+    assert len(tools) == 28
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -1013,12 +1039,13 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
     assert {"from_commit", "to_commit"} <= by_name["diff"].keys()
     # List re-read on every turn: about 20,800 characters with 21 tools, 17,100 once the
     # descriptions were shortened (October 30, 2026, measured with ./scripts/eval.sh mcp),
-    # 18,400 with the tools of the first two views, 19,000 with assistant_runs. Tools meant
+    # 18,400 with the tools of the first two views, 19,000 with assistant_runs, 19,700 with
+    # brief. Tools meant
     # for a view only (visibility "app") are left out: hosts that render views do not give
     # them to the model.
     seen = [t for t in tools if (t.meta or {}).get("ui", {}).get("visibility") != ["app"]]
     size = len(json.dumps([t.model_dump(by_alias=True, exclude_none=True) for t in seen]))
-    assert size < 19_500, size
+    assert size < 20_000, size
 
     assert {(p.name, bool(p.title)) for p in listed} == {
         ("save", True),
@@ -1352,7 +1379,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 27 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 28 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------
