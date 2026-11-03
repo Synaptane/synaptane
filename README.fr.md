@@ -55,9 +55,10 @@ IA la tient en ordre chaque nuit.
   cherchables et lisibles par vos assistants. Voir
   [Vos fichiers, tous cherchables](#vos-fichiers-tous-cherchables).
 - **Pensé pour les assistants IA (MCP).** Streamable HTTP, avec OAuth 2.1 (PKCE,
-  enregistrement dynamique des clients) ou des jetons personnels. 20 outils et 3 prompts.
+  enregistrement dynamique des clients) ou des jetons personnels. 29 outils et 3 prompts, et
+  des vues dans la conversation (MCP Apps) pour relire, ranger et annuler sans la quitter.
   Testé avec les connecteurs de Claude.ai, Claude Desktop, Claude Code et ChatGPT. Une
-  connexion peut être limitée à la lecture seule ou à certains espaces.
+  connexion peut être limitée à la lecture seule, à l'inbox ou à certains espaces.
 - **Inbox et rangement nocturne.** Déposez des notes depuis votre assistant, l'interface web
   ou l'API REST. Un agent IA les range, met à jour les pages existantes, corrige les liens et
   commite. Chaque espace peut décrire sa *vocation* pour le guider. Garde-fous : 10

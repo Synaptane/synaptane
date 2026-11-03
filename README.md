@@ -53,9 +53,10 @@ don't just read it, they feed it, and an AI agent keeps it organized every night
   searchable and readable by your assistants. See
   [Your files, all searchable](#your-files-all-searchable).
 - **Built for AI assistants (MCP).** Streamable HTTP with OAuth 2.1 (PKCE, dynamic client
-  registration) or personal tokens. 20 tools and 3 prompts. Tested with Claude.ai, Claude
-  Desktop, Claude Code and ChatGPT connectors. A connection can be limited to read-only or to
-  some spaces.
+  registration) or personal tokens. 29 tools and 3 prompts, and views in the conversation
+  (MCP Apps) to review, file and undo without leaving it. Tested with Claude.ai, Claude
+  Desktop, Claude Code and ChatGPT connectors. A connection can be limited to read-only, to
+  the inbox or to some spaces.
 - **Inbox and nightly tidy-up.** Drop notes from your assistant, the web UI or the REST API.
   An AI agent files them, updates existing pages, fixes links and commits. Each space can
   describe its *purpose* to guide it. Guardrails: a cap of 10 deletions per run, caps on
