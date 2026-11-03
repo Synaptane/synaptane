@@ -7,6 +7,7 @@
 <style>
 /* synaptane:base.css */
   .reports { margin: 6px 0 0; padding-left: 16px; font-size: 13px; }
+  .where { display: block; }
 </style>
 </head>
 <body>
@@ -61,7 +62,7 @@
   function card(page) {
     var item = element("li", "card");
     item.appendChild(element("div", "title", page.title));
-    item.appendChild(element("div", "where", page.space + " · " + page.path));
+    item.appendChild(App.path("where", page.space + " · " + page.path));
     var line = element("div", "muted");
     var reports = page.reports || [];
     if (reports.length) line.appendChild(element("span", "badge warn strong", t("reported", { n: reports.length })));

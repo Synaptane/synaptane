@@ -10,6 +10,11 @@ of the target version.
 
 ## [Unreleased]
 
+### Fixed
+- **Views in the conversation**: counts agree with their number ("7 derniers jours",
+  "1 commit", "2 pièces jointes") instead of "(s)", and long paths wrap after a slash rather
+  than in the middle of a name.
+
 ## [1.6.0] - 2026-11-02
 
 A fourth view in the conversation: what the assistants wrote, undoable page by page; and edits

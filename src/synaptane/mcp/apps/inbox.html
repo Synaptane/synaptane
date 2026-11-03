@@ -29,10 +29,10 @@
   var t = App.t, element = App.element;
   var TEXTS = {
     en: {
-      heading: "Inbox · {space}", count: "{notes} note(s), {changes} changed page(s)",
+      heading: "Inbox · {space}", count: "{notes} {notes:note|notes}, {changes} changed {changes:page|pages}",
       empty: "The inbox is empty: nothing waits for the filing.",
       note: "Note", change: "Changed page", left: "Left aside", routine: "Problem found",
-      by: "{name}, {date}", origin: "Source: {origin}", attachments: "{n} attachment(s)",
+      by: "{name}, {date}", origin: "Source: {origin}", attachments: "{n} {n:attachment|attachments}",
       why: "Left aside: {reason}",
       open: "Open", remove: "Remove", confirmRemove: "Remove it?", removed: "Removed",
       seen: "Nothing to file", seenDone: "Seen",
@@ -44,10 +44,10 @@
       more: "{n} more", all: "Open the inbox in Synaptane", failed: "Could not do it: {error}"
     },
     fr: {
-      heading: "Inbox · {space}", count: "{notes} note(s), {changes} page(s) modifiée(s)",
+      heading: "Inbox · {space}", count: "{notes} {notes:note|notes}, {changes} {changes:page modifiée|pages modifiées}",
       empty: "L'inbox est vide : rien n'attend le rangement.",
       note: "Note", change: "Page modifiée", left: "Mise de côté", routine: "Problème signalé",
-      by: "{name}, {date}", origin: "Source : {origin}", attachments: "{n} pièce(s) jointe(s)",
+      by: "{name}, {date}", origin: "Source : {origin}", attachments: "{n} {n:pièce jointe|pièces jointes}",
       why: "Mise de côté : {reason}",
       open: "Ouvrir", remove: "Supprimer", confirmRemove: "La supprimer ?", removed: "Supprimée",
       seen: "Rien à ranger", seenDone: "Vue",
