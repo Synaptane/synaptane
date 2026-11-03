@@ -243,7 +243,14 @@ dernier commit :
 - **pages vides** ou **sans titre** (ni `# Titre`, ni `title:` dans le front matter) ;
 - **pages à revoir** : vérifiées, mais l'échéance de vérification est passée (propriétaire et
   date), et parmi les pages vérifiées, celles **sans propriétaire** ;
-- **pages anciennes** : non modifiées depuis 3, 6, 12 ou 24 mois, d'après Git.
+- **pages anciennes** : non modifiées depuis 3, 6, 12 ou 24 mois, d'après Git ;
+- **tableaux qui divergent** : deux pages ont chacune un tableau sur les mêmes choses (même
+  première colonne, au moins deux lignes en commun, une colonne de même nom) et donnent une
+  valeur différente pour la même ligne, le NAS à 8 To ici et à 12 To là. L'une des deux est
+  sans doute périmée. Des tableaux qui divergent plus qu'ils ne concordent décrivent des choses
+  différentes (les fiches de deux sociétés), et deux notes datées (`veille-2026-11-02.md`)
+  sont chacune vraies à leur date : ni les uns ni les autres ne sont signalés. Les routines
+  d'agent reçoivent aussi ces valeurs.
 
 Chaque ligne mène à la page, et à « Modifier » pour les contributeurs. Le même contrôle est
 servi par l'API REST (`GET /api/v1/organizations/{org}/spaces/{space}/health`, paramètres

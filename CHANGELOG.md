@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Tables that disagree**. Wiki health (the Health tab, the REST API and what agent routines
+  receive) now reports the same row of two aligned tables of two pages with a different value:
+  the NAS with 8 TB in the inventory and 12 TB in the backup plan. Tables that disagree more
+  than they agree (two companies' sheets) and dated notes are left out, to keep false alarms
+  away: on a real space of 150 pages and 89 tables, none was reported.
+
 ### Fixed
 - **Views in the conversation**: counts agree with their number ("7 derniers jours",
   "1 commit", "2 pièces jointes") instead of "(s)", and long paths wrap after a slash rather

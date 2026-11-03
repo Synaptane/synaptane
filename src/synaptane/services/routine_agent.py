@@ -527,11 +527,14 @@ def health_text(repo: Repository, spec: Spec, limit: int = 15, space: Space | No
     untitled = [p for p in found.untitled if spec.in_scope(p)]
     stale = [s for s in found.stale if spec.in_scope(s.path)]
     due = [d for d in found.due if spec.in_scope(d.path)]
+    drifts = [
+        d for d in found.drifts if spec.in_scope(d.first.page) or spec.in_scope(d.second.page)
+    ]
     lines = [
         f"Broken links: {len(broken)} · orphan pages: {len(orphans)} · empty pages: "
         f"{len(empty)} · untitled: {len(untitled)} · old pages (more than {found.months} "
         f"months without changes): {len(stale)} · pages due for review (verification "
-        f"expired): {len(due)}."
+        f"expired): {len(due)} · values that disagree between tables: {len(drifts)}."
     ]
 
     def section(title: str, entries: list[str]) -> None:
@@ -552,6 +555,15 @@ def health_text(repo: Repository, spec: Spec, limit: int = 15, space: Space | No
     section("Empty pages", empty)
     section("Untitled pages", untitled)
     section("Old pages", [f"{s.path} (last change: {s.date[:10]})" for s in stale])
+    section(
+        "Tables that disagree (the same row, a different value in two pages: one may be "
+        "outdated, or both right; read them before concluding)",
+        [
+            f"{d.key}, {d.column}: {d.first.value} ({d.first.page}, line {d.first.line}) / "
+            f"{d.second.value} ({d.second.page}, line {d.second.line})"
+            for d in drifts
+        ],
+    )
     section(
         'Pages due for review (verification expired: to read again with their owner, then "Mark '
         'as verified")',

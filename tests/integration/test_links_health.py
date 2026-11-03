@@ -206,6 +206,7 @@ def test_wiki_health_on_a_small_space(
         "due": 0,
         "unowned": 0,
         "verified": 0,
+        "drifts": 0,
     }
     assert body["broken"] == [
         {"page": "a.md", "link": "serveur/proxmox.md", "suggestion": "serveurs/proxmox.md"}
@@ -219,3 +220,43 @@ def test_wiki_health_on_a_small_space(
     client.post("/logout", data={"csrf": csrf(client, "/o/acme/infra")})
     login(client, "alice")
     assert 'href="/o/acme/infra/edit/a.md"' in client.get("/o/acme/infra/health?months=3").text
+
+
+def test_tables_that_disagree_show_in_wiki_health(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """The same row of two aligned tables, with another value: in the report (line numbers
+    after the front matter), the REST API and the Health tab."""
+    inventory = (
+        "---\nowner: alice\n---\n# Serveurs\n\n"
+        "| Machine | RAM | Disque |\n|---|---|---|\n"
+        "| NAS | 8 Go | **12 To** |\n| PVE | 64 Go | 2 To |\n"
+    )
+    backups = (
+        "# Sauvegardes\n\n| Machine | Disque | Cible |\n| :-- | :-- | :-- |\n"
+        "| nas | 8 To | B2 |\n| [PVE](inventaire.md) | 2 To | NAS |\n"
+    )
+    for path, text in (("inventaire.md", inventory), ("sauvegardes.md", backups)):
+        content.write_file(db, database, wiki.alice, ctx, wiki.infra, path, text.encode())
+    db.commit()
+    report = health.space_health(wiki.bob, ctx, wiki.infra)
+    [drift] = report.drifts
+    assert (drift.key, drift.column) == ("NAS", "Disque")
+    assert (drift.first.page, drift.first.line, drift.first.value) == (
+        "inventaire.md",
+        8,
+        "**12 To**",
+    )
+    assert (drift.second.page, drift.second.line, drift.second.value) == (
+        "sauvegardes.md",
+        5,
+        "8 To",
+    )
+
+    headers = {"Authorization": f"Bearer {token_for(database, 'bob')}"}
+    body = client.get("/api/v1/organizations/acme/spaces/infra/health", headers=headers).json()
+    assert body["counts"]["drifts"] == 1
+    assert body["drifts"][0]["second"] == {"page": "sauvegardes.md", "line": 5, "value": "8 To"}
+    login(client, "bob")
+    shown = client.get("/o/acme/infra/health").text
+    assert "Tableaux qui divergent" in shown and "<code>**12 To**</code>" in shown
