@@ -800,6 +800,68 @@ def test_a_brief_gives_the_best_section_of_each_page_with_its_trust(live: Live) 
     assert nothing.startswith('Nothing found on "zzzintrouvable"')
 
 
+def test_then_and_now_compares_a_topic_at_a_date_with_today(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per page: its section now and the diff since the date; a page created since, one
+    deleted since, one that no longer speaks of the topic, one unchanged."""
+    from synaptane.git.repo import Repository
+
+    alice = token_for(live.database, "alice")
+    infra: dict[str, object] = {"space": "acme/infra"}
+    plan = "# Plan\n\n## Sauvegarde\n\nLa sauvegarde part à 2h vers le NAS.\n\n## Autre\n\nRien.\n"
+    mcp_calls(
+        live,
+        alice,
+        ("write_page", {**infra, "path": "plan.md", "content": plan}),
+        (
+            "write_page",
+            {**infra, "path": "vieux.md", "content": "# Vieux\n\nSauvegarde sur bande.\n"},
+        ),
+        (
+            "write_page",
+            {**infra, "path": "note.md", "content": "# Note\n\nSauvegarde ici aussi.\n"},
+        ),
+    )
+    assert live.ws is not None
+    with live.database.session() as session:
+        space = session.scalars(select(Space).where(Space.slug == "infra")).one()
+        start = live.ws.local_repository(space).head()
+    mcp_calls(
+        live,
+        alice,
+        ("edit_page", {**infra, "path": "plan.md", "old": "à 2h", "new": "à 3h"}),
+        ("delete", {**infra, "path": "vieux.md"}),
+        ("edit_page", {**infra, "path": "note.md", "old": "Sauvegarde ici aussi.", "new": "Rien."}),
+        ("write_page", {**infra, "path": "neuf.md", "content": "# Neuf\n\nSauvegarde neuve.\n"}),
+    )
+    monkeypatch.setattr(Repository, "commit_before", lambda self, when: start)
+    [(error, text)] = mcp_calls(
+        live,
+        alice,
+        ("then_and_now", {"topic": "sauvegarde", "date": "2026-01-01", "spaces": ["acme/infra"]}),
+    )
+    assert not error, text
+    pages = {part.split("\n", 1)[0]: part for part in text.split("\n\n## ")[1:]}
+    plan_part = pages["Plan — acme/infra/plan.md"]
+    assert "section sauvegarde" in plan_part and "/p/plan.md#sauvegarde" in plan_part
+    assert (
+        "-La sauvegarde part à 2h vers le NAS." in plan_part
+        and "+La sauvegarde part à 3h" in plan_part
+    )
+    assert "Rien." not in plan_part.split("Change since", 1)[1]  # the section, not the page
+    assert "deleted since 2026-01-01" in pages["Vieux — acme/infra/vieux.md"]
+    assert "Sauvegarde sur bande." in pages["Vieux — acme/infra/vieux.md"]
+    assert "-Sauvegarde ici aussi." in pages["Note — acme/infra/note.md"]
+    assert "created since 2026-01-01" in pages["Neuf — acme/infra/neuf.md"]
+    assert "Unchanged since 2026-01-01." in pages["Infra — acme/infra/README.md"]
+
+    [(error, refused)] = mcp_calls(
+        live, alice, ("then_and_now", {"topic": "x", "date": "2099-01-01"})
+    )
+    assert error and "in the past" in refused
+
+
 def test_registrations_are_limited_and_unused_clients_purged(live: Live) -> None:
     """Dynamic registration is open to everyone; it is limited per address, and clients that
     are never authorized disappear after a day."""
@@ -1021,7 +1083,7 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
 
     tools, listed, (answer, briefing, record) = in_session(live, alice, work)
     # related, verify_page, restore, and the tools of the views (MCP Apps) included
-    assert len(tools) == 28
+    assert len(tools) == 29
     for tool in tools:
         assert tool.title, tool.name
         assert tool.output_schema is None, tool.name
@@ -1040,12 +1102,12 @@ def test_tools_and_prompts_are_presentable(live: Live) -> None:
     # List re-read on every turn: about 20,800 characters with 21 tools, 17,100 once the
     # descriptions were shortened (October 30, 2026, measured with ./scripts/eval.sh mcp),
     # 18,400 with the tools of the first two views, 19,000 with assistant_runs, 19,700 with
-    # brief. Tools meant
+    # brief, 20,400 with then_and_now. Tools meant
     # for a view only (visibility "app") are left out: hosts that render views do not give
     # them to the model.
     seen = [t for t in tools if (t.meta or {}).get("ui", {}).get("visibility") != ["app"]]
     size = len(json.dumps([t.model_dump(by_alias=True, exclude_none=True) for t in seen]))
-    assert size < 20_000, size
+    assert size < 21_000, size
 
     assert {(p.name, bool(p.title)) for p in listed} == {
         ("save", True),
@@ -1379,7 +1441,7 @@ def test_a_2026_07_28_client_lists_and_calls_tools(live: Live) -> None:
         return session.protocol_version, len(tools), text
 
     version, count, text = in_session(live, alice, work, modern=True)
-    assert version == "2026-07-28" and count == 28 and "acme/infra" in text
+    assert version == "2026-07-28" and count == 29 and "acme/infra" in text
 
 
 # --- Security: untrusted content, default scope, confirmation ------------------------------------

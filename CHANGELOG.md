@@ -17,6 +17,12 @@ of the target version.
   reported outdated, last change and whether an AI made it) and the pages it links to. An
   assistant answers a question in one call instead of a search then a read per page. The list
   of tools given to the model grows by about 700 characters.
+- **`then_and_now`, what the spaces said on a topic at a past date**. "What did we say about
+  the backup in September?": for each page on the topic, the new MCP tool gives its section
+  now and the change since that date (what it said then, what it says since), and the pages
+  that spoke of it then and no longer do (deleted, or the passage removed), with what they
+  said. Each space is read as it was that day, from its Git history. The list of tools given
+  to the model grows by about 700 characters.
 - **Tables that disagree**. Wiki health (the Health tab, the REST API and what agent routines
   receive) now reports the same row of two aligned tables of two pages with a different value:
   the NAS with 8 TB in the inventory and 12 TB in the backup plan. Tables that disagree more
