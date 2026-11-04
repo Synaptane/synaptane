@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-04
+
+Account security: two-factor authentication, and the sessions signed in to your account, to see
+and close. Upgrading from 1.7.0: two migrations (`0027`, `0028`), applied at startup; nobody is
+signed out. **Super admins who sign in with a password must turn on two-factor authentication
+at their next sign-in**, before anything else: have an authenticator app at hand and keep the
+recovery codes in a safe place (a password manager). To keep it optional, set
+`superadmin_2fa = false` (with Docker, `SYNAPTANE_SUPERADMIN_2FA: "false"` in
+`compose.override.yaml`, see "Other settings" in `docs/admin/installation.md`).
+
 ### Added
 - **Two-factor authentication**. In **My account → Security**, anyone who signs in with a
   password can add a code from an authenticator app (Google Authenticator, Aegis, 1Password,
@@ -467,7 +477,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/synaptane/synaptane/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/synaptane/synaptane/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/synaptane/synaptane/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/synaptane/synaptane/compare/v1.4.0...v1.5.0
