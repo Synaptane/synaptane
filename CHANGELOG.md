@@ -11,6 +11,18 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Two-factor authentication**. In **My account → Security**, anyone who signs in with a
+  password can add a code from an authenticator app (Google Authenticator, Aegis, 1Password,
+  Bitwarden…): a QR code to scan, a code to confirm it, and ten single-use recovery codes for
+  a lost phone. Each sign-in, and each password reset by email, then asks for the code (five
+  tries per account every 15 minutes). **Super admins who sign in with a password must turn it
+  on** before anything else (`superadmin_2fa`, `false` only for a demo or test instance, as in
+  `examples/compose.demo.yaml`). Single sign-on leaves the second factor to the identity
+  provider. Personal tokens and assistant connections already made keep working; connecting
+  a new assistant goes through the web sign-in, code included. A super admin turns it
+  off for someone who lost their phone (**Administration → Accounts**), and
+  `synaptane admin reset-2fa` does it for the last super admin locked out. New dependency:
+  segno (BSD-3-Clause), for the QR code.
 - **Sessions you can see and close**. **My account → Security** lists the browsers signed in
   to your account (browser and system, address, when signed in, last activity) and signs out
   one of them, or all but the current one: a lost phone, a shared computer. A web session now

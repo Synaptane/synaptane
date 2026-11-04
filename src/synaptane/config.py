@@ -30,6 +30,7 @@ class Settings(BaseModel):
     data_dir: Path
     session_days: int = 30
     session_idle_days: int = 7  # without a request, the web session ends; 0: never
+    superadmin_2fa: bool = True  # super admins who sign in with a password need a second factor
     poll_minutes: int = 5  # fallback sync when no webhook arrives
     git_timeout: int = 300  # seconds: overall timeout of an exchange with the Git host
     allow_local_repos: bool = False  # file:// repositories: development and tests only

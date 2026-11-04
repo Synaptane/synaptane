@@ -11,6 +11,7 @@ from synaptane.services import (
     accounts,
     organizations,
     sso,
+    two_factor,
 )
 from synaptane.web.pages import (
     Csrf,
@@ -124,6 +125,17 @@ def admin_user_password(
     except SynaptaneError as error:
         return failure(f"/admin/users/{username}", page, error)
     return redirect(f"/admin/users/{username}", page, "Password reset.")
+
+
+@router.post("/admin/users/{username}/2fa/reset")
+def admin_user_2fa_reset(page: WebPage, username: str, csrf: Csrf) -> Response:
+    """For someone who lost their phone and their recovery codes."""
+    actor = page.check_csrf(csrf)
+    try:
+        two_factor.reset(page.db, actor, accounts.get_user(page.db, username))
+    except SynaptaneError as error:
+        return failure(f"/admin/users/{username}", page, error)
+    return redirect(f"/admin/users/{username}", page, "Two-factor authentication turned off.")
 
 
 @router.post("/admin/organizations")

@@ -76,7 +76,9 @@ don't just read it, they feed it, and an AI agent keeps it organized every night
   subscription can also be used through the official CLIs (see
   [Known limitations](#known-limitations)).
 - **Made for teams.** Organizations, spaces, roles (reader, contributor, organization admin,
-  super admin), email invitations, single sign-on (OIDC, GitHub, GitLab, Google).
+  super admin), email invitations, single sign-on (OIDC, GitHub, GitLab, Google),
+  two-factor authentication (authenticator app, required for super admins), sessions you can
+  see and close.
 - **Open APIs.** A full REST API and HMAC-signed webhooks. Its OpenAPI schema and interactive
   documentation are off by default (`api_docs` setting).
 - **Easy to run.** Docker Compose, behind your own reverse proxy or with a bundled nginx and
@@ -154,7 +156,6 @@ tools and the configuration only change in a compatible way. Every change is lis
   search, the embedding models of OpenAI, Gemini, Mistral and Voyage AI). For other
   providers, enter the price per million tokens yourself: without a price, no cost is
   computed and no budget can apply. Vectorizing search queries is not counted.
-- **Not there yet:** two-factor authentication.
 - **Monitoring:** no `/metrics` endpoint. `/healthz` and `/readyz` exist.
 - **Platforms:** Linux, or WSL2 on Windows. macOS is not tested.
 - **Language:** the web UI, emails, REST error messages and documentation are in English and

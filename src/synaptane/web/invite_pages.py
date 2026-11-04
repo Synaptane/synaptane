@@ -23,6 +23,7 @@ from synaptane.web.pages import (
     WebPage,
     failure,
     org_url,
+    password_ok,
     redirect,
     reveal,
     sign_in,
@@ -240,7 +241,7 @@ def reset(page: WebPage, token: str, password: Annotated[str, Form()]) -> Respon
         except SynaptaneError:
             account = None
         return page.render("reset.html", status_code=400, account=account, error=error, token=token)
-    return sign_in(page, user, "/", "Password changed.")
+    return password_ok(page, user, "/", "Password changed.")
 
 
 # --- Email sending (super-admin) -----------------------------------------------------------------

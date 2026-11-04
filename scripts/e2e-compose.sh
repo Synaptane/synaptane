@@ -58,6 +58,7 @@ services:
   app:
     environment:
       SYNAPTANE_ALLOW_LOCAL_REPOS: "true"
+      SYNAPTANE_SUPERADMIN_2FA: "false"  # the script signs in with the password alone
     volumes:
       - forge:/forge
   worker:

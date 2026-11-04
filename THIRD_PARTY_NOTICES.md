@@ -151,6 +151,7 @@ package ships its own license file in its `*.dist-info/` directory (in the Docke
 | python-multipart | 0.0.32 | Apache-2.0 |
 | referencing | 0.37.0 | MIT |
 | rpds-py | 2026.6.3 | MIT |
+| segno | 1.6.6 | BSD-3-Clause |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 |
 | sqlalchemy | 2.1.6 | MIT |
 | sse-starlette | 3.5.0 | BSD-3-Clause |

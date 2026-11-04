@@ -33,6 +33,10 @@ def test_init_upgrade_admin_and_doctor(
         monkeypatch.setenv("SYNAPTANE_ADMIN_PASSWORD", "mot-de-passe-admin")
         assert main(["--config", str(config), "admin", "create", "--username", "root"]) == 0
         assert main(["--config", str(config), "admin", "create", "--username", "root"]) == 1
+        # Lost phone: two-factor authentication turned off from the server.
+        reset_2fa = ["--config", str(config), "admin", "reset-2fa", "--username", "root"]
+        assert main(reset_2fa) == 0
+        assert 'turned off for "root"' in capsys.readouterr().out
         capsys.readouterr()
         assert main(["--config", str(config), "doctor"]) == 0
         out = capsys.readouterr().out

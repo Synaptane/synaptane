@@ -79,7 +79,8 @@ IA la tient en ordre chaque nuit.
   peut aussi servir, par les CLI officiels (voir les [limites connues](#limites-connues)).
 - **Fait pour les équipes.** Organisations, espaces, rôles (lecteur, contributeur, admin
   d'organisation, super-admin), invitations par e-mail, connexion SSO (OIDC, GitHub, GitLab,
-  Google).
+  Google), double authentification (application d'authentification, obligatoire pour les
+  super-admins), sessions visibles et fermables.
 - **Des API ouvertes.** Une API REST complète et des webhooks signés par HMAC. Son schéma
   OpenAPI et sa documentation interactive sont désactivés par défaut (réglage `api_docs`).
 - **Simple à exploiter.** Docker Compose, derrière votre propre proxy ou avec un nginx et
@@ -165,7 +166,6 @@ avant chaque mise à jour.
   Pour les autres fournisseurs, saisissez vous-même le tarif par million de jetons : sans
   tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La vectorisation des
   requêtes de recherche n'est pas comptée.
-- **Pas encore là :** l'authentification à deux facteurs.
 - **Supervision :** pas de point d'accès `/metrics`. `/healthz` et `/readyz` existent.
 - **Plateformes :** Linux, ou WSL2 sous Windows. macOS n'est pas testé.
 - **Langue :** l'interface web, les e-mails, les messages d'erreur de l'API REST et la

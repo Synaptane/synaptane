@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -67,6 +68,13 @@ class User(Base):
     # Receives by email the output of routines that write to the team (weekly summary…).
     notify_routines: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Two-factor authentication (`services.two_factor`): secret of the authenticator app,
+    # encrypted with the master key; time step of the last code accepted (used once); digests
+    # of the unused recovery codes.
+    totp_secret: Mapped[bytes | None] = mapped_column(LargeBinary)
+    totp_enabled_at: Mapped[datetime | None]
+    totp_step: Mapped[int | None] = mapped_column(BigInteger)
+    recovery_codes: Mapped[list[str] | None] = mapped_column(JSONB)
 
 
 class Organization(Base):
