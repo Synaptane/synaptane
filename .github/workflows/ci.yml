@@ -141,3 +141,30 @@ jobs:
         run: |
           SYNAPTANE_PREVIOUS_COMPOSE="$RUNNER_TEMP/previous/compose.yaml" \
           SYNAPTANE_IMAGE=synaptane:ci ./scripts/e2e-compose.sh
+
+  # The same image on an ARM server (arm64, native runner): build with the subscription CLIs,
+  # tools, CLI contract and a fresh install through Compose. The published image is built for
+  # both platforms by release.yml.
+  image-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Docker image (arm64)
+        run: |
+          docker build --build-arg GIT_SHA=${{ github.sha }} -t synaptane:ci .
+          test "$(docker inspect -f '{{ .Architecture }}' synaptane:ci)" = arm64
+      - name: Tools present in the image
+        run: |
+          docker run --rm --entrypoint sh synaptane:ci -c \
+            'synaptane --version && git --version && rg --version && tesseract --list-langs && catdoc -V && xls2csv -V && pg_dump --version && age --version && rclone version && claude --version && codex --version'
+      - name: nginx image (proxy mode)
+        run: |
+          docker build -f deploy/nginx/Dockerfile -t synaptane-nginx:ci .
+          docker run --rm --entrypoint sh synaptane-nginx:ci -c 'nginx -v && openssl version'
+      - name: Subscription CLI contract
+        run: docker run --rm --network none --entrypoint synaptane synaptane:ci check-clis
+      - name: Compose run (fresh install, space, worker, backup, down -v, restore)
+        run: SYNAPTANE_IMAGE=synaptane:ci ./scripts/e2e-compose.sh

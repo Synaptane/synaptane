@@ -7,7 +7,8 @@ Deux façons d'installer :
   vous construisez vous-même ;
 - **depuis les sources**, pour développer ou pour un serveur sans Docker.
 
-Synaptane tourne sous Linux, ou WSL2 sous Windows. macOS n'est pas testé.
+Synaptane tourne sous Linux, ou WSL2 sous Windows, sur x86-64 ou arm64 (serveurs ARM). macOS n'est
+pas testé.
 
 ## Avec Docker Compose
 
@@ -16,7 +17,8 @@ Prérequis :
 - un nom de domaine qui pointe vers le serveur : HTTPS est indispensable pour les cookies,
   OAuth, le SSO et les connecteurs de Claude.ai et ChatGPT.
 
-L'image publiée `ghcr.io/synaptane/synaptane` contient tout le reste : Git, ripgrep,
+Les images publiées existent pour x86-64 et arm64 : Docker télécharge celle du serveur. L'image
+`ghcr.io/synaptane/synaptane` contient tout le reste : Git, ripgrep,
 Tesseract (anglais et français), catdoc (anciens fichiers Office), le client PostgreSQL pour
 les sauvegardes, age et rclone. Elle ne contient **pas** les CLI Claude Code et Codex, qui ne
 servent qu'à faire tourner l'agent IA sur un abonnement Claude ou ChatGPT : pour cela,

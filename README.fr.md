@@ -167,7 +167,7 @@ avant chaque mise à jour.
   tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La vectorisation des
   requêtes de recherche n'est pas comptée.
 - **Supervision :** pas de point d'accès `/metrics`. `/healthz` et `/readyz` existent.
-- **Plateformes :** Linux, ou WSL2 sous Windows. macOS n'est pas testé.
+- **Plateformes :** Linux sur x86-64 ou arm64, ou WSL2 sous Windows. macOS n'est pas testé.
 - **Langue :** l'interface web, les e-mails, les messages d'erreur de l'API REST et la
   documentation sont en anglais et en français. La ligne de commande, les journaux et les
   réponses aux assistants IA (MCP) sont en anglais.
@@ -175,7 +175,8 @@ avant chaque mise à jour.
 
 ## Prérequis
 
-- Un **serveur Linux** (ou WSL2 pour essayer) avec **Docker Engine et le plugin Compose**.
+- Un **serveur Linux**, x86-64 ou arm64 (ou WSL2 pour essayer), avec **Docker Engine et le
+  plugin Compose**.
 - Un **nom de domaine servi en HTTPS**, pour les connecteurs de Claude.ai et ChatGPT, OAuth et
   le SSO. Inutile pour un essai en local.
 - Un **dépôt Git** par espace, chez n'importe quel hébergeur, joignable en HTTPS ou en SSH.
