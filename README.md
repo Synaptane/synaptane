@@ -154,8 +154,7 @@ tools and the configuration only change in a compatible way. Every change is lis
   search, the embedding models of OpenAI, Gemini, Mistral and Voyage AI). For other
   providers, enter the price per million tokens yourself: without a price, no cost is
   computed and no budget can apply. Vectorizing search queries is not counted.
-- **Not there yet:** two-factor authentication; restoring a single page version from the UI
-  (the Git history is there).
+- **Not there yet:** two-factor authentication.
 - **Monitoring:** no `/metrics` endpoint. `/healthz` and `/readyz` exist.
 - **Platforms:** Linux, or WSL2 on Windows. macOS is not tested.
 - **Language:** the web UI, emails, REST error messages and documentation are in English and

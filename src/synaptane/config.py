@@ -29,6 +29,7 @@ class Settings(BaseModel):
     database_url: str
     data_dir: Path
     session_days: int = 30
+    session_idle_days: int = 7  # without a request, the web session ends; 0: never
     poll_minutes: int = 5  # fallback sync when no webhook arrives
     git_timeout: int = 300  # seconds: overall timeout of an exchange with the Git host
     allow_local_repos: bool = False  # file:// repositories: development and tests only

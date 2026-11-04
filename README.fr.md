@@ -165,8 +165,7 @@ avant chaque mise à jour.
   Pour les autres fournisseurs, saisissez vous-même le tarif par million de jetons : sans
   tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La vectorisation des
   requêtes de recherche n'est pas comptée.
-- **Pas encore là :** l'authentification à deux facteurs ; la restauration d'une version de
-  page depuis l'interface (l'historique Git est là).
+- **Pas encore là :** l'authentification à deux facteurs.
 - **Supervision :** pas de point d'accès `/metrics`. `/healthz` et `/readyz` existent.
 - **Plateformes :** Linux, ou WSL2 sous Windows. macOS n'est pas testé.
 - **Langue :** l'interface web, les e-mails, les messages d'erreur de l'API REST et la

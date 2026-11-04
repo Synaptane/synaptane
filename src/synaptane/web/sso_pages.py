@@ -98,7 +98,13 @@ def sso_callback(
         response = redirect(next_url, page, "Provider account linked.")
         response.delete_cookie(STATE_COOKIE, path="/sso/")
         return response
-    token, _ = accounts.open_web_session(page.db, user, page.settings.session_days)
+    token, _ = accounts.open_web_session(
+        page.db,
+        user,
+        page.settings.session_days,
+        page.request.headers.get("user-agent", ""),
+        page.request.client.host if page.request.client else None,
+    )
     response = RedirectResponse(safe_next(next_url), status_code=303)
     response.set_cookie(
         SESSION_COOKIE,

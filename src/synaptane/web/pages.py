@@ -562,7 +562,8 @@ def _web_session(request: Request) -> Iterator[Page]:
     with database.session() as db:
         actor = web_session = None
         if token := request.cookies.get(SESSION_COOKIE):
-            resolved = accounts.resolve_web_session(db, token)
+            settings: Settings = request.app.state.settings
+            resolved = accounts.resolve_web_session(db, token, settings.session_idle_days)
             if resolved is not None:
                 user, web_session = resolved
                 actor = load_actor(db, user)
@@ -668,7 +669,14 @@ def _same_origin(request: Request, settings: Settings) -> bool:
 def sign_in(page: Page, user: User, target: str, message: str | None = None) -> Response:
     """Opens a web session and redirects (sign-in, accepted invitation, password reset)."""
     settings = page.settings
-    token, _ = accounts.open_web_session(page.db, user, settings.session_days)
+    request = page.request
+    token, _ = accounts.open_web_session(
+        page.db,
+        user,
+        settings.session_days,
+        request.headers.get("user-agent", ""),
+        request.client.host if request.client else None,
+    )
     response = redirect(target, page, message) if message else RedirectResponse(target, 303)
     if user.locale in LOCALES:  # error and sign-in pages in the account's language
         response.set_cookie(LANG_COOKIE, user.locale, max_age=365 * 86400, samesite="lax")

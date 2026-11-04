@@ -23,6 +23,24 @@
 {% endblock %}
 {% block section %}
 {{ password_form() }}
+<section class="section-gap account-section account-sessions">
+  <h2>{{ _("Sessions") }}</h2>
+  <p class="muted">{{ _("Browsers signed in to your account. A session ends after {days} days without use, and after {max} days in any case.", days=idle_days, max=max_days) if idle_days else _("Browsers signed in to your account. A session ends after {max} days.", max=max_days) }}</p>
+  <div class="stack">
+    {% for web_session, browser, current in sessions %}
+    <article class="card token-card" data-test="session">
+      <div class="token-head"><h3>{{ browser or _("Unknown browser") }}</h3>{% if web_session.address %}<code>{{ web_session.address }}</code>{% endif %}{% if current %}<span class="badge">{{ _("This session") }}</span>{% endif %}</div>
+      <div class="token-foot">
+        <span>{{ _("Signed in") }} {{ when(web_session.created_at) }} · {{ _("last active") }} {{ when(web_session.last_seen_at) }}</span>
+        {% if not current %}{{ action("/account/sessions/" ~ web_session.id ~ "/close", _("Sign out"), confirm=_("Sign this browser out? It will need your password again."), kind="danger") }}{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+    {% if sessions|length > 1 %}
+    <div>{{ action("/account/sessions/close-others", _("Sign out of all other sessions"), confirm=_("Sign out everywhere except this browser?"), kind="danger") }}</div>
+    {% endif %}
+  </div>
+</section>
 {% if identities or linkable %}
 <section class="section-gap account-section">
   <h2>{{ _("Single sign-on identities") }}</h2>
