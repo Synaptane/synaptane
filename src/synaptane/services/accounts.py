@@ -260,33 +260,85 @@ def _revoke_everything(session: Session, user_id: UUID) -> None:
 # --- Web sessions -----------------------------------------------------------------------------
 
 
-def open_web_session(session: Session, user: User, days: int) -> tuple[str, WebSession]:
+SEEN_EVERY = timedelta(minutes=5)  # last activity of a session written at most this often
+
+
+def open_web_session(
+    session: Session, user: User, days: int, client: str = "", address: str | None = None
+) -> tuple[str, WebSession]:
+    """`client`: the browser's User-Agent, `address`: its IP address (shown in My account)."""
     token = new_token("sess_")
     web_session = WebSession(
         token_hash=token_hash(token),
         csrf_token=new_token("csrf_"),
         user_id=user.id,
         expires_at=_now() + timedelta(days=days),
+        last_seen_at=_now(),
+        client=client[:300],
+        address=(address or None) and address[:64],
     )
     session.add(web_session)
     session.flush()
     return token, web_session
 
 
-def resolve_web_session(session: Session, token: str) -> tuple[User, WebSession] | None:
+def resolve_web_session(
+    session: Session, token: str, idle_days: int = 0
+) -> tuple[User, WebSession] | None:
+    """The session of `token` and its account, None if it ended: expired, or unused for
+    `idle_days` (0: no limit), in which case it is deleted. Its last activity is updated."""
     web_session = session.scalar(
         select(WebSession).where(WebSession.token_hash == token_hash(token))
     )
-    if web_session is None or web_session.expires_at <= _now():
+    now = _now()
+    if web_session is None or web_session.expires_at <= now:
+        return None
+    if idle_days and web_session.last_seen_at <= now - timedelta(days=idle_days):
+        session.delete(web_session)
+        session.flush()
         return None
     user = session.get(User, web_session.user_id)
     if user is None or not user.is_active:
         return None
+    if web_session.last_seen_at <= now - SEEN_EVERY:
+        web_session.last_seen_at = now
     return user, web_session
 
 
 def close_web_session(session: Session, token: str) -> None:
     session.execute(delete(WebSession).where(WebSession.token_hash == token_hash(token)))
+
+
+def list_web_sessions(session: Session, actor: Actor) -> list[WebSession]:
+    """The person's open sessions, most recently used first."""
+    return list(
+        session.scalars(
+            select(WebSession)
+            .where(WebSession.user_id == actor.user.id, WebSession.expires_at > _now())
+            .order_by(WebSession.last_seen_at.desc(), WebSession.created_at.desc())
+        )
+    )
+
+
+def end_web_session(session: Session, actor: Actor, session_id: UUID) -> None:
+    """Signs the person out of one of their sessions (another browser, a lost device)."""
+    found = session.get(WebSession, session_id)
+    if found is None or found.user_id != actor.user.id:
+        raise not_found("This session no longer exists.")
+    session.delete(found)
+    session.flush()
+    audit(session, actor, "user.session_closed", web_session=session_id)
+
+
+def end_other_web_sessions(session: Session, actor: Actor, keep: UUID) -> int:
+    """Signs the person out everywhere but in the session `keep`; how many were closed."""
+    result = session.execute(
+        delete(WebSession).where(WebSession.user_id == actor.user.id, WebSession.id != keep)
+    )
+    closed = int(getattr(result, "rowcount", 0) or 0)
+    if closed:
+        audit(session, actor, "user.other_sessions_closed", count=closed)
+    return closed
 
 
 # --- Personal tokens --------------------------------------------------------------------------

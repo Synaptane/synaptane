@@ -164,6 +164,11 @@ class WebSession(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     expires_at: Mapped[datetime]
+    # Last request (to the nearest few minutes): the session expires after `session_idle_days`
+    # without one. Browser (User-Agent) and address shown in My account.
+    last_seen_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=text("now()"))
+    client: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    address: Mapped[str | None] = mapped_column(String(64))
 
 
 class ApiToken(Base):

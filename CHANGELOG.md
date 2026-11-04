@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Sessions you can see and close**. **My account → Security** lists the browsers signed in
+  to your account (browser and system, address, when signed in, last activity) and signs out
+  one of them, or all but the current one: a lost phone, a shared computer. A web session now
+  also ends after 7 days without use (`session_idle_days`, `0` for no limit), on top of its
+  30-day length (`session_days`). Existing sessions count as used at the upgrade.
+
 ## [1.7.0] - 2026-11-03
 
 Two new MCP tools to answer from the spaces in one call, what they say on a topic and what they

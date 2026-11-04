@@ -298,6 +298,7 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `data_dir` | Master key and local copies of the repositories. |
 | `default_locale` | Default language of the interface: `en` (default) or `fr`. It applies when the browser asks for neither, and to accounts created by an administrator or the CLI; everyone can change their own in **My account**. Variable: `SYNAPTANE_DEFAULT_LOCALE`. |
 | `session_days` | Length of a web session, 30 days by default. |
+| `session_idle_days` | A web session not used for this many days ends: 7 by default, `0` for no limit. Each person sees their sessions in **My account → Security** and can close them. |
 | `poll_minutes` | Interval of the fallback sync, 5 minutes by default. |
 | `git_timeout` | Overall timeout of an exchange with the Git host (clone, fetch, push), in seconds, 300 by default. Raise it only for the first clone of a very large repository. See [Git](git.md). |
 | `allow_local_repos` | Allows `file://` repositories. **Development only.** |

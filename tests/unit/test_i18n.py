@@ -171,6 +171,7 @@ SAME_IN_FRENCH = {
     "Port",
     "Routines",
     "Secret",
+    "Sessions",
     "SSO",
     "Suggestion",
     "Type",

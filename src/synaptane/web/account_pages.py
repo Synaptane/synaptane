@@ -39,12 +39,44 @@ def account_page(page: WebPage) -> Response:
     return page.render("account-profile.html", section="profile")
 
 
+BROWSERS = (  # order matters: Edge and Opera also say Chrome, Chrome also says Safari
+    ("Edg/", "Edge"),
+    ("OPR/", "Opera"),
+    ("Firefox/", "Firefox"),
+    ("Chrome/", "Chrome"),
+    ("Safari/", "Safari"),
+)
+SYSTEMS = (
+    ("Android", "Android"),
+    ("iPhone", "iOS"),
+    ("iPad", "iPadOS"),
+    ("Windows", "Windows"),
+    ("Mac OS X", "macOS"),
+    ("CrOS", "ChromeOS"),
+    ("Linux", "Linux"),
+)
+
+
+def browser_label(user_agent: str) -> str:
+    """The browser and system of a User-Agent ("Firefox · Linux"); empty if neither is known."""
+    browser = next((name for mark, name in BROWSERS if mark in user_agent), "")
+    system = next((name for mark, name in SYSTEMS if mark in user_agent), "")
+    return " · ".join(part for part in (browser, system) if part)
+
+
 @router.get("/account/security", response_class=HTMLResponse)
 def account_security_page(page: WebPage) -> Response:
     actor = page.user_actor()
+    current = page.web_session.id if page.web_session else None
     return page.render(
         "account-security.html",
         section="security",
+        sessions=[
+            (web_session, browser_label(web_session.client), web_session.id == current)
+            for web_session in accounts.list_web_sessions(page.db, actor)
+        ],
+        idle_days=page.settings.session_idle_days,
+        max_days=page.settings.session_days,
         identities=(linked := sso.identities(page.db, actor.user.id)),
         linkable=[
             p
@@ -306,3 +338,21 @@ def account_token_revoke(page: WebPage, token_id: UUID, csrf: Csrf) -> Response:
     except SynaptaneError as error:
         return failure("/account/assistants", page, error)
     return redirect("/account/assistants", page, "Token revoked.")
+
+
+@router.post("/account/sessions/{session_id}/close")
+def account_session_close(page: WebPage, session_id: UUID, csrf: Csrf) -> Response:
+    actor = page.check_csrf(csrf)
+    try:
+        accounts.end_web_session(page.db, actor, session_id)
+    except SynaptaneError as error:
+        return failure("/account/security", page, error)
+    return redirect("/account/security", page, "Session closed.")
+
+
+@router.post("/account/sessions/close-others")
+def account_sessions_close_others(page: WebPage, csrf: Csrf) -> Response:
+    actor = page.check_csrf(csrf)
+    assert page.web_session is not None  # checked with the form token
+    accounts.end_other_web_sessions(page.db, actor, page.web_session.id)
+    return redirect("/account/security", page, "Other sessions closed.")
