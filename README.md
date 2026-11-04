@@ -83,7 +83,8 @@ don't just read it, they feed it, and an AI agent keeps it organized every night
   documentation are off by default (`api_docs` setting).
 - **Easy to run.** Docker Compose, behind your own reverse proxy or with a bundled nginx and
   Let's Encrypt. `synaptane doctor` checks the installation. Backups are verified, and can be
-  encrypted and copied off-site (age and rclone). Admins get alerts by email.
+  encrypted and copied off-site (age and rclone). Admins get alerts by email, and `/metrics`
+  feeds Prometheus.
 - **A calm, bilingual UI.** Light and dark themes, English and French, Ctrl+K search.
 
 ### Screenshots
@@ -156,7 +157,6 @@ tools and the configuration only change in a compatible way. Every change is lis
   search, the embedding models of OpenAI, Gemini, Mistral and Voyage AI). For other
   providers, enter the price per million tokens yourself: without a price, no cost is
   computed and no budget can apply. Vectorizing search queries is not counted.
-- **Monitoring:** no `/metrics` endpoint. `/healthz` and `/readyz` exist.
 - **Platforms:** Linux on x86-64 or arm64, or WSL2 on Windows. macOS is not tested.
 - **Language:** the web UI, emails, REST error messages and documentation are in English and
   French. The command line, logs and answers to AI assistants (MCP) are in English.

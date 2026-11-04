@@ -309,6 +309,7 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `ocr_images` | Extract text from images (OCR), `true` by default. |
 | `allow_private_webhooks` | Allows webhooks over HTTP and to the local network. **Development only.** |
 | `api_docs` | Publishes the interactive documentation `/api/docs` and the schema `/api/v1/openapi.json`, `false` by default. |
+| `metrics_token` | Bearer token of `/metrics` for Prometheus, 32 characters or more (see [Monitoring](#monitoring)). Empty by default: `/metrics` does not exist. With Docker: `METRICS_TOKEN` in `.env`. |
 | `backup_age_recipients` | age public keys (`age1…`) that `backup --offsite` encrypts for. As an environment variable: comma-separated. See [Backup](backup.md). |
 | `backup_age_recipients_file` | Or a file of age recipients. |
 | `backup_remotes` | rclone destinations of the off-site copy (`name:path`, or a folder). |
@@ -410,6 +411,72 @@ webhook, when something needs their attention, for example:
 The full list of alert kinds is in [Webhooks](webhooks.md). The same alert (kind and space)
 is not sent again within 20 hours. The AI budget has its own alerts (see
 [AI and tidy-up](ai.md)).
+
+## Monitoring
+
+`/healthz` answers as soon as the process runs; `/readyz` also checks the database (the Docker
+healthcheck uses it). Neither needs a sign-in.
+
+For Prometheus, or any tool that reads its format (Grafana Alloy, VictoriaMetrics…),
+`/metrics` gives the state of the instance. It is off until you set a token of 32 characters
+or more, then restart:
+
+```sh
+openssl rand -hex 32   # the token
+```
+
+With Docker, put it in `.env` (`METRICS_TOKEN=…`), then `docker compose up -d`; from source,
+`metrics_token` in `synaptane.toml`. The scraper sends it as a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: synaptane
+    scheme: https
+    authorization:
+      credentials_file: /etc/prometheus/synaptane.token
+    static_configs:
+      - targets: ["synaptane.example.com"]
+```
+
+`/metrics` goes through nginx like the rest of the application: the token is what protects it,
+keep it like a password. The spaces appear as `organization/space`; no page content and no
+person.
+
+| Metric | What it measures |
+|---|---|
+| `synaptane_info{version,commit}` | Running version and commit (always 1). |
+| `synaptane_database_up` | 1 if the database answers. At 0, the metrics that come from it are missing. |
+| `synaptane_database_connections_in_use` | Database connections of the web server in use (20 at most). |
+| `synaptane_http_requests_total{area,code}` | Requests answered since the start, by area (`web`, `api`, `mcp`, `oauth`, `static`) and status class (`2xx`, `4xx`…). |
+| `synaptane_http_request_duration_seconds{area}` | Response times (histogram). |
+| `synaptane_users{state}` | Accounts, `active` or `disabled`. |
+| `synaptane_space_sync_status{space,status}` | 1 for the current sync state of each space: `ok`, `error`, `conflict` or `never`. |
+| `synaptane_space_last_sync_timestamp_seconds{space}` | Last successful sync. |
+| `synaptane_space_inbox_items{space}` | Items waiting in the inbox for the tidy-up. |
+| `synaptane_space_last_tidy_timestamp_seconds{space}` | End of the last tidy-up pass. |
+| `synaptane_space_last_tidy_failed{space}` | 1 if that pass failed. |
+| `synaptane_jobs{kind,status}` | Worker jobs `queued` or `running`. |
+| `synaptane_jobs_waiting_seconds` | Wait of the oldest job due to run: it grows when the worker is stopped or overwhelmed. |
+| `synaptane_jobs_abandoned_24h{kind}` | Jobs abandoned in the last 24 hours, attempts used up. |
+| `synaptane_ai_spend_month_euros{organization}` | Estimated AI spending since the 1st of the month (UTC). |
+| `synaptane_backup_last_timestamp_seconds` | Last archive in the backup folder (`/backups` in the image). Off-site copies are not seen from here. |
+| `process_*` | CPU, resident memory, open files and start time of the web server. |
+
+Examples of alert rules:
+
+```yaml
+groups:
+  - name: synaptane
+    rules:
+      - alert: SynaptaneWorkerStuck
+        expr: synaptane_jobs_waiting_seconds > 900
+        for: 5m
+      - alert: SynaptaneSyncError
+        expr: synaptane_space_sync_status{status=~"error|conflict"} == 1
+        for: 30m
+      - alert: SynaptaneNoRecentBackup
+        expr: time() - synaptane_backup_last_timestamp_seconds > 2 * 86400
+```
 
 ## Roles
 

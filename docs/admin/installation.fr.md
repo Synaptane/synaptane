@@ -316,6 +316,7 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `ocr_images` | Extraire le texte des images (OCR), `true` par défaut. |
 | `allow_private_webhooks` | Autorise les webhooks en HTTP et vers le réseau local. **Développement uniquement.** |
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
+| `metrics_token` | Jeton porteur de `/metrics` pour Prometheus, 32 caractères au moins (voir [Supervision](#supervision)). Vide par défaut : `/metrics` n'existe pas. Avec Docker : `METRICS_TOKEN` dans `.env`. |
 | `backup_age_recipients` | Clés publiques age (`age1…`) pour lesquelles `backup --offsite` chiffre. En variable d'environnement : séparées par des virgules. Voir [Sauvegarde](backup.fr.md). |
 | `backup_age_recipients_file` | Ou un fichier de destinataires age. |
 | `backup_remotes` | Destinations rclone de la copie hors serveur (`nom:chemin`, ou un dossier). |
@@ -423,6 +424,73 @@ par le webhook `space.alert`, de ce qui demande leur attention, par exemple quan
 La liste complète des types d'alerte est dans [Webhooks](webhooks.fr.md). Une même alerte
 (type et espace) ne repart pas avant 20 heures. Le budget d'IA a ses propres alertes (voir
 [Intelligence artificielle](ai.fr.md)).
+
+## Supervision
+
+`/healthz` répond dès que le processus tourne ; `/readyz` vérifie aussi la base de données (le
+contrôle de santé de Docker s'en sert). Aucun des deux ne demande de connexion.
+
+Pour Prometheus, ou tout outil qui lit son format (Grafana Alloy, VictoriaMetrics…),
+`/metrics` donne l'état de l'instance. Il reste fermé tant que vous n'avez pas défini un jeton
+de 32 caractères ou plus, puis redémarré :
+
+```sh
+openssl rand -hex 32   # le jeton
+```
+
+Avec Docker, mettez-le dans `.env` (`METRICS_TOKEN=…`), puis `docker compose up -d` ; depuis
+les sources, `metrics_token` dans `synaptane.toml`. Le collecteur l'envoie comme jeton
+porteur :
+
+```yaml
+scrape_configs:
+  - job_name: synaptane
+    scheme: https
+    authorization:
+      credentials_file: /etc/prometheus/synaptane.token
+    static_configs:
+      - targets: ["synaptane.example.com"]
+```
+
+`/metrics` passe par nginx comme le reste de l'application : c'est le jeton qui le protège,
+gardez-le comme un mot de passe. Les espaces y figurent sous la forme `organisation/espace` ;
+aucun contenu de page, aucune personne.
+
+| Métrique | Ce qu'elle mesure |
+|---|---|
+| `synaptane_info{version,commit}` | Version et commit en service (toujours 1). |
+| `synaptane_database_up` | 1 si la base de données répond. À 0, les métriques qui en viennent sont absentes. |
+| `synaptane_database_connections_in_use` | Connexions à la base du serveur web en cours d'utilisation (20 au plus). |
+| `synaptane_http_requests_total{area,code}` | Requêtes servies depuis le démarrage, par partie (`web`, `api`, `mcp`, `oauth`, `static`) et classe de statut (`2xx`, `4xx`…). |
+| `synaptane_http_request_duration_seconds{area}` | Temps de réponse (histogramme). |
+| `synaptane_users{state}` | Comptes, actifs (`active`) ou désactivés (`disabled`). |
+| `synaptane_space_sync_status{space,status}` | 1 pour l'état de synchronisation actuel de chaque espace : `ok`, `error`, `conflict` ou `never`. |
+| `synaptane_space_last_sync_timestamp_seconds{space}` | Dernière synchronisation réussie. |
+| `synaptane_space_inbox_items{space}` | Éléments qui attendent le rangement dans l'inbox. |
+| `synaptane_space_last_tidy_timestamp_seconds{space}` | Fin du dernier passage du rangement. |
+| `synaptane_space_last_tidy_failed{space}` | 1 si ce passage a échoué. |
+| `synaptane_jobs{kind,status}` | Tâches du worker en attente (`queued`) ou en cours (`running`). |
+| `synaptane_jobs_waiting_seconds` | Attente de la plus ancienne tâche à lancer : elle grandit quand le worker est arrêté ou débordé. |
+| `synaptane_jobs_abandoned_24h{kind}` | Tâches abandonnées dans les dernières 24 heures, essais épuisés. |
+| `synaptane_ai_spend_month_euros{organization}` | Dépense d'IA estimée depuis le 1er du mois (UTC). |
+| `synaptane_backup_last_timestamp_seconds` | Dernière archive du dossier de sauvegarde (`/backups` dans l'image). Les copies hors site ne se voient pas d'ici. |
+| `process_*` | CPU, mémoire résidente, fichiers ouverts et heure de démarrage du serveur web. |
+
+Exemples de règles d'alerte :
+
+```yaml
+groups:
+  - name: synaptane
+    rules:
+      - alert: SynaptaneWorkerStuck
+        expr: synaptane_jobs_waiting_seconds > 900
+        for: 5m
+      - alert: SynaptaneSyncError
+        expr: synaptane_space_sync_status{status=~"error|conflict"} == 1
+        for: 30m
+      - alert: SynaptaneNoRecentBackup
+        expr: time() - synaptane_backup_last_timestamp_seconds > 2 * 86400
+```
 
 ## Rôles
 

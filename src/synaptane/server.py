@@ -1,5 +1,6 @@
 """Application assembly: web, REST, static files, errors and security headers."""
 
+import hmac
 import json
 import logging
 import secrets
@@ -10,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError
@@ -29,12 +30,14 @@ from synaptane.api.routines import router as routines_router
 from synaptane.api.tidy import router as tidy_router
 from synaptane.api.vocation import router as vocation_router
 from synaptane.config import Settings
+from synaptane.core import metrics as metrics_text
 from synaptane.core.errors import SynaptaneError, unavailable
 from synaptane.core.security import SecretBox
 from synaptane.core.throttle import LoginThrottle, RateLimit
 from synaptane.git.repo import GitError
 from synaptane.mcp.server import build_mcp, transport_security
 from synaptane.mcp.views import AdvertiseApps
+from synaptane.services import metrics as instance_metrics
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.web import (
@@ -99,6 +102,8 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.state.workspace = workspace
     app.state.login_throttle = LoginThrottle()
     app.state.code_limit = RateLimit(CODE_ATTEMPTS, CODE_WINDOW)  # second factor, per account
+    app.state.requests = metrics_text.Requests()  # counted for /metrics
+    app.add_middleware(metrics_text.MeasuredRequests, requests=app.state.requests)
 
     app.include_router(api_router)
     app.include_router(content_router)
@@ -142,6 +147,43 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
         except Exception as error:  # noqa: BLE001 — the "unavailable" state is the answer
             return JSONResponse({"status": "unavailable", "error": type(error).__name__}, 503)
         return JSONResponse({"status": "ok"})
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics(request: Request) -> Response:
+        """Prometheus metrics (docs/admin/installation.md, Monitoring), with the bearer token
+        `metrics_token`; without one, this address does not exist."""
+        if not settings.metrics_token:
+            raise StarletteHTTPException(404)
+        scheme, _, given = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(
+            given.strip().encode(), settings.metrics_token.encode()
+        ):
+            return PlainTextResponse(
+                "Bearer token required.\n", 401, headers={"WWW-Authenticate": "Bearer"}
+            )
+        out = metrics_text.Exposition()
+        instance_metrics.write_info(out)
+        metrics_text.write_process(out)
+        app.state.requests.write(out)
+        instance_metrics.write_backups(out)
+        instance = metrics_text.Exposition()
+        try:
+            with database.session() as session:
+                instance_metrics.write_instance(instance, session, workspace)
+            out.extend(instance)
+            up = 1
+        except (OperationalError, InterfaceError, PoolTimeout) as error:
+            log.warning("/metrics: database unreachable: %s", type(error).__name__)
+            up = 0
+        out.one("synaptane_database_up", "gauge", "1 if the database answers.", up)
+        pool = database.engine.pool
+        out.one(
+            "synaptane_database_connections_in_use",
+            "gauge",
+            "Database connections of the web server in use (pool of 20 at most).",
+            getattr(pool, "checkedout", lambda: 0)(),
+        )
+        return PlainTextResponse(out.text(), media_type="text/plain; version=0.0.4")
 
     @app.exception_handler(SynaptaneError)
     def business_error(request: Request, error: SynaptaneError) -> Response:
