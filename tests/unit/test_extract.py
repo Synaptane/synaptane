@@ -7,6 +7,7 @@ import math
 import os
 import resource
 import struct
+import subprocess
 import sys
 import time
 import zlib
@@ -107,7 +108,25 @@ def test_giant_pdf_stays_within_memory(tmp_path: Path, monkeypatch: pytest.Monke
     assert width * height <= MAX_PIXELS and width > 5000  # rendered, but at 40 Mpx at most
     # The worker read nothing itself; the child stayed far from the 2.4 GB measured before.
     assert resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before < 50 * 1024
-    assert resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss < 512 * 1024
+    # The child's memory is measured from a fresh interpreter, whose only child is the
+    # extraction: RUSAGE_CHILDREN of this process also counts the children of the tests that
+    # ran before in the same pytest-xdist worker (the worker's own, beyond 1 GB).
+    probe = subprocess.run(
+        [sys.executable, "-c", CHILD_MEMORY],
+        input=data,
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
+    assert int(probe.stdout) < 512 * 1024
+
+
+CHILD_MEMORY = """
+import resource, sys
+from synaptane.extract import run_isolated
+run_isolated("pdf", ".pdf", sys.stdin.buffer.read(), languages="fra", ocr_images=True)
+print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+"""
 
 
 def test_tesseract_inherits_the_memory_limit(
