@@ -156,6 +156,7 @@ SAME_IN_FRENCH = {
     "Application",
     "application",
     "Client",
+    "Code",
     "Inbox",
     "Invitation",
     "Note",

@@ -1079,6 +1079,16 @@ a.admin-row-title:hover{text-decoration:underline}
 .account-forced .page-heading{margin-bottom:24px}
 .account-forced-logout{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;margin-top:16px;font-size:13px}
 .account-forced-logout .button-link{font-size:13px}
+/* Double authentification : QR code toujours sombre sur blanc (lisible par l'appli, même en
+   thème sombre), codes de secours en deux colonnes, formulaires en cartes. */
+.qr-code{display:block;width:fit-content;margin:12px 0 8px;padding:6px;border-radius:var(--radius);background:#fff;line-height:0}
+.qr-code svg{display:block;max-width:100%;height:auto}
+.account-2fa>p .status{margin-right:6px}
+.account-2fa-form h3{font-size:15px;margin-bottom:4px}
+.account-2fa-form>p.muted{margin:0 0 12px}
+.recovery-codes{margin-bottom:20px;border-color:var(--accent)}
+.recovery-list{display:grid;grid-template-columns:repeat(2,minmax(0,max-content));gap:6px 32px;margin:14px 0;padding-left:24px;font-size:14px}
+.recovery-list code{font-size:14px;letter-spacing:.04em}
 .account-link-sso{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:4px}
 .account-link-sso form{margin:0}
 /* Assistants : adresse copiable sur toute la largeur, guides avec le chevron de l'arbre. */

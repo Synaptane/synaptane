@@ -58,6 +58,11 @@ from synaptane.web import (
 from synaptane.web.i18n import translator
 
 log = logging.getLogger("synaptane.server")
+
+# Codes of the second factor: a million possible, three valid at a time; the password comes first.
+CODE_ATTEMPTS = 5  # per account
+CODE_WINDOW = 15 * 60  # seconds
+
 CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
     "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
@@ -93,6 +98,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.state.secret_box = box
     app.state.workspace = workspace
     app.state.login_throttle = LoginThrottle()
+    app.state.code_limit = RateLimit(CODE_ATTEMPTS, CODE_WINDOW)  # second factor, per account
 
     app.include_router(api_router)
     app.include_router(content_router)
@@ -183,6 +189,21 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
                 "The space's repository is temporarily unavailable: try again in a moment."
             ),
         )
+
+    @app.exception_handler(pages.TwoFactorRequired)
+    def two_factor_required(request: Request, _: pages.TwoFactorRequired) -> Response:
+        response = RedirectResponse("/account/2fa/setup", status_code=303)
+        text = translator(pages.visitor_locale(request))(
+            "Super admins must turn on two-factor authentication: set it up to continue."
+        )
+        response.set_cookie(
+            pages.FLASH_COOKIE,
+            json.dumps({"kind": "warning", "text": text}),
+            max_age=60,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
 
     @app.exception_handler(pages.PasswordChangeRequired)
     def password_change_required(request: Request, _: pages.PasswordChangeRequired) -> Response:

@@ -6,19 +6,23 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from synaptane.core.throttle import LoginThrottle
+from synaptane.core.throttle import LoginThrottle, RateLimit
 from synaptane.services import (
     accounts,
     sso,
+    two_factor,
 )
 from synaptane.web.i18n import LOCALES
 from synaptane.web.pages import (
+    CODE_COOKIE,
     LANG_COOKIE,
     SESSION_COOKIE,
     Csrf,
     WebPage,
     _same_origin,
+    awaiting_code,
     log,
+    password_ok,
     safe_next,
     sign_in,
 )
@@ -80,7 +84,34 @@ def login(
             providers=sso.list_providers(page.db, enabled_only=True),
         )
     throttle.succeeded(account)
-    return sign_in(page, user, safe_next(next))
+    return password_ok(page, user, safe_next(next))
+
+
+@router.get("/login/code", response_class=HTMLResponse)
+def login_code_form(page: WebPage) -> Response:
+    if awaiting_code(page) is None:
+        return RedirectResponse("/login", status_code=303)
+    return page.render("login-code.html", error=None)
+
+
+@router.post("/login/code", response_class=HTMLResponse)
+def login_code(page: WebPage, code: Annotated[str, Form()]) -> Response:
+    pending = awaiting_code(page)
+    if pending is None or not _same_origin(page.request, page.settings):
+        return RedirectResponse("/login", status_code=303)
+    user, target, message = pending
+    limit: RateLimit = page.request.app.state.code_limit
+    if not limit.allow(str(user.id)):
+        log.warning("Second factor blocked (too many attempts): id:%s", user.id)
+        return page.render(
+            "login-code.html", status_code=429, error="Too many attempts: try again in 15 min."
+        )
+    if not two_factor.verify(page.db, page.box, user, code):
+        log.info("Second factor failed: id:%s", user.id)
+        return page.render("login-code.html", status_code=401, error="Incorrect code.")
+    response = sign_in(page, user, target, message or None)
+    response.delete_cookie(CODE_COOKIE, path="/login")
+    return response
 
 
 @router.post("/logout")

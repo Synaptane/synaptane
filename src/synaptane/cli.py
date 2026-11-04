@@ -99,6 +99,22 @@ def cmd_admin_create(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_admin_reset_2fa(args: argparse.Namespace) -> int:
+    """Turns off two-factor authentication of an account (lost phone and recovery codes)."""
+    from synaptane.services import accounts, two_factor
+    from synaptane.storage.db import Database
+
+    settings = _settings(args)
+    database = Database(settings.database_url)
+    try:
+        with database.session() as session:
+            two_factor.reset(session, None, accounts.get_user(session, args.username))
+    finally:
+        database.dispose()
+    print(f'Two-factor authentication turned off for "{args.username}".')
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     """Demo data (examples/acme-wiki): account, organization, indexed space."""
     from synaptane.server import load_secret_box
@@ -579,6 +595,11 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--display-name")
     create.add_argument("--email")
     create.set_defaults(handler=cmd_admin_create)
+    reset_2fa = admin.add_parser(
+        "reset-2fa", help="turn off an account's two-factor authentication (lost phone)"
+    )
+    reset_2fa.add_argument("--username", required=True)
+    reset_2fa.set_defaults(handler=cmd_admin_reset_2fa)
 
     demo = commands.add_parser(
         "demo",

@@ -55,6 +55,7 @@ dependencies = [
     "pygments>=2.21.0",
     "pypdfium2>=5.13.0",
     "python-multipart>=0.0.32",
+    "segno>=1.6",
     "sqlalchemy>=2",
     "uvicorn>=0.54.0",
 ]

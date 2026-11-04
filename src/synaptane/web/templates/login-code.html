@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon %}
+{% block title %}{{ _("Two-factor authentication") }} · Synaptane{% endblock %}
+{% block content %}
+<div class="login-layout">
+  <section class="introduction">
+    <h1>{{ _("Your team's second brain.") }}</h1>
+    <p class="intro-copy">{{ _("Your knowledge stored in Git, browsable like a wiki and available from your AI assistant.") }}</p>
+  </section>
+  <section class="card login-card" aria-labelledby="code-title">
+    <h2 id="code-title">{{ _("Two-factor authentication") }}</h2>
+    {% if error %}<div class="notice notice-error" role="alert">{{ _(error) }}</div>{% endif %}
+    <form method="post" action="/login/code">
+      <div class="field">
+        <label for="code">{{ _("Code from your authenticator app") }}</label>
+        <input id="code" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="32" required autofocus>
+        <p class="muted">{{ _("Lost your phone? Type one of your recovery codes instead.") }}</p>
+      </div>
+      <button class="button button-primary button-wide" type="submit">{{ _("Continue") }} {{ icon('arrow-right', 16) }}</button>
+      <p class="login-help"><a href="/login">{{ _("Back to sign-in") }}</a></p>
+    </form>
+  </section>
+</div>
+{% endblock %}

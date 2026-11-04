@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -42,6 +43,7 @@ from synaptane.services import (
     mail,
     organizations,
     spaces,
+    two_factor,
     vocation,
 )
 from synaptane.services.workspace import Workspace
@@ -59,6 +61,11 @@ REVEAL_COOKIE = "synaptane_reveal"  # secret to show once (encrypted, see `revea
 
 
 LANG_COOKIE = "synaptane_lang"
+
+
+# Password accepted, code of the authenticator app still to type (encrypted, see `password_ok`).
+CODE_COOKIE = "synaptane_code"
+CODE_MINUTES = 5
 
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -380,6 +387,13 @@ class PasswordChangeRequired(Exception):
 PASSWORD_CHANGE_PATHS = ("/account/security", "/account/password", "/logout")
 
 
+class TwoFactorRequired(Exception):
+    """A super admin signed in with a password, without two-factor authentication."""
+
+
+TWO_FACTOR_SETUP_PATHS = ("/account/2fa/setup", "/account/2fa/enable", "/logout")
+
+
 @dataclass
 class Page:
     """Context of a web request: database, signed-in account, session and language."""
@@ -421,7 +435,18 @@ class Page:
             PASSWORD_CHANGE_PATHS
         ):
             raise PasswordChangeRequired
+        if self.two_factor_missing() and self.request.url.path not in TWO_FACTOR_SETUP_PATHS:
+            raise TwoFactorRequired
         return self.actor
+
+    def two_factor_missing(self) -> bool:
+        """A super admin who must turn on two-factor authentication before anything else."""
+        user = self.actor.user if self.actor else None
+        return (
+            user is not None
+            and not two_factor.enabled(user)
+            and two_factor.required(self.settings, user)
+        )
 
     def check_csrf(self, token: str) -> Actor:
         actor = self.user_actor()
@@ -496,6 +521,7 @@ class Page:
                 "locales": LOCALES,
                 "actor": self.actor,
                 "user": self.actor.user if self.actor else None,
+                "two_factor_forced": self.actor is not None and self.two_factor_missing(),
                 "csrf": self.web_session.csrf_token if self.web_session else "",
                 "flash": flash,
                 "nav": (nav := self.navigation()),
@@ -689,6 +715,48 @@ def sign_in(page: Page, user: User, target: str, message: str | None = None) -> 
         secure=settings.secure_cookies,
     )
     return response
+
+
+def password_ok(page: Page, user: User, target: str, message: str | None = None) -> Response:
+    """After the password (sign-in, reset): the session opens, or, with two-factor
+    authentication, the code is asked first. The account waiting for its code travels in a
+    cookie encrypted with the master key, valid for a few minutes."""
+    if not two_factor.enabled(user):
+        return sign_in(page, user, target, message)
+    pending = {
+        "user": str(user.id),
+        "next": target,
+        "message": message or "",
+        "until": time.time() + CODE_MINUTES * 60,
+    }
+    blob = page.box.encrypt(json.dumps(pending), CODE_COOKIE)
+    response = RedirectResponse("/login/code", status_code=303)
+    response.set_cookie(
+        CODE_COOKIE,
+        base64.urlsafe_b64encode(blob).decode(),
+        max_age=CODE_MINUTES * 60,
+        path="/login",
+        httponly=True,
+        samesite="lax",
+        secure=page.settings.secure_cookies,
+    )
+    return response
+
+
+def awaiting_code(page: Page) -> tuple[User, str, str] | None:
+    """The account whose password was accepted and that still has to type its code, with
+    where to go next and the message to show; None if there is none (or it expired)."""
+    raw = page.request.cookies.get(CODE_COOKIE)
+    if not raw:
+        return None
+    try:
+        pending = json.loads(page.box.decrypt(base64.urlsafe_b64decode(raw), CODE_COOKIE))
+        user = page.db.get(User, UUID(pending["user"]))
+    except Exception:  # noqa: BLE001 — forged, from another instance, or damaged
+        return None
+    if user is None or not user.is_active or pending["until"] < time.time():
+        return None
+    return user, safe_next(pending["next"]), pending["message"]
 
 
 def org_url(org: Organization) -> str:

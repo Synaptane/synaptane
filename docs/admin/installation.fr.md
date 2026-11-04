@@ -305,6 +305,7 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `data_dir` | Clé maître et copies locales des dépôts. |
 | `default_locale` | Langue par défaut de l'interface : `en` (par défaut) ou `fr`. Elle sert quand le navigateur ne demande ni l'une ni l'autre, et pour les comptes créés par un administrateur ou la CLI ; chacun change la sienne dans **Mon compte**. Variable : `SYNAPTANE_DEFAULT_LOCALE`. |
 | `session_days` | Durée d'une session web, 30 jours par défaut. |
+| `superadmin_2fa` | Les super-admins qui se connectent par mot de passe doivent activer la double authentification (une application d'authentification) avant toute chose : `true` par défaut. L'authentification unique laisse le second facteur au fournisseur d'identité. `false` seulement pour une instance de démonstration ou de test (`examples/compose.demo.yaml` le règle). |
 | `session_idle_days` | Une session web inutilisée pendant ce nombre de jours se termine : 7 par défaut, `0` pour aucune limite. Chacun voit ses sessions dans **Mon compte → Sécurité** et peut les fermer. |
 | `poll_minutes` | Fréquence de la synchronisation de secours, 5 minutes par défaut. |
 | `git_timeout` | Délai global d'un échange avec la forge (clone, récupération, envoi), en secondes, 300 par défaut. À augmenter seulement pour le premier clone d'un très gros dépôt. Voir [Git](git.fr.md). |

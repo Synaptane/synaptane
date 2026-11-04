@@ -16,6 +16,7 @@
   <dl class="metadata">
     <div><dt>{{ _("Email") }}</dt><dd>{% if account.email %}{{ account.email }}{% if not account.email_verified_at %} <span class="muted">({{ _("address not verified") }})</span>{% endif %}{% else %}<span class="muted">{{ _("No address") }}</span>{% endif %}</dd></div>
     <div><dt>{{ _("Sign in") }}</dt><dd>{{ _("Password") if account.password_hash else _("SSO") }}{% if account.must_change_password %} <span class="muted">({{ _("to be changed at next sign-in") }})</span>{% endif %}</dd></div>
+    <div><dt>{{ _("Two-factor authentication") }}</dt><dd>{% if account.totp_enabled_at %}{{ _("On since") }} {{ when(account.totp_enabled_at, "date") }}{% else %}<span class="muted">{{ _("Off") }}</span>{% endif %}</dd></div>
     <div><dt>{{ _("Created on") }}</dt><dd>{{ when(account.created_at, "date") }}</dd></div>
   </dl>
 </section>
@@ -39,6 +40,13 @@
   <div class="field"><label for="reset-password">{{ _("New password") }}</label><input id="reset-password" type="password" name="password" autocomplete="new-password" minlength="12" required aria-describedby="reset-password-help"><p class="muted" id="reset-password-help">{{ _("At least 12 characters. Closes their sessions and tokens; the person will choose another one at next sign-in.") }}</p></div>
   <button class="button" type="submit">{{ _("Reset") }}</button>
 </form>
+{% if account.totp_enabled_at %}
+<form class="card section-gap-small admin-state" method="post" action="/admin/users/{{ account.username }}/2fa/reset" data-confirm="{{ _("Turn off two-factor authentication for {name}? Their password alone will sign them in, until they turn it on again.", name=account.display_name) }}">
+  {{ csrf_field() }}
+  <div><h3>{{ _("Turn off two-factor authentication") }}</h3><p class="muted">{{ _("For someone who lost their phone and their recovery codes. Check first that the request really comes from them.") }}</p></div>
+  <button class="button" type="submit">{{ _("Turn off") }}</button>
+</form>
+{% endif %}
 <form class="card section-gap-small admin-state" method="post" action="/admin/users/{{ account.username }}"{% if account.is_active %} data-confirm="{{ _("Deactivate {name}'s account? Their sessions and tokens will be closed.", name=account.display_name) }}"{% endif %}>
   {{ csrf_field() }}
   {% if account.is_superadmin %}<input type="hidden" name="is_superadmin" value="true">{% endif %}

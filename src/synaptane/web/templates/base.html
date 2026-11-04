@@ -11,7 +11,7 @@
   {% block head %}{% endblock %}
 </head>
 {# Password that must be changed: no navigation until it is done. #}
-{% set shell = user and not bare and not user.must_change_password %}
+{% set shell = user and not bare and not user.must_change_password and not two_factor_forced %}
 <body class="{{ 'workspace' if shell else 'public-page' }}">
   {{ sprite() }}
   <a class="skip-link" href="#content">{{ _("Skip to content") }}</a>

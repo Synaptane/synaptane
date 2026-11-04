@@ -1,0 +1,34 @@
+{% extends "account-base.html" %}
+{% from "ui.html" import csrf_field, copyable with context %}
+{% macro setup() -%}
+<section class="card account-2fa-setup" aria-labelledby="setup-title">
+  <h2 id="setup-title">{{ _("Set up two-factor authentication") }}</h2>
+  <ol class="steps">
+    <li>{{ _("Open your authenticator app (Google Authenticator, Aegis, 1Password, Bitwarden…) and scan this QR code.") }}
+      <div class="qr-code">{{ qr }}</div>
+      <p class="muted">{{ _("Cannot scan it? Type this key in the app instead:") }} {{ copyable("totp-key", key) }}</p>
+    </li>
+    <li>{{ _("Type the six-digit code the app now shows for Synaptane.") }}</li>
+  </ol>
+  {% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/account/2fa/enable">
+    {{ csrf_field() }}
+    <input type="hidden" name="sealed" value="{{ sealed }}">
+    <div class="field"><label for="code">{{ _("Code") }}</label><input id="code" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="16" required autofocus></div>
+    <button class="button button-primary" type="submit">{{ _("Turn on") }}</button>
+    {% if not forced %}<a class="button button-quiet" href="/account/security">{{ _("Cancel") }}</a>{% endif %}
+  </form>
+</section>
+{%- endmacro %}
+{% block forced %}
+<header class="page-heading">
+  <p class="eyebrow"><span class="ident">@{{ user.username }}</span></p>
+  <h1>{{ _("Two-factor authentication") }}</h1>
+  <p>{{ _("Super admins must confirm each sign-in with a code from an authenticator app. Set it up to continue.") }}</p>
+</header>
+{{ setup() }}
+<form class="account-forced-logout" method="post" action="/logout">
+  {{ csrf_field() }}<span class="muted">{{ _("Not your account?") }}</span> <button class="button button-link" type="submit">{{ _("Sign out") }}</button>
+</form>
+{% endblock %}
+{% block section %}{{ setup() }}{% endblock %}

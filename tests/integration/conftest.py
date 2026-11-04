@@ -104,6 +104,8 @@ def settings(database_url: str, tmp_path: Path) -> Settings:
         allow_local_repos=True,
         # The tests check the interface texts in its source language, French.
         default_locale="fr",
+        # Super admins sign in with their password alone, except in test_two_factor.py.
+        superadmin_2fa=False,
     )
     settings.data_dir.mkdir()
     settings.key_file.write_bytes(SecretBox.generate_key())
