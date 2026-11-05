@@ -1,0 +1,30 @@
+name: tmp arm64 check
+on:
+  push:
+    branches: [fix/release-arm64]
+permissions:
+  contents: read
+  packages: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      IMAGE: ghcr.io/synaptane/synaptane
+      DIGEST: sha256:e0f0daeba6065e891a555b20276183b37d8852e11811eabd46dd04b17e9e5b48
+      PEP440: 1.9.0
+      VERSION: 1.9.0
+    steps:
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - run: |
+          set -eo pipefail
+          for platform in linux/amd64 linux/arm64; do
+            docker run --rm --pull always --platform "$platform" --entrypoint synaptane "${IMAGE}@${DIGEST}" --version | tee "$RUNNER_TEMP/version.txt"
+            grep -F "${PEP440} (a1afaed)" "$RUNNER_TEMP/version.txt"
+            label="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE}@${DIGEST}")"
+            test "$label" = "$VERSION" || { echo "::error::Label version ${label}, expected ${VERSION}"; exit 1; }
+            docker run --rm --platform "$platform" --entrypoint uname "${IMAGE}@${DIGEST}" -m
+            # One digest, one local image: left there, it refuses the next platform's pull.
+            docker image rm "${IMAGE}@${DIGEST}"
+          done

@@ -197,9 +197,11 @@ jobs:
           for platform in linux/amd64 linux/arm64; do
             docker run --rm --pull always --platform "$platform" --entrypoint synaptane "${IMAGE}@${DIGEST}" --version | tee "$RUNNER_TEMP/version.txt"
             grep -F "${PEP440} (${GITHUB_SHA::7})" "$RUNNER_TEMP/version.txt"
+            label="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE}@${DIGEST}")"
+            test "$label" = "$VERSION" || { echo "::error::Label version ${label}, expected ${VERSION}"; exit 1; }
+            # One digest, one local image: left there, it refuses the next platform's pull.
+            docker image rm "${IMAGE}@${DIGEST}"
           done
-          label="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE}@${DIGEST}")"
-          test "$label" = "$VERSION" || { echo "::error::Label version ${label}, expected ${VERSION}"; exit 1; }
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
