@@ -86,7 +86,7 @@ IA la tient en ordre chaque nuit.
 - **Simple à exploiter.** Docker Compose, derrière votre propre proxy ou avec un nginx et
   Let's Encrypt fournis. `synaptane doctor` vérifie l'installation. Les sauvegardes sont
   vérifiées, et peuvent être chiffrées et copiées hors du serveur (age et rclone). Les admins
-  reçoivent des alertes par e-mail.
+  reçoivent des alertes par e-mail, et `/metrics` alimente Prometheus.
 - **Une interface sobre et bilingue.** Thèmes clair et sombre, anglais et français, recherche
   par Ctrl+K.
 
@@ -166,7 +166,6 @@ avant chaque mise à jour.
   Pour les autres fournisseurs, saisissez vous-même le tarif par million de jetons : sans
   tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La vectorisation des
   requêtes de recherche n'est pas comptée.
-- **Supervision :** pas de point d'accès `/metrics`. `/healthz` et `/readyz` existent.
 - **Plateformes :** Linux sur x86-64 ou arm64, ou WSL2 sous Windows. macOS n'est pas testé.
 - **Langue :** l'interface web, les e-mails, les messages d'erreur de l'API REST et la
   documentation sont en anglais et en français. La ligne de commande, les journaux et les

@@ -46,6 +46,8 @@ x-synaptane: &synaptane
     SYNAPTANE_BACKUP_AGE_RECIPIENTS: ${BACKUP_AGE_RECIPIENTS:-}
     SYNAPTANE_BACKUP_REMOTES: ${BACKUP_REMOTES:-}
     SYNAPTANE_BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    # Prometheus (docs/admin/installation.md, Monitoring); empty: no /metrics.
+    SYNAPTANE_METRICS_TOKEN: ${METRICS_TOKEN:-}
     TZ: ${TZ:-Europe/Paris}
   volumes:
     - synaptane-data:/data

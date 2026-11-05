@@ -16,13 +16,13 @@ _SECRET_PATH = re.compile(r"/(reset|invite|verify-email|oauth/consent)/[^/?\s]+"
 
 class AccessFilter(logging.Filter):
     """Access log without secrets: link tokens (invitation, reset, verification) and query
-    parameters masked; `/readyz` (probe) omitted."""
+    parameters masked; probes (`/readyz`, `/healthz`) and `/metrics` omitted."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
             path = args[2]
-            if path.startswith(("/readyz", "/healthz")):
+            if path.startswith(("/readyz", "/healthz", "/metrics")):
                 return False
             base, _, query = path.partition("?")
             path = _SECRET_PATH.sub(r"/\1/…", base) + ("?…" if query else "")

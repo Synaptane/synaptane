@@ -16,6 +16,13 @@ of the target version.
   ARM server (Ampere, Graviton…), Docker pulls the right one, with nothing to change. Building
   the image yourself, subscription CLIs included, also works there; the CI checks it on an
   ARM machine at every commit.
+- **`/metrics` for Prometheus**. With a token of 32 characters or more (`METRICS_TOKEN` in
+  `.env`, `metrics_token`), `/metrics` gives the state of the instance in the Prometheus
+  format: sync state of each space, items waiting in the inbox, last tidy-up pass and whether
+  it failed, the worker's queue and the wait of its oldest job, jobs abandoned, AI spending of
+  the month, last local backup, requests and response times by area (web, REST API, MCP), and
+  the process (CPU, memory). Without a token, `/metrics` does not exist. Examples of scrape
+  configuration and alert rules: `docs/admin/installation.md`, Monitoring.
 
 ## [1.8.0] - 2026-11-04
 

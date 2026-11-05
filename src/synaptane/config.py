@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 ENV_PREFIX = "SYNAPTANE_"
 DEFAULT_CONFIG = Path("synaptane.toml")
+METRICS_TOKEN_MIN = 32  # characters: a random token, not a word
 
 
 class ConfigError(Exception):
@@ -38,6 +39,8 @@ class Settings(BaseModel):
     ocr_images: bool = True  # extract text from images for search
     allow_private_webhooks: bool = False  # webhooks to the local network: development only
     api_docs: bool = False  # publish /api/docs and the OpenAPI schema (lists every route)
+    # Bearer token of /metrics (Prometheus); empty: /metrics does not exist.
+    metrics_token: str = ""
     # Interface language when the browser asks for none that is supported, and initial
     # language of accounts created without a browser (CLI, administrator).
     default_locale: Literal["en", "fr"] = "en"
@@ -55,6 +58,16 @@ class Settings(BaseModel):
         if not value.startswith(("http://", "https://")):
             raise ValueError("public_url must start with http:// or https://")
         return value.rstrip("/")
+
+    @field_validator("metrics_token")
+    @classmethod
+    def _metrics_token(cls, value: str) -> str:
+        value = value.strip()
+        if value and len(value) < METRICS_TOKEN_MIN:
+            raise ValueError(
+                f"metrics_token: {METRICS_TOKEN_MIN} characters at least (openssl rand -hex 32)"
+            )
+        return value
 
     @field_validator("backup_age_recipients", "backup_remotes", mode="before")
     @classmethod
