@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-05
+
+Running an instance: images for ARM servers, and `/metrics` for Prometheus. Upgrading from
+1.8.0: no migration, nothing to change. `/metrics` stays closed until you set `METRICS_TOKEN`
+in `.env`.
+
 ### Added
 - **Images for ARM servers (arm64)**. The published images `ghcr.io/synaptane/synaptane` and
   `ghcr.io/synaptane/synaptane-nginx` now exist for linux/arm64 as well as linux/amd64: on an
@@ -491,7 +497,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/synaptane/synaptane/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/synaptane/synaptane/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/synaptane/synaptane/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/synaptane/synaptane/compare/v1.5.0...v1.6.0
