@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Obsidian syntax when reading a page**. `![[image.png]]` shows the image (`|300` sets its
+  size), `> [!warning] Title` is a callout (GitHub's `> [!WARNING]` too), `==text==` is
+  highlighted, and `%%comments%%` and block ids (`^id`) are hidden. Files are not changed, so a
+  vault still edited in Obsidian stays as it is.
+
 ## [1.9.1] - 2026-11-05
 
 Publishes what 1.9.0 could not: its release stopped halfway, so 1.9.0 has no nginx image, no

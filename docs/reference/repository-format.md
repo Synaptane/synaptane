@@ -57,6 +57,12 @@ server's cache, and rebuilt by `synaptane reindex`. Details:
 - **Links**: relative Markdown links (`[guide](../infra/proxmox.md)`) and wiki links
   (`[[name]]`, `[[name|label]]`, `[[name#section]]`, `[[folder/name]]`) are resolved in the
   wiki. Moving a page through Synaptane updates the links that pointed to it.
+- **Obsidian syntax**: pages written in Obsidian display as they do there, and their files
+  are not changed. `![[image.png]]` shows the image (with `|300` or `|300x200` for its size),
+  `> [!warning] Title` is a callout (GitHub's `> [!WARNING]` too), `==text==` is highlighted,
+  and `%%comments%%` and block ids (`^id`) are hidden when reading. A `%%comment%%` is not
+  private: search, assistants and Git still see it. `![[page]]` is a link: the page is not
+  included, and a callout cannot be folded.
 - **Front matter**: optional. Synaptane reads three verification fields; other fields are
   kept as they are.
 
