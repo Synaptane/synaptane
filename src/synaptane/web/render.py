@@ -39,6 +39,8 @@ ALLOWED_ATTRIBUTES = {
 
 
 def _highlight_block(code: str, language: str, _attrs: object) -> str:
+    if language == "mermaid":
+        return ""  # plain code: preferences.js turns it into a drawing
     try:
         lexer = get_lexer_by_name(language) if language else None
     except ClassNotFound:

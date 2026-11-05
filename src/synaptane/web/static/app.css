@@ -483,6 +483,8 @@ lettre par lettre au lieu de faire défiler le tableau. */
 .markdown th{font-weight:500;font-size:12.5px;color:var(--ink-3)}
 .markdown :is(th,td):last-child{padding-right:0}
 .markdown img{border-radius:var(--radius)}
+/* Height 0 and not hidden until drawn: Mermaid measures its text, which needs a layout. */
+.diagram-frame{display:block;width:100%;height:0;border:0;margin:0 0 14px}
 .markdown hr{border:0;border-top:1px solid var(--border);margin:24px 0}
 .markdown .task-list-item{list-style:none}
 .markdown .contains-task-list{padding-left:4px}

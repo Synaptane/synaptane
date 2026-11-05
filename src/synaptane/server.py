@@ -11,7 +11,13 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError
@@ -70,6 +76,15 @@ CODE_WINDOW = 15 * 60  # seconds
 CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
     "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+)
+
+
+# Frame that draws a Mermaid diagram from what a page contains: opaque origin (no cookies, no
+# access to Synaptane), no network, nothing but its two scripts. Mermaid writes styles in the
+# page, which the policy above forbids: it may do so here, and only here.
+DIAGRAM_CSP = (
+    "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
+    "img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 )
 
 
@@ -134,6 +149,14 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.mount(
         "/static", StaticFiles(directory=Path(__file__).parent / "web" / "static"), name="static"
     )
+
+    @app.get("/diagram", include_in_schema=False)
+    def diagram() -> HTMLResponse:
+        """The same frame for every diagram: it receives the text once loaded."""
+        return HTMLResponse(
+            pages.templates.env.get_template("diagram.html").render(),
+            headers={"Content-Security-Policy": DIAGRAM_CSP, "Cache-Control": "no-cache"},
+        )
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:

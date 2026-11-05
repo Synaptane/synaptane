@@ -24,6 +24,48 @@
   // On mobile, the drawer is closed from the first render (no animation on load).
   if (narrow() || read("sidebar-collapsed") === "true") root.dataset.sidebarCollapsed = "true";
 
+  // --- Mermaid diagrams -------------------------------------------------------------------------
+  // The code stays in the page: without JS, or if the text cannot be drawn, it is what you read.
+  // Each drawing is made in a sandboxed frame (see server.py, /diagram), when it comes near.
+  const drawDiagram = code => {
+    const block = code.closest("pre");
+    const frame = document.createElement("iframe");
+    frame.className = "diagram-frame";
+    frame.src = "/diagram";
+    frame.title = root.dataset.diagramLabel;
+    frame.setAttribute("sandbox", "allow-scripts");
+    const listen = event => {
+      if (event.source !== frame.contentWindow) return;
+      const { ready, height, failed } = event.data ?? {};
+      if (ready) {
+        const dark = root.dataset.theme === "dark" || (root.dataset.theme === "system"
+          && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        // The same color scheme on both sides, or the browser paints the frame opaque.
+        frame.style.colorScheme = dark ? "dark" : "light";
+        frame.contentWindow.postMessage({ text: code.textContent, dark }, "*");
+      } else if (failed) {
+        window.removeEventListener("message", listen);
+        frame.remove();
+      } else if (Number.isFinite(height) && height > 0) {
+        frame.style.height = `${Math.min(height, 4000)}px`;
+        block.hidden = true;
+      }
+    };
+    window.addEventListener("message", listen);
+    block.after(frame);
+  };
+  const setupDiagrams = () => {
+    const blocks = document.querySelectorAll(".markdown code.language-mermaid");
+    if (!blocks.length) return;
+    const near = new IntersectionObserver((entries, observer) => {
+      entries.filter(entry => entry.isIntersecting).forEach(entry => {
+        observer.unobserve(entry.target);
+        drawDiagram(entry.target);
+      });
+    }, { rootMargin: "400px" });
+    blocks.forEach(code => near.observe(code));
+  };
+
   // --- Navigation (sidebar, drawer on mobile) --------------------------------------------------
   const setupSidebar = () => {
     const sidebar = document.getElementById("workspace-sidebar");
@@ -726,6 +768,7 @@
     setupToc();
     setupCrumbs();
     setupPalette();
+    setupDiagrams();
   });
   window.addEventListener("storage", event => { if (event.key === prefix + "theme") applyTheme(event.newValue); });
 })();

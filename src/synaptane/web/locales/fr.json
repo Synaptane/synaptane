@@ -1697,4 +1697,6 @@
  "This archive is too large once unpacked ({max} MB maximum).": "Cette archive est trop volumineuse une fois décompressée ({max} Mo maximum).",
  "{n} page": "{n} page",
  "{n} pages": "{n} pages"
+=======
+ "Diagram": "Diagramme"
 }
