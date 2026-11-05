@@ -13,6 +13,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, replace
+from itertools import batched
 from pathlib import Path, PurePosixPath
 
 from synaptane.git.credentials import GitCredentials, git_environment
@@ -174,6 +175,7 @@ class Blob:
     size: int
 
 
+ADD_BATCH = 500  # paths per `git add`: an import can exceed what one command line holds
 # File lists by (clone, commit, prefix): see Repository.files.
 _FILES: OrderedDict[tuple[str, str, str], list["Blob"]] = OrderedDict()
 _FILES_LOCK = threading.Lock()
@@ -609,16 +611,16 @@ class Repository:
                     target.write_bytes(content)
             if removed:
                 self._git("rm", "-q", "--cached", "--ignore-unmatch", "--", *removed)
-            if written:
-                self._git("add", "-f", "--", *written)
+            for batch in batched(written, ADD_BATCH):
+                self._git("add", "-f", "--", *batch)
             if self._git("diff", "--cached", "--quiet", check=False).returncode == 0:
                 return None
             self._git("commit", "--quiet", "--no-verify", "-m", message, author=author)
         except BaseException:
             # No half-written file in the clone: it would block the sync.
             self._git("reset", "--quiet", "--hard", "HEAD", check=False)
-            if written:
-                self._git("clean", "-fdqx", "--", *written, check=False)
+            for batch in batched(written, ADD_BATCH):
+                self._git("clean", "-fdqx", "--", *batch, check=False)
             raise
         return self.head()
 

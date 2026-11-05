@@ -153,6 +153,26 @@ it, `synaptane reindex` reads the files already there. `.ppt` files do not need 
 - If the page has changed in the meantime (another person, an external push), the save is
   refused and your text is kept in the form. Reload, then carry over your changes.
 
+## Import an Obsidian vault or a zip of Markdown files
+
+Contributors can bring in a whole folder: in a folder's **⋮** menu, **Import a zip of Markdown
+files**. Zip the vault or folder (100 MB at most, 25 MB per file, 10,000 files) and send it,
+choosing a folder of the space if you wish. Nothing is written at this stage: Synaptane shows
+what the archive holds.
+
+- **Files to import**: pages and attachments, kept as they are. If everything is in one top
+  folder (a vault zipped from outside), that folder is left out.
+- **Likely secrets**: these files are left out, because a secret pushed to Git is hard to erase.
+  Tick one only if it holds no real secret.
+- **Already in the space**: left as they are, never overwritten.
+- **Left out**: hidden files and folders (`.obsidian`, `.trash`, `.git`), system files, and
+  what cannot be written safely (links, encrypted files, paths that leave the folder).
+
+**Import** writes everything in one commit, under your name. If it touches more than 20 pages,
+the tidy-up reviews it as one item, not page by page. Wiki links and
+[Obsidian syntax](../reference/repository-format.md) work as they are. Afterwards, **Health**
+lists the links that lead nowhere. An archive that is not imported is deleted after 24 hours.
+
 ## Verify a page
 
 To know, when reading a page, whether you can trust it: who answers for it, when it was

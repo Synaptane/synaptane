@@ -115,6 +115,7 @@
           <button class="button button-small" type="submit">{{ icon('upload') }}{{ _("Add") }}</button>
         </form>
         {% endif %}
+        {% if contribute %}<a class="menu-item" href="{{ home }}/-/import{% if path %}?folder={{ path|urlencode }}{% endif %}">{{ icon('upload', 14) }}{{ _("Import a zip of Markdown files") }}</a>{% endif %}
         {% if index and contribute %}<a class="menu-item" href="{{ home }}/edit/{{ index|pathurl }}">{{ _("Edit the folder home page") }}</a>{% endif %}
         {% if not path %}<a class="menu-item" href="{{ home }}/-/settings">{{ icon('gear', 14) }}{{ _("Space settings") }}</a>{% endif %}
       {% endcall %}
