@@ -29,7 +29,7 @@ configuration nginx et les scripts du serveur. Clonez la version, puis lancez l'
 publiée :
 
 ```sh
-git clone --branch v1.9.0 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.9.1 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env
 chmod 600 .env                # il contient le mot de passe de la base
@@ -76,7 +76,7 @@ construit jamais : la construction est déclarée dans `compose.build.yaml`, que
 par `COMPOSE_FILE`.
 
 ```sh
-git clone --branch v1.9.0 https://github.com/synaptane/synaptane.git ~/synaptane
+git clone --branch v1.9.1 https://github.com/synaptane/synaptane.git ~/synaptane
 cd ~/synaptane
 cp .env.example .env && chmod 600 .env
 nano .env                     # comme plus haut, plus ces deux lignes :
@@ -153,8 +153,8 @@ chacune). Comptez une coupure de quelques dizaines de secondes.
 cd ~/synaptane
 umask 077   # la sauvegarde contient la clé maître
 docker compose exec -T app synaptane backup --output - > synaptane-avant-maj.tar.gz
-git fetch --tags && git checkout v1.9.0      # fichier Compose et scripts de la nouvelle version
-nano .env                                    # SYNAPTANE_VERSION=1.9.0
+git fetch --tags && git checkout v1.9.1      # fichier Compose et scripts de la nouvelle version
+nano .env                                    # SYNAPTANE_VERSION=1.9.1
 docker compose pull
 docker compose up -d
 docker compose exec app synaptane --version  # la version attendue ?
@@ -166,7 +166,7 @@ comme dans [Construire l'image vous-même](#construire-limage-vous-même)),
 
 ```sh
 cd ~/synaptane
-deploy/host/deploy.sh v1.9.0      # une étiquette, une branche ou un commit
+deploy/host/deploy.sh v1.9.1      # une étiquette, une branche ou un commit
 ```
 
 Le script fait une sauvegarde, garde l'image en service, construit la nouvelle avec son
@@ -182,7 +182,7 @@ verte. Détail : [`deploy/host/README.fr.md`](../../deploy/host/README.fr.md).
 ```sh
 umask 077
 docker compose exec -T app synaptane backup --output - > synaptane-avant-maj.tar.gz
-git fetch --tags && git checkout v1.9.0
+git fetch --tags && git checkout v1.9.1
 docker compose pull --ignore-buildable      # images téléchargées : PostgreSQL, certbot
 GIT_SHA=$(git rev-parse HEAD) docker compose build --pull --no-cache  # correctifs Debian compris
 docker compose up -d

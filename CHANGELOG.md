@@ -10,7 +10,19 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-05
+
+Publishes what 1.9.0 could not: its release stopped halfway, so 1.9.0 has no nginx image, no
+GitHub Release and no PyPI package. The application is the same. Upgrading from 1.8.0 or 1.9.0:
+no migration, nothing to change. For what is new, read 1.9.0.
+
+### Fixed
+- **Release**: the check of the published image failed on its second platform (arm64), which
+  stopped the publication. Both platforms are now checked, one after the other.
+
 ## [1.9.0] - 2026-11-05
+
+Not published in full: use 1.9.1.
 
 Running an instance: images for ARM servers, and `/metrics` for Prometheus. Upgrading from
 1.8.0: no migration, nothing to change. `/metrics` stays closed until you set `METRICS_TOKEN`
@@ -497,7 +509,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/synaptane/synaptane/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/synaptane/synaptane/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/synaptane/synaptane/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/synaptane/synaptane/compare/v1.6.0...v1.7.0
