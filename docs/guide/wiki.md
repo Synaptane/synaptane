@@ -132,6 +132,14 @@ Without catdoc (installation from source without the `catdoc` package), `.doc` a
 are kept and downloadable, without text, and `synaptane doctor` warns about it; after installing
 it, `synaptane reindex` reads the files already there. `.ppt` files do not need it.
 
+## First steps of a space
+
+Until its first tidy-up, the home of a space shows contributors what is left to do: link a Git
+repository, write the vocation, choose the AI provider, add content, let the tidy-up run. Each
+step ticks itself when the thing is there. The list goes away after the first tidy-up that did
+something; **Hide** removes it sooner, in this browser. It does not appear when the space's
+tidy-up is turned off.
+
 ## Write (contributors)
 
 - **Edit** a text page, **New page**, **Add** a file (25 MB maximum, any type: see

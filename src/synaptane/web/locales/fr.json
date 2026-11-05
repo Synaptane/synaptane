@@ -1697,5 +1697,13 @@
  "This archive is too large once unpacked ({max} MB maximum).": "Cette archive est trop volumineuse une fois décompressée ({max} Mo maximum).",
  "{n} page": "{n} page",
  "{n} pages": "{n} pages",
- "Diagram": "Diagramme"
+ "Diagram": "Diagramme",
+ "Say what this space is for, in its vocation": "Dire à quoi sert cet espace, dans sa vocation",
+ "Choose the AI provider of the organization": "Choisir le fournisseur d'IA de l'organisation",
+ "Add a first page, drop a note, or import a zip of Markdown files": "Ajouter une première page, déposer une note, ou importer un zip de fichiers Markdown",
+ "Let the tidy-up run: tonight, or right now": "Laisser passer le rangement : cette nuit, ou tout de suite",
+ "First steps of this space": "Premiers pas de cet espace",
+ "(an organization administrator)": "(un administrateur de l'organisation)",
+ "to read and write from Claude or ChatGPT.": "pour lire et écrire depuis Claude ou ChatGPT.",
+ "Hide": "Masquer"
 }

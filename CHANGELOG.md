@@ -25,6 +25,9 @@ of the target version.
   dark themes. The drawing happens in the browser, in a sandboxed frame with no access to
   Synaptane, so a page cannot do anything through a diagram; if it cannot be drawn, the code
   stays on the page. Mermaid is loaded only on pages that have a diagram.
+- **First steps of a space**. Until its first tidy-up, the home of a space shows contributors
+  what is left to do: repository, vocation, AI provider, content, tidy-up. Each step ticks itself
+  when the thing is there.
 
 ## [1.9.1] - 2026-11-05
 
