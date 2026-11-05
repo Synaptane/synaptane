@@ -157,14 +157,15 @@ tools and the configuration only change in a compatible way. Every change is lis
   providers, enter the price per million tokens yourself: without a price, no cost is
   computed and no budget can apply. Vectorizing search queries is not counted.
 - **Monitoring:** no `/metrics` endpoint. `/healthz` and `/readyz` exist.
-- **Platforms:** Linux, or WSL2 on Windows. macOS is not tested.
+- **Platforms:** Linux on x86-64 or arm64, or WSL2 on Windows. macOS is not tested.
 - **Language:** the web UI, emails, REST error messages and documentation are in English and
   French. The command line, logs and answers to AI assistants (MCP) are in English.
 - **ChatGPT deep research** with the Synaptane connector has not been tested.
 
 ## Requirements
 
-- A **Linux server** (or WSL2 to try it out) with **Docker Engine and the Compose plugin**.
+- A **Linux server**, x86-64 or arm64 (or WSL2 to try it out), with **Docker Engine and the
+  Compose plugin**.
 - A **domain name served over HTTPS**, for Claude.ai and ChatGPT connectors, OAuth and single
   sign-on. Not needed to try it locally.
 - A **Git repository** per space, on any Git host, reachable over HTTPS or SSH.

@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Images for ARM servers (arm64)**. The published images `ghcr.io/synaptane/synaptane` and
+  `ghcr.io/synaptane/synaptane-nginx` now exist for linux/arm64 as well as linux/amd64: on an
+  ARM server (Ampere, Graviton…), Docker pulls the right one, with nothing to change. Building
+  the image yourself, subscription CLIs included, also works there; the CI checks it on an
+  ARM machine at every commit.
+
 ## [1.8.0] - 2026-11-04
 
 Account security: two-factor authentication, and the sessions signed in to your account, to see

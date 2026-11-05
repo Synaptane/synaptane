@@ -3,8 +3,8 @@
 #      1.0.0rc1), commit present on main;
 #   2. full CI (ci.yml) on this commit;
 #   3. images ghcr.io/synaptane/synaptane and ghcr.io/synaptane/synaptane-nginx (proxy mode),
-#      with SBOM, BuildKit provenance and GitHub-signed attestation
-#      (`gh attestation verify oci://ghcr.io/synaptane/synaptane:X.Y.Z -R synaptane/synaptane`);
+#      for linux/amd64 and linux/arm64, with SBOM, BuildKit provenance and GitHub-signed
+#      attestation (`gh attestation verify oci://ghcr.io/synaptane/synaptane:X.Y.Z -R synaptane/synaptane`);
 #   4. GitHub Release, notes taken from the `## [X.Y.Z…]` section of CHANGELOG.md;
 #   5. documentation of the site (synaptane/website): `repository_dispatch` of type
 #      `sync-docs` with this tag, only if the SITE_DISPATCH_TOKEN secret exists (fine-grained
@@ -133,7 +133,7 @@ jobs:
     needs: [verify, ci]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: write # GitHub Release
       packages: write # ghcr.io
@@ -147,6 +147,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # arm64 is built under emulation (QEMU); ci.yml checks it natively on every commit.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -173,7 +175,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           pull: true
           no-cache: true
           push: true
@@ -192,8 +194,10 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          docker run --rm --entrypoint synaptane "${IMAGE}@${DIGEST}" --version | tee "$RUNNER_TEMP/version.txt"
-          grep -F "${PEP440} (${GITHUB_SHA::7})" "$RUNNER_TEMP/version.txt"
+          for platform in linux/amd64 linux/arm64; do
+            docker run --rm --pull always --platform "$platform" --entrypoint synaptane "${IMAGE}@${DIGEST}" --version | tee "$RUNNER_TEMP/version.txt"
+            grep -F "${PEP440} (${GITHUB_SHA::7})" "$RUNNER_TEMP/version.txt"
+          done
           label="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE}@${DIGEST}")"
           test "$label" = "$VERSION" || { echo "::error::Label version ${label}, expected ${VERSION}"; exit 1; }
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -224,7 +228,7 @@ jobs:
         with:
           context: .
           file: deploy/nginx/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           pull: true
           no-cache: true
           push: true
