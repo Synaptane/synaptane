@@ -427,6 +427,13 @@ La liste complète des types d'alerte est dans [Webhooks](webhooks.fr.md). Une m
 
 ## Supervision
 
+**Administration > Santé** (`/admin/health`, super-administrateurs) montre l'instance sur une
+page : base de données, clé maîtresse, worker, tâches de fond, dernière sauvegarde, copie hors
+site, disque, envoi d'e-mails et HTTPS, puis la synchronisation et le rangement de chaque espace,
+puis les alertes système des 30 derniers jours. Une sauvegarde compte une fois écrite et vérifiée,
+où qu'elle soit allée ; une copie hors site, une fois que toutes les destinations l'ont. Les
+copies faites avant la 1.11.0 ne sont pas vues.
+
 `/healthz` répond dès que le processus tourne ; `/readyz` vérifie aussi la base de données (le
 contrôle de santé de Docker s'en sert). Aucun des deux ne demande de connexion.
 
@@ -473,7 +480,7 @@ aucun contenu de page, aucune personne.
 | `synaptane_jobs_waiting_seconds` | Attente de la plus ancienne tâche à lancer : elle grandit quand le worker est arrêté ou débordé. |
 | `synaptane_jobs_abandoned_24h{kind}` | Tâches abandonnées dans les dernières 24 heures, essais épuisés. |
 | `synaptane_ai_spend_month_euros{organization}` | Dépense d'IA estimée depuis le 1er du mois (UTC). |
-| `synaptane_backup_last_timestamp_seconds` | Dernière archive du dossier de sauvegarde (`/backups` dans l'image). Les copies hors site ne se voient pas d'ici. |
+| `synaptane_backup_last_timestamp_seconds` | Dernière archive vérifiée de `synaptane backup`, où qu'elle ait été écrite. |
 | `process_*` | CPU, mémoire résidente, fichiers ouverts et heure de démarrage du serveur web. |
 
 Exemples de règles d'alerte :

@@ -6,22 +6,20 @@ Spaces are named `organization/space`: a few series per space, and an instance h
 spaces, not thousands. Nothing here reads page content or names a person.
 """
 
-import os
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from synaptane import __version__, git_commit
+from synaptane.config import Settings
 from synaptane.core.errors import SynaptaneError
 from synaptane.core.metrics import Exposition, Labels
 from synaptane.git.repo import GitError
-from synaptane.services import budget, jobs, tidy
+from synaptane.services import budget, instance, jobs, tidy
 from synaptane.services.workspace import Workspace
-from synaptane.storage.models import Job, Organization, Space, TidyRun, User
+from synaptane.storage.models import Job, Organization, Space, User
 
 SYNC_STATUSES = ("never", "ok", "error", "conflict")
 
@@ -67,15 +65,7 @@ def _spaces(out: Exposition, session: Session, ws: Workspace) -> None:
     spaces = list(
         session.scalars(select(Space).join(Organization).order_by(Organization.slug, Space.slug))
     )
-    last_tidy: dict[object, TidyRun] = {
-        run.space_id: run
-        for run in session.scalars(
-            select(TidyRun)
-            .where(TidyRun.finished_at.is_not(None))
-            .order_by(TidyRun.space_id, TidyRun.finished_at.desc())
-            .ext(distinct_on(TidyRun.space_id))
-        )
-    }
+    last_tidy = instance.last_tidies(session)
     status: list[tuple[Labels, float]] = []
     synced: list[tuple[Labels, float]] = []
     waiting: list[tuple[Labels, float]] = []
@@ -140,9 +130,7 @@ def _jobs(out: Exposition, session: Session) -> None:
         "Worker jobs queued or running, by kind.",
         [({"kind": kind, "status": status}, count) for kind, status, count in rows],
     )
-    oldest = session.scalar(
-        select(func.min(Job.run_after)).where(Job.status == "queued", Job.run_after <= now)
-    )
+    oldest = instance.oldest_due_job(session, now)
     out.one(
         "synaptane_jobs_waiting_seconds",
         "gauge",
@@ -173,20 +161,13 @@ def _spending(out: Exposition, session: Session) -> None:
     )
 
 
-def write_backups(out: Exposition, folder: str | None = None) -> None:
-    """Last archive written by `synaptane backup` to the backup folder (SYNAPTANE_BACKUP_DIR,
-    /backups in the image). Off-site copies are not seen from here."""
-    folder = folder if folder is not None else os.environ.get("SYNAPTANE_BACKUP_DIR", "")
-    if not folder:
-        return
-    try:
-        times = [p.stat().st_mtime for p in Path(folder).glob("synaptane-*.tar.gz*") if p.is_file()]
-    except OSError:
-        return
-    if times:
+def write_backups(out: Exposition, settings: Settings) -> None:
+    """Last verified archive of `synaptane backup`, wherever it was written."""
+    last = instance.last_backup(settings)
+    if last is not None:
         out.one(
             "synaptane_backup_last_timestamp_seconds",
             "gauge",
-            "Last local backup archive, in seconds since the Unix epoch.",
-            max(times),
+            "Last verified backup archive, in seconds since the Unix epoch.",
+            last.timestamp(),
         )

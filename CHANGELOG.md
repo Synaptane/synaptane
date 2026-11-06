@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Health page of the instance**. **Administration > Health** shows the state of the instance
+  on one page: database, master key, worker, background tasks, last backup, off-site copy, disk,
+  email sending, HTTPS; then the sync and tidy-up of each space; then the system alerts of the
+  last 30 days.
+
+### Changed
+- **`synaptane_backup_last_timestamp_seconds`** now follows the last verified archive wherever it
+  was written, standard output included (`deploy/host/backup.sh`), and not only `/backups`.
+
 ## [1.10.0] - 2026-11-06
 
 Coming from Obsidian, or from any folder of Markdown files: import it in one go, it reads as it

@@ -139,6 +139,9 @@ def test_a_text_without_context_needs_its_own_entry() -> None:
 # Translations identical to their English text, on purpose: names (products, providers) and
 # words or abbreviations written the same way in French.
 SAME_IN_FRENCH = {
+    "HTTPS",
+    "OK",
+    "Worker",
     "{n} page",
     "{n} pages",
     # Names

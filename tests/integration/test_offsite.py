@@ -11,6 +11,7 @@ import pytest
 
 from synaptane.cli import main
 from synaptane.config import Settings
+from synaptane.services import instance
 from synaptane.storage.db import Database
 from tests.integration.conftest import make_user
 
@@ -75,6 +76,8 @@ def test_offsite_copies_reach_every_working_destination(
     err = capsys.readouterr().err
     assert code == 3, err  # archive fine, one destination failing
     assert "absente:seau" in err.split("Incomplete")[-1]
+    assert (settings.data_dir / instance.BACKUP_DONE).exists()
+    assert not (settings.data_dir / instance.OFFSITE_DONE).exists()  # incomplete: not a success
     archive = next(local.glob("synaptane-*.tar.gz"))
     copies = [*near.glob("synaptane-*.tar.gz.age"), *(far / "synaptane").glob("*.age")]
     assert [copy.name for copy in copies] == [f"{archive.name}.age"] * 2
@@ -83,7 +86,8 @@ def test_offsite_copies_reach_every_working_destination(
     with tarfile.open(archive) as tar:
         assert "master.key" in tar.getnames()
     # Nothing is left lying in the data directory (plain archive, encrypted copy).
-    assert sorted(p.name for p in settings.data_dir.iterdir()) == ["master.key"]
+    left = sorted(p.name for p in settings.data_dir.iterdir())
+    assert left == [instance.BACKUP_DONE, "master.key"]
 
     assert main(["--config", str(config), "offsite", "list"]) == 1
     assert f"{archive.name}.age" in capsys.readouterr().out
@@ -109,6 +113,7 @@ def test_cron_form_streams_the_archive_and_copies_it(
     )
     monkeypatch.setenv("SYNAPTANE_BACKUP_DIR", str(tmp_path))  # not used with --output -
     assert main(["--config", str(config), "backup", "--offsite", "--output", "-"]) == 0
+    assert (settings.data_dir / instance.OFFSITE_DONE).exists()
     captured = capsysbinary.readouterr()
     assert b"1 destination(s)" in captured.err
     (copy,) = far.glob("synaptane-*.tar.gz.age")

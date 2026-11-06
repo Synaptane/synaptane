@@ -1,0 +1,62 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import when with context %}
+{% macro state_label(state) -%}
+<span class="status status-{{ state }}">{% if state == "ok" %}{{ _("OK") }}{% elif state == "warn" %}{{ _("To check") }}{% else %}{{ _("Problem") }}{% endif %}</span>
+{%- endmacro %}
+{% block section %}
+<section aria-labelledby="health-state">
+  <div class="section-heading"><h2 id="health-state">{{ _("State of the instance") }}</h2>{{ state_label(report.state) }}</div>
+  <div class="card admin-table-card">
+    {% for check in report.checks %}
+    <div class="admin-row">
+      <div class="admin-row-main"><span class="admin-row-title">{{ _(check.title) }}</span><span class="admin-row-meta">{{ _(check.message.template, **check.message.params) }}{% if check.at %} {{ when(check.at) }}{% endif %}</span></div>
+      {{ state_label(check.state) }}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted section-gap-small">{{ _("Prometheus metrics: on, at /metrics.") if metrics_on else _("Prometheus metrics: off (METRICS_TOKEN).") }}</p>
+</section>
+
+<section class="section-gap" aria-labelledby="health-spaces">
+  <div class="section-heading"><h2 id="health-spaces">{{ _("Spaces") }} <span class="admin-count">{{ report.spaces|length }}</span></h2></div>
+  {% if report.spaces %}
+  <div class="card"><div class="table-scroll"><table class="health-table instance-spaces">
+    <thead><tr><th scope="col">{{ _("Space") }}</th><th scope="col">{{ _("Git sync") }}</th><th scope="col">{{ _("Last tidy-up") }}</th><th scope="col">{{ _("Inbox") }}</th></tr></thead>
+    <tbody>
+      {% for row in report.spaces %}
+      {% set space = row.space %}
+      <tr>
+        <td><a href="/o/{{ space.organization.slug }}/{{ space.slug }}">{{ space.address }}</a></td>
+        <td>{% if not space.repo_url %}<span class="muted">{{ _("No repository") }}</span>
+          {% elif space.sync_status == "conflict" %}<span class="status status-error">{{ _("Conflict") }}</span>
+          {% elif space.sync_status == "error" %}<span class="status status-error">{{ _("Failed") }}</span>
+          {% elif space.synced_at %}{{ when(space.synced_at) }}
+          {% else %}<span class="muted">{{ _("Not synchronized yet") }}</span>{% endif %}</td>
+        <td>{% if row.last_tidy is none %}<span class="muted">{{ _("None yet") }}</span>
+          {% else %}{% if row.last_tidy.status == "failed" %}<span class="status status-error">{{ _("Failed") }}</span> {% endif %}{{ when(row.last_tidy.finished_at) }}{% endif %}</td>
+        <td>{{ row.waiting if row.waiting is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div></div>
+  {% else %}<p class="muted">{{ _("No space yet.") }}</p>{% endif %}
+</section>
+
+<section class="section-gap" aria-labelledby="health-alerts">
+  <div class="section-heading"><h2 id="health-alerts">{{ _("System alerts") }} <span class="admin-count">{{ report.alerts|length }}</span></h2></div>
+  <p class="muted">{{ _("The last 30 days, at most 50. Organization administrators get them by email.") }}</p>
+  {% if report.alerts %}
+  <div class="card admin-table-card">
+    {% for alert in report.alerts %}
+    <div class="admin-row">
+      <div class="admin-row-main">
+        <span class="admin-row-title">{{ _(alert.title) }}</span>
+        <span class="admin-row-meta">{{ when(alert.at) }}{% if alert.space %} · <a href="/o/{{ alert.space.organization.slug }}/{{ alert.space.slug }}">{{ alert.space.address }}</a>{% elif alert.organization %} · <a href="/o/{{ alert.organization.slug }}">{{ alert.organization.name }}</a>{% endif %}</span>
+        {% if alert.error %}<span class="admin-row-meta">{{ alert.error }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted">{{ _("No alert.") }}</p>{% endif %}
+</section>
+{% endblock %}
