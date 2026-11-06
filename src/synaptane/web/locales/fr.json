@@ -1696,7 +1696,6 @@
  "Too many files in this archive ({max} maximum).": "Trop de fichiers dans cette archive ({max} maximum).",
  "This archive is too large once unpacked ({max} MB maximum).": "Cette archive est trop volumineuse une fois décompressée ({max} Mo maximum).",
  "{n} page": "{n} page",
- "{n} pages": "{n} pages"
-=======
+ "{n} pages": "{n} pages",
  "Diagram": "Diagramme"
 }
