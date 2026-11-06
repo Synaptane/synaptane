@@ -10,6 +10,12 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-06
+
+Coming from Obsidian, or from any folder of Markdown files: import it in one go, it reads as it
+did there, and Mermaid diagrams are drawn. A new space also shows what is left to set up. Upgrading
+from 1.9.1: no migration, nothing to change.
+
 ### Added
 - **Obsidian syntax when reading a page**. `![[image.png]]` shows the image (`|300` sets its
   size), `> [!warning] Title` is a callout (GitHub's `> [!WARNING]` too), `==text==` is
@@ -528,7 +534,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/synaptane/synaptane/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/synaptane/synaptane/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/synaptane/synaptane/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/synaptane/synaptane/compare/v1.7.0...v1.8.0
