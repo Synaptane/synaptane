@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from synaptane.config import Settings
 from synaptane.git.repo import GitError
-from synaptane.services import git_sync, jobs
+from synaptane.services import git_sync, instance, jobs
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import Job, Space
@@ -105,6 +105,7 @@ def test_maintenance_schedules_polls_and_removes_orphan_clones(
     assert (git_sync.SYNC, wiki.other.id) not in queued
     assert not orphan.exists() and ctx.clone_path(wiki.infra.id).exists()
     assert runner.HEARTBEAT_FILE.exists()
+    assert (settings.data_dir / instance.WORKER_ALIVE).exists()  # seen from the web server
 
     with database.session() as session:
         session.execute(delete(Job))

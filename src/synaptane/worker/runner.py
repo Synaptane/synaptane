@@ -37,6 +37,7 @@ from synaptane.services import (
     changes,
     freshness,
     git_sync,
+    instance,
     jobs,
     routine_agent,
     routines,
@@ -189,6 +190,7 @@ class Worker:
         if all(now - seen < ALIVE for seen in list(self._pulses.values())):
             self._touched = now
             HEARTBEAT_FILE.touch()
+            instance.mark(self.settings, instance.WORKER_ALIVE)  # seen from the web server
 
     @contextmanager
     def _heartbeat(self, job_id: UUID) -> Iterator[None]:

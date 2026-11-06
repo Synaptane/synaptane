@@ -995,6 +995,8 @@ a.admin-row-title:hover{text-decoration:underline}
 .admin-row:first-child{border-top:0}
 .admin-row-main{min-width:0}
 .admin-row .button{flex:none}
+.admin-row>.status{flex:none;white-space:nowrap}
+.instance-spaces td:first-child{white-space:nowrap}
 .admin-table-card{padding:0;overflow:hidden}
 .admin-accounts{width:100%;border-collapse:collapse;font-size:13.5px}
 .admin-accounts th{padding:10px 20px;text-align:left;font-size:12px;font-weight:600;color:var(--ink-3);background:var(--bg-2);border-bottom:1px solid var(--border)}

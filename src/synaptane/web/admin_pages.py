@@ -9,6 +9,7 @@ from synaptane.core.access import Action, require
 from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
     accounts,
+    instance,
     organizations,
     sso,
     two_factor,
@@ -48,6 +49,19 @@ def admin_user_page(page: WebPage, username: str) -> Response:
     require(actor.access, Action.MANAGE_INSTANCE)
     return page.render(
         "admin-user.html", section="users", account=accounts.get_user(page.db, username)
+    )
+
+
+@router.get("/admin/health", response_class=HTMLResponse)
+def admin_health_page(page: WebPage) -> Response:
+    actor = page.user_actor()
+    require(actor.access, Action.MANAGE_INSTANCE)
+    report = instance.report(page.db, page.database, page.workspace, page.settings)
+    return page.render(
+        "admin-health.html",
+        section="health",
+        report=report,
+        metrics_on=bool(page.settings.metrics_token),
     )
 
 

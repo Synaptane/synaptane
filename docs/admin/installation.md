@@ -414,6 +414,12 @@ is not sent again within 20 hours. The AI budget has its own alerts (see
 
 ## Monitoring
 
+**Administration > Health** (`/admin/health`, super admins) shows the instance on one page:
+database, master key, worker, background tasks, last backup, off-site copy, disk, email sending
+and HTTPS, then the sync and tidy-up of each space, then the system alerts of the last 30 days.
+A backup counts once it is written and verified, wherever it went; an off-site copy, once every
+destination has it. Copies made before 1.11.0 are not seen.
+
 `/healthz` answers as soon as the process runs; `/readyz` also checks the database (the Docker
 healthcheck uses it). Neither needs a sign-in.
 
@@ -459,7 +465,7 @@ person.
 | `synaptane_jobs_waiting_seconds` | Wait of the oldest job due to run: it grows when the worker is stopped or overwhelmed. |
 | `synaptane_jobs_abandoned_24h{kind}` | Jobs abandoned in the last 24 hours, attempts used up. |
 | `synaptane_ai_spend_month_euros{organization}` | Estimated AI spending since the 1st of the month (UTC). |
-| `synaptane_backup_last_timestamp_seconds` | Last archive in the backup folder (`/backups` in the image). Off-site copies are not seen from here. |
+| `synaptane_backup_last_timestamp_seconds` | Last verified archive of `synaptane backup`, wherever it was written. |
 | `process_*` | CPU, resident memory, open files and start time of the web server. |
 
 Examples of alert rules:

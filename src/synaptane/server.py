@@ -190,7 +190,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
         instance_metrics.write_info(out)
         metrics_text.write_process(out)
         app.state.requests.write(out)
-        instance_metrics.write_backups(out)
+        instance_metrics.write_backups(out, settings)
         instance = metrics_text.Exposition()
         try:
             with database.session() as session:

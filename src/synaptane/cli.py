@@ -249,7 +249,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
     """
     import tempfile
 
-    from synaptane.services import backup, offsite
+    from synaptane.services import backup, instance, offsite
 
     settings = _settings(args)
     if args.offsite:
@@ -278,6 +278,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
         except BaseException:
             path.unlink(missing_ok=True)
             raise
+        instance.mark(settings, instance.BACKUP_DONE)
         if args.output == "-":
             with path.open("rb") as source:
                 shutil.copyfileobj(source, sys.stdout.buffer)
@@ -299,7 +300,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
 
 
 def _send_offsite(settings: Settings, archive: Path, encrypted: Path) -> int:
-    from synaptane.services import offsite
+    from synaptane.services import instance, offsite
 
     try:
         offsite.encrypt(settings, archive, encrypted)
@@ -315,6 +316,7 @@ def _send_offsite(settings: Settings, archive: Path, encrypted: Path) -> int:
     if failed:
         print(f"Incomplete off-site copy: {', '.join(failed)}.", file=sys.stderr)
         return OFFSITE_INCOMPLETE
+    instance.mark(settings, instance.OFFSITE_DONE)
     print(f"Encrypted copy sent to {len(outcomes)} destination(s).", file=sys.stderr)
     return 0
 
