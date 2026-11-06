@@ -1,0 +1,23 @@
+{# Space home, until its first tidy-up: what is left to do. See services/first_steps.py. #}
+{% from "icons.html" import icon %}
+{% set texts = {
+  "repository": _("Link a Git repository"),
+  "vocation": _("Say what this space is for, in its vocation"),
+  "ai": _("Choose the AI provider of the organization"),
+  "content": _("Add a first page, drop a note, or import a zip of Markdown files"),
+  "tidy": _("Let the tidy-up run: tonight, or right now"),
+} %}
+<section class="card first-steps" data-first-steps="{{ space.id }}" aria-labelledby="first-steps-title">
+  <h2 id="first-steps-title">{{ _("First steps of this space") }}</h2>
+  <ul class="first-steps-list">
+    {% for step in first_steps %}
+    <li{% if step.done %} class="first-step-done"{% endif %}>
+      <span class="first-step-mark">{% if step.done %}{{ icon('check', 14) }}<span class="sr-only">{{ _("Done") }}</span>{% endif %}</span>
+      {% if step.url and not step.done %}<a href="{{ step.url }}">{{ texts[step.key] }}</a>{% else %}<span>{{ texts[step.key] }}</span>{% endif %}
+      {% if not step.url and not step.done %}<span class="muted">{{ _("(an organization administrator)") }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted section-gap-small"><a href="/account/assistants">{{ _("Connect your AI assistant") }}</a> {{ _("to read and write from Claude or ChatGPT.") }}</p>
+  <button type="button" class="button button-small" data-first-steps-close hidden>{{ _("Hide") }}</button>
+</section>

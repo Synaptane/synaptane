@@ -66,6 +66,17 @@
     blocks.forEach(code => near.observe(code));
   };
 
+  // --- First steps of a space: can be hidden, remembered in this browser -------------------------
+  const setupFirstSteps = () => {
+    const section = document.querySelector("[data-first-steps]");
+    if (!section) return;
+    const name = `first-steps-hidden.${section.dataset.firstSteps}`;
+    if (read(name) === "true") { section.remove(); return; }
+    const close = section.querySelector("[data-first-steps-close]");
+    close.hidden = false;
+    close.addEventListener("click", () => { write(name, "true"); section.remove(); });
+  };
+
   // --- Navigation (sidebar, drawer on mobile) --------------------------------------------------
   const setupSidebar = () => {
     const sidebar = document.getElementById("workspace-sidebar");
@@ -769,6 +780,7 @@
     setupCrumbs();
     setupPalette();
     setupDiagrams();
+    setupFirstSteps();
   });
   window.addEventListener("storage", event => { if (event.key === prefix + "theme") applyTheme(event.newValue); });
 })();

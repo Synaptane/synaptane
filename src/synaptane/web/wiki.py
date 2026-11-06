@@ -29,7 +29,16 @@ from synaptane.core.errors import (
     not_found,
 )
 from synaptane.core.markdown import WikiIndex, outline, title_of
-from synaptane.services import Actor, content, deposits, freshness, related, reports, spaces
+from synaptane.services import (
+    Actor,
+    content,
+    deposits,
+    first_steps,
+    freshness,
+    related,
+    reports,
+    spaces,
+)
 from synaptane.services import search as search_service
 from synaptane.services.content import Folder, build_tree, folder_index
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
@@ -87,6 +96,11 @@ def _wiki(
         contribute=page.can_contribute(actor, space),
         page_url=lambda p: page_url(space, p),
         raw_url=lambda p: raw_url(space, p),
+        first_steps=(
+            first_steps.steps(page.db, actor, page.workspace, page.box, space)
+            if not path and extra.get("view") in ("folder", "unsynced")
+            else None
+        ),
         **extra,
     )
 

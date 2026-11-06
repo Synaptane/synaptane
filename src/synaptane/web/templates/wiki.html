@@ -125,6 +125,7 @@
 {% block content %}
 {% include "space-header.html" %}
 <article class="wiki-main{% if view == 'file' and toc %} wiki-wide{% endif %}{% if view == 'file' and (html_page or file.kind in ('pdf', 'image')) %} full-bleed{% endif %}">
+  {% if first_steps %}{% include "first-steps.html" %}{% endif %}
   {% if view == 'unsynced' %}
   <header class="doc-bar">
     <div class="doc-bar-main"><span class="doc-icon">{{ icon('folder', 18) }}</span><div><h1 class="doc-title">{{ space.name }}</h1>{% if space.description %}<p class="doc-meta">{{ space.description }}</p>{% endif %}</div></div>

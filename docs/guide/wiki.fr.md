@@ -145,6 +145,14 @@ Sans catdoc (installation depuis les sources sans le paquet `catdoc`), les fichi
 fois catdoc installé, `synaptane reindex` lit les fichiers déjà présents. Les `.ppt` n'en ont
 pas besoin.
 
+## Premiers pas d'un espace
+
+Jusqu'à son premier rangement, l'accueil d'un espace montre aux contributeurs ce qu'il reste à
+faire : lier un dépôt Git, écrire la vocation, choisir le fournisseur d'IA, ajouter du contenu,
+laisser passer le rangement. Chaque étape se coche d'elle-même quand la chose existe. La liste
+s'en va après le premier rangement qui a fait quelque chose ; **Masquer** la retire plus tôt,
+dans ce navigateur. Elle n'apparaît pas quand le rangement de l'espace est désactivé.
+
 ## Écrire (contributeurs)
 
 - **Modifier** une page texte, **Nouvelle page**, **Ajouter** un fichier (25 Mo maximum, de
