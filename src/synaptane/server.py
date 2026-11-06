@@ -45,6 +45,7 @@ from synaptane.web import (
     admin_pages,
     health_pages,
     home_pages,
+    import_pages,
     inbox_pages,
     invite_pages,
     login_pages,
@@ -120,6 +121,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.include_router(space_pages.router, include_in_schema=False)
     app.include_router(admin_pages.router, include_in_schema=False)
     app.include_router(account_pages.router, include_in_schema=False)
+    app.include_router(import_pages.router, include_in_schema=False)
     app.include_router(wiki.router, include_in_schema=False)
     app.include_router(oauth_pages.router, include_in_schema=False)
     app.include_router(inbox_pages.router, include_in_schema=False)

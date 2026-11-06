@@ -11,7 +11,7 @@ through the API (`/api/v1/organizations/{org}/webhooks`).
 | Event | When | `data` |
 |---|---|---|
 | `inbox.item_added` | Something is dropped into the inbox (web, REST, MCP) | `path`, `title`, `source`, `via`, `origin`, `by` |
-| `content.changed` | Content changes: web, REST, MCP, tidy-up or push to the repository | `paths`, `action` (`written`, `deleted`, `moved`, `tidied`, `pushed`), `by`, `source`, `via` (web, REST, MCP writes) |
+| `content.changed` | Content changes: web, REST, MCP, tidy-up or push to the repository | `paths`, `action` (`written`, `imported`, `deleted`, `moved`, `tidied`, `pushed`), `by`, `source`, `via` (web, REST, MCP writes) |
 | `tidy.completed` | A tidy-up run ends, successfully or not | `status`, `items_done`, `items_left`, `summary`, `commit`, `error` |
 | `routine.done` | A routine run ends, successfully or not (only for routines that have the webhook among their outputs) | `routine`, `template`, `status`, `summary`, `text` (output text), `page`, `inbox` (titles of the items dropped), `commit`, `error` |
 | `tidy.budget` | The organization's monthly AI budget crosses 80% or 100% | `level`, `spent`, `budget` |

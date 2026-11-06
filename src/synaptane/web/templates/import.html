@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, sep %}
+{% from "ui.html" import csrf_field, file_input with context %}
+{% block title %}{{ _("Import") }} · {{ space.name }} · Synaptane{% endblock %}
+{% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span aria-current="page">{{ _("Import") }}</span>{% endblock %}
+{% block content %}
+{% set base = '/o/' ~ org.slug ~ '/' ~ space.slug ~ '/-/import' %}
+{% macro paths(items) -%}
+<ul class="import-list">{% for item in items[:shown] %}<li><code>{{ item }}</code></li>{% endfor %}</ul>
+{% if items|length > shown %}<p class="muted">{{ _("and {count} more", count=items|length - shown) }}</p>{% endif %}
+{%- endmacro %}
+<h2 class="settings-title">{{ _("Import a zip of Markdown files") }}</h2>
+{% if plan is none %}
+<p class="muted">{{ _("An Obsidian vault, or any folder of Markdown files, zipped with its attachments. Nothing is written yet: you will see what the archive holds first. Files are kept as they are, and nothing already in the space is overwritten.") }}</p>
+<form class="card section-gap-small" method="post" action="{{ base }}" enctype="multipart/form-data">
+  {{ csrf_field() }}
+  <div class="field">
+    <label for="archive">{{ _("Zip archive ({max} MB maximum)", max=max_archive) }}</label>
+    {{ file_input("archive", "archive", required=true) }}
+  </div>
+  <div class="field">
+    <label for="folder">{{ _("Folder of the space (optional)") }}</label>
+    <input id="folder" name="folder" value="{{ folder }}" placeholder="{{ _('At the root of the space') }}">
+  </div>
+  <button class="button button-primary" type="submit">{{ icon('upload') }}{{ _("Check this archive") }}</button>
+</form>
+{% else %}
+{% set count = plan.new|length %}
+<p>{{ _(pl(plan.pages, "{n} page", "{n} pages"), n=plan.pages) }} · {{ _(pl(plan.attachments, "{n} attachment", "{n} attachments"), n=plan.attachments) }}{% if plan.folder %} · {{ _("into {folder}", folder=plan.folder) }}{% endif %}</p>
+<form id="import-form" method="post" action="{{ base }}/{{ plan.token }}">
+  {{ csrf_field() }}<input type="hidden" name="folder" value="{{ plan.folder }}">
+  {% if plan.with_secrets %}
+  <section class="card section-gap-small" aria-labelledby="import-secrets">
+    <h3 id="import-secrets">{{ _("Likely secrets") }} <span class="badge badge-quiet">{{ plan.with_secrets|length }}</span></h3>
+    <p class="muted">{{ _("These files are left out: a secret pushed to Git is hard to erase. Tick one only if it holds no real secret.") }}</p>
+    <ul class="import-list">{% for entry in plan.with_secrets[:shown] %}<li><label class="checkbox"><input type="checkbox" name="keep" value="{{ entry.path }}"> <code>{{ entry.path }}</code></label> <span class="muted">{{ describe(entry.findings)|tr }}</span></li>{% endfor %}</ul>
+    {% if plan.with_secrets|length > shown %}<p class="muted">{{ _("and {count} more", count=plan.with_secrets|length - shown) }}</p>{% endif %}
+  </section>
+  {% endif %}
+</form>
+{% if plan.new %}
+<details class="card section-gap-small"><summary>{{ _("Files to import") }} <span class="badge badge-quiet">{{ count }}</span></summary>{{ paths(plan.new|map(attribute="path")|list) }}</details>
+{% endif %}
+{% if plan.existing %}
+<details class="card section-gap-small"><summary>{{ _("Already in the space, left as they are") }} <span class="badge badge-quiet">{{ plan.existing|length }}</span></summary>{{ paths(plan.existing) }}</details>
+{% endif %}
+{% if plan.too_large %}
+<details class="card section-gap-small"><summary>{{ _("Too large (25 MB maximum per file), left out") }} <span class="badge badge-quiet">{{ plan.too_large|length }}</span></summary>{{ paths(plan.too_large) }}</details>
+{% endif %}
+{% if plan.refused %}
+<details class="card section-gap-small"><summary>{{ _("Refused: unsafe path, link, encrypted file or folder conflict") }} <span class="badge badge-quiet">{{ plan.refused|length }}</span></summary>{{ paths(plan.refused) }}</details>
+{% endif %}
+{% if plan.left_out %}<p class="muted section-gap-small">{{ _(pl(plan.left_out, "{n} hidden or system file left out (.obsidian, .trash…).", "{n} hidden or system files left out (.obsidian, .trash…)."), n=plan.left_out) }}</p>{% endif %}
+<div class="actions section-gap-small">
+  {% if plan.new or plan.with_secrets %}<button class="button button-primary" type="submit" form="import-form">{{ _("Import") }}</button>{% else %}<p class="muted">{{ _("Nothing to import.") }}</p>{% endif %}
+  <form method="post" action="{{ base }}/{{ plan.token }}/cancel">{{ csrf_field() }}<input type="hidden" name="folder" value="{{ plan.folder }}"><button class="button" type="submit">{{ _("Cancel") }}</button></form>
+</div>
+{% endif %}
+{% endblock %}

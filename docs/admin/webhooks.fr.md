@@ -11,7 +11,7 @@ l'organisation, section **Webhooks**, ou par l'API (`/api/v1/organizations/{org}
 | Événement | Quand | `data` |
 |---|---|---|
 | `inbox.item_added` | Une information est déposée dans l'inbox (web, REST, MCP) | `path`, `title`, `source`, `via`, `origin`, `by` |
-| `content.changed` | Le contenu change : web, REST, MCP, rangement ou push sur le dépôt | `paths`, `action` (`written`, `deleted`, `moved`, `tidied`, `pushed`), `by`, `source`, `via` (écritures web, REST, MCP) |
+| `content.changed` | Le contenu change : web, REST, MCP, rangement ou push sur le dépôt | `paths`, `action` (`written`, `imported`, `deleted`, `moved`, `tidied`, `pushed`), `by`, `source`, `via` (écritures web, REST, MCP) |
 | `tidy.completed` | Un passage de rangement se termine, réussi ou non | `status`, `items_done`, `items_left`, `summary`, `commit`, `error` |
 | `routine.done` | Un passage de routine se termine, réussi ou non (seulement pour les routines qui ont le webhook parmi leurs sorties) | `routine`, `template`, `status`, `summary`, `text` (texte de sortie), `page`, `inbox` (titres des éléments déposés), `commit`, `error` |
 | `tidy.budget` | Le budget mensuel d'IA de l'organisation franchit 80 % ou 100 % | `level`, `spent`, `budget` |

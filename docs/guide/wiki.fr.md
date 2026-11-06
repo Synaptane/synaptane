@@ -166,6 +166,28 @@ pas besoin.
 - Si la page a changé entre-temps (autre personne, push externe), l'enregistrement est refusé
   et votre texte est conservé dans le formulaire. Rechargez, puis reportez vos modifications.
 
+## Importer un coffre Obsidian ou un zip de Markdown
+
+Les contributeurs peuvent faire entrer tout un dossier : dans le menu **⋮** d'un dossier,
+**Importer un zip de fichiers Markdown**. Zippez le coffre ou le dossier (100 Mo au plus, 25 Mo
+par fichier, 10 000 fichiers) et envoyez-le, en choisissant un dossier de l'espace si besoin.
+Rien n'est écrit à ce stade : Synaptane montre ce que contient l'archive.
+
+- **Fichiers à importer** : pages et pièces jointes, gardées telles quelles. Si tout est dans un
+  seul dossier de tête (un coffre zippé depuis l'extérieur), ce dossier n'est pas repris.
+- **Secrets probables** : ces fichiers sont écartés, car un secret poussé dans Git est difficile
+  à effacer. N'en cochez un que s'il ne contient aucun vrai secret.
+- **Déjà dans l'espace** : laissés tels quels, jamais écrasés.
+- **Écartés** : les fichiers et dossiers cachés (`.obsidian`, `.trash`, `.git`), les fichiers
+  système, et ce qui ne peut pas être écrit sans risque (liens, fichiers chiffrés, chemins qui
+  sortent du dossier).
+
+**Importer** écrit tout en un seul commit, à votre nom. S'il touche plus de 20 pages, le
+rangement l'examine comme un seul élément, pas page par page. Les liens wiki et la
+[syntaxe Obsidian](../reference/repository-format.fr.md) fonctionnent tels quels. Ensuite,
+**Santé** liste les liens qui ne mènent nulle part. Une archive qui n'est pas importée est
+supprimée au bout de 24 heures.
+
 ## Vérifier une page
 
 Pour savoir, en lisant une page, si l'on peut s'y fier : qui en répond, quand elle a été

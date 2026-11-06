@@ -15,6 +15,12 @@ of the target version.
   size), `> [!warning] Title` is a callout (GitHub's `> [!WARNING]` too), `==text==` is
   highlighted, and `%%comments%%` and block ids (`^id`) are hidden. Files are not changed, so a
   vault still edited in Obsidian stays as it is.
+- **Import a zip of Markdown files**. An Obsidian vault, or any folder of Markdown files zipped
+  with its attachments (100 MB at most): in a folder's menu, **Import a zip of Markdown files**.
+  You first see what the archive holds; then everything goes in one commit in your name, and the
+  tidy-up counts it as one item. Files are kept as they are, nothing in the space is overwritten,
+  hidden folders (`.obsidian`, `.trash`) are left out, and a file with a likely secret stays out
+  unless you tick it.
 
 ## [1.9.1] - 2026-11-05
 

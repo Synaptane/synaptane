@@ -58,6 +58,14 @@ class Workspace:
         cache = self.extracted_file(space_id, repo_path)
         return cache.read_text(encoding="utf-8", errors="replace") if cache.is_file() else None
 
+    @property
+    def imports_dir(self) -> Path:
+        return self.repos_dir.parent / "imports"
+
+    def imports_path(self, space_id: UUID) -> Path:
+        """Archives waiting for the person's check (`services.imports`)."""
+        return self.imports_dir / str(space_id)
+
     def recovery_path(self, space_id: UUID) -> Path:
         """Bundles of local commits set aside (repository changed, history rewritten)."""
         return self.repos_dir.parent / "recuperation" / str(space_id)
