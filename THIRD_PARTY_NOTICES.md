@@ -14,6 +14,7 @@ Contents:
 5. [Docker image](#5-docker-image)
 6. [nginx proxy image](#6-nginx-proxy-image)
 7. [Regenerating the Python list](#7-regenerating-the-python-list)
+8. [Mermaid](#8-mermaid)
 8. [Test files](#8-test-files)
 
 ---
@@ -349,3 +350,11 @@ licensed under the Apache License 2.0 (the license of Synaptane, see `LICENSE`).
 includes software developed at The Apache Software Foundation (https://www.apache.org/).
 They are only used by the tests and are not part of the Docker image; their origin is in
 `tests/fixtures/legacy/README.md`.
+
+## 8. Mermaid
+
+Diagrams in pages are drawn by [Mermaid](https://mermaid.js.org) 11.17.2, shipped as is in
+`src/synaptane/web/static/vendor/` (`mermaid-11.17.2.min.js`, the `dist/mermaid.min.js` file of
+the npm package). MIT License, Copyright (c) 2014 - 2022 Knut Sveidqvist: full text in
+`src/synaptane/web/static/vendor/mermaid-LICENSE.txt`. The file bundles libraries of its own,
+under MIT or similar licenses; their notices are in the npm package.

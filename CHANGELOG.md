@@ -21,6 +21,10 @@ of the target version.
   tidy-up counts it as one item. Files are kept as they are, nothing in the space is overwritten,
   hidden folders (`.obsidian`, `.trash`) are left out, and a file with a likely secret stays out
   unless you tick it.
+- **Mermaid diagrams**. A ` ```mermaid ` code block is drawn when reading a page, in light and
+  dark themes. The drawing happens in the browser, in a sandboxed frame with no access to
+  Synaptane, so a page cannot do anything through a diagram; if it cannot be drawn, the code
+  stays on the page. Mermaid is loaded only on pages that have a diagram.
 
 ## [1.9.1] - 2026-11-05
 

@@ -65,6 +65,8 @@ serveur, et reconstruit par `synaptane reindex`. Détails :
   masqués à la lecture. Un `%%commentaire%%` n'a rien de privé : la recherche, les assistants
   et Git le voient toujours. `![[page]]` est un lien : la page n'est pas incluse, et un
   encadré ne se replie pas.
+- **Diagrammes** : un bloc de code ` ```mermaid ` est dessiné à la lecture. S'il ne peut pas
+  l'être, le code reste affiché. Le dessin se fait dans le navigateur, dans un cadre isolé.
 - **Front matter** : facultatif. Synaptane lit trois champs de vérification ; les autres
   champs sont gardés tels quels.
 

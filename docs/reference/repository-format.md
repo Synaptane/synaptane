@@ -63,6 +63,8 @@ server's cache, and rebuilt by `synaptane reindex`. Details:
   and `%%comments%%` and block ids (`^id`) are hidden when reading. A `%%comment%%` is not
   private: search, assistants and Git still see it. `![[page]]` is a link: the page is not
   included, and a callout cannot be folded.
+- **Diagrams**: a ` ```mermaid ` code block is drawn as a diagram when reading. If it cannot be
+  drawn, the code stays on the page. The drawing happens in your browser, in an isolated frame.
 - **Front matter**: optional. Synaptane reads three verification fields; other fields are
   kept as they are.
 
