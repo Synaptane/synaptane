@@ -463,6 +463,12 @@ td .inline-form input:not([type=checkbox]){min-height:30px;flex:1 1 140px}
 .markdown :is(table,figcaption,.task-list-item input){font-family:var(--font-body);font-size:14px}
 .markdown p,.markdown ul,.markdown ol,.markdown table,.markdown blockquote{margin:0 0 14px}
 .markdown blockquote{padding:2px 18px;border-left:2px solid var(--border);color:var(--ink-2);font-style:italic}
+.markdown blockquote.callout{--callout:var(--accent);padding:10px 14px;border-left-color:var(--callout);background:var(--bg-2);border-radius:0 var(--radius) var(--radius) 0;color:var(--ink);font-style:normal}
+.markdown blockquote.callout-ok{--callout:var(--ok)}
+.markdown blockquote.callout-warn{--callout:var(--warn-ink)}
+.markdown blockquote.callout-danger{--callout:var(--danger)}
+.markdown .callout>:last-child{margin-bottom:0}
+.markdown .callout-title{margin-bottom:4px;font-family:var(--font-body);font-size:14px;font-weight:600;color:var(--callout)}
 .markdown table{border-collapse:collapse;display:block;overflow-x:auto}
 /* Dans une page, un tableau peut dépasser la colonne de lecture (68ch) jusqu'à la largeur
 du document (.doc-body, conteneur de requête) : il ne défile qu'au-delà. */

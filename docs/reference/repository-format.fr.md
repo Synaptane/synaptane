@@ -58,6 +58,13 @@ serveur, et reconstruit par `synaptane reindex`. Détails :
 - **Liens** : les liens Markdown relatifs (`[guide](../infra/proxmox.md)`) et les liens wiki
   (`[[nom]]`, `[[nom|libellé]]`, `[[nom#section]]`, `[[dossier/nom]]`) sont résolus dans le
   wiki. Déplacer une page depuis Synaptane met à jour les liens qui menaient à elle.
+- **Syntaxe Obsidian** : les pages écrites dans Obsidian s'affichent comme là-bas, et leurs
+  fichiers ne sont pas modifiés. `![[image.png]]` montre l'image (avec `|300` ou `|300x200`
+  pour sa taille), `> [!warning] Titre` est un encadré (`> [!WARNING]` de GitHub aussi),
+  `==texte==` est surligné, et les `%%commentaires%%` et les identifiants de bloc (`^id`) sont
+  masqués à la lecture. Un `%%commentaire%%` n'a rien de privé : la recherche, les assistants
+  et Git le voient toujours. `![[page]]` est un lien : la page n'est pas incluse, et un
+  encadré ne se replie pas.
 - **Front matter** : facultatif. Synaptane lit trois champs de vérification ; les autres
   champs sont gardés tels quels.
 

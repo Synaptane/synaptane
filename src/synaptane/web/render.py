@@ -23,6 +23,8 @@ ALLOWED_TAGS = set(nh3.ALLOWED_TAGS) | {"input", "span", "details", "summary"}
 ALLOWED_ATTRIBUTES = {
     **{tag: set(attrs) for tag, attrs in nh3.ALLOWED_ATTRIBUTES.items()},
     "a": {"href", "title", "target", "class"},
+    "blockquote": {"cite", "class"},
+    "p": {"class"},
     "img": {"src", "alt", "title", "width", "height"},
     "input": {"type", "checked", "disabled"},
     "span": {"class"},
@@ -62,6 +64,17 @@ def highlight_file(name: str, text: str) -> str:
 _MD = parser(_highlight_block)
 
 
+def _missing(name: str, current: str) -> str:
+    """Where a wiki link that leads to no file would be: next to the page."""
+    missing = name.strip().strip("/")
+    if not posixpath.splitext(missing)[1]:
+        missing += ".md"
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(current), missing))
+    if target.startswith(".."):  # climbs out of the wiki: page at the root
+        target = "/".join(p for p in target.split("/") if p != "..")
+    return target
+
+
 def _rewrite(
     tokens: list[Token],
     current: str,
@@ -77,12 +90,7 @@ def _rewrite(
                 name, _, fragment = href[len(WIKI_SCHEME) :].partition("#")
                 target = resolve_wiki(name, current, index) if index else None
                 if target is None:
-                    missing = name.strip().strip("/")
-                    if not posixpath.splitext(missing)[1]:
-                        missing += ".md"
-                    target = posixpath.normpath(posixpath.join(posixpath.dirname(current), missing))
-                    if target.startswith(".."):  # climbs out of the wiki: page at the root
-                        target = "/".join(p for p in target.split("/") if p != "..")
+                    target = _missing(name, current)
                     token.attrSet("class", "wikilink-missing")
                 token.attrSet("href", page_url(target) + (f"#{fragment}" if fragment else ""))
                 continue
@@ -93,7 +101,13 @@ def _rewrite(
             elif urlsplit(href).scheme in ("http", "https"):
                 token.attrSet("target", "_blank")  # outside Synaptane: new tab
         elif token.type == "image":
-            resolved = resolve(current, str(token.attrGet("src") or ""))
+            src = str(token.attrGet("src") or "")
+            if src.startswith(WIKI_SCHEME):  # ![[image.png]]
+                name = src[len(WIKI_SCHEME) :]
+                target = resolve_wiki(name, current, index) if index else None
+                token.attrSet("src", raw_url(target or _missing(name, current)))
+                continue
+            resolved = resolve(current, src)
             if resolved is not None:
                 token.attrSet("src", raw_url(resolved))
 

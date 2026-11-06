@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from urllib.parse import quote, unquote, urlsplit
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_block import StateBlock
+from markdown_it.rules_core import StateCore
 from markdown_it.rules_inline import StateInline
 from markdown_it.token import Token
 from mdit_py_plugins.anchors import anchors_plugin
@@ -19,6 +21,31 @@ WIKILINK = re.compile(r"\[\[([^\[\]\n|#]+?)(?:#([^\[\]\n|]*))?(?:\|([^\[\]\n]+))
 WIKI_SCHEME = "wiki:"  # temporary address of a wiki link, resolved at render time
 
 
+# Embed: ![[image.png]], ![[image.png|300]], ![[image.png|300x200]], ![[image.png|text]].
+EMBED_IMAGES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp")
+_EMBED_SIZE = re.compile(r"(\d{1,4})(?:x(\d{1,4}))?")
+# Block id at the end of a paragraph (^my-quote): a letter, so that x ^2 stays as written.
+_BLOCK_ID = re.compile(r"\^(?=[0-9-]*[A-Za-z])[A-Za-z0-9-]+[ \t]*(?=\n|$)")
+# Callout: "> [!warning] Title" (Obsidian), "> [!WARNING]" (GitHub). The folding mark (+ or -)
+# is read and ignored: a callout is always open.
+_CALLOUT = re.compile(r"\[!([A-Za-z-]+)\][+-]?[ \t]*(.*)")
+CALLOUT_KINDS = {
+    **dict.fromkeys(("tip", "hint", "important", "success", "check", "done"), "ok"),
+    **dict.fromkeys(("warning", "caution", "attention", "question", "help", "faq"), "warn"),
+    **dict.fromkeys(("danger", "error", "bug", "failure", "fail", "missing"), "danger"),
+}  # any other type (note, info, abstract, example, quote, todo…): plain
+
+
+def _push_wikilink(state: StateInline, match: re.Match[str]) -> None:
+    name, fragment, label = match.group(1).strip(), match.group(2), match.group(3)
+    opening = state.push("link_open", "a", 1)
+    opening.attrs = {"href": WIKI_SCHEME + name + (f"#{fragment}" if fragment else "")}
+    opening.meta = {"wikilink": True}
+    text = state.push("text", "", 0)
+    text.content = (label or name).strip()
+    state.push("link_close", "a", -1)
+
+
 def _wikilink(state: StateInline, silent: bool) -> bool:
     if not state.src.startswith("[[", state.pos):
         return False
@@ -26,15 +53,155 @@ def _wikilink(state: StateInline, silent: bool) -> bool:
     if match is None:
         return False
     if not silent:
-        name, fragment, label = match.group(1).strip(), match.group(2), match.group(3)
-        opening = state.push("link_open", "a", 1)
-        opening.attrs = {"href": WIKI_SCHEME + name + (f"#{fragment}" if fragment else "")}
-        opening.meta = {"wikilink": True}
-        text = state.push("text", "", 0)
-        text.content = (label or name).strip()
-        state.push("link_close", "a", -1)
+        _push_wikilink(state, match)
     state.pos = match.end()
     return True
+
+
+def _embed(state: StateInline, silent: bool) -> bool:
+    """`![[image.png]]` shows the image. Embedding a page or another file stays a link."""
+    if not state.src.startswith("![[", state.pos):
+        return False
+    match = WIKILINK.match(state.src, state.pos + 1)
+    if match is None:
+        return False
+    if not silent:
+        name, label = match.group(1).strip(), (match.group(3) or "").strip()
+        if not name.lower().endswith(EMBED_IMAGES):
+            _push_wikilink(state, match)
+        else:
+            image = state.push("image", "img", 0)
+            image.attrs = {"src": WIKI_SCHEME + name, "alt": ""}
+            size = _EMBED_SIZE.fullmatch(label)
+            if size:
+                image.attrs["width"] = size.group(1)
+                if size.group(2):
+                    image.attrs["height"] = size.group(2)
+            alt = Token("text", "", 0)
+            alt.content = name if size or not label else label
+            image.children = [alt]
+    state.pos = match.end()
+    return True
+
+
+def _word_before(state: StateInline) -> bool:
+    return state.pos > 0 and state.src[state.pos - 1].isalnum()
+
+
+def _closing(state: StateInline, mark: str) -> int:
+    """Position of the `mark` that closes the one at the current position, or -1. It is not
+    followed by a letter or digit: in `x==1 and y==2z`, nothing is marked."""
+    end = state.src.find(mark, state.pos + len(mark), state.posMax)
+    if end < 0 or state.src[end + len(mark) : end + len(mark) + 1].isalnum():
+        return -1
+    return end
+
+
+def _highlighted(state: StateInline, silent: bool) -> bool:
+    """`==text==` on one line, without spaces just inside the marks."""
+    if not state.src.startswith("==", state.pos) or _word_before(state):
+        return False
+    end = _closing(state, "==")
+    inner = state.src[state.pos + 2 : end] if end >= 0 else ""
+    if not inner or inner != inner.strip() or "\n" in inner:
+        return False
+    if not silent:
+        state.push("mark_open", "mark", 1)
+        limit, state.pos, state.posMax = state.posMax, state.pos + 2, end
+        state.md.inline.tokenize(state)
+        state.posMax = limit
+        state.push("mark_close", "mark", -1)
+    state.pos = end + 2
+    return True
+
+
+def _comment(state: StateInline, silent: bool) -> bool:
+    """`%%text%%`: hidden when reading, as in Obsidian. A convention of the reading view, not a
+    protection: search, assistants and Git still see the text."""
+    if not state.src.startswith("%%", state.pos) or _word_before(state):
+        return False
+    end = _closing(state, "%%")
+    if end < 0:
+        return False
+    state.pos = end + 2
+    return True
+
+
+def _comment_block(state: StateBlock, start: int, end: int, silent: bool) -> bool:
+    """A `%%` comment over several paragraphs: from a line that starts with `%%` to the first
+    line that ends with it."""
+    if state.is_code_block(start):
+        return False
+    first = state.getLines(start, start + 1, state.tShift[start], False).rstrip()
+    if not first.startswith("%%"):
+        return False
+    if first.endswith("%%") and len(first) > 2:
+        if first.find("%%", 2) != len(first) - 2:
+            return False  # text after the comment: for the inline rule
+        if not silent:
+            state.line = start + 1
+        return True
+    for line in range(start + 1, end):
+        if state.getLines(line, line + 1, state.tShift[line], False).rstrip().endswith("%%"):
+            if not silent:
+                state.line = line + 1
+            return True
+    return False
+
+
+def _block_id(state: StateInline, silent: bool) -> bool:
+    if state.src[state.pos] != "^" or (state.pos > 0 and not state.src[state.pos - 1].isspace()):
+        return False
+    match = _BLOCK_ID.match(state.src, state.pos, state.posMax)
+    if match is None or state.src[match.end() : state.posMax].strip():
+        return False
+    state.pos = match.end()
+    return True
+
+
+def _callouts(state: StateCore) -> None:
+    """Before the inline rules: a quote whose first line is `[!type] Title` is a callout, and
+    that line its title."""
+    tokens = state.tokens
+    for i in range(len(tokens) - 3, -1, -1):
+        quote, paragraph, inline = tokens[i : i + 3]
+        if (quote.type, paragraph.type, inline.type) != (
+            "blockquote_open",
+            "paragraph_open",
+            "inline",
+        ):
+            continue
+        first, _, rest = inline.content.partition("\n")
+        match = _CALLOUT.fullmatch(first.strip())
+        if match is None:
+            continue
+        kind = match.group(1).lower()
+        title = match.group(2).strip() or kind.replace("-", " ").capitalize()
+        level = CALLOUT_KINDS.get(kind)
+        quote.attrSet("class", f"callout callout-{level}" if level else "callout")
+        heading = Token("inline", "", 0, content=title, children=[], level=inline.level)
+        opening = Token("paragraph_open", "p", 1, block=True, level=paragraph.level)
+        opening.attrSet("class", "callout-title")
+        closing = Token("paragraph_close", "p", -1, block=True, level=paragraph.level)
+        if rest.strip():
+            inline.content = rest
+            tokens[i + 1 : i + 1] = [opening, heading, closing]
+        else:
+            tokens[i + 1 : i + 4] = [opening, heading, closing]
+
+
+def _empty_paragraphs(state: StateCore) -> None:
+    """After the inline rules: a paragraph left with nothing (comment, block id alone)."""
+    tokens = state.tokens
+    for i in range(len(tokens) - 3, -1, -1):
+        if (
+            tokens[i].type == "paragraph_open"
+            and tokens[i + 1].type == "inline"
+            and tokens[i + 1].content
+            and not tokens[i + 1].children
+            and tokens[i + 2].type == "paragraph_close"
+        ):
+            del tokens[i : i + 3]
 
 
 def parser(highlight: object = None) -> MarkdownIt:
@@ -43,6 +210,13 @@ def parser(highlight: object = None) -> MarkdownIt:
     md.use(front_matter_plugin).use(tasklists_plugin).use(anchors_plugin, max_level=4)
     md.use(gfm_autolink_plugin)  # bare https://…, www.… and emails become links
     md.inline.ruler.before("link", "wikilink", _wikilink)
+    md.inline.ruler.before("image", "embed", _embed)
+    md.inline.ruler.before("emphasis", "highlighted", _highlighted)
+    md.inline.ruler.before("emphasis", "comment", _comment)
+    md.inline.ruler.before("emphasis", "block_id", _block_id)
+    md.block.ruler.before("paragraph", "comment_block", _comment_block)
+    md.core.ruler.before("inline", "callouts", _callouts)
+    md.core.ruler.after("inline", "empty_paragraphs", _empty_paragraphs)
     return md
 
 
@@ -174,8 +348,13 @@ def link_targets(
     found: list[tuple[str, str | None]] = []
     for token in walk(_PARSER.parse(text)):
         if token.type == "image":  # an image is a link to a file of the space
-            if target := resolve(current, str(token.attrGet("src") or "")):
-                found.append((str(token.attrGet("src")), target))
+            src = str(token.attrGet("src") or "")
+            if src.startswith(WIKI_SCHEME):  # ![[image.png]]
+                name = src[len(WIKI_SCHEME) :]
+                if index:
+                    found.append((f"[[{name}]]", resolve_wiki(name, current, index)))
+            elif target := resolve(current, src):
+                found.append((src, target))
             continue
         if token.type != "link_open":
             continue
