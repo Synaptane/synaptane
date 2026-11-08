@@ -522,7 +522,7 @@ changed).
 | Reader | Space | Read and search. |
 
 Adding someone to a space automatically makes them a plain member of the organization.
-Removing them from the organization also removes them from its spaces.
+Removing them from the organization also removes them from its spaces and groups.
 
 By default, a member only accesses the spaces they are added to. To give every member a role
 on all the spaces of the organization at once, choose a **default role in the spaces**
@@ -542,6 +542,24 @@ them its default role: the confirmation says so too. In the invitation form, a s
 not restricted offers the default role as a floor ("Reader (by default)") and only the roles
 above it; the invitation page lists the access actually given, default role included.
 
+**Groups: one team, several spaces.** To give some members access to several spaces at once,
+beyond the default role, create a **group** in the organization's **Groups** tab (human
+resources, management, a project team): add its members (members of the organization only:
+invite the others first), then give it a role, reader or contributor, on each space it opens.
+Each member of the group then has the highest of that role, the one given to them in the space
+and the default role. **A group opens a restricted space too**: restrict the human resources
+space, then give access to the "HR" group only, and nobody else in the organization sees it.
+You can also give a group a role from a space's **Settings → Members**, section **By a group**.
+On a space that is not restricted, a group's role below the default role adds nothing: the
+confirmation warns about it. The members page of a space lists the groups that access it and
+says, for each person, whether their access comes from the space itself, from a group (which
+one), from the default role or from the administration of the organization. The **Members**
+tab of the organization shows each member's groups; removing someone from the organization
+removes them from its groups (the confirmation says which). Deleting a group removes the
+access it gave, unless its members have it otherwise; deleting a space removes the groups'
+roles on it. Groups are managed through the REST API too (`/organizations/{org}/groups`), and
+every change is written to the audit log.
+
 ## First steps
 
 On first start, the super admin's home page lists these steps.
@@ -552,11 +570,12 @@ On first start, the super admin's home page lists these steps.
 2. On the organization page, one page per topic:
    - **Spaces**, then **New space**: name, identifier, Git repository address;
    - **Members**: add people, choose admins;
+   - **Groups**: give a team access to several spaces at once;
    - **Artificial intelligence**: the provider of the nightly tidy-up;
    - **Semantic search** and **Webhooks**, optional;
    - **Settings**: name, description, default role in the spaces, deletion.
 3. On a space, the **Settings** tab: **Git repository** (address, access, webhook, status
-   and conflicts), **Members** (reader or contributor, restricted space), **Tidy-up** (time,
+   and conflicts), **Members** (reader or contributor, groups, restricted space), **Tidy-up** (time,
    time zone, model),
    **Semantic search** and **General**.
 

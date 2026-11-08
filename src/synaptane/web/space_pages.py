@@ -11,9 +11,11 @@ from synaptane.git.credentials import GitCredentials, scan_host_keys
 from synaptane.services import (
     accounts,
     git_sync,
+    groups,
     jobs,
     spaces,
 )
+from synaptane.web.group_pages import access_label
 from synaptane.web.pages import (
     Csrf,
     WebPage,
@@ -52,12 +54,6 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
     space = find_space(page, actor, org_slug, space_slug)
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     access = spaces.list_access(page.db, actor, space)
-    # Added to the space, with more through the organization: said next to their role.
-    notes = {
-        user.username: str(effective)
-        for user, given, effective in access
-        if given is not None and effective != given
-    }
     return render_space_settings(
         page,
         actor,
@@ -65,8 +61,15 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
         "members",
         "space-members.html",
         members=spaces.list_members(page.db, actor, space),
-        member_notes=notes,
-        through_org=[(user, effective) for user, given, effective in access if given is None],
+        # Added to the space, with more otherwise: said next to their role.
+        member_notes={
+            entry.user.username: access_label(entry)
+            for entry in access
+            if entry.given is not None and entry.effective != entry.given
+        },
+        through_org=[(entry.user, access_label(entry)) for entry in access if entry.given is None],
+        space_groups=groups.on_space(page.db, actor, space),
+        org_groups=groups.list_groups(page.db, actor, space.organization) if manage else [],
         org_default=spaces.default_role(space),
         default_setting=space.organization.default_space_role,
         people=accounts.directory(page.db, actor) if manage else [],

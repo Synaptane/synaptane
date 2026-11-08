@@ -101,6 +101,7 @@ def test_openapi_is_published_only_on_demand(
         assert documented.get("/api/docs").status_code == 200
         schema = documented.get("/api/v1/openapi.json").json()
     assert "/api/v1/organizations/{org}/spaces/{space}/members/{username}" in schema["paths"]
+    assert "/api/v1/organizations/{org}/groups/{group}/spaces/{space}" in schema["paths"]
     tags = {
         tag
         for path in schema["paths"].values()
@@ -108,8 +109,8 @@ def test_openapi_is_published_only_on_demand(
         for tag in op.get("tags", [])
     }
     assert tags == {
-        *("account", "content", "git", "inbox", "invitations", "organizations", "routines"),
-        *("search", "spaces", "sso", "tidy", "users", "webhooks"),
+        *("account", "content", "git", "groups", "inbox", "invitations", "organizations"),
+        *("routines", "search", "spaces", "sso", "tidy", "users", "webhooks"),
     }
 
 

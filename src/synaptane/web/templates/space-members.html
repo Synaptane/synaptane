@@ -1,5 +1,5 @@
 {% extends "space-settings-base.html" %}
-{% from "ui.html" import csrf_field with context %}
+{% from "ui.html" import csrf_field, action with context %}
 {% set section = "members" %}
 {% block section %}
 <div class="content-narrow">
@@ -8,11 +8,11 @@
 <section class="card" data-test="space-default-access">
   <h2>{{ _("Access by default") }}</h2>
   {% if space.restricted %}
-  <p><span class="badge badge-quiet">{{ _("Restricted") }}</span> {{ _("Only the members added below, and the organization administrators, access this space: the organization's default role does not apply here.") }}</p>
+  <p><span class="badge badge-quiet">{{ _("Restricted") }}</span> {{ _("Only the members added below, the members of the groups given access below, and the organization administrators, access this space: the organization's default role does not apply here.") }}</p>
   {% elif org_default %}
   <p>{{ _("Every member of the organization accesses this space as {role}, without being added. A member added below keeps their role here if it is higher.", role=role_names[org_default]|lower) }}</p>
   {% else %}
-  <p>{{ _("The organization gives no default role: only the members added below, and the organization administrators, access this space.") }}</p>
+  <p>{{ _("The organization gives no default role: only the members added below, the members of the groups given access below, and the organization administrators, access this space.") }}</p>
   {% endif %}
   {% if manage %}
   <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/access" data-test="space-restricted">
@@ -34,6 +34,44 @@
 {% set remove_note = _("They keep access to this space as {role}, through the organization's default role.", role=role_names[org_default]|lower) if org_default else "" %}
 {% include "members-table.html" %}
 
+<section class="section-gap" data-test="through-groups">
+  <h2>{{ _("By a group") }}</h2>
+  <div class="card">
+    <div class="table-scroll">
+      <table class="table-stack">
+        <thead><tr><th>{{ _("Group") }}</th><th>{{ _("Role") }}</th>{% if manage %}<th><span class="sr-only">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for entry in space_groups %}
+          <tr>
+            <td>{% if manage %}<a href="/o/{{ org.slug }}/-/groups/{{ entry.group.id }}">{{ entry.group.name }}</a>{% else %}{{ entry.group.name }}{% endif %}<br><span class="muted">{% if entry.members %}{{ entry.members|map(attribute="display_name")|join(", ") }}{% else %}{{ _("Nobody in this group yet.") }}{% endif %}</span></td>
+            <td>{{ role_names[entry.role] }}</td>
+            {% if manage %}<td class="cell-actions">{{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/groups/" ~ entry.group.id ~ "/remove", _("Remove"), confirm=_("Remove the access of {group} to {space}? Its members lose it, unless they have it otherwise.", group=entry.group.name, space=space.name), kind="danger") }}</td>{% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ 3 if manage else 2 }}" class="muted">{{ _("No group has access to this space.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% if manage %}
+  {% if org_groups %}
+  <form class="card section-gap" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/groups" data-test="space-group-add">
+    <h3>{{ _("Give access to a group") }}</h3>
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="space-group">{{ _("Group") }}</label><select id="space-group" name="group">{% for item in org_groups %}<option value="{{ item.group.id }}">{{ item.group.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="space-group-role">{{ _("Role") }}</label><select id="space-group-role" name="role">{% for value, label in role_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+    </div>
+    <button class="button button-primary" type="submit">{{ _("Give access") }}</button>
+    {% if space.restricted %}<p class="muted" data-test="space-group-help">{{ _("This space is restricted: the group opens it to its members.") }}</p>{% endif %}
+  </form>
+  {% else %}
+  <p class="muted section-gap-small">{{ _("To open this space to several members at once, create a group in the organization.") }} <a href="/o/{{ org.slug }}/-/groups">{{ _("Groups") }}</a></p>
+  {% endif %}
+  {% endif %}
+</section>
+
 <section class="section-gap" data-test="through-org">
   <h2>{{ _("Access through the organization") }}</h2>
   <div class="card">
@@ -41,10 +79,10 @@
       <table class="table-stack">
         <thead><tr><th>{{ _("Account") }}</th><th>{{ _("Access") }}</th></tr></thead>
         <tbody>
-          {% for person, effective in through_org %}
+          {% for person, source in through_org %}
           <tr>
             <td>{{ person.display_name }}<br><span class="muted">@{{ person.username }}</span></td>
-            <td>{% if effective == 'admin' %}{{ _("Organization administrator") }}{% else %}{{ _("{role}, by default", role=role_names[effective]) }}{% endif %}</td>
+            <td>{{ _(source) }}</td>
           </tr>
           {% else %}
           <tr><td colspan="2" class="muted">{{ _("Nobody else.") }}</td></tr>

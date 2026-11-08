@@ -1,0 +1,94 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field, action, people_list with context %}
+{% block section %}
+{% set group_url = "/o/" ~ org.slug ~ "/-/groups/" ~ group.id %}
+{% set role_labels = [("reader", _("Reader")), ("contributor", _("Contributor"))] %}
+<div class="content-narrow" data-test="group-page">
+<p class="muted"><a href="/o/{{ org.slug }}/-/groups">{{ _("All groups") }}</a></p>
+<h2>{{ group.name }}</h2>
+{% if group.description %}<p class="lede">{{ group.description }}</p>{% endif %}
+
+<section class="section-gap" data-test="group-members">
+  <h2>{{ _("Members of the group") }}</h2>
+  <div class="card">
+    <div class="table-scroll">
+      <table class="table-stack">
+        <thead><tr><th>{{ _("Account") }}</th><th><span class="sr-only">{{ _("Actions") }}</span></th></tr></thead>
+        <tbody>
+          {% for member in members %}
+          <tr>
+            <td>{{ member.display_name }}<br><span class="muted">@{{ member.username }}</span></td>
+            <td class="cell-actions">{{ action(group_url ~ "/members/" ~ member.username ~ "/remove", _("Remove"), confirm=_("Remove {name} from the group {group}? They lose the access it gives, unless they have it otherwise.", name=member.display_name, group=group.name), kind="danger") }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">{{ _("Nobody in this group yet.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <form class="card section-gap" method="post" action="{{ group_url }}/members" data-test="group-member-add">
+    <h3>{{ _("Add a member") }}</h3>
+    {{ csrf_field() }}
+    <div class="field"><label for="group-member">{{ _("Username") }}</label><input id="group-member" name="username" required list="org-people" autocomplete="off" aria-describedby="group-member-help">{{ people_list("org-people", people) }}</div>
+    <button class="button button-primary" type="submit">{{ _("Add") }}</button>
+    <p class="muted" id="group-member-help">{{ _("Only members of the organization join its groups: invite the others first, from the Members tab.") }}</p>
+  </form>
+</section>
+
+<section class="section-gap" data-test="group-spaces">
+  <h2>{{ _("Spaces and roles") }}</h2>
+  <div class="card">
+    <div class="table-scroll">
+      <table class="table-stack">
+        <thead><tr><th>{{ _("Space") }}</th><th>{{ _("Role") }}</th><th><span class="sr-only">{{ _("Actions") }}</span></th></tr></thead>
+        <tbody>
+          {% for item, role in group_spaces %}
+          <tr>
+            <td><a href="/o/{{ org.slug }}/{{ item.slug }}/-/members">{{ item.name }}</a>{% if item.restricted %} <span class="badge badge-quiet">{{ _("Restricted") }}</span>{% endif %}</td>
+            <td>
+              <form class="inline-form" method="post" action="{{ group_url }}/spaces" data-test="group-space-role">
+                {{ csrf_field() }}<input type="hidden" name="space" value="{{ item.slug }}">
+                <label class="sr-only" for="group-role-{{ loop.index }}">{{ _("Role of the group in {space}", space=item.name) }}</label>
+                <select id="group-role-{{ loop.index }}" name="role">{% for value, label in role_labels %}<option value="{{ value }}" {% if role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+                <button class="button button-small" type="submit">{{ _("Change") }}</button>
+              </form>
+            </td>
+            <td class="cell-actions">{{ action(group_url ~ "/spaces/" ~ item.slug ~ "/remove", _("Remove"), confirm=_("Remove the access of {group} to {space}? Its members lose it, unless they have it otherwise.", group=group.name, space=item.name), kind="danger") }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="muted">{{ _("This group opens no space yet.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% if org_spaces %}
+  <form class="card section-gap" method="post" action="{{ group_url }}/spaces" data-test="group-space-add">
+    <h3>{{ _("Give access to a space") }}</h3>
+    {{ csrf_field() }}
+    <div class="form-columns">
+      <div class="field"><label for="group-space">{{ _("Space") }}</label><select id="group-space" name="space">{% for item in org_spaces %}<option value="{{ item.slug }}">{{ item.name }}{% if item.restricted %} ({{ _("restricted") }}){% endif %}</option>{% endfor %}</select></div>
+      <div class="field"><label for="group-space-role">{{ _("Role") }}</label><select id="group-space-role" name="role">{% for value, label in role_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+    </div>
+    <button class="button button-primary" type="submit">{{ _("Give access") }}</button>
+    <p class="muted">{{ _("Each member of the group gets the highest of this role, the one given to them in the space and the organization's default role. A group also opens a restricted space.") }}{% if org.default_space_role != 'none' %} {{ _("On the spaces that are not restricted, the default role already gives {role} access to every member.", role=(_("Reader") if org.default_space_role == 'reader' else _("Contributor"))|lower) }}{% endif %}</p>
+  </form>
+  {% endif %}
+</section>
+
+<form class="card section-gap" method="post" action="{{ group_url }}/update" data-test="group-update">
+  <h2>{{ _("General") }}</h2>
+  {{ csrf_field() }}
+  <div class="field"><label for="group-name">{{ _("Name") }}</label><input id="group-name" name="name" value="{{ group.name }}" required maxlength="120"></div>
+  <div class="field"><label for="group-description">{{ _("Description (optional)") }}</label><textarea id="group-description" name="description" rows="2">{{ group.description }}</textarea></div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+
+<section class="danger-zone" data-test="group-delete">
+  <h2>{{ _("Delete the group") }}</h2>
+  <p>{{ _("Its members lose the access it gives, unless they have it otherwise. Their accounts and the spaces are not touched.") }}</p>
+  {{ action(group_url ~ "/delete", _("Delete the group"), confirm=_("Delete the group {group}? Its members lose the access it gives, unless they have it otherwise.", group=group.name), kind="danger", small=false) }}
+</section>
+</div>
+{% endblock %}

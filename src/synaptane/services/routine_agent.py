@@ -88,6 +88,8 @@ from synaptane.services.tidy_tools import (
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import (
+    GroupMember,
+    GroupSpaceRole,
     OrgMember,
     Routine,
     RoutineRun,
@@ -1333,14 +1335,20 @@ def _publish(
 def recipients(session: Session, space: Space, target: str) -> list[User]:
     """Recipients of a routine email: verified address, active account, "routine
     summaries" preference ticked, and able to read the space. "members": everyone who
-    accesses it, the organization's members included when its default role applies."""
+    accesses it, through a group, or as a member of the organization when its default role
+    applies, included."""
     admins = select(OrgMember.user_id).where(
         OrgMember.org_id == space.org_id, OrgMember.role == OrgRole.ADMIN.value
     )
     who: ColumnElement[bool] = User.id.in_(admins)
     if target == "members":
         members = select(SpaceMember.user_id).where(SpaceMember.space_id == space.id)
-        who = or_(who, User.id.in_(members))
+        grouped = (
+            select(GroupMember.user_id)
+            .join(GroupSpaceRole, GroupSpaceRole.group_id == GroupMember.group_id)
+            .where(GroupSpaceRole.space_id == space.id)
+        )
+        who = or_(who, User.id.in_(members), User.id.in_(grouped))
         if spaces_service.default_role(space) is not None:
             org = select(OrgMember.user_id).where(OrgMember.org_id == space.org_id)
             who = or_(who, User.id.in_(org))

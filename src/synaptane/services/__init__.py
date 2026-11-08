@@ -6,7 +6,7 @@ The web UI, the REST API and the MCP server call these functions; they hold no b
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, union_all
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import (
@@ -16,8 +16,18 @@ from synaptane.core.access import (
     OrgRole,
     SpaceRole,
     effective_role,
+    highest_role,
 )
-from synaptane.storage.models import AuditEvent, Organization, OrgMember, Space, SpaceMember, User
+from synaptane.storage.models import (
+    AuditEvent,
+    GroupMember,
+    GroupSpaceRole,
+    Organization,
+    OrgMember,
+    Space,
+    SpaceMember,
+    User,
+)
 
 
 @dataclass(frozen=True)
@@ -35,14 +45,7 @@ def load_actor(session: Session, user: User, via: str = "", limits: Limits | Non
         m.org_id: OrgRole(m.role)
         for m in session.scalars(select(OrgMember).where(OrgMember.user_id == user.id))
     }
-    space_roles = _with_default_roles(
-        session,
-        org_roles,
-        {
-            m.space_id: SpaceRole(m.role)
-            for m in session.scalars(select(SpaceMember).where(SpaceMember.user_id == user.id))
-        },
-    )
+    space_roles = _with_default_roles(session, org_roles, _given_roles(session, user))
     limits = limits or Limits()
     if limits.restricted:
         org_roles, space_roles = _narrow(session, org_roles, space_roles, limits)
@@ -56,12 +59,29 @@ def load_actor(session: Session, user: User, via: str = "", limits: Limits | Non
     return Actor(user=user, access=access, via=via, restricted=limits.restricted)
 
 
+def _given_roles(session: Session, user: User) -> dict[UUID, SpaceRole]:
+    """Roles given on purpose: in each space, and through the account's groups (the highest
+    one per space). One query, whatever the number of spaces and groups. A group's role, like
+    a role given in the space, applies to a restricted space too."""
+    given = union_all(
+        select(SpaceMember.space_id, SpaceMember.role).where(SpaceMember.user_id == user.id),
+        select(GroupSpaceRole.space_id, GroupSpaceRole.role)
+        .join(GroupMember, GroupMember.group_id == GroupSpaceRole.group_id)
+        .where(GroupMember.user_id == user.id),
+    )
+    found: dict[UUID, list[SpaceRole]] = {}
+    for space_id, value in session.execute(given):
+        found.setdefault(space_id, []).append(SpaceRole(value))
+    return {space_id: top for space_id, roles in found.items() if (top := highest_role(roles))}
+
+
 def _with_default_roles(
     session: Session, org_roles: dict[UUID, OrgRole], explicit: dict[UUID, SpaceRole]
 ) -> dict[UUID, SpaceRole]:
-    """Effective space roles: those given in each space, raised to the default role of the
-    organizations the account belongs to, except in their restricted spaces. Computed before
-    a token's limits (`_narrow`), which then apply to these roles as to the others."""
+    """Effective space roles: those given in each space or through a group, raised to the
+    default role of the organizations the account belongs to, except in their restricted
+    spaces. Computed before a token's limits (`_narrow`), which then apply to these roles as
+    to the others."""
     roles = dict(explicit)
     if not org_roles:
         return roles

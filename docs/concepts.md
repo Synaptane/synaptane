@@ -55,14 +55,26 @@ The next morning, the page shows in the wiki and the assistant finds it through 
 - **Default role.** An organization can give each of its members a role on every one of its
   spaces, present and future, without adding them one by one (organization **Settings**,
   "Default role in the spaces": no access, which is the default, reader or contributor). A
-  member's effective role is the higher of the role given in the space and the default role.
-  A **restricted** space (space **Settings → Members**, for human resources or management)
-  ignores the default role: only the members added to it, and the organization's
-  administrators, access it. The default role applies everywhere access is checked: web UI and
-  downloads, search (semantic too), REST API, MCP, emails. Nobody ever reaches the spaces of an
-  organization they do not belong to, and a token limited to some spaces, to reading or to
-  the inbox stays limited. Changes of the default role and of the restriction are written to
-  the audit log. A space can be created restricted.
+  member's effective role is the higher of the role given in the space and the default role. A
+  **restricted** space (space **Settings → Members**, for human resources or management) ignores
+  the default role: only the members added to it, the members of the groups given a role on it,
+  and the organization's administrators, access it. The default role applies everywhere access
+  is checked: web UI and downloads, search (semantic too), REST API, MCP, emails. Nobody ever
+  reaches the spaces of an organization they do not belong to, and a token limited to some
+  spaces, to reading or to the inbox stays limited. Changes of the default role and of the
+  restriction are written to the audit log. A space can be created restricted.
+- **Groups.** An organization's administrators gather some of its members in groups (**Groups**
+  tab of the organization: human resources, management, a project team) and give each group a
+  role, reader or contributor, on one or several spaces. A member's effective role on a space is
+  the highest of the role given in the space, the roles of their groups on it, and the default
+  role. A group's role applies to a **restricted** space too: that is how such a space is opened
+  to a team, without opening it to the whole organization. Only members of the organization join
+  its groups, and a group only has roles on the spaces of its organization. Removing someone
+  from the organization removes them from its groups; deleting a group removes the access it
+  gave; deleting a space removes the groups' roles on it. Groups apply wherever access is
+  checked, like the default role, and the limits of a token still apply. The members page of a
+  space lists the groups that access it and says, for each person, where their access comes
+  from. Changes to groups are written to the audit log.
 - Adding someone to a space (or inviting them) makes them a member of its organization: with
   a default role, they then also get it on every space of the organization that is not
   restricted. Removing them from a space that is not restricted leaves them the default role.
