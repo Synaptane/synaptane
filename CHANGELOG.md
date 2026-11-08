@@ -39,6 +39,15 @@ of the target version.
   or a password, and of a webhook only its host. One migration (`0030`) replaces the index of
   the audit events on the organization with one on the organization and the date, applied at
   startup.
+- **Automatic cost estimates for more providers**. Leave the price empty on the organization's
+  AI page: the main models of OpenAI, Google Gemini, Mistral and DeepSeek are now counted at
+  their public price, like Claude models, and the page shows the price applied, its cache price
+  and, where there is one, its long-prompt price. Gemini and DeepSeek go through an
+  OpenAI-compatible API; a model is recognized behind a router (`openai/gpt-5`,
+  `models/gemini-2.5-pro`) or as a dated snapshot. The price you enter still comes first. More
+  embedding models are priced too (`gemini-embedding-2`, `text-embedding-ada-002`,
+  `codestral-embed`, `voyage-3`, `voyage-context-4`…), and more Claude models
+  (`claude-haiku-5-5`, `claude-opus-4-8`, `claude-sonnet-4-6`…).
 
 ### Changed
 - **Members of a space**. The page now says whether the organization's default role applies,
@@ -61,6 +70,25 @@ of the target version.
   changed; a space's purpose, tidy-up rules and assistant prompts say which file and whether it
   was removed; an invitation keeps its role; a connected application and a personal token, their
   name and restrictions. The keys themselves are never recorded.
+- **Costs follow each provider's prices more closely**: the cache is billed as the provider
+  bills it (cache writes cost 1.25 times the input with Anthropic and OpenAI's GPT-5.6 and
+  later, nothing extra elsewhere), requests with a long prompt are counted at the higher price
+  where there is one (OpenAI over 272,000 tokens, Gemini Pro over 200,000, Claude Haiku 5.5
+  over 100,000), and announced price changes apply on their date. Cache reads of
+  `claude-sonnet-5-5` now count for a twentieth of the input price, as Anthropic bills them,
+  instead of a tenth.
+- **A model with no known public price no longer borrows one**: `claude-opus-5-7`, say, used to
+  take the price of `claude-opus-5`. With a monthly budget, such a model now needs its prices
+  entered, as any unknown model; a run already set up with one is counted at the highest known
+  price, and its log says so. A known model keeps its price whatever the provider that calls it
+  (a Claude model through the OpenAI provider at a custom address, for instance), by its exact
+  name.
+- **Ollama has no public price any more**: a local model named like a Claude model used to be
+  counted at Claude's price; it now costs nothing, unless you enter a price. The prudent price
+  (highest known price, $10 / $50) is unchanged: models with restricted access, priced higher,
+  are not in the table, so their price must be entered.
+- **Embeddings of an unknown model** are counted at the highest price of their provider, no
+  longer at the highest price of all providers.
 
 ## [1.11.0] - 2026-11-06
 

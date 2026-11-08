@@ -1908,5 +1908,7 @@
  "Export stopped at the {count} newest lines: narrow the period to get the older ones.": "Export arrêté aux {count} lignes les plus récentes : resserrez la période pour obtenir les plus anciennes.",
  "The export holds the newest {count} lines of the selection at most.": "L'export contient au plus les {count} lignes les plus récentes de la sélection.",
  "Not restricted": "Non restreint",
- "Space restriction changed": "Restriction de l'espace modifiée"
+ "Space restriction changed": "Restriction de l'espace modifiée",
+ "Input read from the cache: ${price} per million tokens.": "Entrée relue depuis le cache : {price} $ par million de jetons.",
+ "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $."
 }

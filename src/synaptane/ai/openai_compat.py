@@ -93,7 +93,17 @@ class OpenAICompatConversation:
                 arguments = {"__invalid_json__": call["function"].get("arguments")}
             calls.append(ToolCall(call["id"], call["function"]["name"], arguments))
         usage = data.get("usage") or {}
-        cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+        details = usage.get("prompt_tokens_details") or {}
+        # Input read back from the cache (DeepSeek also says `prompt_cache_hit_tokens`) and,
+        # for OpenAI's GPT-5.6 and later, written to it: both are part of `prompt_tokens`.
+        cached = int(details.get("cached_tokens") or usage.get("prompt_cache_hit_tokens") or 0)
+        written = int(details.get("cache_write_tokens") or 0)
+        prompt = int(usage.get("prompt_tokens") or 0)
+        # Gemini's compatible API may leave the thinking tokens (billed as output) out of
+        # `completion_tokens` while counting them in `total_tokens`.
+        output = max(
+            int(usage.get("completion_tokens") or 0), int(usage.get("total_tokens") or 0) - prompt
+        )
         reason = choice.get("finish_reason")
         # Truncation first: a truncated tool call must not be executed.
         stop = (
@@ -109,9 +119,10 @@ class OpenAICompatConversation:
             text=message.get("content") or "",
             tool_calls=calls,
             stop=stop,  # type: ignore[arg-type]
-            input_tokens=int(usage.get("prompt_tokens", 0)) - cached,
-            output_tokens=int(usage.get("completion_tokens", 0)),
+            input_tokens=prompt - cached,
+            output_tokens=output,
             cached_tokens=cached,
+            cache_write_tokens=written,
         )
 
     def reply(self, results: list[ToolResult]) -> None:
