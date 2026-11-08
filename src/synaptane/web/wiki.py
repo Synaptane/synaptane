@@ -8,7 +8,7 @@ verified, choose its owner and its cadence).
 
 import difflib
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import PurePosixPath
 from typing import Annotated
@@ -58,6 +58,7 @@ from synaptane.web.pages import (
     find_space,
     linked_redirect,
     redirect,
+    templates,
 )
 from synaptane.web.render import highlight_file, pygments_css, render_markdown, url_path
 
@@ -88,10 +89,10 @@ def _crumbs(path: str) -> list[tuple[str, str]]:
 
 
 def _render_md(space: Space, text: str, current: str, index: WikiIndex | None = None) -> Markup:
-    return _render_at(space_url(space), text, current, index)
+    return render_at(space_url(space), text, current, index)
 
 
-def _render_at(base: str, text: str, current: str, index: WikiIndex | None) -> Markup:
+def render_at(base: str, text: str, current: str, index: WikiIndex | None) -> Markup:
     """A page of the space at `base` (`/o/<org>/<space>`): reading and preview alike."""
     html = render_markdown(
         text, current, lambda p: _page_at(base, p), lambda p: f"{base}/raw/{url_path(p)}", index
@@ -119,7 +120,6 @@ def _wiki(
         contribute=page.can_contribute(actor, space),
         page_url=lambda p: page_url(space, p),
         raw_url=lambda p: raw_url(space, p),
-        max_preview=MAX_PREVIEW,
         first_steps=(
             first_steps.steps(page.db, actor, page.workspace, page.box, space)
             if not path and extra.get("view") in ("folder", "unsynced")
@@ -721,14 +721,22 @@ def wiki_new(
 # Characters: beyond, no preview (saving stays possible). Four bytes at most per character in
 # UTF-8: the field always fits under the 1 MiB that a form field may weigh.
 MAX_PREVIEW = 256 * 1024
-# Accounts whose preview is being rendered (this process): one at a time each. A pathological
-# text (thousands of `[`) takes seconds to render, and an abandoned request still runs to the end.
+templates.env.globals["max_preview"] = MAX_PREVIEW
+TOO_LONG = "This text is too long to preview."
+# Accounts whose preview is being rendered (this process): one at a time each, whatever the
+# editor. A pathological text (thousands of `[`) takes seconds to render, and an abandoned
+# request still runs to the end.
 _PREVIEWING: set[object] = set()
 _PREVIEWING_LOCK = threading.Lock()
 
+# What an editor's preview renders, once the database connection is given back: from the
+# space's address (`/o/<org>/<space>`) and the paths of its files (None while it is not synced),
+# the HTML and the reading address that the links left relative are resolved from.
+PreviewRender = Callable[[str, list[str] | None], tuple[Markup, str]]
+
 
 @contextmanager
-def _one_preview(user_id: object) -> Iterator[None]:
+def one_preview(user_id: object) -> Iterator[None]:
     with _PREVIEWING_LOCK:
         if user_id in _PREVIEWING:
             raise too_many("A preview is already being prepared for your account: it will follow.")
@@ -738,6 +746,46 @@ def _one_preview(user_id: object) -> Iterator[None]:
     finally:
         with _PREVIEWING_LOCK:
             _PREVIEWING.discard(user_id)
+
+
+def preview_response(
+    page: Page,
+    csrf: str,
+    org_slug: str,
+    space_slug: str,
+    text: str,
+    check: Callable[[Actor, Space], PreviewRender],
+    too_long: str = TOO_LONG,
+) -> Response:
+    """Every editor's "Preview": the text not saved yet, rendered as it will read, nothing
+    written (no commit, no index, no inbox, no journal).
+
+    `check` refuses exactly as the corresponding edit does (same right, same error) and returns
+    the rendering. The form's token is required; a text above MAX_PREVIEW characters is not
+    rendered; an account renders one preview at a time (429 otherwise), and the database
+    connection is given back before rendering. An HTML fragment (its reading address in
+    `X-Preview-Page`), or a plain-text message with the error's status."""
+    try:
+        actor = page.check_csrf(csrf)
+        space = find_space(page, actor, org_slug, space_slug)
+        render = check(actor, space)
+        if len(text) > MAX_PREVIEW:
+            raise invalid(too_long)
+        with one_preview(actor.user.id):
+            try:
+                paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
+            except SynaptaneError:  # not synced yet: wiki links stay unresolved
+                paths = None
+            base = space_url(space)
+            # Nothing more to read: the connection goes back to the pool before rendering.
+            page.db.commit()
+            page.db.close()
+            html, address = render(base, paths)
+    except SynaptaneError as error:
+        return PlainTextResponse(
+            page.translate(error.template, **error.params), ERROR_STATUS[error.code]
+        )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store", "X-Preview-Page": address})
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/preview", response_class=HTMLResponse)
@@ -751,42 +799,36 @@ def wiki_preview(
     folder: Annotated[str, Form()] = "",
     name: Annotated[str, Form()] = "",
 ) -> Response:
-    """The editor's "Preview" (contributor): the text not saved yet, as the page will read.
+    """The page editor's "Preview" (contributor): the text as the page will read.
 
     The reading view's rendering, unchanged (Markdown and Obsidian syntax, links and images
     resolved in the space, sanitized HTML); Mermaid is drawn by preferences.js, as in reading.
     `path` is the edited page; for a new page, `folder` and `name` say where it will be (its
-    relative links depend on it). Nothing is written: no commit, no index, no inbox. An HTML
-    fragment (its reading address in `X-Preview-Page`), or a plain-text message with the
-    error's status. The database connection is given back before rendering, and an account
-    renders one preview at a time (429 otherwise)."""
-    try:
-        actor = page.check_csrf(csrf)
-        space = find_space(page, actor, org_slug, space_slug)
+    relative links depend on it). See `preview_response`."""
+
+    def check(actor: Actor, space: Space) -> PreviewRender:
         _require_contributor(page, actor, space)
-        if len(text) > MAX_PREVIEW:
-            raise invalid("This text is too long to preview: save it, then read the page.")
         current = path.strip("/") or _page_path(folder, name.strip() or "untitled")
         if content.kind_of(current) != "markdown":
             raise invalid("Only Markdown pages have a preview.")
-        with _one_preview(actor.user.id):
-            try:
-                paths = [b.path for b in page.space_files(actor, space)]
-                # The page itself, new or not: its own wiki links lead to it, as once saved.
-                names: WikiIndex | None = WikiIndex.of(dict.fromkeys([*paths, current]))
-            except SynaptaneError:  # not synced yet: wiki links stay unresolved
-                names = None
-            base = space_url(space)
-            # Nothing more to read: the connection goes back to the pool before rendering.
-            page.db.commit()
-            page.db.close()
-            html = _render_at(base, text.replace("\r\n", "\n"), current, names)
-    except SynaptaneError as error:
-        return PlainTextResponse(
-            page.translate(error.template, **error.params), ERROR_STATUS[error.code]
-        )
-    headers = {"Cache-Control": "no-store", "X-Preview-Page": _page_at(base, current)}
-    return HTMLResponse(html, headers=headers)
+
+        def render(base: str, paths: list[str] | None) -> tuple[Markup, str]:
+            # The page itself, new or not: its own wiki links lead to it, as once saved.
+            names = WikiIndex.of(dict.fromkeys([*paths, current])) if paths is not None else None
+            html = render_at(base, text.replace("\r\n", "\n"), current, names)
+            return html, _page_at(base, current)
+
+        return render
+
+    return preview_response(
+        page,
+        csrf,
+        org_slug,
+        space_slug,
+        text,
+        check,
+        "This text is too long to preview: save it, then read the page.",
+    )
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/upload")

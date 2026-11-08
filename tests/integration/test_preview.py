@@ -1,6 +1,7 @@
 """The editor's preview: the text not saved yet, rendered exactly as the page will read, with
 nothing written (no commit, no index, no inbox), and only for those who can edit."""
 
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -239,7 +240,9 @@ def test_the_editors_offer_the_preview(client: TestClient, wiki: Wiki) -> None:
     signed_in(client, "alice")
     page = client.get(f"/o/acme/infra/edit/{PAGE}").text
     [box] = select(page, "[data-preview]")
-    assert box.attrs["data-preview"] == PREVIEW and box.attrs["data-preview-path"] == PAGE
+    assert box.attrs["data-preview"] == PREVIEW
+    assert json.loads(box.attrs["data-preview-params"]) == {"path": PAGE}
+    assert box.attrs["data-preview-fields"] == "" and box.attrs["data-preview-name"] == ""
     assert (
         french(box.attrs["data-preview-failed"]) == "L'aperçu n'a pas pu être chargé : réessayez."
     )
@@ -264,7 +267,9 @@ def test_the_editors_offer_the_preview(client: TestClient, wiki: Wiki) -> None:
     # A new page too, without a path: its folder and name say where it will be.
     new = client.get("/o/acme/infra/new?folder=serveurs").text
     [box] = select(new, "[data-preview]")
-    assert box.attrs["data-preview-path"] == ""
+    assert json.loads(box.attrs["data-preview-params"]) == {}
+    assert box.attrs["data-preview-fields"] == "folder name"
+    assert box.attrs["data-preview-name"] == "name"
     assert select_one(new, data_test("editor-split")).get("aria-pressed") == "false"
     # A text file that is not Markdown: no rendering to preview.
     text_file = client.get("/o/acme/infra/edit/serveurs/notes.txt").text
@@ -298,7 +303,7 @@ def test_one_preview_at_a_time_and_the_connection_is_given_back(
     token = signed_in(client, "alice")
     started, finish = threading.Event(), threading.Event()
     connections: list[int] = []
-    render = wiki_module._render_at
+    render = wiki_module.render_at
 
     def slow(*args: Any) -> Markup:
         if args[1] == "# Long":  # the preview, not the reading of a page
@@ -307,7 +312,7 @@ def test_one_preview_at_a_time_and_the_connection_is_given_back(
             assert finish.wait(10)
         return render(*args)
 
-    monkeypatch.setattr(wiki_module, "_render_at", slow)
+    monkeypatch.setattr(wiki_module, "render_at", slow)
     idle = checked_out(database)
     with ThreadPoolExecutor(1) as pool:
         first = pool.submit(preview, client, token, text="# Long", path=PAGE)
@@ -329,8 +334,8 @@ def test_one_preview_at_a_time_and_the_connection_is_given_back(
     def broken(*args: Any) -> Markup:
         raise not_found("Page not found.")
 
-    monkeypatch.setattr(wiki_module, "_render_at", broken)
+    monkeypatch.setattr(wiki_module, "render_at", broken)
     assert preview(client, token, text="# x", path=PAGE).status_code == 404
-    monkeypatch.setattr(wiki_module, "_render_at", render)
+    monkeypatch.setattr(wiki_module, "render_at", render)
     assert preview(client, token, text="# x", path=PAGE).status_code == 200
     assert set() == wiki_module._PREVIEWING

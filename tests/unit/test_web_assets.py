@@ -84,7 +84,7 @@ def test_the_preview_never_leaves_the_text_being_written() -> None:
     assert "response.redirected" in preview and "previewExpired" in preview
     assert "previewMax" in preview and "previewTooLong" in preview
     isolate = _function("isolatePreview")
-    assert 'link.target = "_blank"' in isolate and "#preview-" in isolate
+    assert 'link.target = "_blank"' in isolate and "#${prefix}" in isolate
     assert "new URL(href, page)" in isolate and "new URL(src, page)" in isolate
     # The textarea is only hidden, never removed or disabled: it is always submitted.
     assert "editor.hidden" in preview and "editor.disabled" not in preview
@@ -115,3 +115,38 @@ def test_a_removed_diagram_stops_listening() -> None:
     assert 'removeEventListener("message", listen)' in draw
     diagram = (STATIC / "diagram.js").read_text(encoding="utf-8")
     assert "queue = queue.then(" in diagram and "observed = true" in diagram
+
+
+def test_every_markdown_editor_shares_the_preview() -> None:
+    """Page, inbox note (corrected or new, from the inbox or from anywhere), purpose, filing
+    instructions, team prompts: one macro, one script, no copy that would drift."""
+    for name in ("wiki.html", "inbox.html", "deposit-form.html", "space-vocation.html"):
+        template = (TEMPLATES / name).read_text(encoding="utf-8")
+        assert '{% from "editor.html" import editor with context %}' in template, name
+        assert "{{ editor(" in template and 'Content (Markdown)") }}</label><textarea' not in (
+            template
+        ), name
+    prompts = (TEMPLATES / "space-prompts.html").read_text(encoding="utf-8")
+    assert prompts.count("{{ editor(") == 2 and "<textarea" not in prompts
+    macro = (TEMPLATES / "editor.html").read_text(encoding="utf-8")
+    assert macro.count("{% macro ") == 1 and 'id="{{ id }}-preview"' in macro
+    assert 'aria-controls="{{ id }} {{ id }}-preview"' in macro and "{% if split %}" in macro
+
+
+def test_the_preview_follows_its_own_editor() -> None:
+    """Several editors on one page (purpose and filing instructions, every prompt): ids of the
+    preview prefixed with its pane's; the address of a note dropped from anywhere taken from the
+    space chosen in the form (a slug pair only); the reloading "Preview" hidden once the preview
+    is in place; a text put in by a script (purpose template) previewed too."""
+    preview = _function("setupPreview")
+    assert "const prefix = `${pane.id}-`" in preview
+    assert "patchPreview(output, shown, text, base, prefix)" in preview
+    assert r"/^[\w-]+\/[\w-]+$/.test(chosen)" in preview
+    assert 'box.dataset.preview.replace("{space}", chosen)' in preview
+    assert "JSON.stringify([editor.value, place, url])" in preview
+    assert "[data-preview-fallback]" in preview and "button.hidden = true" in preview
+    assert 'editor.addEventListener("input", () => { if (mode !== "write") schedule(); })' in (
+        preview
+    )
+    assert "(!canSplit || !wide.matches)" in preview
+    assert 'editor.dispatchEvent(new Event("input"' in _function("setupVocationTemplate")

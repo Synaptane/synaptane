@@ -2068,5 +2068,6 @@
  "This text is too long to preview: save it, then read the page.": "Ce texte est trop long pour l'aperçu : enregistrez-le, puis lisez la page.",
  "Your session has expired: sign in again in another tab, your text is kept.": "Votre session a expiré : reconnectez-vous dans un autre onglet, votre texte est conservé.",
  "A preview is already being prepared for your account: it will follow.": "Un aperçu est déjà en préparation pour votre compte : il suivra.",
- "Only Markdown pages have a preview.": "Seules les pages Markdown ont un aperçu."
+ "Only Markdown pages have a preview.": "Seules les pages Markdown ont un aperçu.",
+ "This text is too long to preview.": "Ce texte est trop long pour l'aperçu."
 }

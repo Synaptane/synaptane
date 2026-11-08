@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from markupsafe import Markup
 
-from synaptane.core.access import SpaceRole
+from synaptane.core.access import Action, SpaceRole, require
 from synaptane.core.errors import SynaptaneError, invalid, not_found
 from synaptane.core.markdown import WikiIndex
 from synaptane.services import (
@@ -34,9 +34,9 @@ from synaptane.web.pages import (
     redirect,
     safe_next,
 )
-from synaptane.web.render import render_markdown, url_path
+from synaptane.web.render import url_path
 from synaptane.web.tidy_pages import run_now_context
-from synaptane.web.wiki import page_url, space_url
+from synaptane.web.wiki import PreviewRender, preview_response, render_at, space_url
 
 router = APIRouter()
 
@@ -144,19 +144,67 @@ def inbox_item(
     return _item_page(page, actor, space, item, _rendered(page, actor, space, item), editing=edit)
 
 
+NOTE_NAME = "note.md"  # a note seen as a page of the folder its hint suggests (`note_place`)
+
+
+def note_place(hint: str, paths: list[str] | None) -> str:
+    """Where a note's relative links start from, as if it were a page: the folder its hint
+    suggests, when the hint names a folder or a file of the space (`servers/`,
+    `servers/proxmox.md`); the root otherwise (no hint, or a sentence)."""
+    wanted = hint.strip().strip("/")
+    if not wanted or not paths:
+        return ""
+    for path in paths:
+        if path == wanted:  # a page: its folder
+            return wanted
+    if any(path.startswith(f"{wanted}/") for path in paths):
+        return f"{wanted}/{NOTE_NAME}"
+    return ""
+
+
+def _note_html(base: str, body: str, hint: str, paths: list[str] | None) -> Markup:
+    """A note as it reads in the inbox, and as its editor's preview shows it: wiki links to the
+    space's pages, relative links from the folder its hint suggests."""
+    names = WikiIndex.of(paths) if paths is not None else None
+    return render_at(base, body, note_place(hint, paths), names)
+
+
 def _rendered(page: Page, actor: Actor, space: Space, item: InboxItem) -> Markup:
-    try:  # a note's wiki links: to the space's pages
-        names: WikiIndex | None = WikiIndex.of(b.path for b in page.space_files(actor, space))
+    try:
+        paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
     except SynaptaneError:
-        names = None
-    body = render_markdown(
-        item.body,
-        "",
-        lambda p: page_url(space, p),
-        lambda p: f"{space_url(space)}/raw/{url_path(p)}",
-        names,
-    )
-    return Markup(body)  # noqa: S704 — sanitized by nh3
+        paths = None
+    return _note_html(space_url(space), item.body, item.hint, paths)
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/inbox/preview", response_class=HTMLResponse)
+def inbox_preview(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    text: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+    hint: Annotated[str, Form()] = "",
+) -> Response:
+    """The preview of a note being written, as it will read in the inbox: a new note (the right
+    to drop one in the space), or the note `note` being corrected (the right to correct it, and
+    it must be a note of this inbox). `hint`: the filing suggestion typed, which its relative
+    links start from. See `wiki.preview_response`."""
+
+    def check(actor: Actor, space: Space) -> PreviewRender:
+        if note:
+            deposits.editable_note(actor, page.workspace, space, note)
+        else:
+            require(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
+
+        def render(base: str, paths: list[str] | None) -> tuple[Markup, str]:
+            html = _note_html(base, text.replace("\r\n", "\n"), hint, paths)
+            return html, f"{base}/inbox" + (f"/{url_path(note)}" if note else "")
+
+        return render
+
+    return preview_response(page, csrf, org_slug, space_slug, text, check)
 
 
 def _item_page(

@@ -10,6 +10,28 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
+  **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
+  note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
+  information** (in the space chosen in the form; no side by side in these narrow forms), and
+  above the purpose, the filing instructions (**Settings → Purpose**) and each team prompt
+  (**Settings → Assistant prompts**). Same server rendering as reading, same protections
+  (form token, 262,144 characters at most, one preview at a time per account whatever the
+  editor, database connection given back before rendering), nothing committed, indexed,
+  dropped or logged; the right asked is exactly that of the corresponding edit: dropping or
+  correcting the note (`POST /o/<org>/<space>/-/inbox/preview`, with `note` for a note being
+  corrected), the organization administrator for the purpose, the instructions and the prompts
+  (`POST /o/<org>/<space>/-/vocation/preview`, with `kind`). The purpose's **Preview** button,
+  which reloads the page, stays for browsers without JavaScript (hidden otherwise), and team
+  prompts get one too. No migration.
+
+### Changed
+- An inbox note's relative links start from the folder its filing suggestion (**Where to file
+  it?**) names, when it is a folder or a page of the space, as they will once it is filed
+  there; from the root of the space otherwise, as before. The purpose's preview now resolves
+  `[[wiki links]]` in the space, and refuses a text above 262,144 characters.
+
 ## [1.13.0] - 2026-11-08
 
 Give a team several spaces at once with groups, have a new space's repository created on GitHub or

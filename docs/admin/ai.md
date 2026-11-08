@@ -265,7 +265,11 @@ administrators), two Markdown texts versioned in its repository:
   English and in French, and is offered in the language of the person using it (account
   language; `GET /vocation-templates` in REST likewise). A template pre-fills the
   editor (with a confirmation if it already holds other text); nothing is saved before
-  **Save**. **Preview** shows the rendering without saving.
+  **Save**. **Preview** shows the rendering without saving: above each text, as for a wiki
+  page (**Write**, **Preview**, **Side by side** on a large screen), the purpose as models
+  receive it (without the templates' comments), Mermaid diagrams drawn. Without JavaScript, the
+  **Preview** button under the text reloads the page with the rendering. Organization
+  administrators only, like editing; nothing is committed or logged.
 - **Save** makes a commit in the person's name (`Space purpose updated` or `Tidy-up rules
   updated`; `… removed` when the text is emptied), under the space lock, then a sync; the page
   shows the last five changes (date, author). Git remains the source: both files can also be

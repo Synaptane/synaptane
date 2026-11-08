@@ -1,5 +1,14 @@
 {% extends "space-settings-base.html" %}
 {% from "ui.html" import csrf_field with context %}
+{% from "editor.html" import editor with context %}
+{% set preview_url = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/preview" %}
+{# The preview without JS: the typed text rendered under its form, nothing saved. #}
+{% macro shown(key) %}{% if preview_for == key %}
+  <div class="vocation-preview" aria-labelledby="prompt-{{ key or 'new' }}-preview-title">
+    <p class="section-label" id="prompt-{{ key or 'new' }}-preview-title">{{ _("Preview — not saved yet") }}</p>
+    <div class="markdown">{{ preview_html|safe if preview_html.strip() else _("(empty text)") }}</div>
+  </div>
+{% endif %}{% endmacro %}
 {% set section = "prompts" %}
 {% block section %}
 <p class="muted">{{ _("Your team's rituals (meeting notes, a decision, a weekly review…), offered to every assistant connected to Synaptane: in Claude, the “/” or “+” menu; the assistant receives the text with the arguments filled in. One file per prompt, .synaptane/prompts/<name>.md, saved in the repository like the purpose.") }}</p>
@@ -21,13 +30,11 @@
   <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts/{{ p.name }}" class="vocation-form">
     {{ csrf_field() }}
     <input type="hidden" name="base_sha" value="{{ doc.sha or '' }}">
-    <div class="field">
-      <label for="prompt-{{ p.name }}-text">{{ _("Text (Markdown)") }} · <code>{{ doc.path }}</code></label>
-      <textarea id="prompt-{{ p.name }}-text" name="text" class="editor vocation-editor" rows="12" spellcheck="true">{{ drafts[p.name] if p.name in drafts else doc.text }}</textarea>
-      <p class="muted">{{ _("An empty text removes the prompt.") }}</p>
-    </div>
-    <div class="actions"><button class="button button-primary" type="submit">{{ _("Save") }}</button></div>
+    {% set label %}{{ _("Text (Markdown)") }} · <code>{{ doc.path }}</code>{% endset %}
+    {{ editor(drafts[p.name] if p.name in drafts else doc.text, 12, preview_url, id="prompt-" ~ p.name ~ "-text", label=label, params={"kind": "prompt"}, classes="editor vocation-editor", help=_("An empty text removes the prompt.")) }}
+    <div class="actions"><button class="button button-primary" type="submit" name="action" value="save">{{ _("Save") }}</button><button class="button" type="submit" name="action" value="preview" data-preview-fallback>{{ _("Preview") }}</button></div>
   </form>
+  {{ shown(p.name) }}
 </section>
 {% else %}
 <p class="empty">{{ _("No prompt yet.") }}</p>
@@ -40,9 +47,10 @@
   <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts" class="vocation-form">
     {{ csrf_field() }}
     <div class="field"><label for="new-prompt-name">{{ _("Name (file name)") }}</label><input id="new-prompt-name" name="name" value="{{ new_name }}" required maxlength="40" pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ _('meeting-notes') }}" autocomplete="off"></div>
-    <div class="field"><label for="new-prompt-text">{{ _("Text (Markdown)") }}</label><textarea id="new-prompt-text" name="text" class="editor vocation-editor" rows="14" spellcheck="true">{{ drafts[""] if "" in drafts else example }}</textarea></div>
-    <div class="actions"><button class="button button-primary" type="submit" data-test="create-prompt">{{ _("Create the prompt") }}</button></div>
+    {{ editor(drafts[""] if "" in drafts else example, 14, preview_url, id="new-prompt-text", label=_("Text (Markdown)"), params={"kind": "prompt"}, classes="editor vocation-editor") }}
+    <div class="actions"><button class="button button-primary" type="submit" name="action" value="save" data-test="create-prompt">{{ _("Create the prompt") }}</button><button class="button" type="submit" name="action" value="preview" formnovalidate data-preview-fallback>{{ _("Preview") }}</button></div>
   </form>
+  {{ shown("") }}
 </section>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,37 @@
+{% from "icons.html" import icon %}
+{# Markdown editor and its preview, shared by every editor (page, inbox note, purpose, filing
+instructions, team prompt): the server renders the text as it will read, preferences.js shows it
+(Write, Preview, side by side on a large screen). Without JS: the text alone.
+- `preview`: address of the preview (POST); '' for none. `{space}` in it stands for the value of
+  the form's `space_field` (the space chosen in the form itself);
+- `params`: fields always sent with the text (the edited page or note, the kind of document);
+- `fields`: names of the form's fields sent too, the preview following them (folder, hint…);
+- `name_field`: the form's file name field, when it decides whether the text is Markdown;
+- `split`: offer side by side (not in a narrow column). #}
+{% macro editor(value, rows, preview='', id='text', name='text', label='', params=none, fields='', name_field='', space_field='', split=true, classes='editor', placeholder='', help='', too_long='') -%}
+<div class="field editor-field"{% if preview %} data-preview="{{ preview }}" data-preview-params='{{ (params or {})|tojson }}' data-preview-fields="{{ fields }}" data-preview-name="{{ name_field }}" data-preview-space="{{ space_field }}" data-preview-max="{{ max_preview }}" data-preview-empty="{{ _('(empty text)') }}" data-preview-failed="{{ _('The preview could not be loaded: try again.') }}" data-preview-too-long="{{ too_long or _('This text is too long to preview.') }}" data-preview-expired="{{ _('Your session has expired: sign in again in another tab, your text is kept.') }}"{% endif %}>
+  <div class="editor-head">
+    <label for="{{ id }}">{{ label or _("Content (Markdown)") }}</label>
+    {% if preview %}
+    <div class="segmented segmented-labels editor-modes" role="group" aria-label="{{ _('Editor view') }}" data-test="editor-modes" hidden>
+      <button type="button" data-preview-mode="write" aria-pressed="true" aria-controls="{{ id }}">{{ icon('pencil', 14) }}{{ _("Write") }}</button>
+      <button type="button" data-preview-mode="preview" aria-pressed="false" aria-controls="{{ id }}-preview" data-test="editor-preview">{{ icon('eye', 14) }}{{ _("Preview") }}</button>
+      {% if split %}<button type="button" class="editor-split-mode" data-preview-mode="split" aria-pressed="false" aria-controls="{{ id }} {{ id }}-preview" data-test="editor-split">{{ icon('columns', 14) }}{{ _("Side by side") }}</button>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="editor-panes">
+    <textarea id="{{ id }}" name="{{ name }}"{% if classes %} class="{{ classes }}"{% endif %} rows="{{ rows }}" spellcheck="true"{% if placeholder %} placeholder="{{ placeholder }}"{% endif %}{% if help %} aria-describedby="{{ id }}-help"{% endif %}>{{ value }}</textarea>
+    {% if preview %}
+    <div id="{{ id }}-preview" class="editor-preview" data-preview-pane hidden>
+      <div class="editor-preview-scroll" tabindex="0" role="region" aria-labelledby="{{ id }}-preview-label">
+        <p class="section-label editor-preview-label" id="{{ id }}-preview-label">{{ _("Preview — not saved yet") }}</p>
+        <p class="editor-preview-status" data-preview-status role="status" aria-live="polite"></p>
+        <div class="doc-body"><div class="markdown hl" data-preview-output></div></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% if help %}<p class="muted" id="{{ id }}-help">{{ help }}</p>{% endif %}
+</div>
+{%- endmacro %}

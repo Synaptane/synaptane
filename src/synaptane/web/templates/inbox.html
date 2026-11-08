@@ -2,6 +2,7 @@
 {% from "icons.html" import icon, sep, file_icon %}
 {% from "ui.html" import action, secret_confirm, file_input with context %}
 {% from "deposit-form.html" import deposit_form with context %}
+{% from "editor.html" import editor with context %}
 {% from "tidy-run-now.html" import run_now_button with context %}
 {% set tab = 'inbox' %}
 {% block title %}{{ _("Inbox") }} · {{ space.name }} · Synaptane{% endblock %}
@@ -50,7 +51,7 @@
   <form class="card" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/inbox/{{ item.name }}/edit">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="field"><label for="edit-title">{{ _("Title") }}</label><input id="edit-title" name="title" required maxlength="120" value="{{ form.title if form else item.title }}"></div>
-    <div class="field"><label for="edit-body">{{ _("Content (Markdown)") }}</label><textarea id="edit-body" name="body" class="editor" rows="16">{{ form.body if form else item.body }}</textarea></div>
+    {{ editor(form.body if form else item.body, 16, "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/inbox/preview", id="edit-body", name="body", params={"note": item.name}, fields="hint") }}
     <div class="form-columns">
       <div class="field"><label for="edit-hint">{{ _("Where to file it? (optional, a hint for the agent)") }}</label><input id="edit-hint" name="hint" maxlength="500" value="{{ form.hint if form else item.hint }}"></div>
       <div class="field"><label for="edit-origin">{{ _("Origin (optional: link, meeting, conversation…)") }}</label><input id="edit-origin" name="origin" maxlength="2000" value="{{ form.origin if form else item.origin }}"></div>
