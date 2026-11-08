@@ -142,11 +142,7 @@ def _verification(
     people: list[str] = []
     if page.can_contribute(actor, space):
         # Those given access on purpose: added to the space, or through one of their groups.
-        people = [
-            entry.user.username
-            for entry in spaces.list_access(page.db, actor, space)
-            if entry.given is not None or entry.groups
-        ]
+        people = spaces.given_access(page.db, actor, space)
         people = sorted({*people, actor.user.username})
     own = str(freshness.parse_period(meta.review_every) or "") if meta.review_every else ""
     choices = list(PERIODS) + ([own] if own and own not in PERIODS else [])

@@ -7,7 +7,7 @@ crosses organizations. Checked from every interface: services, web, search (sema
 REST, MCP, routine emails, review reminders.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -86,6 +86,22 @@ def expected(given: str | None, group: str | None, default: str, restricted: boo
     return max(candidates, key=lambda r: RANK[r])
 
 
+@contextmanager
+def counted(db: Session) -> Iterator[list[str]]:
+    """The SQL statements run in the block, on the database of the tests."""
+    statements: list[str] = []
+
+    def count(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+
+
 def bearer(database: Database, username: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token_for(database, username)}"}
 
@@ -150,24 +166,9 @@ def test_a_group_never_lowers_a_role(db: Session, team: Team) -> None:
 
 def test_loading_the_permissions_takes_no_query_per_space(db: Session, team: Team) -> None:
     """One query for the roles given in the spaces and through the groups, however many."""
-
-    @contextmanager
-    def counted() -> Iterator[list[str]]:
-        statements: list[str] = []
-
-        def count(*args: object) -> None:
-            statements.append(str(args[2]))
-
-        engine = db.get_bind()
-        event.listen(engine, "before_cursor_execute", count)
-        try:
-            yield statements
-        finally:
-            event.remove(engine, "before_cursor_execute", count)
-
     configure(db, team, "reader")
     dora = accounts.get_user(db, "dora")
-    with counted() as before:
+    with counted(db) as before:
         load_actor(db, dora)
     acme, root = team.wiki.infra.organization, team.wiki.root
     for number in range(6):
@@ -183,7 +184,7 @@ def test_loading_the_permissions_takes_no_query_per_space(db: Session, team: Tea
         )
     db.expire_all()
     dora = accounts.get_user(db, "dora")
-    with counted() as after:
+    with counted(db) as after:
         actor = load_actor(db, dora)
     assert len(after) == len(before), after
     assert len(actor.access.space_roles) == 2 + 6
@@ -625,11 +626,20 @@ def test_review_reminders_reach_group_members(
 def test_page_owners_offered_include_group_members(
     db: Session, client: TestClient, team: Team
 ) -> None:
+    """Added to the space or through a group; neither the default role, nor the
+    administrators, nor another organization (one query, the organization's size aside)."""
+    configure(db, team, "reader")
+    organizations.set_member(
+        db, team.wiki.root, team.wiki.infra.organization, make_user(db, "zoe"), OrgRole.MEMBER
+    )
     make_group(db, team, members=("dora",), roles={"infra": "reader"})
+    make_group(db, team, "Ailleurs", members=("zoe",), roles={"autre": "contributor"})
     as_user(client, "alice")
     html = client.get("/o/acme/infra/p/README.md").text
     offered = [o.get("value") for o in select_html(html, "#verify-people option")]
-    assert "dora" in offered and "bob" in offered and "eve" not in offered
+    assert offered == ["alice", "bob", "dora"]
+    alice = load_actor(db, accounts.get_user(db, "alice"))
+    assert spaces.given_access(db, alice, team.wiki.infra) == ["alice", "bob", "dora"]
 
 
 # --- Web pages --------------------------------------------------------------------------------
@@ -898,3 +908,136 @@ def test_open_sessions_follow_group_changes_at_once(
     groups.remove_space_role(db, team.wiki.root, group, team.wiki.other)
     db.commit()
     assert client.get("/o/acme/autre/p/secret.md").status_code == 404
+
+
+# --- Second review: notes, queries, concurrency -------------------------------------------------
+
+
+def test_removal_confirmation_says_what_a_group_keeps(
+    db: Session, client: TestClient, team: Team
+) -> None:
+    """Bob, reader added to infra, contributor there through RH: removing him from the space
+    leaves him the group's access, default role or not, restricted or not."""
+    configure(db, team, "reader")
+    make_group(db, team, members=("bob",), roles={"infra": "contributor"})
+    spaces.set_member(
+        db, team.wiki.root, team.wiki.infra, accounts.get_user(db, "carol"), SpaceRole.READER
+    )
+    db.commit()
+    as_user(client, "carol")
+
+    def confirm(username: str) -> str:
+        html = client.get("/o/acme/infra/-/members").text
+        [form] = select_html(html, f'form[action="/o/acme/infra/-/members/{username}/remove"]')
+        return form.get("data-confirm") or ""
+
+    keeps = "garde l'accès à cet espace en tant que contributeur, par le groupe RH."
+    assert confirm("bob").endswith(keeps)
+    assert "rôle par défaut" not in confirm("bob")
+    assert confirm("alice").endswith(
+        "en tant que lecteur, par le rôle par défaut de l'organisation."
+    )
+    assert confirm("carol").endswith("en tant qu'administrateur de l'organisation.")
+    spaces.update_space(db, team.wiki.root, team.wiki.infra, restricted=True)
+    db.commit()
+    assert confirm("bob").endswith(keeps)  # restricted: the group still opens it
+    assert confirm("alice") == "Retirer Alice\u202f?"  # nothing left
+    spaces.remove_member(db, team.wiki.root, team.wiki.infra, accounts.get_user(db, "bob"))
+    db.commit()
+    assert role(db, "bob", team.wiki.infra) == "contributor"  # as announced
+    make_group(db, team, "Direction", members=("alice",), roles={"infra": "reader"})
+    make_group(db, team, "Paie", members=("alice",), roles={"infra": "reader"})
+    assert confirm("alice").endswith("en tant que lecteur, par les groupes Direction, Paie.")
+
+
+def test_listing_the_groups_takes_the_same_queries_however_many(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    carol = bearer(database, "carol")
+    make_group(db, team, "G0", members=("dora",), roles={"infra": "reader"})
+    client.get("/api/v1/me", headers=carol)  # the token's first use is recorded once
+    with counted(db) as one:
+        listed = client.get("/api/v1/organizations/acme/groups", headers=carol)
+    assert len(listed.json()) == 1
+    for number in range(1, 6):
+        make_group(
+            db,
+            team,
+            f"G{number}",
+            members=("dora", "bob"),
+            roles={"infra": "reader", "autre": "contributor"},
+        )
+    with counted(db) as six:
+        listed = client.get("/api/v1/organizations/acme/groups", headers=carol)
+    assert len(listed.json()) == 6 and listed.json()[5]["spaces"][0]["space"] == "autre"
+    assert len(six) == len(one), six
+
+
+def test_a_name_taken_at_the_same_time_is_a_conflict(
+    db: Session,
+    database: Database,
+    client: TestClient,
+    team: Team,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two administrators create "RH" and "rh" at the same time: the service's check sees
+    neither, the database refuses the second, which becomes a conflict, not an error."""
+    root, acme = team.wiki.root, team.wiki.infra.organization
+    make_group(db, team, "RH", members=())
+    other = make_group(db, team, "Paie", members=())
+    monkeypatch.setattr(groups, "_name_taken", lambda *args: False)
+    attempts: list[Callable[[], object]] = [
+        lambda: groups.create_group(db, root, acme, name="rh"),
+        lambda: groups.update_group(db, root, other, name="Rh"),
+    ]
+    for attempt in attempts:
+        with pytest.raises(SynaptaneError) as error:
+            attempt()
+        assert error.value.code == "conflict"
+        db.rollback()
+    assert sorted(g.name for g in db.scalars(select(Group))) == ["Paie", "RH"]
+
+    carol = bearer(database, "carol")
+    created = client.post("/api/v1/organizations/acme/groups", json={"name": "rh"}, headers=carol)
+    assert created.status_code == 409 and created.json()["error"] == "conflict"
+    token = as_user(client, "carol")
+    assert_refused(
+        client,
+        post(client, "/o/acme/-/groups", token, name="RH"),
+        "Le groupe « RH » existe déjà dans cette organisation.",
+    )
+
+
+def test_a_member_or_role_added_at_the_same_time_is_a_conflict(
+    db: Session,
+    database: Database,
+    client: TestClient,
+    team: Team,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group = make_group(db, team, members=("dora",), roles={"infra": "reader"})
+    monkeypatch.setattr(groups, "_membership", lambda *args: None)
+    monkeypatch.setattr(groups, "_role_on", lambda *args: None)
+    root = team.wiki.root
+    attempts: list[Callable[[], object]] = [
+        lambda: groups.add_member(db, root, group, accounts.get_user(db, "dora")),
+        lambda: groups.set_space_role(db, root, group, team.wiki.infra, SpaceRole.CONTRIBUTOR),
+    ]
+    for attempt in attempts:
+        with pytest.raises(SynaptaneError) as error:
+            attempt()
+        assert error.value.code == "conflict"
+        db.rollback()
+    carol = bearer(database, "carol")
+    url = f"/api/v1/organizations/acme/groups/{group.id}"
+    assert client.put(f"{url}/members/dora", headers=carol).status_code == 409
+    again = client.put(f"{url}/spaces/infra", json={"role": "reader"}, headers=carol)
+    assert again.status_code == 409
+    token = as_user(client, "carol")
+    assert_refused(
+        client,
+        post(client, f"/o/acme/-/groups/{group.id}/members", token, username="dora"),
+        "Le groupe a été modifié au même moment : rechargez la page et réessayez.",
+    )
+    db.expire_all()
+    assert role(db, "dora", team.wiki.infra) == "reader"  # nothing changed

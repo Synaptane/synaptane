@@ -13,10 +13,13 @@ Leaving the organization removes a person from its groups; deleting a group, or 
 removes the access it gave.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from synaptane.core import names
@@ -48,6 +51,45 @@ class SpaceGroup:
     group: Group
     role: SpaceRole
     members: list[User]
+
+
+@dataclass(frozen=True)
+class GroupDetails:
+    group: Group
+    members: list[User]  # by username
+    spaces: list[tuple[Space, SpaceRole]]  # by name
+
+
+def details(
+    session: Session, actor: Actor, org: Organization, only: Group | None = None
+) -> list[GroupDetails]:
+    """The organization's groups (or `only` this one), by name, with their members and spaces:
+    three queries, however many groups."""
+    require(actor.access, Action.MANAGE_ORG, org_id=org.id)
+    query = select(Group).where(Group.org_id == org.id).order_by(func.lower(Group.name))
+    if only is not None:
+        query = query.where(Group.id == only.id)
+    found = list(session.scalars(query))
+    if not found:
+        return []
+    ids = [group.id for group in found]
+    members: dict[UUID, list[User]] = {}
+    for group_id, user in session.execute(
+        select(GroupMember.group_id, User)
+        .join(User, User.id == GroupMember.user_id)
+        .where(GroupMember.group_id.in_(ids))
+        .order_by(User.username)
+    ):
+        members.setdefault(group_id, []).append(user)
+    roles: dict[UUID, list[tuple[Space, SpaceRole]]] = {}
+    for group_id, space, role in session.execute(
+        select(GroupSpaceRole.group_id, Space, GroupSpaceRole.role)
+        .join(Space, Space.id == GroupSpaceRole.space_id)
+        .where(GroupSpaceRole.group_id.in_(ids))
+        .order_by(Space.name)
+    ):
+        roles.setdefault(group_id, []).append((space, SpaceRole(role)))
+    return [GroupDetails(g, members.get(g.id, []), roles.get(g.id, [])) for g in found]
 
 
 def list_groups(session: Session, actor: Actor, org: Organization) -> list[GroupSummary]:
@@ -87,15 +129,39 @@ def get_group(session: Session, actor: Actor, org: Organization, group_id: str |
     return group
 
 
-def _clean_name(session: Session, org_id: UUID, name: str, group: Group | None = None) -> str:
-    """1 to 120 characters, unique in the organization whatever the case ("RH" and "rh")."""
-    name = names.display_name(name)
+TAKEN = "The group “{name}” already exists in this organization."
+# Two administrators changed the same thing at the same time: the database refused the second.
+CONCURRENT = "The group was changed at the same time: reload the page and try again."
+
+
+def _name_taken(session: Session, org_id: UUID, name: str, group: Group | None) -> bool:
     query = select(Group.id).where(Group.org_id == org_id, func.lower(Group.name) == name.lower())
     if group is not None:
         query = query.where(Group.id != group.id)
-    if session.scalar(query.limit(1)):
-        raise conflict("The group “{name}” already exists in this organization.", name=name)
+    return session.scalar(query.limit(1)) is not None
+
+
+def _clean_name(session: Session, org_id: UUID, name: str, group: Group | None = None) -> str:
+    """1 to 120 characters, unique in the organization whatever the case ("RH" and "rh"):
+    checked here for a clear message, and by the database (`uq_groups_org_id_lower_name`)
+    against two requests at the same time."""
+    name = names.display_name(name)
+    if _name_taken(session, org_id, name, group):
+        raise conflict(TAKEN, name=name)
     return name
+
+
+@contextmanager
+def _guarded(session: Session, template: str, **params: object) -> Iterator[None]:
+    """Writes the changes made in the block in a savepoint: a constraint refused by the
+    database (another request at the same time) becomes a conflict (409, or a message in the
+    web UI) instead of an error, and the session stays usable."""
+    try:
+        with session.begin_nested():
+            yield
+            session.flush()
+    except IntegrityError:
+        raise conflict(template, **params) from None
 
 
 def create_group(
@@ -107,8 +173,8 @@ def create_group(
         name=_clean_name(session, org.id, name),
         description=description.strip(),
     )
-    session.add(group)
-    session.flush()
+    with _guarded(session, TAKEN, name=group.name):
+        session.add(group)
     audit(session, actor, "group.created", org_id=org.id, group=group.name)
     return group
 
@@ -127,7 +193,8 @@ def update_group(
     if name is not None:
         cleaned = _clean_name(session, group.org_id, name, group)
         if cleaned != group.name:
-            group.name = cleaned
+            with _guarded(session, TAKEN, name=cleaned):
+                group.name = cleaned
             changed.append("name")
     if description is not None and description.strip() != group.description:
         group.description = description.strip()
@@ -166,6 +233,14 @@ def list_members(session: Session, actor: Actor, group: Group) -> list[User]:
     )
 
 
+def _membership(session: Session, group: Group, user: User) -> GroupMember | None:
+    return session.get(GroupMember, (group.id, user.id))
+
+
+def _role_on(session: Session, group: Group, space: Space) -> GroupSpaceRole | None:
+    return session.get(GroupSpaceRole, (group.id, space.id))
+
+
 def add_member(session: Session, actor: Actor, group: Group, user: User) -> bool:
     """Only a member of the organization joins its groups. False if already in the group."""
     require(actor.access, Action.MANAGE_ORG, org_id=group.org_id)
@@ -174,9 +249,10 @@ def add_member(session: Session, actor: Actor, group: Group, user: User) -> bool
             "{name} is not a member of the organization: add them to it, or invite them, first.",
             name=user.display_name,
         )
-    if session.get(GroupMember, (group.id, user.id)) is not None:
+    if _membership(session, group, user) is not None:
         return False
-    session.add(GroupMember(group_id=group.id, org_id=group.org_id, user_id=user.id))
+    with _guarded(session, CONCURRENT):
+        session.add(GroupMember(group_id=group.id, org_id=group.org_id, user_id=user.id))
     audit(
         session,
         actor,
@@ -224,17 +300,18 @@ def set_space_role(
     require(actor.access, Action.MANAGE_ORG, org_id=group.org_id)
     if space.org_id != group.org_id:
         raise invalid("A group only has roles on the spaces of its organization.")
-    found = session.get(GroupSpaceRole, (group.id, space.id))
+    found = _role_on(session, group, space)
     if found is not None and found.role == role.value:
         return
-    if found is None:
-        session.add(
-            GroupSpaceRole(
-                group_id=group.id, space_id=space.id, org_id=group.org_id, role=role.value
+    with _guarded(session, CONCURRENT):
+        if found is None:
+            session.add(
+                GroupSpaceRole(
+                    group_id=group.id, space_id=space.id, org_id=group.org_id, role=role.value
+                )
             )
-        )
-    else:
-        found.role = role.value
+        else:
+            found.role = role.value
     audit(session, actor, "group.space_role_set", space=space, group=group.name, role=role)
 
 

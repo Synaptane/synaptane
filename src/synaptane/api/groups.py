@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from synaptane.core.access import SpaceRole
 from synaptane.services import Actor, accounts, groups, organizations
-from synaptane.storage.models import Group
+from synaptane.storage.models import Group, Organization
 
 from .routes import CurrentActor, DbSession, SpaceRoleIn, find_space
 
@@ -57,20 +57,26 @@ class SpaceGroupOut(BaseModel):
     members: list[GroupMemberOut]
 
 
-def _out(session: Session, actor: Actor, group: Group) -> GroupOut:
+def _out(entry: groups.GroupDetails) -> GroupOut:
     return GroupOut(
-        id=group.id,
-        name=group.name,
-        description=group.description,
+        id=entry.group.id,
+        name=entry.group.name,
+        description=entry.group.description,
         members=[
-            GroupMemberOut(username=u.username, display_name=u.display_name)
-            for u in groups.list_members(session, actor, group)
+            GroupMemberOut(username=u.username, display_name=u.display_name) for u in entry.members
         ],
         spaces=[
             GroupSpaceOut(space=s.slug, name=s.name, restricted=s.restricted, role=role)
-            for s, role in groups.list_spaces(session, actor, group)
+            for s, role in entry.spaces
         ],
     )
+
+
+def _one(session: Session, actor: Actor, group: Group) -> GroupOut:
+    org = session.get(Organization, group.org_id)
+    assert org is not None
+    [entry] = groups.details(session, actor, org, group)
+    return _out(entry)
 
 
 def _group(session: Session, actor: Actor, org: str, group: str) -> Group:
@@ -81,19 +87,19 @@ def _group(session: Session, actor: Actor, org: str, group: str) -> Group:
 @router.get("/organizations/{org}/groups", tags=["groups"])
 def list_groups(org: str, session: DbSession, actor: CurrentActor) -> list[GroupOut]:
     found = organizations.get_organization(session, actor, org)
-    return [_out(session, actor, g.group) for g in groups.list_groups(session, actor, found)]
+    return [_out(entry) for entry in groups.details(session, actor, found)]
 
 
 @router.post("/organizations/{org}/groups", status_code=status.HTTP_201_CREATED, tags=["groups"])
 def create_group(org: str, body: GroupCreate, session: DbSession, actor: CurrentActor) -> GroupOut:
     found = organizations.get_organization(session, actor, org)
     group = groups.create_group(session, actor, found, name=body.name, description=body.description)
-    return _out(session, actor, group)
+    return _one(session, actor, group)
 
 
 @router.get("/organizations/{org}/groups/{group}", tags=["groups"])
 def get_group(org: str, group: str, session: DbSession, actor: CurrentActor) -> GroupOut:
-    return _out(session, actor, _group(session, actor, org, group))
+    return _one(session, actor, _group(session, actor, org, group))
 
 
 @router.patch("/organizations/{org}/groups/{group}", tags=["groups"])
@@ -102,7 +108,7 @@ def update_group(
 ) -> GroupOut:
     found = _group(session, actor, org, group)
     groups.update_group(session, actor, found, **body.model_dump(exclude_unset=True))
-    return _out(session, actor, found)
+    return _one(session, actor, found)
 
 
 @router.delete(

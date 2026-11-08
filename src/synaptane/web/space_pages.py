@@ -15,7 +15,7 @@ from synaptane.services import (
     jobs,
     spaces,
 )
-from synaptane.web.group_pages import access_label
+from synaptane.web.group_pages import access_label, removal_label
 from synaptane.web.pages import (
     Csrf,
     WebPage,
@@ -54,6 +54,7 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
     space = find_space(page, actor, org_slug, space_slug)
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     access = spaces.list_access(page.db, actor, space)
+    default = spaces.default_role(space)
     return render_space_settings(
         page,
         actor,
@@ -67,10 +68,16 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
             for entry in access
             if entry.given is not None and entry.effective != entry.given
         },
+        # What each one keeps once removed from the space: said in the confirmation.
+        remove_notes={
+            entry.user.username: note
+            for entry in access
+            if entry.given is not None and (note := removal_label(entry, default))
+        },
         through_org=[(entry.user, access_label(entry)) for entry in access if entry.given is None],
         space_groups=groups.on_space(page.db, actor, space),
         org_groups=groups.list_groups(page.db, actor, space.organization) if manage else [],
-        org_default=spaces.default_role(space),
+        org_default=default,
         default_setting=space.organization.default_space_role,
         people=accounts.directory(page.db, actor) if manage else [],
     )

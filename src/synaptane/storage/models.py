@@ -185,7 +185,8 @@ class Group(Base):
 
     __tablename__ = "groups"
     __table_args__ = (
-        UniqueConstraint("org_id", "name"),
+        # The name is unique in the organization whatever the case ("RH" and "rh").
+        Index("uq_groups_org_id_lower_name", "org_id", text("lower(name)"), unique=True),
         # Target of the foreign keys that keep its members and spaces in its organization.
         UniqueConstraint("id", "org_id"),
     )

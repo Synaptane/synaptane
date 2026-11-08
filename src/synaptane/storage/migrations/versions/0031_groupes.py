@@ -1,10 +1,10 @@
 """Groups of members: roles on several spaces at once
 
-A group belongs to an organization (name unique there) and gathers some of its members; it has
-a role (reader or contributor) on some of its spaces, restricted ones included. Composite
-foreign keys keep everything within the organization: a group member is a row of
-`org_members` (leaving the organization removes them from its groups), a group's role is on a
-space of the same organization (never another's). Deleting the group, the space or the
+A group belongs to an organization (name unique there, whatever the case) and gathers some of
+its members; it has a role (reader or contributor) on some of its spaces, restricted ones
+included. Composite foreign keys keep everything within the organization: a group member is a
+row of `org_members` (leaving the organization removes them from its groups), a group's role is
+on a space of the same organization (never another's). Deleting the group, the space or the
 organization removes what depends on it. No existing row changes: nobody's access changes.
 
 Revision ID: 0031
@@ -39,7 +39,14 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_groups")),
         sa.UniqueConstraint("id", "org_id", name=op.f("uq_groups_id")),
-        sa.UniqueConstraint("org_id", "name", name=op.f("uq_groups_org_id")),
+    )
+    # Unique name in the organization, whatever the case: also holds against two creations at
+    # the same time, which the service's check alone would let through.
+    op.create_index(
+        "uq_groups_org_id_lower_name",
+        "groups",
+        ["org_id", sa.text("lower(name)")],
+        unique=True,
     )
     op.create_table(
         "group_members",
@@ -96,5 +103,6 @@ def downgrade() -> None:
     op.drop_table("group_space_roles")
     op.drop_index(op.f("ix_group_members_user_id"), table_name="group_members")
     op.drop_table("group_members")
+    op.drop_index("uq_groups_org_id_lower_name", table_name="groups")
     op.drop_table("groups")
     op.drop_constraint(op.f("uq_spaces_id"), "spaces", type_="unique")

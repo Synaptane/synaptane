@@ -224,12 +224,15 @@ def test_groups_migration_keeps_groups_within_their_organization(
             id=group,
             org=acme,
         )
-        with pytest.raises(IntegrityError):  # same name in the organization
-            run(
-                "INSERT INTO groups (id, org_id, name, created_at) VALUES (:id, :org, 'RH', now())",
-                id=uuid4(),
-                org=acme,
-            )
+        for taken in ("RH", "rh"):  # same name in the organization, whatever the case
+            with pytest.raises(IntegrityError):
+                run(
+                    "INSERT INTO groups (id, org_id, name, created_at) "
+                    "VALUES (:id, :org, :name, now())",
+                    id=uuid4(),
+                    org=acme,
+                    name=taken,
+                )
         run(  # the same name in another organization: allowed
             "INSERT INTO groups (id, org_id, name, created_at) VALUES (:id, :org, 'RH', now())",
             id=uuid4(),

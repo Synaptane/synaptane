@@ -38,7 +38,9 @@ of the target version.
   of who accesses the space through the organization says which group gives each person their
   access ("Contributor, through the group HR"), and a member added to the space with more
   through a group says so next to their role. Giving a group access to a restricted space says
-  that the group opens it; a role that the default role already gives is flagged.
+  that the group opens it; a role that the default role already gives is flagged. Removing
+  someone from the space says what they keep: the access of their groups (which ones), of the
+  default role, or of an administrator.
   `GET …/spaces/{space}/members` keeps its form and still lists only the members added to the
   space.
 - **Members of an organization**. Each member's groups are shown next to their role, and the

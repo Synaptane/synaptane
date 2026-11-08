@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
 
-from synaptane.core.access import Action, OrgRole, SpaceRole, can, higher_role
+from synaptane.core.access import Action, OrgRole, SpaceRole, can, higher_role, highest_role
 from synaptane.core.errors import Label, SynaptaneError, not_found
 from synaptane.services import Actor, accounts, groups, organizations, spaces
 from synaptane.services.spaces import SpaceAccess
@@ -44,6 +44,37 @@ def access_label(entry: SpaceAccess) -> Label:
     if entry.source == "default":
         return Label("{role}, by default", role=role)
     return role
+
+
+# Lowercase, inside a sentence ("as reader").
+ROLE_WORDS = {
+    SpaceRole.READER: Label("reader"),
+    SpaceRole.CONTRIBUTOR: Label("contributor"),
+}
+
+
+def removal_label(entry: SpaceAccess, default: SpaceRole | None) -> Label | None:
+    """What a member added to a space keeps once removed from it (said in the confirmation):
+    the access of an administrator, of their groups or of the default role (`default`: the
+    organization's default role on this space, None if restricted)."""
+    if entry.effective == OrgRole.ADMIN:
+        return Label("They keep access to this space as an administrator of the organization.")
+    group = highest_role(role for _, role in entry.groups)
+    kept = higher_role(group, default)
+    if kept is None:
+        return None
+    if kept == group:
+        names = [name for name, role in entry.groups if role == kept]
+        template = (
+            "They keep access to this space as {role}, through the group {names}."
+            if len(names) == 1
+            else "They keep access to this space as {role}, through the groups {names}."
+        )
+        return Label(template, role=ROLE_WORDS[kept], names=", ".join(names))
+    return Label(
+        "They keep access to this space as {role}, through the organization's default role.",
+        role=ROLE_WORDS[kept],
+    )
 
 
 def group_url(group: Group, org: Organization) -> str:

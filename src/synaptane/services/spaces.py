@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union
 from sqlalchemy.orm import Session
 
 from synaptane.core import names
@@ -189,6 +189,23 @@ def list_members(session: Session, actor: Actor, space: Space) -> list[tuple[Use
         .order_by(User.username)
     )
     return [(user, SpaceRole(role)) for user, role in rows]
+
+
+def given_access(session: Session, actor: Actor, space: Space) -> list[str]:
+    """Usernames of those given access to the space on purpose: added to it, or through one of
+    their groups (one query; neither the default role nor the administrators)."""
+    require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
+    given = union(
+        select(SpaceMember.user_id).where(SpaceMember.space_id == space.id),
+        select(GroupMember.user_id)
+        .join(GroupSpaceRole, GroupSpaceRole.group_id == GroupMember.group_id)
+        .where(GroupSpaceRole.space_id == space.id),
+    ).subquery()
+    return list(
+        session.scalars(
+            select(User.username).join(given, given.c.user_id == User.id).order_by(User.username)
+        )
+    )
 
 
 def default_role(space: Space) -> SpaceRole | None:
