@@ -326,7 +326,13 @@ def _write_backup(
         # alone: the day's copy goes off-site.
         kept = Path(args.output or settings.backup_dir or ".")
         if kept.is_dir():
-            kept = kept / name
+            # Two backups in the same second get the same name: the second one gets a suffix.
+            folder, kept = kept, kept / name
+            stem = name.removesuffix(".tar.gz")
+            count = 2
+            while kept.exists():
+                kept = folder / f"{stem}-{count}.tar.gz"
+                count += 1
         if kept.exists():
             raise FileExistsError(f"Already exists: {kept}")
     path = kept or scratch / name
