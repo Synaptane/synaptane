@@ -19,6 +19,7 @@ from synaptane.services import (
     budget,
     forges,
     git_sync,
+    groups,
     invitations,
     jobs,
     mail,
@@ -99,13 +100,27 @@ def organization_members_page(page: WebPage, org_slug: str) -> Response:
     actor = page.user_actor()
     org = organizations.get_organization(page.db, actor, org_slug)
     manage = can(actor.access, Action.MANAGE_ORG, org_id=org.id)
+    members = organizations.list_members(page.db, actor, org) if manage else []
+    joined = groups.memberships(page.db, actor, org) if manage else {}
+    notes: dict[str, Label] = {}
+    removal: dict[str, Label] = {}
+    for user, _ in members:
+        names = ", ".join(joined.get(user.id, []))
+        if len(joined.get(user.id, [])) == 1:
+            notes[user.username] = Label("Group: {names}", names=names)
+            removal[user.username] = Label("They also leave the group {names}.", names=names)
+        elif names:
+            notes[user.username] = Label("Groups: {names}", names=names)
+            removal[user.username] = Label("They also leave the groups {names}.", names=names)
     return _org_page(
         page,
         actor,
         org,
         "members",
         "org-members.html",
-        members=organizations.list_members(page.db, actor, org) if manage else [],
+        members=members,
+        member_notes=notes,
+        remove_notes=removal,
         people=accounts.directory(page.db, actor) if manage else [],
         invitations=invitations.pending(page.db, actor, org) if manage else [],
         org_spaces=spaces.list_spaces(page.db, actor, org),

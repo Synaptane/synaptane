@@ -12,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -117,6 +118,8 @@ class Space(Base):
     __tablename__ = "spaces"
     __table_args__ = (
         UniqueConstraint("org_id", "slug"),
+        # Target of the foreign keys that keep a group's roles within its organization.
+        UniqueConstraint("id", "org_id"),
         CheckConstraint("sync_status IN ('never', 'ok', 'error', 'conflict')", name="sync_status"),
     )
 
@@ -172,6 +175,69 @@ class SpaceMember(Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
     )
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class Group(Base):
+    """Members of an organization given roles on several of its spaces at once (`core.access`,
+    `services.groups`). Its role on a space applies to a restricted space too."""
+
+    __tablename__ = "groups"
+    __table_args__ = (
+        # The name is unique in the organization whatever the case ("RH" and "rh").
+        Index("uq_groups_org_id_lower_name", "org_id", text("lower(name)"), unique=True),
+        # Target of the foreign keys that keep its members and spaces in its organization.
+        UniqueConstraint("id", "org_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class GroupMember(Base):
+    """A member of a group, always a member of its organization: leaving the organization
+    (its `org_members` row) removes them from its groups."""
+
+    __tablename__ = "group_members"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["group_id", "org_id"], ["groups.id", "groups.org_id"], ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "user_id"],
+            ["org_members.org_id", "org_members.user_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    group_id: Mapped[UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[UUID]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class GroupSpaceRole(Base):
+    """A group's role on a space of its organization (never another's): deleting the group or
+    the space removes it."""
+
+    __tablename__ = "group_space_roles"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["group_id", "org_id"], ["groups.id", "groups.org_id"], ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ["space_id", "org_id"], ["spaces.id", "spaces.org_id"], ondelete="CASCADE"
+        ),
+        CheckConstraint("role IN ('reader', 'contributor')", name="role"),
+    )
+
+    group_id: Mapped[UUID] = mapped_column(primary_key=True)
+    space_id: Mapped[UUID] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[UUID]
     role: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 

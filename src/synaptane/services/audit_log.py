@@ -168,6 +168,7 @@ FIELDS = {
     "slug": Field(_value("slug"), subject=True),  # of a deleted space or organization
     "mail_host": Field(_value("host"), subject=True),
     "prompt": Field(_prompt, subject=True),
+    "group": Field(_value("group", "Group {value}"), subject=True),
     # Details
     "role": Field(_choice("role", ROLES)),
     "default_role": Field(_choice("role", {**ROLES, "none": Label("No access")})),
@@ -208,6 +209,7 @@ FIELDS = {
     "reason": Field(_value("reason")),
     "status": Field(_value("status")),
     "removed": Field(_flag("removed", Label("Text removed"))),
+    "previous_name": Field(_value("previous", "Formerly: {value}")),
 }
 
 # Author of an event without an account (`actor_id` empty).
@@ -239,6 +241,17 @@ ACTIONS: dict[str, Kind] = {
     "org.invitation_revoked": Kind("members", Label("Invitation revoked"), ("email",)),
     "org.invitation_accepted": Kind(
         "members", Label("Invitation accepted"), ("account",), author=SUBJECT
+    ),
+    "group.created": Kind("members", Label("Group created"), ("group",)),
+    "group.updated": Kind("members", Label("Group changed"), ("group", "changed", "previous_name")),
+    "group.deleted": Kind("members", Label("Group deleted"), ("group",)),
+    "group.member_added": Kind("members", Label("Added to a group"), ("group", "account")),
+    "group.member_removed": Kind("members", Label("Removed from a group"), ("group", "account")),
+    "group.space_role_set": Kind(
+        "members", Label("Group role in the space set"), ("group", "role")
+    ),
+    "group.space_role_removed": Kind(
+        "members", Label("Group role in the space removed"), ("group",)
     ),
     # Tokens and applications
     "token.created": Kind(

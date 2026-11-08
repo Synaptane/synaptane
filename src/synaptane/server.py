@@ -27,6 +27,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from synaptane import __version__
 from synaptane.api.content import router as content_router
+from synaptane.api.groups import router as groups_router
 from synaptane.api.health import router as health_router
 from synaptane.api.hooks import router as hooks_router
 from synaptane.api.integrations import router as integrations_router
@@ -50,6 +51,7 @@ from synaptane.web import (
     account_pages,
     admin_pages,
     audit_pages,
+    group_pages,
     health_pages,
     home_pages,
     import_pages,
@@ -123,6 +125,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.add_middleware(metrics_text.MeasuredRequests, requests=app.state.requests)
 
     app.include_router(api_router)
+    app.include_router(groups_router)
     app.include_router(content_router)
     app.include_router(tidy_router)
     app.include_router(vocation_router)
@@ -134,6 +137,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.include_router(login_pages.router, include_in_schema=False)
     app.include_router(home_pages.router, include_in_schema=False)
     app.include_router(org_pages.router, include_in_schema=False)
+    app.include_router(group_pages.router, include_in_schema=False)
     app.include_router(space_pages.router, include_in_schema=False)
     app.include_router(admin_pages.router, include_in_schema=False)
     app.include_router(audit_pages.router, include_in_schema=False)

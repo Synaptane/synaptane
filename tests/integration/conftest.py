@@ -151,4 +151,5 @@ def ctx(settings: Settings) -> Workspace:
     return workspace_for(settings)
 
 
+from tests.integration.teamdata import team  # noqa: E402,F401 — shared fixture
 from tests.integration.wikidata import wiki  # noqa: E402,F401 — shared fixture

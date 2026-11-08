@@ -7,7 +7,14 @@ from synaptane.core import names
 from synaptane.core.access import DEFAULT_ROLES, Action, OrgRole, can, require
 from synaptane.core.errors import conflict, invalid, not_found
 from synaptane.services import Actor, audit
-from synaptane.storage.models import Organization, OrgMember, Space, SpaceMember, User
+from synaptane.storage.models import (
+    GroupMember,
+    Organization,
+    OrgMember,
+    Space,
+    SpaceMember,
+    User,
+)
 
 
 def list_organizations(session: Session, actor: Actor) -> list[Organization]:
@@ -118,6 +125,7 @@ def ensure_member(session: Session, org: Organization, user: User) -> bool:
 
 
 def remove_member(session: Session, actor: Actor, org: Organization, user: User) -> None:
+    """Also removes them from the organization's spaces and groups."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     member = session.get(OrgMember, (org.id, user.id))
     if member is None:
@@ -127,6 +135,11 @@ def remove_member(session: Session, actor: Actor, org: Organization, user: User)
         delete(SpaceMember).where(
             SpaceMember.user_id == user.id, SpaceMember.space_id.in_(space_ids)
         )
+    )
+    # Their groups too (the database would also do it: `group_members` refers to the
+    # membership), so that the session holds no stale row.
+    session.execute(
+        delete(GroupMember).where(GroupMember.user_id == user.id, GroupMember.org_id == org.id)
     )
     session.delete(member)
     audit(session, actor, "org.member_removed", org_id=org.id, username=user.username)
