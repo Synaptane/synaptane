@@ -13,7 +13,7 @@
   {{ csrf_field() }}
   <div class="field"><label for="default-space-role">{{ _("Every member of the organization, in every space") }}</label><select id="default-space-role" name="default_space_role" aria-describedby="default-space-role-help">
     {% for value, label in [("none", _("No access: only the spaces they are added to")), ("reader", _("Reader of every space")), ("contributor", _("Contributor to every space"))] %}<option value="{{ value }}" {% if org.default_space_role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-  </select><p class="muted" id="default-space-role-help">{{ _("Applies to the spaces of the organization, present and future, without adding the members one by one. A member keeps a higher role given in a space. A restricted space (human resources, management) ignores it: only its own members access it. Administrators keep access to every space.") }}</p></div>
+  </select><p class="muted" id="default-space-role-help">{{ _("Applies to the spaces of the organization, present and future, without adding the members one by one. A member keeps a higher role given in a space. A restricted space (human resources, management) ignores it: only its own members and groups access it. Administrators keep access to every space.") }}</p></div>
   {% set restricted = org_spaces|selectattr("restricted")|list %}
   {% if restricted %}<p class="muted" data-test="restricted-spaces">{{ _(pl(restricted|length, "Restricted space: {names}.", "Restricted spaces: {names}."), names=restricted|map(attribute="name")|join(", ")) }}</p>{% endif %}
   <button class="button button-primary" type="submit">{{ _("Save") }}</button>

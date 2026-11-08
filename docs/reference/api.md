@@ -54,8 +54,9 @@ The code never changes; the message is in English, or in French with
 | `unavailable` | 503 (database, repository or server temporarily unavailable; `Retry-After` header) |
 
 A malformed request body (missing field, wrong type) returns 422 in FastAPI's format:
-`{"detail": [{"loc": […], "msg": …, "type": …}]}`. Too many sign-in attempts, or OAuth
-registrations, return 429 as well.
+`{"detail": [{"loc": […], "msg": …, "type": …}]}`, without the values received (they may hold
+a secret sent in the same body). Too many sign-in attempts, or OAuth registrations, return 429
+as well.
 
 `too_many_requests` limits, over a sliding window:
 - inbox drops: 120 notes per hour per account, across all spaces and interfaces (web, REST,
@@ -83,7 +84,7 @@ the space). An organization admin has all rights on its spaces.
 | `GET /me/tokens` | Personal tokens: `id`, `name`, `hint` (last 4 characters), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
 | `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201); `days: null`: no expiry. Returns the `token`, once only |
 | `DELETE /me/tokens/{id}` | Revokes (204) |
-| `GET /spaces` | All visible spaces: `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effective: given in the space, the organization's default role, or admin), `restricted` |
+| `GET /spaces` | All visible spaces: `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effective: given in the space or through a group, the organization's default role, or admin), `restricted` |
 
 ## Accounts (super admin)
 
@@ -104,26 +105,78 @@ the space). An organization admin has all rights on its spaces.
 | `DELETE /organizations/{org}` | super admin | Deletes an organization that has no space (204; 400 if any remain) |
 | `GET /organizations/{org}/members` | member | `username`, `display_name`, `role` (`admin` or `member`) |
 | `PUT /organizations/{org}/members/{username}` | admin | `{"role": "member"}`: adds, or changes the role |
-| `DELETE /organizations/{org}/members/{username}` | admin | Removes (204) |
+| `DELETE /organizations/{org}/members/{username}` | admin | Removes (204), from the organization's spaces and groups too |
 
 ## Spaces
 
 | Method and path | Right | Purpose |
 |---|---|---|
 | `GET /organizations/{org}/spaces` | member | Visible spaces of the organization |
-| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true`: closed to the organization's default role from its creation |
+| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true`: closed to the organization's default role from its creation. With `create_repository` instead of `repo_url`, Synaptane creates the repository on GitHub or GitLab (see below) |
 | `GET …/spaces/{space}` | reader | Details, with the caller's effective `role`, `review_every` (default review interval of the pages, `""`: never) and `restricted` (the organization's default role does not apply) |
-| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable), `restricted` (`true`: only the members added to the space, and the organization's admins, access it). Changing `repo_url` removes the Git credentials |
+| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable), `restricted` (`true`: only the members added to the space, the members of the groups given a role on it, and the organization's admins, access it). Changing `repo_url` removes the Git credentials |
 | `DELETE …/spaces/{space}` | admin | Deletes the space in Synaptane; the remote repository is not touched (204) |
-| `GET …/spaces/{space}/members` | reader | Members added to the space: `username`, `display_name`, `role` (`reader` or `contributor`, the role given there). Those who access it only through the default role are not listed (`GET /organizations/{org}/members` lists them) |
+| `GET …/spaces/{space}/members` | reader | Members added to the space: `username`, `display_name`, `role` (`reader` or `contributor`, the role given there). Those who access it only through a group or the default role are not listed (`GET …/spaces/{space}/groups` and `GET /organizations/{org}/members` list them) |
 | `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}`. An account that is not a member of the organization becomes one: with a default role (`default_space_role`), it then also gets that role on every space of the organization that is not restricted |
 | `DELETE …/spaces/{space}/members/{username}` | admin | Removes (204) |
+| `GET …/spaces/{space}/groups` | reader | Groups with a role on the space: `id`, `name`, `role`, `members` (`username`, `display_name`) |
 | `GET …/spaces/{space}/vocation` | reader | Purpose of the space (`.synaptane/vocation.md`): `path`, `text` (`""` if it does not exist), `sha`, `pending` (waiting for the first sync), `history` (last 5 changes: `commit`, `author`, `date`, `subject`) |
 | `PUT …/spaces/{space}/vocation` | admin | `{"text": …, "base_sha": …, "allow_secrets": false}`: a commit in the caller's name, then a sync. `text`: 20,000 characters at most, `""` removes the file. `base_sha`: hash read before editing (`""`: the file must not exist); 409 if it changed in the meantime. 422 if a likely secret is detected. Returns `commit` (`null` if nothing changed) and `pending`: before the first sync, the text is held and written by that sync |
 | `GET /vocation-templates` | account | Purpose templates: `key` (`infra`, `marketing`, `product`, `client`, `personal`, `family`, `job-search`, `blank`), `label`, `summary`, `text` (in the language of the account: English or French) |
 
 `…` stands for `/organizations/{org}`. To create a space with a purpose, create it, then send
 `PUT …/vocation` (the text waits for the first sync).
+
+**Creating the repository** (see [Git repositories](../admin/git.md#or-let-synaptane-create-the-repository)):
+`POST /organizations/{org}/spaces` with, instead of `repo_url`:
+
+```json
+{"slug": "infra", "name": "Infra",
+ "create_repository": {"provider": "github", "owner": "acme", "name": "", "token": "github_pat_…"}}
+```
+
+- `provider`: `github` or `gitlab`; `gitlab_url`: address of a self-hosted GitLab, in `https://`
+  (empty: gitlab.com);
+- `owner`: GitHub organization, or GitLab group path (`acme/team`); empty: the token's own
+  account. `name`: empty, the space's `slug`;
+- `token`: used for this request only, never stored nor returned.
+
+The answer (201) adds `repository`: `provider`, `host`, `path` (`acme/infra`), `url` (page on
+the provider), `access` (`ssh`: deploy key, `https`: GitLab project access token, `null`: not
+set up), `access_error` (why, in the caller's language: the repository exists, send its
+credentials with `PUT …/git/credentials`) and `token_expires` (expiry of the GitLab token).
+Nothing is created on a refused token or right, an unknown owner or, on GitLab.com, a free
+plan (400), a name already taken (409), a provider limiting requests (429), unreachable or too
+slow (503). Giving both `repo_url` and `create_repository` is refused (400).
+
+## Groups
+
+A group gives some members of an organization a role (`reader` or `contributor`) on several of
+its spaces at once. A member's effective role on a space is the highest of the role given in
+the space, the roles of their groups on it, and the organization's default role (which a
+restricted space ignores). A group's role applies to a restricted space too: that is how it is
+opened to a team. A group is referred to by its `id` (its name can change); its name is unique
+in the organization, whatever the case (409 otherwise).
+
+| Method and path | Right | Purpose |
+|---|---|---|
+| `GET /organizations/{org}/groups` | admin | Groups of the organization, by name: `id`, `name`, `description`, `members` (`username`, `display_name`), `spaces` (`space`: slug, `name`, `restricted`, `role`) |
+| `POST /organizations/{org}/groups` | admin | `{"name": …, "description": ""}` (201) |
+| `GET /organizations/{org}/groups/{id}` | admin | A group, with its members and spaces (404 for a group of another organization) |
+| `PATCH /organizations/{org}/groups/{id}` | admin | `name`, `description` |
+| `DELETE /organizations/{org}/groups/{id}` | admin | Deletes the group (204): its members lose the access it gave, unless they have it otherwise |
+| `GET /organizations/{org}/groups/{id}/members` | admin | `username`, `display_name` |
+| `PUT /organizations/{org}/groups/{id}/members/{username}` | admin | Adds a member of the organization (200, also if already in the group); 400 for an account that is not a member of the organization |
+| `DELETE /organizations/{org}/groups/{id}/members/{username}` | admin | Removes from the group (204) |
+| `GET /organizations/{org}/groups/{id}/spaces` | admin | `space`, `name`, `restricted`, `role` |
+| `PUT /organizations/{org}/groups/{id}/spaces/{space}` | admin | `{"role": "reader"}`: gives or changes the group's role on a space of the organization |
+| `DELETE /organizations/{org}/groups/{id}/spaces/{space}` | admin | Removes the group's role on the space (204) |
+
+Removing someone from the organization removes them from its groups; deleting a space removes
+the groups' roles on it. A token limited to some spaces, to reading or to the inbox stays
+limited, whatever its owner's groups. Changes are written to the audit log (`group.created`,
+`group.updated`, `group.deleted`, `group.member_added`, `group.member_removed`,
+`group.space_role_set`, `group.space_role_removed`).
 
 ## Git of a space
 

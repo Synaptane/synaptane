@@ -329,7 +329,7 @@ Une routine, c'est :
     les pages concernées : le rangement de la nuit les traite avec ses garde-fous (plafond
     de suppressions, fusion, annulation) ;
   - un **e-mail** aux administrateurs de l'organisation, ou à tous les membres de l'espace
-    (y compris ceux qui y accèdent par le rôle par défaut de l'organisation) :
+    (y compris ceux qui y accèdent par un groupe ou par le rôle par défaut de l'organisation) :
     seulement vers une adresse vérifiée, aux comptes actifs qui lisent l'espace et qui n'ont
     pas décoché « Recevoir les e-mails des routines » dans **Mon compte** (préférence
     distincte des avis de rangement, active par défaut, rappelée dans chaque e-mail) ;

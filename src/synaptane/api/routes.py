@@ -4,8 +4,9 @@ Organizations and spaces are referred to by their slugs: `/organizations/acme/sp
 """
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
@@ -13,11 +14,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole, SpaceRole
-from synaptane.core.errors import ErrorCode, SynaptaneError
+from synaptane.core.errors import ErrorCode, SynaptaneError, invalid
 from synaptane.core.security import SecretBox
 from synaptane.git.credentials import GitCredentials
 from synaptane.git.repo import describe_error
-from synaptane.services import Actor, accounts, git_sync, load_actor, organizations, spaces
+from synaptane.services import (
+    Actor,
+    accounts,
+    forges,
+    git_sync,
+    load_actor,
+    organizations,
+    spaces,
+)
 from synaptane.storage.db import Database
 from synaptane.storage.models import ApiToken, Organization, Space, User
 from synaptane.web.i18n import SOURCE, negotiate, translator
@@ -170,6 +179,25 @@ class SpaceOut(BaseModel):
         )
 
 
+class RepositoryCreate(BaseModel):
+    """Repository to create on GitHub or GitLab (fields validated by the service: a malformed
+    value never sends the token back in a validation error)."""
+
+    provider: str = Field(default="", description="github or gitlab")
+    owner: str = Field(
+        default="",
+        description="GitHub organization, or GitLab group path (acme/team); empty: the token's "
+        "own account",
+    )
+    name: str = Field(default="", description="Repository name; empty: the space's slug")
+    token: str = Field(
+        default="",
+        description="Access token that can create the repository: used for this request "
+        "only, never stored nor returned",
+    )
+    gitlab_url: str = Field(default="", description="Self-hosted GitLab (https); empty: gitlab.com")
+
+
 class SpaceCreate(BaseModel):
     slug: str
     name: str
@@ -177,6 +205,32 @@ class SpaceCreate(BaseModel):
     repo_url: str | None = None
     branch: str = "main"
     restricted: bool = Field(default=False, description="Ignore the organization's default role")
+    create_repository: RepositoryCreate | None = Field(
+        default=None,
+        description="Create a private repository for the space (instead of repo_url)",
+    )
+
+
+class CreatedRepositoryOut(BaseModel):
+    provider: str = Field(description="github or gitlab")
+    host: str
+    path: str = Field(description="Owner and name of the repository (acme/brain)")
+    url: str = Field(description="Repository page on the provider")
+    access: str | None = Field(
+        description="Credentials Synaptane keeps: ssh (deploy key), https (project access "
+        "token), or null if they could not be set up (see access_error)"
+    )
+    access_error: str | None = Field(
+        description="Why the credentials could not be set up: the repository exists, enter "
+        "them with PUT …/git/credentials"
+    )
+    token_expires: date | None = Field(description="Expiry of GitLab's project access token")
+
+
+class SpaceCreatedOut(SpaceOut):
+    repository: CreatedRepositoryOut | None = Field(
+        default=None, description="Repository created by Synaptane (create_repository)"
+    )
 
 
 class SpaceUpdate(BaseModel):
@@ -401,9 +455,47 @@ def list_spaces(org: str, session: DbSession, actor: CurrentActor) -> list[Space
 
 
 @router.post("/organizations/{org}/spaces", status_code=status.HTTP_201_CREATED, tags=["spaces"])
-def create_space(org: str, body: SpaceCreate, session: DbSession, actor: CurrentActor) -> SpaceOut:
+def create_space(
+    org: str,
+    body: SpaceCreate,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+    box: Box,
+) -> SpaceCreatedOut:
     found = organizations.get_organization(session, actor, org)
-    return SpaceOut.of(spaces.create_space(session, actor, found, **body.model_dump()), actor)
+    fields = body.model_dump(exclude={"create_repository"})
+    wanted = body.create_repository
+    if wanted is None:
+        space = spaces.create_space(session, actor, found, **fields)
+        return SpaceCreatedOut(**SpaceOut.of(space, actor).model_dump())
+    if body.repo_url:
+        raise invalid("Give either repo_url or create_repository, not both.")
+    settings = request.app.state.settings
+    del fields["repo_url"]
+    space, created = forges.create_space_with_repository(
+        session,
+        actor,
+        box,
+        found,
+        forges.NewRepository(
+            wanted.provider, wanted.token, wanted.owner, wanted.name, wanted.gitlab_url
+        ),
+        allow_private=settings.allow_private_webhooks,
+        public_host=urlsplit(settings.public_url).netloc,
+        **fields,
+    )
+    error = created.access_error
+    repository = CreatedRepositoryOut(
+        provider=created.provider,
+        host=created.host,
+        path=created.path,
+        url=created.web_url,
+        access=created.credentials.kind if created.credentials else None,
+        access_error=api_text(request, error.template, **error.params) if error else None,
+        token_expires=created.token_expires,
+    )
+    return SpaceCreatedOut(**SpaceOut.of(space, actor).model_dump(), repository=repository)
 
 
 @router.get("/organizations/{org}/spaces/{space}", tags=["spaces"])

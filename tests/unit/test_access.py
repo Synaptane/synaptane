@@ -13,6 +13,7 @@ from synaptane.core.access import (
     can,
     effective_role,
     higher_role,
+    highest_role,
     require,
 )
 from synaptane.core.errors import SynaptaneError
@@ -124,6 +125,72 @@ def test_effective_role(
     explicit: SpaceRole | None, org_default: str, restricted: bool, effective: SpaceRole | None
 ) -> None:
     assert effective_role(explicit, org_default, restricted) is effective
+
+
+RANK = {None: 0, R: 1, C: 2}
+
+
+@pytest.mark.parametrize("restricted", [False, True], ids=["open", "restricted"])
+@pytest.mark.parametrize("org_default", DEFAULT_ROLES)
+@pytest.mark.parametrize("group", [None, R, C], ids=["no-group", "group-R", "group-C"])
+@pytest.mark.parametrize("explicit", [None, R, C], ids=["none", "given-R", "given-C"])
+def test_effective_role_every_combination(
+    explicit: SpaceRole | None, group: SpaceRole | None, org_default: str, restricted: bool
+) -> None:
+    """The highest of the role given in the space, the groups' role, and the default role
+    (ignored by a restricted space, unlike a group's role)."""
+    candidates = [explicit, group]
+    if not restricted and org_default != NO_DEFAULT_ROLE:
+        candidates.append(SpaceRole(org_default))
+    expected = max(candidates, key=lambda role: RANK[role])
+    assert effective_role(explicit, org_default, restricted, group) is expected
+
+
+@pytest.mark.parametrize(
+    ("explicit", "group", "org_default", "restricted", "effective"),
+    [
+        # A group opens a restricted space (human resources, management)…
+        (None, R, "none", True, R),
+        (None, C, "contributor", True, C),
+        # …and raises a role given in it, never lowers it.
+        (R, C, "none", True, C),
+        (C, R, "none", False, C),
+        # On a space that is not restricted, the default role can already give more.
+        (None, R, "contributor", False, C),
+        (None, C, "reader", False, C),
+        # Without a group, as before.
+        (None, None, "reader", True, None),
+    ],
+)
+def test_effective_role_with_a_group(
+    explicit: SpaceRole | None,
+    group: SpaceRole | None,
+    org_default: str,
+    restricted: bool,
+    effective: SpaceRole | None,
+) -> None:
+    assert effective_role(explicit, org_default, restricted, group) is effective
+
+
+def test_highest_role() -> None:
+    assert highest_role([]) is None
+    assert highest_role([None, None]) is None
+    assert highest_role([R, None, R]) is R
+    assert highest_role(iter([R, C, R])) is C
+
+
+@pytest.mark.parametrize("restricted", [False, True])
+@pytest.mark.parametrize("org_default", DEFAULT_ROLES)
+def test_an_org_admin_contributes_whatever_the_groups(org_default: str, restricted: bool) -> None:
+    """An organization admin needs no group nor role: `can` lets them contribute; a group's
+    role recorded for them changes nothing."""
+    where = {"org_id": ORG, "space_id": SPACE}
+    for given in (None, R):
+        roles = {SPACE: role} if (role := effective_role(given, org_default, restricted, R)) else {}
+        admin = access(org_roles={ORG: OrgRole.ADMIN}, space_roles=roles)
+        assert can(admin, Action.CONTRIBUTE_SPACE, **where)
+        assert can(admin, Action.MANAGE_ORG, org_id=ORG)
+        assert not can(admin, Action.READ_SPACE, org_id=OTHER_ORG, space_id=OTHER_SPACE)
 
 
 def test_default_roles_match_the_database_constraint() -> None:

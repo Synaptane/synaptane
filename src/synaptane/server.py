@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     HTMLResponse,
@@ -27,6 +27,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from synaptane import __version__
 from synaptane.api.content import router as content_router
+from synaptane.api.groups import router as groups_router
 from synaptane.api.health import router as health_router
 from synaptane.api.hooks import router as hooks_router
 from synaptane.api.integrations import router as integrations_router
@@ -50,6 +51,7 @@ from synaptane.web import (
     account_pages,
     admin_pages,
     audit_pages,
+    group_pages,
     health_pages,
     home_pages,
     import_pages,
@@ -123,6 +125,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.add_middleware(metrics_text.MeasuredRequests, requests=app.state.requests)
 
     app.include_router(api_router)
+    app.include_router(groups_router)
     app.include_router(content_router)
     app.include_router(tidy_router)
     app.include_router(vocation_router)
@@ -134,6 +137,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.include_router(login_pages.router, include_in_schema=False)
     app.include_router(home_pages.router, include_in_schema=False)
     app.include_router(org_pages.router, include_in_schema=False)
+    app.include_router(group_pages.router, include_in_schema=False)
     app.include_router(space_pages.router, include_in_schema=False)
     app.include_router(admin_pages.router, include_in_schema=False)
     app.include_router(audit_pages.router, include_in_schema=False)
@@ -324,7 +328,13 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
         """Missing or malformed parameter or form field: the application's page (the API
         keeps FastAPI's detailed 422 response)."""
         if request.url.path.startswith("/api/"):
-            return await request_validation_exception_handler(request, error)
+            # FastAPI's detailed answer, without the values received (`input`, `ctx`, `url`):
+            # they may hold a secret sent in the same body (token, key).
+            errors = [
+                {key: item[key] for key in ("type", "loc", "msg") if key in item}
+                for item in error.errors()
+            ]
+            return JSONResponse({"detail": jsonable_encoder(errors)}, 422)
         return error_page(request, 400, "Invalid request: a field is missing or malformed.")
 
     @app.exception_handler(Exception)

@@ -13,7 +13,7 @@ import secrets
 import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -21,9 +21,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import Action, require
-from synaptane.core.errors import invalid
+from synaptane.core.errors import SynaptaneError, invalid
 from synaptane.core.security import SecretBox
-from synaptane.git.credentials import GitCredentials
+from synaptane.git.credentials import GitCredentials, ssh_host
 from synaptane.git.repo import (
     LOCAL_REPOS_DISABLED,
     REMOTE_TOO_FAST,
@@ -58,6 +58,12 @@ TRANSIENT_ALERT_AFTER = timedelta(hours=6)
 def credential_kind(session: Session, box: SecretBox, space: Space) -> str | None:
     value = get_space_secret(session, box, space.id, GIT_CREDENTIALS)
     return GitCredentials.from_json(value).kind if value else None
+
+
+def credential_expiry(session: Session, box: SecretBox, space: Space) -> date | None:
+    """Expiry of the access token Synaptane created (GitLab project access token), if any."""
+    value = get_space_secret(session, box, space.id, GIT_CREDENTIALS)
+    return GitCredentials.from_json(value).expiry if value else None
 
 
 def set_credentials(
@@ -678,8 +684,52 @@ def run_sync(database: Database, ctx: Workspace, space_id: UUID) -> None:
         except GitError as error:
             _record(database, space_id, None, str(error), ctx, error.transient)
             raise
-        _exchange(database, ctx, space_id, repo, snapshot)
+        try:
+            _exchange(database, ctx, space_id, repo, snapshot)
+        except GitError as error:
+            if not _refresh_github_host_keys(database, ctx, space_id, snapshot, error):
+                raise
+            # GitHub's server keys changed, read again from its API: one more attempt.
+            snapshot = _snapshot(database, ctx, space_id)
+            if snapshot is None:
+                return
+            repo = _repository(ctx, space_id, snapshot)
+            _exchange(database, ctx, space_id, repo, snapshot)
         repo.gc()  # space lock released: a long gc blocks no one
+
+
+def _refresh_github_host_keys(
+    database: Database, ctx: Workspace, space_id: UUID, snapshot: _Snapshot, error: GitError
+) -> bool:
+    """github.com refused by SSH host key check (GitHub changed its keys): its current keys are
+    read from its API over HTTPS, authenticated by TLS, and saved if they differ. Never trusted
+    on first SSH connection. True if they changed (the sync is worth trying again)."""
+    credentials = snapshot.credentials
+    if (
+        credentials is None
+        or credentials.kind != "ssh"
+        or ssh_host(snapshot.remote) != ("github.com", 22)
+        or "host key verification failed" not in str(error).lower()
+    ):
+        return False
+    from synaptane.services import forges  # forges uses this module
+
+    try:
+        known_hosts = forges.github_known_hosts()
+    except SynaptaneError:
+        log.warning("GitHub host keys unreadable from its API: kept as they are")
+        return False
+    if known_hosts == credentials.known_hosts:
+        return False
+    refreshed = GitCredentials.ssh(credentials.private_key, known_hosts)
+    with database.session() as session:
+        space = session.get(Space, space_id)
+        if space is None:
+            return False
+        put_space_secret(session, ctx.box, space_id, GIT_CREDENTIALS, refreshed.to_json(), None)
+        audit(session, None, "space.git_host_keys_refreshed", space=space)
+    log.info("GitHub host keys updated from its API for space %s", space_id)
+    return True
 
 
 RESOLVED_AS = {"local": "Synaptane's version", "remote": "repository's version"}

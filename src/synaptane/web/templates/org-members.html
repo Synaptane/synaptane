@@ -2,8 +2,8 @@
 {% from "ui.html" import csrf_field, action, when, reveal_notice with context %}
 {% block section %}
 <div class="content-narrow">
-{% if org.default_space_role == 'none' %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members only access the spaces they are added to.") }}</p>
-{% else %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members access every space that is not restricted as {role} (default role, in the settings), and the spaces they are added to with the role given there.", role=(_("Reader") if org.default_space_role == 'reader' else _("Contributor"))|lower) }}</p>{% endif %}
+{% if org.default_space_role == 'none' %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members only access the spaces they are added to, directly or through a group.") }}</p>
+{% else %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members access every space that is not restricted as {role} (default role, in the settings), and the spaces they are added to, directly or through a group, with the role given there.", role=(_("Reader") if org.default_space_role == 'reader' else _("Contributor"))|lower) }}</p>{% endif %}
 {% set members_url = "/o/" ~ org.slug ~ "/-/members" %}
 {% set role_labels = [("member", _("Member")), ("admin", _("Administrator"))] %}
 {% set empty_text = _("No members.") %}

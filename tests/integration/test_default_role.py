@@ -7,26 +7,22 @@ spaces of an organization they do not belong to. Checked from every interface: s
 web, REST, MCP, routine emails.
 """
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synaptane.core.access import Action, Limits, OrgRole, SpaceRole, can
+from synaptane.core.access import Limits, OrgRole, SpaceRole
 from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
     accounts,
-    git_sync,
     invitations,
     load_actor,
     organizations,
     spaces,
 )
-from synaptane.services.extraction import update_index
 from synaptane.services.routine_agent import recipients
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
@@ -34,61 +30,9 @@ from synaptane.storage.models import AuditEvent, Space
 from tests.htmlutil import data_test, select_one
 from tests.htmlutil import select as select_html
 from tests.integration.conftest import make_user, token_for
-from tests.integration.gitutil import Remote
+from tests.integration.teamdata import DEFAULTS, RANK, Team, configure, role
 from tests.integration.test_mcp import Live, live, mcp_calls  # noqa: F401 — fixture
 from tests.integration.test_rights_html import as_user, assert_done, assert_refused, post
-from tests.integration.wikidata import Wiki
-
-DEFAULTS = ("none", "reader", "contributor")
-RANK = {None: 0, "reader": 1, "contributor": 2}
-
-
-@dataclass
-class Team:
-    wiki: Wiki
-    ventes: Space  # space of Globex, an organization whose default role is "contributor"
-
-
-@pytest.fixture
-def team(db: Session, database: Database, ctx: Workspace, tmp_path: Path, wiki: Wiki) -> Team:
-    """Acme: Alice (contributor on infra) and Bob (reader on infra) are members through their
-    space; Dora is a member added to no space; Carol administers Acme. Globex: Eve, a member
-    of Globex only, and its space "ventes"."""
-    acme = wiki.infra.organization
-    organizations.set_member(db, wiki.root, acme, make_user(db, "dora"), OrgRole.MEMBER)
-    organizations.set_member(db, wiki.root, acme, make_user(db, "carol"), OrgRole.ADMIN)
-    globex = organizations.create_organization(db, wiki.root, slug="globex", name="Globex")
-    remote = Remote(tmp_path / "globex")
-    remote.push({"content/plan.md": "# Plan\n\nFusion confidentielle chez Globex.\n"})
-    ventes = spaces.create_space(
-        db, wiki.root, globex, slug="ventes", name="Ventes", repo_url=remote.url
-    )
-    organizations.set_member(db, wiki.root, globex, make_user(db, "eve"), OrgRole.MEMBER)
-    organizations.update_organization(db, wiki.root, globex, default_space_role="contributor")
-    db.commit()
-    git_sync.run_sync(database, ctx, ventes.id)
-    update_index(ctx, ventes.id, ctx.local_repository(ventes))
-    return Team(wiki, ventes)
-
-
-def configure(db: Session, team: Team, default: str, *, restricted: bool = False) -> None:
-    """Acme's default role; `restricted` applies to both its spaces."""
-    root = team.wiki.root
-    organizations.update_organization(
-        db, root, team.wiki.infra.organization, default_space_role=default
-    )
-    for space in (team.wiki.infra, team.wiki.other):
-        spaces.update_space(db, root, space, restricted=restricted)
-    db.commit()
-
-
-def role(db: Session, username: str, space: Space) -> str | None:
-    """Effective role, read from the permissions loaded for a request."""
-    access = load_actor(db, accounts.get_user(db, username)).access
-    where = {"org_id": space.org_id, "space_id": space.id}
-    if not can(access, Action.READ_SPACE, **where):
-        return None
-    return "contributor" if can(access, Action.CONTRIBUTE_SPACE, **where) else "reader"
 
 
 def expected(given: str | None, default: str, restricted: bool) -> str | None:
@@ -647,10 +591,25 @@ def test_a_space_can_be_created_restricted(
     assert form.get("name") == "restricted"
     assert_done(
         post(
-            client, "/o/acme/-/spaces", token, slug="direction", name="Direction", restricted="true"
+            client,
+            "/o/acme/-/spaces",
+            token,
+            slug="direction",
+            name="Direction",
+            restricted="true",
+            repo_url="https://forge.example.com/acme/direction.git",
         )
     )
-    assert_done(post(client, "/o/acme/-/spaces", token, slug="ouvert", name="Ouvert"))
+    assert_done(
+        post(
+            client,
+            "/o/acme/-/spaces",
+            token,
+            slug="ouvert",
+            name="Ouvert",
+            repo_url="https://forge.example.com/acme/ouvert.git",
+        )
+    )
     db.expire_all()
     acme = team.wiki.infra.organization
     rh, direction, opened = (

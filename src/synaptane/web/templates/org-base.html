@@ -4,6 +4,7 @@
 {% set sections = [("spaces", "/o/" ~ org.slug, _("Spaces"))] %}
 {% if manage %}{% set sections = sections + [
   ("members", "/o/" ~ org.slug ~ "/-/members", _("Members")),
+  ("groups", "/o/" ~ org.slug ~ "/-/groups", _("Groups")),
   ("ai", "/o/" ~ org.slug ~ "/-/ai", _("Artificial intelligence")),
   ("semantic", "/o/" ~ org.slug ~ "/-/embeddings", _("Semantic search")),
   ("webhooks", "/o/" ~ org.slug ~ "/-/webhooks", _("Webhooks")),

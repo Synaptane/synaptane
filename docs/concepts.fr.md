@@ -54,18 +54,33 @@ la recherche.
 | Lecteur | Espace | Lire et chercher. Un lecteur ne dépose pas dans l'inbox. |
 
 - Un compte peut avoir des rôles dans plusieurs espaces de plusieurs organisations.
-- **Rôle par défaut.** Une organisation peut donner à chacun de ses membres un rôle sur
-  chacun de ses espaces, présents et à venir, sans les y ajouter un par un (**Paramètres** de
+- **Rôle par défaut.** Une organisation peut donner à chacun de ses membres un rôle sur chacun
+  de ses espaces, présents et à venir, sans les y ajouter un par un (**Paramètres** de
   l'organisation, « Rôle par défaut dans les espaces » : aucun accès, la valeur par défaut,
-  lecteur ou contributeur). Le rôle effectif d'un membre est le plus élevé entre le rôle
-  donné dans l'espace et le rôle par défaut. Un espace **restreint** (**Paramètres → Membres**
-  de l'espace, pour les ressources humaines ou la direction) ignore le rôle par défaut : seuls
-  les membres qui y sont ajoutés, et les administrateurs de l'organisation, y accèdent. Le
-  rôle par défaut s'applique partout où l'accès est vérifié : interface web et téléchargements,
-  recherche (y compris sémantique), API REST, MCP, e-mails. Personne n'atteint jamais les espaces
-  d'une organisation dont il n'est pas membre, et un jeton limité à certains espaces, à la
-  lecture ou à l'inbox reste limité. Les changements du rôle par défaut et de la restriction
-  sont inscrits au journal d'audit. Un espace peut être créé restreint.
+  lecteur ou contributeur). Le rôle effectif d'un membre est le plus élevé entre le rôle donné
+  dans l'espace et le rôle par défaut. Un espace **restreint** (**Paramètres → Membres** de
+  l'espace, pour les ressources humaines ou la direction) ignore le rôle par défaut : seuls les
+  membres qui y sont ajoutés, les membres des groupes qui y ont un rôle, et les administrateurs
+  de l'organisation, y accèdent. Le rôle par défaut s'applique partout où l'accès est vérifié :
+  interface web et téléchargements, recherche (y compris sémantique), API REST, MCP, e-mails.
+  Personne n'atteint jamais les espaces d'une organisation dont il n'est pas membre, et un jeton
+  limité à certains espaces, à la lecture ou à l'inbox reste limité. Les changements du rôle par
+  défaut et de la restriction sont inscrits au journal d'audit. Un espace peut être créé
+  restreint.
+- **Groupes.** Les administrateurs d'une organisation réunissent certains de ses membres en
+  groupes (onglet **Groupes** de l'organisation : ressources humaines, direction, équipe projet)
+  et donnent à chaque groupe un rôle, lecteur ou contributeur, sur un ou plusieurs espaces. Le
+  rôle effectif d'un membre sur un espace est le plus élevé du rôle donné dans l'espace, des
+  rôles de ses groupes sur cet espace et du rôle par défaut. Le rôle d'un groupe s'applique
+  aussi à un espace **restreint** : c'est ainsi qu'on ouvre un tel espace à une équipe, sans
+  l'ouvrir à toute l'organisation. Seuls les membres de l'organisation rejoignent ses groupes,
+  et un groupe n'a de rôle que sur les espaces de son organisation. Retirer quelqu'un de
+  l'organisation le retire de ses groupes ; supprimer un groupe retire l'accès qu'il donnait ;
+  supprimer un espace retire les rôles des groupes sur lui. Les groupes s'appliquent partout où
+  l'accès est vérifié, comme le rôle par défaut, et les limites d'un jeton s'appliquent
+  toujours. La page des membres d'un espace liste les groupes qui y accèdent et dit, pour
+  chaque personne, d'où vient son accès. Les changements des groupes sont inscrits au journal
+  d'audit.
 - Ajouter quelqu'un à un espace (ou l'inviter) en fait un membre de son organisation : avec un
   rôle par défaut, il le reçoit alors aussi sur chaque espace non restreint de l'organisation.
   Le retirer d'un espace non restreint lui laisse le rôle par défaut.

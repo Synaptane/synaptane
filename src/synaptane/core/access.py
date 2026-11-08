@@ -3,6 +3,7 @@
 Every interface (web, REST, MCP) and every service goes through `can` / `require`.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import UUID
@@ -35,15 +36,31 @@ def higher_role(first: SpaceRole | None, second: SpaceRole | None) -> SpaceRole 
     return first if _RANK[first] >= _RANK[second] else second
 
 
+def highest_role(roles: Iterable[SpaceRole | None]) -> SpaceRole | None:
+    """The highest of several space roles (None: no access)."""
+    found: SpaceRole | None = None
+    for role in roles:
+        found = higher_role(found, role)
+    return found
+
+
 def effective_role(
-    explicit: SpaceRole | None, org_default: str, restricted: bool
+    explicit: SpaceRole | None,
+    org_default: str,
+    restricted: bool,
+    group: SpaceRole | None = None,
 ) -> SpaceRole | None:
-    """Role of an organization member on one of its spaces: the higher of the role they were
-    given in the space and the organization's default role, which a restricted space ignores.
-    (An organization admin contributes everywhere: see `can`.)"""
+    """Role of an organization member on one of its spaces: the highest of the role they were
+    given in the space, of the roles their groups have on it (`group`: the highest of them)
+    and of the organization's default role, which a restricted space ignores.
+
+    A group's role is given on purpose, like a role in the space: it applies to a restricted
+    space too (that is how a restricted space, human resources or management, is opened to a
+    team). (An organization admin contributes everywhere: see `can`.)"""
+    given = higher_role(explicit, group)
     if restricted or org_default == NO_DEFAULT_ROLE:
-        return explicit
-    return higher_role(explicit, SpaceRole(org_default))
+        return given
+    return higher_role(given, SpaceRole(org_default))
 
 
 class Action(StrEnum):
@@ -65,7 +82,8 @@ class Access:
     user_id: UUID
     is_superadmin: bool = False
     org_roles: dict[UUID, OrgRole] = field(default_factory=dict)
-    # Effective roles: given in the space, or the organization's default role (`load_actor`).
+    # Effective roles: given in the space or through a group, or the organization's default
+    # role (`load_actor`).
     space_roles: dict[UUID, SpaceRole] = field(default_factory=dict)
     inbox_only: bool = False  # connection limited to the inbox: a contributor drops notes only
 

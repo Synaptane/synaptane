@@ -14,7 +14,8 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -28,16 +29,26 @@ HELPER = Path(__file__).with_name("credential_helper.py")
 class GitCredentials:
     kind: Literal["https", "ssh"]
     username: str = ""
-    token: str = ""
-    private_key: str = ""
+    token: str = field(default="", repr=False)
+    private_key: str = field(default="", repr=False)
     known_hosts: str = ""
+    # Expiry of a token Synaptane created itself (GitLab project access token), ISO date.
+    expires: str = ""
+
+    @property
+    def expiry(self) -> date | None:
+        try:
+            return date.fromisoformat(self.expires) if self.expires else None
+        except ValueError:
+            return None
 
     @classmethod
-    def https(cls, token: str, username: str = "") -> "GitCredentials":
+    def https(cls, token: str, username: str = "", expiry: date | None = None) -> "GitCredentials":
         token, username = token.strip(), username.strip() or "synaptane"
         if not token or any(c in token + username for c in "\r\n\0"):
             raise invalid("Invalid access token.")
-        return cls(kind="https", username=username, token=token)
+        expires = expiry.isoformat() if expiry else ""
+        return cls(kind="https", username=username, token=token, expires=expires)
 
     @classmethod
     def ssh(cls, private_key: str, known_hosts: str) -> "GitCredentials":
@@ -56,7 +67,10 @@ class GitCredentials:
 
     def to_json(self) -> str:
         if self.kind == "https":
-            return json.dumps({"kind": "https", "username": self.username, "token": self.token})
+            data = {"kind": "https", "username": self.username, "token": self.token}
+            if self.expires:
+                data["expires"] = self.expires
+            return json.dumps(data)
         data = {"kind": "ssh", "private_key": self.private_key, "known_hosts": self.known_hosts}
         return json.dumps(data)
 
@@ -64,7 +78,12 @@ class GitCredentials:
     def from_json(cls, value: str) -> "GitCredentials":
         data = json.loads(value)
         if data["kind"] == "https":
-            return cls(kind="https", username=data["username"], token=data["token"])
+            return cls(
+                kind="https",
+                username=data["username"],
+                token=data["token"],
+                expires=str(data.get("expires", "")),
+            )
         return cls(kind="ssh", private_key=data["private_key"], known_hosts=data["known_hosts"])
 
     def matches(self, remote: str) -> bool:

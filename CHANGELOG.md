@@ -10,17 +10,6 @@ of the target version.
 
 ## [Unreleased]
 
-Upgrading: **automatic backups are now on by default**. After the upgrade, the worker makes a
-verified backup right away, unless one was made less than 6 hours before (`deploy.sh` makes
-one before upgrading), then every night at 04:00 (server time), in the
-`synaptane-backups` Docker volume (`/backups`), on the server's disk: up to about ten archives
-of the size of your database and repositories (7 days kept, always the 3 newest). Only its own
-archives (`synaptane-…-auto.tar.gz`) are ever deleted. It writes nothing if the disk would keep
-less than 2 GB free (a tenth of a disk under 20 GB). To turn it off: `BACKUP_TIME=off` in
-`.env`, then `docker compose up -d`. An existing cron job on `deploy/host/backup.sh` keeps
-working unchanged and takes precedence: once it has run with this version's script, the worker
-makes no backup of its own while that cron job does. No migration.
-
 ### Added
 - **Nightly backup with nothing to set up**. The worker makes a verified backup every night at
   04:00 (server time) in the `synaptane-backups` volume (`/backups`), and keeps its archives of
@@ -53,6 +42,60 @@ makes no backup of its own while that cron job does. No migration.
   command to run. Exit code 1 if something fails.
 - **Back up now** in **Administration > Health**: a backup by the worker, right away, with its
   off-site copy. Written to the audit log (`instance.backup_requested`).
+- **Create the space's repository from Synaptane**. In **New space**, "Create the repository
+  for me on GitHub or GitLab" creates a private, empty repository on github.com, gitlab.com or a
+  self-hosted GitLab (HTTPS), for the token's account or an organization, group or subgroup,
+  named after the space's identifier unless another name is given; the first sync then prepares
+  it as for any space. The admin's token, which must be able to create repositories (GitHub:
+  fine-grained token with the Administration permission; GitLab: the `api` scope), serves this
+  creation only and is never saved, logged or returned. Synaptane keeps an access limited to the
+  new repository: an SSH deploy key with write access on GitHub (github.com's SSH keys read from
+  its API, and read again from it if GitHub changes them), a project access token
+  (`read_repository`, `write_repository`, Maintainer) on GitLab, whose expiry date is shown in
+  **Settings → Git repository**. Every refusal is explained (token refused, missing rights,
+  owner not found, name taken, provider unreachable, too slow or limiting requests, GitLab.com
+  namespace on the free plan, where project access tokens do not exist) and creates nothing; a
+  repository created whose access cannot be set up is still connected to the space, with a
+  message giving its address, and is never deleted. Each call to the provider is abandoned
+  after 20 seconds (name resolution included) and the whole creation after 60, without holding
+  a database connection; an account creates one repository at a time; a refused TLS
+  certificate is reported as such. A
+  self-hosted GitLab must be at a public address, checked as for webhooks, except for the super
+  admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`) and
+  "GitHub SSH host keys updated" (`space.git_host_keys_refreshed`). REST: `create_repository`
+  in `POST /organizations/{org}/spaces`, with a `repository` block in the answer. No migration.
+  See `docs/admin/git.md`.
+- **Groups of members**. In the organization's new **Groups** tab, an administrator creates
+  groups (a name unique in the organization, an optional description), adds members of the
+  organization to them, and gives each group a role, reader or contributor, on one or several
+  spaces. A member's effective role on a space is the highest of the role given in the space,
+  the roles of their groups on it, and the organization's default role. A group opens a
+  restricted space too: that is how the human resources or management space is opened to its
+  team only. Organization admins keep every right, a token or a connection limited to some
+  spaces, to reading or to the inbox stays limited, and nobody joins the group of an
+  organization they do not belong to, nor does a group get a role on another organization's
+  space. It applies wherever access is checked: web UI, search (semantic too), REST API, MCP
+  (`list_spaces`, search across spaces, writing tools), routine emails "to the members", review
+  reminders, the owners offered when verifying a page. Removing someone from the organization
+  removes them from its groups, deleting a group removes the access it gave, deleting a space
+  removes the groups' roles on it. REST: `GET`, `POST /organizations/{org}/groups`, `GET`,
+  `PATCH`, `DELETE …/groups/{id}`, `PUT`, `DELETE …/groups/{id}/members/{username}`, `PUT`,
+  `DELETE …/groups/{id}/spaces/{space}`, and `GET …/spaces/{space}/groups` for whoever reads
+  the space. Every change is written to the audit log (`group.created`, `group.updated`,
+  `group.deleted`, `group.member_added`, `group.member_removed`, `group.space_role_set`,
+  `group.space_role_removed`), shown in the **Members and roles** family. One migration
+  (`0031`), applied at startup: it creates the group tables, empty, so nobody's access changes.
+- **Preview while editing**. Above the text of a Markdown page, when editing it or creating it
+  (**Edit**, **New page**), **Preview** shows the page as it will read, without saving
+  anything: the server renders it exactly as the reading view does (Obsidian syntax, links and
+  `[[wiki links]]` resolved in the space, images, highlighted code, sanitized HTML), and Mermaid
+  diagrams are drawn in the same sandboxed frame as when reading. **Write** goes back to the
+  text, kept as it is; on a large screen, **Side by side** shows both, the preview following the
+  typing after a short pause (remembered in the browser). Links in the preview open in a new
+  tab. Contributors only, with the form's token, Markdown pages only; nothing is committed, indexed or
+  dropped in the inbox, a text above 262,144 characters is not previewed, and each account
+  gets one preview at a time (the database connection is given back before rendering). No
+  migration.
 
 ### Changed
 - **Administration > Health** says how backups are made (automatically, by the server's cron
@@ -73,6 +116,23 @@ makes no backup of its own while that cron job does. No migration.
   gone through, and never as the backup of the day (with `deploy/host/backup.sh`, the script
   marks it once in place).
 - The backup documentation starts with the simplest path, then the options.
+- **New space** without JavaScript: the repository address is now required by the server when
+  the repository is not created by Synaptane (the browser already required it).
+- REST: a malformed request body (422) no longer quotes the values received in `detail`
+  (`input`, `ctx`), only `loc`, `msg` and `type`: they could hold a token or a key sent in the
+  same body.
+- **Members of a space**. A **By a group** section lists the groups with a role on the space
+  and their members; an administrator gives a group access, or removes it, from there. The list
+  of who accesses the space through the organization says which group gives each person their
+  access ("Contributor, through the group HR"), and a member added to the space with more
+  through a group says so next to their role. Giving a group access to a restricted space says
+  that the group opens it; a role that the default role already gives is flagged. Removing
+  someone from the space says what they keep: the access of their groups (which ones), of the
+  default role, or of an administrator.
+  `GET …/spaces/{space}/members` keeps its form and still lists only the members added to the
+  space.
+- **Members of an organization**. Each member's groups are shown next to their role, and the
+  confirmation of a removal says which groups they leave.
 
 ## [1.12.0] - 2026-11-08
 

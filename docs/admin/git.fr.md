@@ -27,6 +27,106 @@ La vocation et les consignes se modifient dans **Paramètres → Vocation** ou p
 
 Le reste du dépôt est ignoré.
 
+## Ou laisser Synaptane créer le dépôt
+
+À la création d'un espace (**Nouvel espace**, admin d'organisation), choisissez **Créer le dépôt
+pour moi sur GitHub ou GitLab**. Synaptane crée un dépôt **privé et vide**, y relie l'espace et
+le prépare à la première synchronisation : `content/README.md` et `.synaptane/inbox/` dans un
+premier commit, sur la branche saisie (`main` par défaut), qui devient la branche par défaut du
+dépôt. Les étapes 1 et 2 ci-dessous sont alors faites pour vous.
+
+- **Fournisseur Git** : GitHub (github.com) ou GitLab : gitlab.com, ou un GitLab auto-hébergé
+  (son adresse, en `https://`).
+- **Propriétaire** : une organisation GitHub, ou un groupe ou sous-groupe GitLab
+  (`acme/equipe`). Vide : le compte auquel appartient le jeton.
+- **Nom du dépôt** : vide, l'identifiant de l'espace.
+- **Jeton d'accès** : un jeton qui peut créer le dépôt (voir plus bas). Il ne sert qu'à cette
+  création : il n'est jamais enregistré, et n'apparaît jamais dans les journaux, le journal
+  d'audit ni une réponse de l'API.
+
+Ce que Synaptane garde est limité au nouveau dépôt. Le jeton qui crée des dépôts peut bien plus
+que ce dont la synchronisation a besoin : il n'est donc pas gardé.
+
+- **GitHub** : une clé de déploiement SSH avec droit d'écriture, générée par Synaptane et
+  enregistrée sur le dépôt (titre `Synaptane (<votre hôte>)`). Les clés SSH de github.com sont
+  lues dans l'API de GitHub en HTTPS (`api.github.com/meta`) : il n'y a rien à comparer à la
+  main. Si GitHub les change, la synchronisation refusée par la vérification de la clé d'hôte
+  les relit dans la même API, les enregistre et réessaie une fois (journal d'audit : **Clés
+  d'hôte SSH de GitHub mises à jour**) ; une clé vue en SSH n'est jamais acceptée telle quelle.
+  Cela vaut pour **tout** accès SSH à github.com, y compris une clé de déploiement et des clés
+  d'hôte saisies à la main : les clés d'hôte collées sont alors remplacées par celles que
+  publie l'API de GitHub.
+  Le serveur doit joindre github.com sur le port SSH 22.
+- **GitLab** : un jeton d'accès de projet nommé `Synaptane`, avec les scopes `read_repository`
+  et `write_repository` et le rôle **Maintainer** (GitLab protège la branche par défaut au
+  premier push), valable le plus longtemps que l'instance le permet : 365 jours par défaut.
+  Sa date d'expiration est affichée dans **Paramètres → Dépôt Git → Accès au dépôt**, et GitLab
+  prévient par e-mail les mainteneurs du projet avant son expiration : créez-en alors un
+  nouveau sur GitLab (Settings → Access tokens) et saisissez-le dans **Accès au dépôt**
+  (étape 2). Pas de clé de déploiement sur GitLab : elle ne peut pas pousser sur la branche par
+  défaut protégée sans règle de branche supplémentaire.
+
+### Jeton à créer
+
+**GitHub** : un jeton d'accès personnel *fine-grained* (Settings → Developer settings →
+Personal access tokens → Fine-grained tokens) :
+- **Resource owner** : votre compte, ou l'organisation à qui appartiendra le dépôt.
+  L'organisation doit autoriser les jetons *fine-grained* ; si elle exige une approbation, le
+  jeton ne fonctionne qu'une fois approuvé par un propriétaire de l'organisation ;
+- **Repository access** : **All repositories** (le dépôt n'existe pas encore, il ne peut donc
+  pas être sélectionné) ;
+- **Repository permissions** : **Administration**, en lecture et écriture : elle crée le dépôt
+  et enregistre sa clé de déploiement. GitHub ajoute lui-même **Metadata** (lecture seule).
+
+Un jeton classique avec le scope `repo` fonctionne aussi, mais il ouvre tous vos dépôts :
+préférez un jeton *fine-grained* à durée courte, et supprimez-le une fois l'espace créé.
+
+**GitLab** : un jeton d'accès personnel (User settings → Personal access tokens) avec le scope
+**`api`**, qu'exige l'API des projets, d'un compte dont le rôle permet de créer des projets dans
+le groupe (voir les paramètres du groupe, rubrique Permissions and group features). Synaptane
+crée ensuite le jeton d'accès de projet avec ce même jeton : un jeton ne pouvant pas avoir un
+rôle supérieur à celui de son créateur, le compte doit avoir au moins le rôle Maintainer sur le
+nouveau projet. Une durée courte suffit, puisque Synaptane ne le garde pas.
+
+Sur **GitLab.com, les jetons d'accès de projet demandent un abonnement Premium ou Ultimate**.
+Synaptane lit d'abord l'offre de l'espace de noms : en offre gratuite, il refuse avant de créer
+quoi que ce soit. Créez alors le dépôt vous-même sur GitLab, choisissez **Utiliser un dépôt
+existant** et préparez son accès comme à l'étape 1. Sur un GitLab auto-hébergé, les jetons
+d'accès de projet existent dans toutes les éditions, et l'offre n'est pas vérifiée.
+
+### En cas de problème
+
+Rien n'est créé si le jeton est refusé (invalide, expiré ou révoqué) ou n'a pas les droits, si
+le propriétaire ou l'espace de noms n'existe pas, si le nom est déjà pris, si le fournisseur est
+injoignable, répond trop lentement ou limite le nombre de requêtes. Chaque appel au fournisseur
+est abandonné au bout de 20 secondes, résolution du nom, connexion et réponse entière
+comprises, et la création entière au bout de 60 secondes. Un compte crée un dépôt à la fois
+(une seconde demande pendant ce temps est refusée). Un certificat TLS refusé (expiré,
+auto-signé, pour un autre nom) est signalé comme tel : pour un GitLab auto-hébergé avec une
+autorité de certification privée, ajoutez-la aux autorités de confiance du serveur
+(`SSL_CERT_FILE`). Le message dit lequel.
+
+Si le dépôt a été créé mais que son accès n'a pas pu être configuré, l'espace est tout de même
+créé dessus, et le message donne l'adresse du dépôt (si l'espace lui-même n'a pas pu être
+créé, le message et le journal du serveur donnent aussi cette adresse) : saisissez ses identifiants dans
+**Paramètres → Dépôt Git → Accès au dépôt** (étape 2). Synaptane ne supprime jamais un dépôt
+chez le fournisseur : supprimez-le là-bas si vous n'en voulez plus.
+
+Le journal d'audit enregistre **Dépôt Git créé par Synaptane** (`space.repository_created`) :
+le fournisseur, l'hôte et le chemin du dépôt, et le type d'accès gardé. Jamais le jeton.
+
+### GitLab auto-hébergé
+
+Son adresse doit être en `https://`, sans identifiants. Pour un admin d'organisation, ce doit
+être une adresse publique : comme pour les [webhooks](webhooks.fr.md), Synaptane résout le nom
+une fois, refuse les adresses privées, de bouclage et lien-local, puis se connecte à l'adresse
+vérifiée. Seul le super-administrateur peut relier un GitLab du réseau local (en
+développement, l'option `allow_private_webhooks` lève aussi cette restriction). Les redirections
+ne sont jamais suivies : le jeton reste à l'adresse saisie.
+
+Par l'API REST : `create_repository` dans `POST /organizations/{org}/spaces` (voir la
+[référence de l'API](../reference/api.fr.md#espaces)).
+
 ## 1. Préparer l'accès
 
 **GitHub, en HTTPS** : créez un jeton *fine-grained* limité au dépôt, avec la permission
