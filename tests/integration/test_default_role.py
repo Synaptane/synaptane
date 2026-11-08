@@ -368,12 +368,12 @@ def test_changes_are_logged(db: Session, team: Team) -> None:
     assert ("space.restricted", acme.id, team.wiki.infra.id, {"restricted": "True"}) in logged
     assert ("space.restricted", acme.id, team.wiki.other.id, {"restricted": "True"}) in logged
     assert len(logged) == 4
-    # As before, every change of settings is also logged as such, even an empty one: three
-    # organization updates (Globex in the fixture, Acme twice), four space updates.
+    # Changing only the default role or the restriction has its own event, and no generic
+    # "settings changed" one besides (it would be an empty line in the audit log).
     updates = db.scalars(
         select(AuditEvent.action).where(AuditEvent.action.in_(["org.updated", "space.updated"]))
     ).all()
-    assert sorted(updates) == ["org.updated"] * 3 + ["space.updated"] * 4
+    assert updates == []
 
 
 def test_empty_updates_are_logged_as_before(

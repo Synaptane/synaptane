@@ -139,7 +139,11 @@ def update_space(
         new_branch = _validate_branch(branch)
         if new_branch != space.branch:
             space.branch, space.remote_head, space.sync_status = new_branch, None, "never"
-    audit(session, actor, "space.updated", space=space)
+    if restricted is None or any(
+        value is not None for value in (name, description, repo_url, branch, review_every)
+    ):
+        # The restriction has its own event: changing only it is not a settings change.
+        audit(session, actor, "space.updated", space=space)
     return space
 
 

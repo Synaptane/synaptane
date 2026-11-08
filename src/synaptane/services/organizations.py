@@ -71,7 +71,9 @@ def update_organization(
         org.name = names.display_name(name)
     if description is not None:
         org.description = description.strip()
-    audit(session, actor, "org.updated", org_id=org.id)
+    if name is not None or description is not None or default_space_role is None:
+        # The default role has its own event: changing only it is not a settings change.
+        audit(session, actor, "org.updated", org_id=org.id)
     return org
 
 
