@@ -44,15 +44,22 @@ def org_invite(
     email: Annotated[str, Form()],
     org_role: Annotated[OrgRole, Form()] = OrgRole.MEMBER,
     space_role: Annotated[list[str] | None, Form()] = None,
+    group: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
     target = f"{org_url(org)}/-/members"
-    # One menu per space: "<id>:<role>", or empty for no access.
+    # One menu per space: "<id>:<role>", or empty for no access. One box per group: its id.
     chosen = dict(value.split(":", 1) for value in space_role or [] if ":" in value)
     try:
         created = invitations.invite(
-            page.db, actor, org, email=email, org_role=org_role, space_roles=chosen
+            page.db,
+            actor,
+            org,
+            email=email,
+            org_role=org_role,
+            space_roles=chosen,
+            group_ids=group or [],
         )
     except SynaptaneError as error:
         return failure(target, page, error)
@@ -130,15 +137,13 @@ def invitation_page(page: WebPage, token: str) -> Response:
     from synaptane.storage.models import Organization
 
     org = page.db.get(Organization, invitation.org_id)
-    inviter, granted = invitations.describe(page.db, invitation)
     return page.render(
         "invite.html",
         invitation=invitation,
         org=org,
         token=token,
         error=None,
-        inviter=inviter,
-        granted=granted,
+        offer=invitations.describe(page.db, invitation),
     )
 
 
@@ -176,6 +181,7 @@ def invitation_accept(
             token=token,
             error=error,
             form={"username": username, "display_name": display_name},
+            offer=invitations.describe(page.db, invitation) if invitation else None,
         )
     return sign_in(page, user, "/", "Welcome to Synaptane!")
 

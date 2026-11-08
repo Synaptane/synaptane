@@ -37,6 +37,14 @@
       </ul>
     </fieldset>
     {% endif %}
+    {% if org_groups %}
+    <fieldset class="choice-list" data-test="invite-groups" aria-describedby="invite-groups-help"><legend>{{ _("Groups (optional)") }}</legend>
+      {% for entry in org_groups %}
+      <label class="checkbox"><input type="checkbox" name="group" value="{{ entry.group.id }}"><span class="checkbox-detail"><span>{{ entry.group.name }}</span><span class="muted">{% for item, role in entry.spaces %}{{ _("{role} on {space}", role=(_("Reader") if role == "reader" else _("Contributor")), space=item.name) }}{% if item.restricted %} ({{ _("restricted") }}){% endif %}{% if not loop.last %} · {% endif %}{% else %}{{ _("Opens no space yet") }}{% endfor %}</span></span></label>
+      {% endfor %}
+    </fieldset>
+    <p class="muted" id="invite-groups-help">{{ _("The person joins the checked groups as soon as they are a member of the organization. On each space, they get the highest of the role chosen above, the roles of their groups and the default role.") }}</p>
+    {% endif %}
     <button class="button button-primary" type="submit">{{ _("Invite") }}</button>
     <p class="muted">{{ _("If the address already has an account, access is granted at once. Otherwise, a link lets them create the account.") }}{% if not mail_ready %} {{ _("As email sending is not configured, the link will be shown to you so you can pass it on.") }}{% endif %}</p>
   </form>
@@ -48,6 +56,8 @@
     {% for invitation in invitations %}
     <article class="card token-card">
       <div class="token-head"><h3>{{ invitation.email }}</h3><span class="badge badge-quiet">{{ _("Administrator") if invitation.org_role == 'admin' else _("Member") }}</span></div>
+      {% set joining = invitation_groups.get(invitation.id, []) %}
+      {% if joining %}<p class="muted" data-test="invitation-groups">{{ _(pl(joining|length, "Group: {names}", "Groups: {names}"), names=joining|map(attribute="name")|join(", ")) }}</p>{% endif %}
       <div class="token-foot"><span>{{ _("Expires") }} {{ when(invitation.expires_at, "date") }}</span>
         {{ action("/o/" ~ org.slug ~ "/-/invitations/" ~ invitation.id ~ "/revoke", _("Cancel"), confirm=_("Cancel the invitation for {email}?", email=invitation.email), kind="danger") }}</div>
     </article>

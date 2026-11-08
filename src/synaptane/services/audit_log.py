@@ -210,6 +210,8 @@ FIELDS = {
     "status": Field(_value("status")),
     "removed": Field(_flag("removed", Label("Text removed"))),
     "previous_name": Field(_value("previous", "Formerly: {value}")),
+    # The groups an invitation makes the person join (their names at the time).
+    "invited_groups": Field(_value("groups", "Groups: {value}")),
 }
 
 # Author of an event without an account (`actor_id` empty).
@@ -234,9 +236,13 @@ ACTIONS: dict[str, Kind] = {
     "org.member_removed": Kind("members", Label("Removed from the organization"), ("account",)),
     "space.member_set": Kind("members", Label("Space role set"), ("account", "role")),
     "space.member_removed": Kind("members", Label("Removed from the space"), ("account",)),
-    "org.invitation_created": Kind("members", Label("Invitation sent"), ("email", "role")),
+    "org.invitation_created": Kind(
+        "members", Label("Invitation sent"), ("email", "role", "invited_groups")
+    ),
     "org.member_invited": Kind(
-        "members", Label("Existing account added by invitation"), ("account", "role")
+        "members",
+        Label("Existing account added by invitation"),
+        ("account", "role", "invited_groups"),
     ),
     "org.invitation_revoked": Kind("members", Label("Invitation revoked"), ("email",)),
     "org.invitation_accepted": Kind(

@@ -1,4 +1,4 @@
-"""REST API: SSO login providers (super-admin) and organization webhooks."""
+"""REST API: SSO login providers (super-admin), organization webhooks and invitations."""
 
 from datetime import datetime
 from uuid import UUID
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from synaptane.core.access import OrgRole, SpaceRole
 from synaptane.core.errors import not_found
 from synaptane.services import invitations, organizations, spaces, sso, webhooks
-from synaptane.storage.models import SSOProvider, Webhook
+from synaptane.storage.models import Group, SSOProvider, Webhook
 
 from .routes import Box, CurrentActor, DbSession
 
@@ -197,6 +197,17 @@ class InvitationIn(BaseModel):
     spaces: dict[str, SpaceRole] = Field(
         default_factory=dict, description="Space identifier (slug) → role"
     )
+    groups: list[UUID] = Field(
+        default_factory=list,
+        description="Groups of the organization to join (`id`, from GET "
+        "/organizations/{org}/groups): right away for an existing account, on acceptance "
+        "otherwise",
+    )
+
+
+class InvitationGroupOut(BaseModel):
+    id: UUID
+    name: str
 
 
 class InvitationOut(BaseModel):
@@ -208,14 +219,30 @@ class InvitationOut(BaseModel):
         default=None, description="Link to pass on, shown only once (account to create)"
     )
     granted: bool = Field(default=False, description="Existing account: access granted right away")
+    groups: list[InvitationGroupOut] = Field(
+        default_factory=list,
+        description="Groups joined on acceptance, by name (a deleted group is no longer listed)",
+    )
+
+
+def _groups_out(found: list[Group]) -> list[InvitationGroupOut]:
+    return [InvitationGroupOut(id=group.id, name=group.name) for group in found]
 
 
 @router.get("/organizations/{org}/invitations", tags=["invitations"])
 def list_invitations(org: str, session: DbSession, actor: CurrentActor) -> list[InvitationOut]:
     found = organizations.get_organization(session, actor, org)
+    pending = invitations.pending(session, actor, found)
+    joined = invitations.invited_groups(session, (i.id for i in pending))
     return [
-        InvitationOut(id=i.id, email=i.email, org_role=i.org_role, expires_at=i.expires_at)
-        for i in invitations.pending(session, actor, found)
+        InvitationOut(
+            id=i.id,
+            email=i.email,
+            org_role=i.org_role,
+            expires_at=i.expires_at,
+            groups=_groups_out(joined.get(i.id, [])),
+        )
+        for i in pending
     ]
 
 
@@ -237,6 +264,7 @@ def create_invitation(
         email=body.email,
         org_role=body.org_role,
         space_roles={str(by_slug[s].id): role.value for s, role in body.spaces.items()},
+        group_ids=body.groups,
     )
     if created.invitation is None:
         return InvitationOut(
@@ -245,6 +273,7 @@ def create_invitation(
             org_role=body.org_role,
             expires_at=None,
             granted=True,
+            groups=_groups_out(created.groups),
         )
     return InvitationOut(
         id=created.invitation.id,
@@ -252,6 +281,7 @@ def create_invitation(
         org_role=created.invitation.org_role,
         expires_at=created.invitation.expires_at,
         link=f"{_public_url(request)}/invite/{created.token}",
+        groups=_groups_out(created.groups),
     )
 
 

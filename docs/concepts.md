@@ -78,6 +78,9 @@ The next morning, the page shows in the wiki and the assistant finds it through 
 - Adding someone to a space (or inviting them) makes them a member of its organization: with
   a default role, they then also get it on every space of the organization that is not
   restricted. Removing them from a space that is not restricted leaves them the default role.
+- An invitation can also name groups of its organization: on accepting, the person becomes a
+  member of the organization, then of these groups. A group deleted in the meantime is not
+  joined; a group of another organization can never be named.
 - A personal token or an OAuth connection never has more rights than its owner. It can be
   limited to reading and to some spaces; a limited token administers nothing.
 - Through MCP, a super admin only reaches the spaces they are actually a member of (or whose

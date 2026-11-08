@@ -328,8 +328,8 @@ Voir [Webhooks](../admin/webhooks.fr.md) pour le format et la signature.
 
 | Méthode et chemin | Rôle |
 |---|---|
-| `GET /organizations/{org}/invitations` | Invitations en attente : `id`, `email`, `org_role`, `expires_at` |
-| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}}` (201). Renvoie le `link` à transmettre, une seule fois ; `granted: true` si l'adresse avait déjà un compte (accès donnés aussitôt). 30 par organisation et par heure au plus (429 au-delà) |
+| `GET /organizations/{org}/invitations` | Invitations en attente : `id`, `email`, `org_role`, `expires_at`, `groups` (`id` et `name` des groupes rejoints à l'acceptation ; un groupe supprimé depuis n'y figure plus) |
+| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}, "groups": ["<id>"]}` (201). `groups` : identifiants de groupes de l'organisation (`GET /organizations/{org}/groups`), rejoints à l'acceptation, une fois membre ; un groupe inconnu, ou d'une autre organisation, est refusé (404). Renvoie le `link` à transmettre, une seule fois ; `granted: true` si l'adresse avait déjà un compte (accès donnés et groupes rejoints aussitôt). 30 par organisation et par heure au plus (429 au-delà) |
 | `DELETE /organizations/{org}/invitations/{id}` | Annule (204) |
 
 ## MCP

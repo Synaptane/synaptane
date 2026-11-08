@@ -689,9 +689,11 @@ class MailSettings(Base):
 
 
 class Invitation(Base):
-    """Invitation to join an organization (and spaces), via a single-use link."""
+    """Invitation to join an organization (and spaces, and groups), via a single-use link."""
 
     __tablename__ = "invitations"
+    # Target of the foreign key that keeps its groups in its organization.
+    __table_args__ = (UniqueConstraint("id", "org_id"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
@@ -706,6 +708,27 @@ class Invitation(Base):
     expires_at: Mapped[datetime]
     accepted_at: Mapped[datetime | None]
     accepted_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class InvitationGroup(Base):
+    """A group the invited person joins on acceptance, always of the invitation's
+    organization: deleting the group or the invitation removes it."""
+
+    __tablename__ = "invitation_groups"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["invitation_id", "org_id"],
+            ["invitations.id", "invitations.org_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "org_id"], ["groups.id", "groups.org_id"], ondelete="CASCADE"
+        ),
+    )
+
+    invitation_id: Mapped[UUID] = mapped_column(primary_key=True)
+    group_id: Mapped[UUID] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[UUID]
 
 
 class PasswordReset(Base):

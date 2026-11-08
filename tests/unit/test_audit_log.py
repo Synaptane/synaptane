@@ -215,6 +215,7 @@ EVERYTHING = {
     "reason": "interrupted",
     "status": "500",
     "group": "RH",
+    "groups": "RH, Direction",
     "previous": "Ressources humaines",
     "token": SECRET,
     "password": SECRET,
@@ -327,6 +328,23 @@ def test_group_events_in_french() -> None:
     )
     for action in ("group.created", "group.deleted", "group.space_role_set"):
         assert audit_log.ACTIONS[action].family == "members"  # shown to organization admins
+
+
+def test_invitation_events_say_their_groups() -> None:
+    """The groups an invitation makes the person join, by their names at the time; none
+    before groups (or without any): nothing more is shown."""
+    assert labels(
+        audit_log.describe(
+            event("org.invitation_created", email="z@x.fr", role="member", groups="Direction, RH"),
+            None,
+        )
+    )[:4] == ["Invitation envoyée", "z@x.fr", "Membre", "Groupes\xa0: Direction, RH"]
+    assert labels(
+        audit_log.describe(event("org.member_invited", username="zoe", role="admin"), None)
+    )[:3] == ["Compte existant ajouté par invitation", "@zoe", "Administrateur"]
+    assert labels(
+        audit_log.describe(event("org.member_invited", username="zoe", groups="RH"), None)
+    ) == ["Compte existant ajouté par invitation", "@zoe", "Groupes\xa0: RH", "Système"]
 
 
 def test_the_author_of_an_event_without_an_account() -> None:
