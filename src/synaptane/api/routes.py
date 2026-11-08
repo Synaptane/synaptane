@@ -5,7 +5,7 @@ Organizations and spaces are referred to by their slugs: `/organizations/acme/sp
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
@@ -102,11 +102,18 @@ class UserUpdate(BaseModel):
     is_superadmin: bool | None = None
 
 
+DefaultRole = Literal["none", "reader", "contributor"]
+
+
 class OrgOut(BaseModel):
     slug: str
     name: str
     description: str
     role: OrgRole | None = Field(description="Role of the calling account in the organization.")
+    default_space_role: DefaultRole = Field(
+        description="Role of every member on every space without being added to it, "
+        "restricted spaces excepted"
+    )
 
     @classmethod
     def of(cls, org: Organization, actor: Actor) -> "OrgOut":
@@ -115,6 +122,7 @@ class OrgOut(BaseModel):
             name=org.name,
             description=org.description,
             role=actor.access.org_roles.get(org.id),
+            default_space_role=cast(DefaultRole, org.default_space_role),
         )
 
 
@@ -128,6 +136,10 @@ class OrgCreate(BaseModel):
 class OrgUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    default_space_role: DefaultRole | None = Field(
+        default=None,
+        description="none, reader or contributor: role of every member on every space",
+    )
 
 
 class SpaceOut(BaseModel):
@@ -141,6 +153,7 @@ class SpaceOut(BaseModel):
         description="Default review cadence for pages (6m, 1y…); empty: never"
     )
     role: SpaceRole | None = Field(description="Calling account's effective role in the space.")
+    restricted: bool = Field(description="The organization's default role does not apply")
 
     @classmethod
     def of(cls, space: Space, actor: Actor) -> "SpaceOut":
@@ -153,6 +166,7 @@ class SpaceOut(BaseModel):
             branch=space.branch,
             review_every=space.review_every or "",
             role=spaces.role_in(actor, space),
+            restricted=space.restricted,
         )
 
 
@@ -172,6 +186,9 @@ class SpaceUpdate(BaseModel):
     review_every: str | None = Field(
         default=None,
         description="Default review cadence (90d, 6m, 1y, never); empty: never",
+    )
+    restricted: bool | None = Field(
+        default=None, description="Ignore the organization's default role"
     )
 
 

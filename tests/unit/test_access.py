@@ -1,9 +1,22 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import CheckConstraint
 
-from synaptane.core.access import Access, Action, OrgRole, SpaceRole, can, require
+from synaptane.core.access import (
+    DEFAULT_ROLES,
+    NO_DEFAULT_ROLE,
+    Access,
+    Action,
+    OrgRole,
+    SpaceRole,
+    can,
+    effective_role,
+    higher_role,
+    require,
+)
 from synaptane.core.errors import SynaptaneError
+from synaptane.storage.models import Organization
 
 ORG, OTHER_ORG = uuid4(), uuid4()
 SPACE, OTHER_SPACE = uuid4(), uuid4()
@@ -71,3 +84,54 @@ def test_inbox_only_connection_deposits_but_does_not_contribute() -> None:
     assert not can(limited, Action.CONTRIBUTE_SPACE, **where)
     reader = access(space_roles={SPACE: SpaceRole.READER})
     assert not can(reader, Action.DEPOSIT_SPACE, **where)
+
+
+R, C = SpaceRole.READER, SpaceRole.CONTRIBUTOR
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "higher"),
+    [(None, None, None), (R, None, R), (None, C, C), (R, C, C), (C, R, C), (R, R, R)],
+)
+def test_higher_role(
+    first: SpaceRole | None, second: SpaceRole | None, higher: SpaceRole | None
+) -> None:
+    assert higher_role(first, second) is higher
+
+
+@pytest.mark.parametrize(
+    ("explicit", "org_default", "restricted", "effective"),
+    [
+        # No default role: only the role given in the space (behavior before 1.12).
+        (None, "none", False, None),
+        (R, "none", False, R),
+        (C, "none", False, C),
+        # The higher of the given role and the default role.
+        (None, "reader", False, R),
+        (R, "reader", False, R),
+        (C, "reader", False, C),
+        (None, "contributor", False, C),
+        (R, "contributor", False, C),
+        (C, "contributor", False, C),
+        # A restricted space ignores the default role.
+        (None, "reader", True, None),
+        (None, "contributor", True, None),
+        (R, "contributor", True, R),
+        (C, "reader", True, C),
+    ],
+)
+def test_effective_role(
+    explicit: SpaceRole | None, org_default: str, restricted: bool, effective: SpaceRole | None
+) -> None:
+    assert effective_role(explicit, org_default, restricted) is effective
+
+
+def test_default_roles_match_the_database_constraint() -> None:
+    [check] = [
+        c
+        for c in Organization.__table__.constraints  # type: ignore[attr-defined]
+        if isinstance(c, CheckConstraint) and c.name == "ck_organizations_default_space_role"
+    ]
+    listed = ", ".join(f"'{role}'" for role in DEFAULT_ROLES)
+    assert str(check.sqltext) == f"default_space_role IN ({listed})"
+    assert DEFAULT_ROLES[0] == NO_DEFAULT_ROLE

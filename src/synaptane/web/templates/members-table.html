@@ -17,6 +17,8 @@
               <button class="button button-small" type="submit">{{ _("Change") }}</button>
             </form>
             {% else %}{{ dict(role_labels)[member_role] }}{% endif %}
+            {% set note = (member_notes|default({})).get(member.username) %}
+            {% if note %}<br><span class="muted" data-test="member-note">{{ _("Organization administrator") if note == 'admin' else _("Contributor, by default") }}</span>{% endif %}
           </td>
           {% if manage %}<td class="cell-actions">{{ action(members_url ~ "/" ~ member.username ~ "/remove", _("Remove"), confirm=_("Remove {name}?", name=member.display_name), kind="danger") }}</td>{% endif %}
         </tr>

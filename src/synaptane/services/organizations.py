@@ -4,7 +4,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from synaptane.core import names
-from synaptane.core.access import Action, OrgRole, can, require
+from synaptane.core.access import DEFAULT_ROLES, Action, OrgRole, can, require
 from synaptane.core.errors import conflict, invalid, not_found
 from synaptane.services import Actor, audit
 from synaptane.storage.models import Organization, OrgMember, Space, SpaceMember, User
@@ -56,8 +56,19 @@ def update_organization(
     *,
     name: str | None = None,
     description: str | None = None,
+    default_space_role: str | None = None,
 ) -> Organization:
+    """`default_space_role`: role of every member on every space of the organization without
+    being added to it (`none`, `reader`, `contributor`), restricted spaces excepted."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
+    if default_space_role is not None:
+        if default_space_role not in DEFAULT_ROLES:
+            raise invalid("Unknown default role: none, reader or contributor.")
+        if default_space_role != org.default_space_role:
+            org.default_space_role = default_space_role
+            audit(session, actor, "org.default_space_role", org_id=org.id, role=default_space_role)
+    if name is None and description is None:
+        return org
     if name is not None:
         org.name = names.display_name(name)
     if description is not None:

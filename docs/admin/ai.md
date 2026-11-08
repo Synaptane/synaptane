@@ -311,7 +311,8 @@ A routine is made of:
     manual change there will be replaced: the page says so in its footer;
   - **inbox items** (10 at most per run), one per fix to make, with the pages concerned: the
     nightly tidy-up handles them with its safeguards (deletion cap, merge, undo);
-  - an **email** to the organization's administrators, or to all the space's members: only
+  - an **email** to the organization's administrators, or to all the space's members (those
+    who access it through the organization's default role included): only
     to a verified address, to active accounts that can read the space and have not unchecked
     "Receive emails from the routines of my spaces" in **My account** (a preference separate
     from tidy-up notices, on by default, recalled in every email);

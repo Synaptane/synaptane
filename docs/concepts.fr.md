@@ -54,6 +54,18 @@ la recherche.
 | Lecteur | Espace | Lire et chercher. Un lecteur ne dépose pas dans l'inbox. |
 
 - Un compte peut avoir des rôles dans plusieurs espaces de plusieurs organisations.
+- **Rôle par défaut.** Une organisation peut donner à chacun de ses membres un rôle sur
+  chacun de ses espaces, présents et à venir, sans les y ajouter un par un (**Paramètres** de
+  l'organisation, « Rôle par défaut dans les espaces » : aucun accès, la valeur par défaut,
+  lecteur ou contributeur). Le rôle effectif d'un membre est le plus élevé entre le rôle
+  donné dans l'espace et le rôle par défaut. Un espace **restreint** (**Paramètres → Membres**
+  de l'espace, pour les ressources humaines ou la direction) ignore le rôle par défaut : seuls
+  les membres qui y sont ajoutés, et les administrateurs de l'organisation, y accèdent. Le
+  rôle par défaut s'applique partout où l'accès est vérifié : interface web et téléchargements,
+  recherche (y compris sémantique), API REST, MCP, e-mails. Personne n'atteint jamais les espaces
+  d'une organisation dont il n'est pas membre, et un jeton limité à certains espaces, à la
+  lecture ou à l'inbox reste limité. Les changements du rôle par défaut et de la restriction
+  sont inscrits au journal d'audit.
 - Un jeton personnel ou une connexion OAuth n'a jamais plus de droits que son propriétaire.
   Il peut être limité à la lecture et à certains espaces ; un jeton limité n'administre rien.
 - Par le MCP, un super-admin n'atteint que les espaces dont il est réellement membre (ou dont

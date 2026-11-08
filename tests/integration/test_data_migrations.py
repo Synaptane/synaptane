@@ -10,7 +10,9 @@ rules (CHANGELOG):
 - 0014: account linking by e-mail stays enabled for GitHub and Google only, providers that
   verify addresses seriously;
 - 0022: existing providers keep their automatic account creation (only the default for new
-  ones changes), with no domain restriction.
+  ones changes), with no domain restriction;
+- 0029: existing organizations give no default role in their spaces, and no space is
+  restricted: nobody gains access.
 
 Same principle for every future migration that touches data.
 """
@@ -19,8 +21,10 @@ from collections.abc import Callable
 from datetime import datetime
 from uuid import uuid4
 
+import pytest
 from alembic import command
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import IntegrityError
 
 from synaptane.storage.db import alembic_config
 
@@ -91,5 +95,54 @@ def test_data_migrations_on_an_instance_in_service(new_database: Callable[[], st
         assert verified["grace"] is None  # no address: nothing to verify
         assert links == LINK_BY_EMAIL
         assert created == AUTO_CREATE and domains == [[]] * len(AUTO_CREATE)
+    finally:
+        engine.dispose()
+
+
+def test_default_role_migration_keeps_access_unchanged(new_database: Callable[[], str]) -> None:
+    """0029: existing organizations get no default role and existing spaces are not
+    restricted (access stays what it was); the constraint refuses any other role; the
+    migration goes down and up again."""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0028")
+    org, space = uuid4(), uuid4()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO organizations (id, slug, name, description, created_at) "
+                    "VALUES (:id, 'acme', 'Acme', '', now())"
+                ),
+                {"id": org},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO spaces (id, org_id, slug, name, description, branch, "
+                    "created_at, sync_status, conflict_paths, tidy_enabled, tidy_time, "
+                    "tidy_timezone, embeddings_enabled) VALUES (:id, :org, 'rh', 'RH', '', "
+                    "'main', now(), 'never', '[]', true, '02:00', 'UTC', false)"
+                ),
+                {"id": space, "org": org},
+            )
+        command.upgrade(config, "0029")
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT default_space_role FROM organizations")) == (
+                "none"
+            )
+            assert connection.scalar(text("SELECT restricted FROM spaces")) is False
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(text("UPDATE organizations SET default_space_role = 'admin'"))
+        command.downgrade(config, "0028")
+        with engine.connect() as connection:
+            columns = connection.scalars(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name IN ('organizations', 'spaces')"
+                )
+            ).all()
+        assert "default_space_role" not in columns and "restricted" not in columns
+        command.upgrade(config, "head")
     finally:
         engine.dispose()

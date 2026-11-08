@@ -511,6 +511,14 @@ groups:
 Ajouter quelqu'un à un espace en fait automatiquement un membre simple de l'organisation.
 Le retirer de l'organisation lui retire aussi ses espaces.
 
+Par défaut, un membre n'accède qu'aux espaces où il est ajouté. Pour donner d'un coup à
+chaque membre un rôle sur tous les espaces de l'organisation, choisissez un **rôle par défaut
+dans les espaces** (lecteur ou contributeur) dans les **Paramètres** de l'organisation :
+chaque membre a alors le plus élevé entre ce rôle et celui donné dans un espace. Marquez un
+espace **restreint** (**Paramètres → Membres** de l'espace) pour le réserver à ses propres
+membres, pour les ressources humaines ou la direction ; la page des membres d'un espace
+montre qui y accède par défaut et qui y a été ajouté.
+
 ## Premiers pas
 
 Au premier démarrage, la page d'accueil du super-admin rappelle ces étapes.
@@ -523,9 +531,10 @@ Au premier démarrage, la page d'accueil du super-admin rappelle ces étapes.
    - **Membres** : ajouter, nommer les administrateurs ;
    - **Intelligence artificielle** : le fournisseur du rangement nocturne ;
    - **Recherche sémantique** et **Webhooks**, facultatifs ;
-   - **Paramètres** : nom, description, suppression.
+   - **Paramètres** : nom, description, rôle par défaut dans les espaces, suppression.
 3. Espace, onglet **Paramètres** : **Dépôt Git** (adresse, accès, webhook, état et conflits),
-   **Membres** (lecteur ou contributeur), **Rangement** (heure, fuseau, modèle),
+   **Membres** (lecteur ou contributeur, espace restreint), **Rangement** (heure, fuseau,
+   modèle),
    **Recherche sémantique** et **Général**.
 
 Une suppression d'espace ou d'organisation demande de retaper son identifiant.

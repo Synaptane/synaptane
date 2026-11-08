@@ -496,6 +496,13 @@ groups:
 Adding someone to a space automatically makes them a plain member of the organization.
 Removing them from the organization also removes them from its spaces.
 
+By default, a member only accesses the spaces they are added to. To give every member a role
+on all the spaces of the organization at once, choose a **default role in the spaces**
+(reader or contributor) in the organization's **Settings**: each member then has the higher
+of that role and the one given in a space. Mark a space **restricted** (space **Settings →
+Members**) to keep it to its own members, for human resources or management; the members
+page of a space shows who accesses it by default and who was added to it.
+
 ## First steps
 
 On first start, the super admin's home page lists these steps.
@@ -508,9 +515,10 @@ On first start, the super admin's home page lists these steps.
    - **Members**: add people, choose admins;
    - **Artificial intelligence**: the provider of the nightly tidy-up;
    - **Semantic search** and **Webhooks**, optional;
-   - **Settings**: name, description, deletion.
+   - **Settings**: name, description, default role in the spaces, deletion.
 3. On a space, the **Settings** tab: **Git repository** (address, access, webhook, status
-   and conflicts), **Members** (reader or contributor), **Tidy-up** (time, time zone, model),
+   and conflicts), **Members** (reader or contributor, restricted space), **Tidy-up** (time,
+   time zone, model),
    **Semantic search** and **General**.
 
 Deleting a space or an organization requires typing its identifier again.

@@ -83,7 +83,7 @@ the space). An organization admin has all rights on its spaces.
 | `GET /me/tokens` | Personal tokens: `id`, `name`, `hint` (last 4 characters), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
 | `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201); `days: null`: no expiry. Returns the `token`, once only |
 | `DELETE /me/tokens/{id}` | Revokes (204) |
-| `GET /spaces` | All visible spaces: `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` |
+| `GET /spaces` | All visible spaces: `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effective: given in the space, the organization's default role, or admin), `restricted` |
 
 ## Accounts (super admin)
 
@@ -97,10 +97,10 @@ the space). An organization admin has all rights on its spaces.
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET /organizations` | member | Visible organizations: `slug`, `name`, `description`, `role` |
+| `GET /organizations` | member | Visible organizations: `slug`, `name`, `description`, `role`, `default_space_role` (`none`, `reader` or `contributor`: role of every member on every space without being added to it, restricted spaces excepted) |
 | `POST /organizations` | super admin | `{"slug": …, "name": …, "description": …, "join": true}` (201); `join`: the creator becomes its admin |
 | `GET /organizations/{org}` | member | Details |
-| `PATCH /organizations/{org}` | admin | `name`, `description` |
+| `PATCH /organizations/{org}` | admin | `name`, `description`, `default_space_role` (`none`, `reader`, `contributor`; 422 otherwise) |
 | `DELETE /organizations/{org}` | super admin | Deletes an organization that has no space (204; 400 if any remain) |
 | `GET /organizations/{org}/members` | member | `username`, `display_name`, `role` (`admin` or `member`) |
 | `PUT /organizations/{org}/members/{username}` | admin | `{"role": "member"}`: adds, or changes the role |
@@ -112,10 +112,10 @@ the space). An organization admin has all rights on its spaces.
 |---|---|---|
 | `GET /organizations/{org}/spaces` | member | Visible spaces of the organization |
 | `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main"}` (201) |
-| `GET …/spaces/{space}` | reader | Details, with the caller's `role` and `review_every` (default review interval of the pages, `""`: never) |
-| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable). Changing `repo_url` removes the Git credentials |
+| `GET …/spaces/{space}` | reader | Details, with the caller's effective `role`, `review_every` (default review interval of the pages, `""`: never) and `restricted` (the organization's default role does not apply) |
+| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable), `restricted` (`true`: only the members added to the space, and the organization's admins, access it). Changing `repo_url` removes the Git credentials |
 | `DELETE …/spaces/{space}` | admin | Deletes the space in Synaptane; the remote repository is not touched (204) |
-| `GET …/spaces/{space}/members` | reader | `username`, `display_name`, `role` (`reader` or `contributor`) |
+| `GET …/spaces/{space}/members` | reader | Members added to the space: `username`, `display_name`, `role` (`reader` or `contributor`, the role given there). Those who access it only through the default role are not listed (`GET /organizations/{org}/members` lists them) |
 | `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}` |
 | `DELETE …/spaces/{space}/members/{username}` | admin | Removes (204) |
 | `GET …/spaces/{space}/vocation` | reader | Purpose of the space (`.synaptane/vocation.md`): `path`, `text` (`""` if it does not exist), `sha`, `pending` (waiting for the first sync), `history` (last 5 changes: `commit`, `author`, `date`, `subject`) |

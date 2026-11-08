@@ -51,6 +51,13 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    access = spaces.list_access(page.db, actor, space)
+    # Added to the space, with more through the organization: said next to their role.
+    notes = {
+        user.username: str(effective)
+        for user, given, effective in access
+        if given is not None and effective != given
+    }
     return render_space_settings(
         page,
         actor,
@@ -58,8 +65,29 @@ def space_members_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
         "members",
         "space-members.html",
         members=spaces.list_members(page.db, actor, space),
+        member_notes=notes,
+        through_org=[(user, effective) for user, given, effective in access if given is None],
+        org_default=spaces.default_role(space),
+        default_setting=space.organization.default_space_role,
         people=accounts.directory(page.db, actor) if manage else [],
     )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/access")
+def space_access(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    restricted: Annotated[bool, Form()] = False,
+) -> Response:
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    try:
+        spaces.update_space(page.db, actor, space, restricted=restricted)
+    except SynaptaneError as error:
+        return failure(space_settings_url(space, "members"), page, error)
+    return redirect(space_settings_url(space, "members"), page, "Access saved.")
 
 
 @router.get("/o/{org_slug}/{space_slug}/-/compare", response_class=HTMLResponse)

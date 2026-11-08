@@ -10,6 +10,33 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Default role in the spaces**. In the organization's **Settings**, "Default role in the
+  spaces" gives every member a role on all the spaces of the organization, present and future,
+  without adding them one by one: no access (the default), reader or contributor. A member's
+  effective role is the higher of the role given in a space and the default role;
+  organization admins keep contributing everywhere. It applies wherever access is checked:
+  web UI, search (semantic too), REST API, MCP (`list_spaces`, search across spaces, writing
+  tools), routine emails, freshness reminders. A token or a connection limited to some spaces,
+  to reading or to the inbox stays limited, and nobody reaches the spaces of an organization
+  they do not belong to. REST: `default_space_role` in `GET` and `PATCH /organizations/{org}`.
+  One migration (`0029`), applied at startup: existing organizations get "no access" and no
+  space is restricted, so nobody's access changes.
+- **Restricted spaces**. In a space's **Settings → Members**, "Restricted space" keeps it to
+  the members added to it (and the organization admins), whatever the default role: for human
+  resources or management. REST: `restricted` in `GET` and `PATCH …/spaces/{space}`, and in
+  `GET /spaces`. A restricted space shows a badge in the organization's list of spaces.
+  Changes of the default role (`org.default_space_role`) and of the restriction
+  (`space.restricted`) are written to the audit log.
+
+### Changed
+- **Members of a space**. The page now says whether the organization's default role applies,
+  then lists the members added to the space (with a note when they have more through the
+  organization), then those who access it through the organization: by default, or as its
+  administrators. `GET …/spaces/{space}/members` still lists only the members added to it.
+- **Routine emails "to the members"** also reach those who access the space through the
+  default role.
+
 ## [1.11.0] - 2026-11-06
 
 The state of the instance on one page: is the worker alive, is the last backup recent, is anything
