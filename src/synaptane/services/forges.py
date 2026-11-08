@@ -29,8 +29,12 @@ super admin, who can reach a GitLab of the local network.
 import json
 import logging
 import re
+import socket
+import ssl
+import threading
 import time
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
@@ -66,6 +70,7 @@ TIMEOUT = httpx2.Timeout(15.0, connect=5.0)  # each network operation
 CALL_SECONDS = 20.0  # one call, from the connection to the last byte of the answer
 OPERATION_SECONDS = 60.0  # the whole creation, every call included
 MAX_ANSWER = 1_000_000  # bytes read from an answer, at most
+SEARCH_PAGES = 5  # pages of 100 namespaces read, at most, when searching one
 # Tests: simulated provider APIs (`httpx2.MockTransport`). Never a real call in the tests.
 TRANSPORT: httpx2.BaseTransport | None = None
 
@@ -78,6 +83,10 @@ _GITLAB_OWNER = re.compile(rf"{_GITLAB_PART}(?:/{_GITLAB_PART})*")
 GITLAB_MAINTAINER = 40
 
 log = logging.getLogger(__name__)
+# Accounts creating a repository right now: one creation at a time per account (per server
+# process), so a double submission or a script does not start several slow creations.
+_CREATING: set[object] = set()
+_CREATING_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -213,6 +222,22 @@ class _DeadlineStream(httpcore2.NetworkStream):
         return self.stream.get_extra_info(info)
 
 
+# Name resolution has no timeout of its own: it runs here, waited for no later than the
+# deadline. A slow DNS server is left behind; its thread ends with the resolver's own timeout,
+# and at most 4 of them run at once (beyond, the wait itself reaches the deadline).
+_RESOLVER = ThreadPoolExecutor(max_workers=4, thread_name_prefix="synaptane-dns")
+
+
+def _within[T](deadline: Deadline, call: Callable[..., T], *args: Any) -> T:
+    """`call(*args)` (a name resolution), given up at the deadline: TimeoutError."""
+    future = _RESOLVER.submit(call, *args)
+    try:
+        return future.result(timeout=deadline.left(None, TimeoutError))
+    except TimeoutError:
+        future.cancel()
+        raise
+
+
 class _DeadlineBackend(httpcore2.NetworkBackend):
     def __init__(self, deadline: Deadline) -> None:
         self.backend, self.deadline = httpcore2.SyncBackend(), deadline
@@ -225,9 +250,26 @@ class _DeadlineBackend(httpcore2.NetworkBackend):
         local_address: str | None = None,
         socket_options: Any = None,
     ) -> httpcore2.NetworkStream:
-        wait = self.deadline.left(timeout, httpcore2.ConnectTimeout)
-        stream = self.backend.connect_tcp(host, port, wait, local_address, socket_options)
-        return _DeadlineStream(stream, self.deadline)
+        """Resolves `host` within the deadline, then connects to its addresses in turn (the
+        TLS certificate is still checked against the name, not the address)."""
+        try:
+            infos = _within(self.deadline, socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+        except TimeoutError:
+            raise httpcore2.ConnectTimeout("name resolution too slow") from None
+        except OSError as error:
+            raise httpcore2.ConnectError(str(error)) from None
+        failure: Exception = httpcore2.ConnectError(f"no address for {host}")
+        for *_, address in infos:
+            wait = self.deadline.left(timeout, httpcore2.ConnectTimeout)
+            try:
+                stream = self.backend.connect_tcp(
+                    str(address[0]), port, wait, local_address, socket_options
+                )
+            except httpcore2.ConnectError as error:
+                failure = error
+                continue
+            return _DeadlineStream(stream, self.deadline)
+        raise failure
 
     def connect_unix_socket(
         self, path: str, timeout: float | None = None, socket_options: Any = None
@@ -268,6 +310,7 @@ class _Api:
         self.name = PROVIDERS[provider]
         self.base, self.pin, self.rights, self.deadline = base, pin, rights, deadline
         self.headers = {"User-Agent": f"Synaptane/{__version__}", **headers}
+        self.last_headers = httpx2.Headers()  # of the last answer (pagination)
 
     def call(
         self,
@@ -282,9 +325,12 @@ class _Api:
         `optional`: None instead of an error when the answer is not a success."""
         url, headers = self.base + path, dict(self.headers)
         extensions: dict[str, str] = {}
+        self.deadline.start_call()
         if self.pin:
             try:
-                url, host, extensions = pinned_request(url)
+                url, host, extensions = _within(self.deadline, pinned_request, url)
+            except TimeoutError:
+                raise self.too_slow() from None
             except DeliveryError as error:
                 host_name = urlsplit(self.base).hostname or ""
                 if error.transient:
@@ -294,7 +340,6 @@ class _Api:
                     "admin can use it."
                 ) from None
             headers |= host
-        self.deadline.start_call()
         try:
             with client(self.deadline) as http:
                 request = http.build_request(
@@ -303,10 +348,18 @@ class _Api:
                 response = _bounded(http.send(request, stream=True), self.deadline)
         except (httpx2.TimeoutException, TimeoutError):
             raise self.too_slow() from None
-        except httpx2.HTTPError:
+        except httpx2.HTTPError as error:
+            if _certificate_refused(error):
+                raise invalid(
+                    "{provider} presented a TLS certificate that was refused (expired, "
+                    "self-signed or for another name): check the address, or the certificate "
+                    "authorities trusted by the server.",
+                    provider=self.name,
+                ) from None
             raise unavailable(
                 "{provider} cannot be reached: try again in a moment.", provider=self.name
             ) from None
+        self.last_headers = response.headers
         if response.status_code in (200, 201):
             try:
                 return response.json()
@@ -376,6 +429,20 @@ def _bounded(response: httpx2.Response, deadline: Deadline) -> httpx2.Response:
     return httpx2.Response(
         response.status_code, headers=kept, content=content, request=response.request
     )
+
+
+def _certificate_refused(error: BaseException) -> bool:
+    """A TLS certificate refused somewhere in the chain of causes."""
+    seen: BaseException | None = error
+    for _ in range(10):
+        if seen is None:
+            return False
+        if isinstance(seen, ssl.SSLCertVerificationError) or (
+            "CERTIFICATE_VERIFY_FAILED" in str(seen)
+        ):
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return False
 
 
 def _text(response: httpx2.Response) -> str:
@@ -553,16 +620,25 @@ def _namespace(api: _Api, owner: str) -> dict[str, Any]:
     found = api.call("GET", f"/namespaces/{quote(owner, safe='')}", optional=True)
     if isinstance(found, dict) and "id" in found:
         return found
-    last = owner.rsplit("/", 1)[-1]
+    last = quote(owner.rsplit("/", 1)[-1], safe="")
     not_found = _owner_not_found("gitlab", owner)
-    results = api.call("GET", f"/namespaces?search={quote(last, safe='')}", known={404: not_found})
-    for candidate in results if isinstance(results, list) else []:
-        if (
-            isinstance(candidate, dict)
-            and str(candidate.get("full_path", "")).lower() == (owner.lower())
-            and "id" in candidate
-        ):
-            return candidate
+    page = "1"
+    for _ in range(SEARCH_PAGES):
+        results = api.call(
+            "GET",
+            f"/namespaces?search={last}&per_page=100&page={page}",
+            known={404: not_found},
+        )
+        for candidate in results if isinstance(results, list) else []:
+            if (
+                isinstance(candidate, dict)
+                and str(candidate.get("full_path", "")).lower() == owner.lower()
+                and "id" in candidate
+            ):
+                return candidate
+        page = api.last_headers.get("x-next-page", "")
+        if not page.isdigit():
+            break
     raise not_found(httpx2.Response(404))
 
 
@@ -712,6 +788,50 @@ def create_space_with_repository(
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     slug = spaces.check_new_space(session, actor, org, slug=slug, name=name, branch=branch)
     new = _check(new, slug)
+    with _CREATING_LOCK:
+        if actor.user.id in _CREATING:
+            raise conflict(
+                "A repository is already being created from your account: wait until it is "
+                "done, then try again."
+            )
+        _CREATING.add(actor.user.id)
+    try:
+        return _create_space_with_repository(
+            session,
+            actor,
+            box,
+            org,
+            new,
+            slug=slug,
+            name=name,
+            description=description,
+            branch=branch,
+            restricted=restricted,
+            allow_private=allow_private,
+            public_host=public_host,
+            then=then,
+        )
+    finally:
+        with _CREATING_LOCK:
+            _CREATING.discard(actor.user.id)
+
+
+def _create_space_with_repository(
+    session: Session,
+    actor: Actor,
+    box: SecretBox,
+    org: Organization,
+    new: NewRepository,
+    *,
+    slug: str,
+    name: str,
+    description: str,
+    branch: str,
+    restricted: bool,
+    allow_private: bool,
+    public_host: str,
+    then: Callable[[Space], None] | None,
+) -> tuple[Space, CreatedRepository]:
     session.commit()
     title = f"Synaptane ({public_host})" if public_host else "Synaptane"
     created = create_repository(
@@ -764,9 +884,9 @@ def create_space_with_repository(
             exc_info=not isinstance(error, SynaptaneError | IntegrityError),
         )
         raise conflict(
-            "The repository {url} was created on {provider}, but not the space: {reason} "
+            "The repository {address} was created on {provider}, but not the space: {reason} "
             "The repository was not deleted.",
-            url=created.web_url,
+            address=created.web_url,
             provider=created.provider_name,
             reason=reason,
         ) from None

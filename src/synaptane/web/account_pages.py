@@ -411,7 +411,9 @@ def account_2fa_enable(
     try:
         secret = page.box.decrypt(base64.urlsafe_b64decode(sealed), _setup_context(actor.user.id))
     except Exception:  # noqa: BLE001 — forged, or from another account
-        return redirect("/account/2fa/setup", page, "This form has expired: start again.", "error")
+        return redirect(
+            "/account/2fa/setup", page, "This form has expired: start again.", kind="error"
+        )
     try:
         codes = two_factor.enable(page.db, page.box, actor, secret, code)
     except SynaptaneError as error:

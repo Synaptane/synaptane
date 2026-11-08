@@ -8,6 +8,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+import httpcore2
 import httpx2
 import pytest
 
@@ -163,3 +164,76 @@ def test_the_expiry_of_a_created_token_is_kept_with_it() -> None:
     assert GitCredentials(kind="https", token="t", expires="garbage").expiry is None
     assert format_day(date(2027, 11, 1), "fr") == "1er novembre 2027"
     assert format_day(date(2027, 11, 8), "en") == "November 8, 2027"
+
+
+def test_the_deadline_is_installed_behind_a_proxy_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proxies of the environment are kept, and their transport is bounded as well."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    with forges.client(forges.Deadline()) as http:
+        proxied = [t for t in http._mounts.values() if isinstance(t, httpx2.HTTPTransport)]
+        assert proxied
+        for transport in proxied:
+            assert isinstance(transport._pool, httpcore2.HTTPProxy)
+            assert isinstance(transport._pool._network_backend, forges._DeadlineBackend)
+
+
+def test_slow_name_resolution_is_cut_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`socket.create_connection` would resolve without any timeout: the backend resolves
+    within the deadline."""
+    monkeypatch.setattr(forges, "CALL_SECONDS", 0.5)
+    real = socket.getaddrinfo
+
+    def slow(host: str, *args: object, **kwargs: object) -> object:
+        if host == "slow.invalid":
+            time.sleep(2)
+        return real(host, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow)
+    gitlab = forges._Api(
+        "gitlab",
+        "http://slow.invalid:8080",
+        {},
+        pin=False,
+        rights=forges.GITLAB_RIGHTS,
+        deadline=forges.Deadline(),
+    )
+    started = time.monotonic()
+    with pytest.raises(SynaptaneError, match="did not answer in time"):
+        gitlab.call("GET", "/api/v4/user")
+    assert time.monotonic() - started < 1.8
+
+
+def test_every_address_of_a_name_is_tried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first address refuses the connection, the second one answers."""
+    server = socket.create_server(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+
+    def answer() -> None:
+        connection, _ = server.accept()
+        with connection:
+            connection.recv(65536)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+
+    threading.Thread(target=answer, daemon=True).start()
+
+    def two(host: str, *args: object, **kwargs: object) -> object:
+        # Nothing listens on 127.0.0.2 (the server is bound to 127.0.0.1 only): refused.
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.2", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", two)
+    gitlab = forges._Api(
+        "gitlab",
+        f"http://two.invalid:{port}",
+        {},
+        pin=False,
+        rights=forges.GITLAB_RIGHTS,
+        deadline=forges.Deadline(),
+    )
+    try:
+        assert gitlab.call("GET", "/api/v4/user") == {}
+    finally:
+        server.close()

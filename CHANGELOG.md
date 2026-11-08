@@ -26,7 +26,9 @@ of the target version.
   namespace on the free plan, where project access tokens do not exist) and creates nothing; a
   repository created whose access cannot be set up is still connected to the space, with a
   message giving its address, and is never deleted. Each call to the provider is abandoned
-  after 20 seconds and the whole creation after 60, without holding a database connection. A
+  after 20 seconds (name resolution included) and the whole creation after 60, without holding
+  a database connection; an account creates one repository at a time; a refused TLS
+  certificate is reported as such. A
   self-hosted GitLab must be at a public address, checked as for webhooks, except for the super
   admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`) and
   "GitHub SSH host keys updated" (`space.git_host_keys_refreshed`). REST: `create_repository`

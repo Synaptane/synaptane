@@ -2,6 +2,7 @@
 
 from typing import Annotated
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
@@ -262,11 +263,13 @@ def space_create(
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
     created = None
+    started: list[UUID] = []  # spaces whose purpose waits on disk for the first sync
     try:
         chosen = vocation.template(vocation_template) if vocation_template else None
 
         def start_with(space: Space) -> None:
             if chosen is not None:
+                started.append(space.id)  # before: a failure may come after the writing
                 vocation.start_with(page.db, actor, page.workspace, space, chosen)
 
         if repo_mode == "create":
@@ -304,6 +307,9 @@ def space_create(
             )
             start_with(space)
     except SynaptaneError as error:
+        # The space was not created after all: its pending purpose goes too.
+        for space_id in started:
+            vocation.pending_file(page.workspace.clone_path(space_id)).unlink(missing_ok=True)
         return failure(f"{org_url(org)}/-/new-space", page, error)
     if space.repo_url:
         jobs.enqueue(page.db, git_sync.SYNC, space.id)

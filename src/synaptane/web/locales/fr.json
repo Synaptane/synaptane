@@ -1943,7 +1943,6 @@
  "Synaptane creates a private, empty repository, then keeps only an access limited to it: an SSH deploy key on GitHub, a project access token on GitLab. Your token is used once and never saved.": "Synaptane crée un dépôt privé et vide, puis ne garde qu'un accès limité à ce dépôt : une clé de déploiement SSH sur GitHub, un jeton d'accès de projet sur GitLab. Votre jeton ne sert qu'une fois et n'est jamais enregistré.",
  "The GitHub token does not have the rights needed: a fine-grained token needs the Administration permission (read and write) on all the owner's repositories.": "Le jeton GitHub n'a pas les droits nécessaires : un jeton à granularité fine doit avoir la permission Administration (lecture et écriture) sur tous les dépôts du propriétaire.",
  "The GitLab token does not have the rights needed: it needs the api scope, and a role allowed to create projects in the namespace.": "Le jeton GitLab n'a pas les droits nécessaires : il lui faut la portée api, et un rôle autorisé à créer des projets dans l'espace de noms.",
- "The repository {url} was created on {provider}, but not the space: {reason} The repository was not deleted.": "Le dépôt {url} a été créé sur {provider}, mais pas l'espace : {reason} Le dépôt n'a pas été supprimé.",
  "This GitLab address is on a private or local network: only the super admin can use it.": "Cette adresse GitLab est sur un réseau privé ou local : seul le super-administrateur peut l'utiliser.",
  "Unexpected answer from the Git provider.": "Réponse inattendue du fournisseur Git.",
  "Unexpected answer from {provider} (HTTP {status}).": "Réponse inattendue de {provider} (HTTP {status}).",
@@ -1966,5 +1965,8 @@
  "GitHub: fine-grained token whose resource owner is the owner above, with access to all repositories and the Administration permission (read and write).": "GitHub : jeton à granularité fine dont le propriétaire de ressources est le propriétaire ci-dessus, avec accès à tous les dépôts et la permission Administration (lecture et écriture).",
  "GitLab: personal access token with the api scope. On GitLab.com, the namespace needs a Premium or Ultimate plan.": "GitLab : jeton d'accès personnel avec la portée api. Sur GitLab.com, l'espace de noms doit être en offre Premium ou Ultimate.",
  "Used for this creation only, never saved.": "Ne sert qu'à cette création, jamais enregistré.",
- "GitHub SSH host keys updated": "Clés d'hôte SSH de GitHub mises à jour"
+ "GitHub SSH host keys updated": "Clés d'hôte SSH de GitHub mises à jour",
+ "The repository {address} was created on {provider}, but not the space: {reason} The repository was not deleted.": "Le dépôt {address} a été créé sur {provider}, mais pas l'espace : {reason} Le dépôt n'a pas été supprimé.",
+ "A repository is already being created from your account: wait until it is done, then try again.": "Un dépôt est déjà en cours de création depuis votre compte : attendez la fin, puis réessayez.",
+ "{provider} presented a TLS certificate that was refused (expired, self-signed or for another name): check the address, or the certificate authorities trusted by the server.": "{provider} a présenté un certificat TLS refusé (expiré, auto-signé ou pour un autre nom) : vérifiez l'adresse, ou les autorités de certification reconnues par le serveur."
 }

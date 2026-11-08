@@ -10,9 +10,13 @@ self-hosted GitLab, and that the admin's token is never kept, logged, audited no
 import json
 import logging
 import socket
+import ssl
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 import httpx2
 import pytest
@@ -25,7 +29,7 @@ from synaptane.core.access import OrgRole
 from synaptane.core.errors import ErrorCode, SynaptaneError
 from synaptane.core.security import SecretBox
 from synaptane.git.credentials import GitCredentials
-from synaptane.services import accounts, forges, organizations, spaces
+from synaptane.services import accounts, forges, organizations, spaces, vocation
 from synaptane.services.git_sync import GIT_CREDENTIALS
 from synaptane.services.secrets import get_space_secret
 from synaptane.storage.db import Database
@@ -938,7 +942,7 @@ def test_gitlab_namespace_found_by_search_behind_a_decoding_proxy(
 ) -> None:
     gitlab(forge)
     del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
-    forge.routes[("GET", "/api/v4/namespaces?search=team")] = httpx2.Response(
+    forge.routes[("GET", "/api/v4/namespaces?search=team&per_page=100&page=1")] = httpx2.Response(
         200,
         json=[
             {"id": 99, "full_path": "other/team"},
@@ -954,7 +958,7 @@ def test_gitlab_search_without_the_exact_path_is_not_found(
 ) -> None:
     gitlab(forge)
     del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
-    forge.routes[("GET", "/api/v4/namespaces?search=team")] = httpx2.Response(
+    forge.routes[("GET", "/api/v4/namespaces?search=team&per_page=100&page=1")] = httpx2.Response(
         200, json=[{"id": 99, "full_path": "other/team"}]
     )
     error = refusal(lambda: create(db, box_of(client), provider="gitlab", owner="acme/team"))
@@ -1170,3 +1174,171 @@ def test_api_validation_errors_never_quote_the_values(
     detail = response.json()["detail"]
     assert detail and all(set(item) <= {"type", "loc", "msg"} for item in detail)
     assert all(item["loc"] and item["msg"] and item["type"] for item in detail)
+
+
+# --- Second check -------------------------------------------------------------------------------
+
+
+def test_web_space_not_created_after_the_repository_shows_its_address(
+    client: TestClient,
+    database: Database,
+    acme: None,
+    forge: Forge,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The purpose is written, then something fails: the message names the repository (no
+    500), and the purpose waiting on disk goes with the space."""
+    github(forge)
+    written: list[UUID] = []
+    original = vocation.start_with
+
+    def start_then_fail(session: Session, actor: Any, ws: Any, space: Space, chosen: Any) -> None:
+        original(session, actor, ws, space, chosen)
+        written.append(space.id)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(vocation, "start_with", start_then_fail)
+    login(client, "carla")
+    data = form(csrf(client, "/o/acme/-/new-space"), vocation_template="job-search")
+    response = client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/o/acme/-/new-space"
+    message = flash(client.get("/o/acme/-/new-space").text)
+    assert message is not None and message[0] == "error"
+    assert message[1].startswith("Le dépôt https://github.com/carla-gh/infra a été créé sur GitHub")
+    assert "Erreur inattendue" in message[1] and "n'a pas été supprimé" in message[1]
+    workspace = client.app.state.workspace  # type: ignore[attr-defined]
+    assert written and not vocation.pending_file(workspace.clone_path(written[0])).exists()
+    with database.session() as session:
+        assert session.scalar(select(Space)) is None
+
+
+def test_web_identifier_taken_meanwhile_shows_the_repository(
+    client: TestClient,
+    database: Database,
+    acme: None,
+    forge: Forge,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github(forge)
+
+    def race(*_: object, **__: object) -> Space:
+        raise IntegrityError("INSERT INTO spaces", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(spaces, "create_space", race)
+    login(client, "carla")
+    response = client.post(
+        "/o/acme/-/spaces", data=form(csrf(client, "/o/acme/-/new-space")), follow_redirects=False
+    )
+    assert response.status_code == 303
+    message = flash(client.get("/o/acme/-/new-space").text)
+    assert message is not None and message[0] == "error"
+    assert "https://github.com/carla-gh/infra" in message[1]
+    assert "L'espace « infra » existe déjà" in message[1].replace(" ", " ")
+
+
+def test_one_creation_at_a_time_per_account(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    github(forge)
+    carla = accounts.get_user(db, "carla")
+    forges._CREATING.add(carla.id)
+    try:
+        error = refusal(lambda: create(db, box_of(client)))
+    finally:
+        forges._CREATING.discard(carla.id)
+    assert error.code is ErrorCode.CONFLICT and "already being created" in error.message
+    assert forge.seen == []
+    create(db, box_of(client))  # released: the next one goes through
+    assert carla.id not in forges._CREATING
+
+
+def test_slow_name_resolution_of_a_self_hosted_gitlab_is_cut_off(
+    db: Session, client: TestClient, acme: None, forge: Forge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(forges, "CALL_SECONDS", 0.5)
+
+    def slow(host: str, *args: Any, **kwargs: Any) -> Any:
+        if "slow" not in str(host):
+            return REAL_GETADDRINFO(host, *args, **kwargs)
+        time.sleep(2)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("140.82.112.3", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow)
+    started = time.monotonic()
+    error = refusal(
+        lambda: create(db, box_of(client), provider="gitlab", gitlab_url="https://slow.example")
+    )
+    assert time.monotonic() - started < 1.8
+    assert error.message == "GitLab did not answer in time: try again in a moment."
+    assert forge.seen == []
+
+
+def test_namespace_search_follows_the_pages(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge)
+    del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
+    forge.routes[("GET", "/api/v4/namespaces?search=team&per_page=100&page=1")] = httpx2.Response(
+        200, json=[{"id": 99, "full_path": "other/team"}], headers={"x-next-page": "2"}
+    )
+    forge.routes[("GET", "/api/v4/namespaces?search=team&per_page=100&page=2")] = httpx2.Response(
+        200, json=[{"id": 12, "full_path": "acme/team"}], headers={"x-next-page": ""}
+    )
+    create(db, box_of(client), provider="gitlab", owner="acme/team")
+    assert forge.body("POST", "/api/v4/projects")["namespace_id"] == 12
+
+
+def test_namespace_search_stops_after_a_few_pages(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge)
+    del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
+    for page in range(1, 10):
+        forge.routes[("GET", f"/api/v4/namespaces?search=team&per_page=100&page={page}")] = (
+            httpx2.Response(200, json=[], headers={"x-next-page": str(page + 1)})
+        )
+    error = refusal(lambda: create(db, box_of(client), provider="gitlab", owner="acme/team"))
+    assert error.message.startswith("Namespace not found on GitLab")
+    assert len([p for p in forge.paths() if "search=" in p]) == forges.SEARCH_PAGES
+
+
+def test_refused_certificate_is_said_as_such(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    def bad_certificate(request: httpx2.Request) -> httpx2.Response:
+        cause = ssl.SSLCertVerificationError("certificate verify failed: self-signed")
+        raise httpx2.ConnectError("[SSL] handshake", request=request) from cause
+
+    forge.routes[("GET", "/api/v4/user")] = bad_certificate
+    error = refusal(
+        lambda: create(
+            db, box_of(client), provider="gitlab", gitlab_url="https://git.lan", allow_private=True
+        )
+    )
+    assert error.code is ErrorCode.INVALID
+    assert error.message.startswith("GitLab presented a TLS certificate that was refused")
+
+
+def test_token_expiry_warns_only_when_close(client: TestClient, acme: None, forge: Forge) -> None:
+    gitlab(forge)
+    soon = (date.today() + timedelta(days=10)).isoformat()
+    forge.routes[("POST", "/api/v4/projects/42/access_tokens")] = httpx2.Response(
+        201, json={"token": PROJECT_TOKEN, "expires_at": soon}
+    )
+    login(client, "carla")
+    data = form(csrf(client, "/o/acme/-/new-space"), provider="gitlab", repo_owner="acme/team")
+    client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
+    page = client.get("/o/acme/infra/-/git").text
+    assert 'class="notice notice-warning" data-test="git-token-expiry" data-soon="true"' in page
+
+
+def test_token_expiry_far_away_is_only_an_information(
+    client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge)  # expires on 2027-11-08
+    login(client, "carla")
+    data = form(csrf(client, "/o/acme/-/new-space"), provider="gitlab", repo_owner="acme/team")
+    client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
+    page = client.get("/o/acme/infra/-/git").text
+    assert 'class="muted" data-test="git-token-expiry" data-soon="false"' in page

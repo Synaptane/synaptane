@@ -52,7 +52,9 @@ do far more than the sync needs, so it is not kept:
   GitHub's API over HTTPS (`api.github.com/meta`): there is nothing to compare by hand. If
   GitHub changes them, the sync refused by the host key check reads them again from the same
   API, saves them and tries once more (audit log: **GitHub SSH host keys updated**); keys seen
-  over SSH are never trusted as such. The server must reach github.com on SSH port 22.
+  over SSH are never trusted as such. This applies to **every** SSH access to github.com,
+  including a deploy key and host keys entered by hand: the host keys you pasted are then
+  replaced by the ones GitHub's API publishes. The server must reach github.com on SSH port 22.
 - **GitLab**: a project access token named `Synaptane`, with the `read_repository` and
   `write_repository` scopes and the **Maintainer** role (GitLab protects the default branch on
   the first push), valid for the longest the instance allows: 365 days by default. Its expiry
@@ -94,8 +96,12 @@ in every edition, and the plan is not checked.
 Nothing is created if the token is refused (invalid, expired or revoked) or lacks the rights,
 if the owner or the namespace does not exist, if the name is already taken, if the provider
 cannot be reached, answers too slowly or limits the number of requests. Each call to the
-provider is abandoned after 20 seconds, connection and whole answer included, and the whole
-creation after 60 seconds. The message says which.
+provider is abandoned after 20 seconds, name resolution, connection and whole answer
+included, and the whole creation after 60 seconds. An account creates one repository at a time
+(a second request meanwhile is refused). A TLS certificate that is refused (expired,
+self-signed, for another name) is reported as such: for a self-hosted GitLab with a private
+certificate authority, add it to the server's trusted authorities (`SSL_CERT_FILE`). The
+message says which.
 
 If the repository was created but its access could not be set up, the space is still created
 on it, and the message gives the repository's address (if the space itself could not be

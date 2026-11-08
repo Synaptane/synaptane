@@ -53,6 +53,9 @@ que ce dont la synchronisation a besoin : il n'est donc pas gardé.
   main. Si GitHub les change, la synchronisation refusée par la vérification de la clé d'hôte
   les relit dans la même API, les enregistre et réessaie une fois (journal d'audit : **Clés
   d'hôte SSH de GitHub mises à jour**) ; une clé vue en SSH n'est jamais acceptée telle quelle.
+  Cela vaut pour **tout** accès SSH à github.com, y compris une clé de déploiement et des clés
+  d'hôte saisies à la main : les clés d'hôte collées sont alors remplacées par celles que
+  publie l'API de GitHub.
   Le serveur doit joindre github.com sur le port SSH 22.
 - **GitLab** : un jeton d'accès de projet nommé `Synaptane`, avec les scopes `read_repository`
   et `write_repository` et le rôle **Maintainer** (GitLab protège la branche par défaut au
@@ -96,8 +99,12 @@ d'accès de projet existent dans toutes les éditions, et l'offre n'est pas vér
 Rien n'est créé si le jeton est refusé (invalide, expiré ou révoqué) ou n'a pas les droits, si
 le propriétaire ou l'espace de noms n'existe pas, si le nom est déjà pris, si le fournisseur est
 injoignable, répond trop lentement ou limite le nombre de requêtes. Chaque appel au fournisseur
-est abandonné au bout de 20 secondes, connexion et réponse entière comprises, et la création
-entière au bout de 60 secondes. Le message dit lequel.
+est abandonné au bout de 20 secondes, résolution du nom, connexion et réponse entière
+comprises, et la création entière au bout de 60 secondes. Un compte crée un dépôt à la fois
+(une seconde demande pendant ce temps est refusée). Un certificat TLS refusé (expiré,
+auto-signé, pour un autre nom) est signalé comme tel : pour un GitLab auto-hébergé avec une
+autorité de certification privée, ajoutez-la aux autorités de confiance du serveur
+(`SSL_CERT_FILE`). Le message dit lequel.
 
 Si le dépôt a été créé mais que son accès n'a pas pu être configuré, l'espace est tout de même
 créé dessus, et le message donne l'adresse du dépôt (si l'espace lui-même n'a pas pu être

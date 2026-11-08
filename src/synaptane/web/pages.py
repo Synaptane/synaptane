@@ -12,6 +12,7 @@ import re
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
@@ -606,9 +607,10 @@ Csrf = Annotated[str, Form(alias="csrf")]
 
 
 def redirect(
-    url: str, page: Page, message: str | None = None, kind: str = "ok", **params: object
+    url: str, page: Page, message: str | None = None, /, *, kind: str = "ok", **params: object
 ) -> Response:
-    """303 redirect, with a message shown once on the landing page."""
+    """303 redirect, with a message shown once on the landing page. The first three are
+    positional only: a message's values (`params`) may be named `url`, `page` or `message`."""
     return linked_redirect(url, page, message, None, kind=kind, params=params)
 
 
@@ -617,6 +619,7 @@ def linked_redirect(
     page: Page,
     message: str | None,
     link: tuple[str, str] | None,
+    /,
     *,
     kind: str = "ok",
     params: Mapping[str, object] | None = None,
@@ -819,6 +822,7 @@ def _render_git(
 ) -> HTMLResponse:
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     org = space.organization
+    expires = git_sync.credential_expiry(page.db, page.box, space) if manage else None
     return render_space_settings(
         page,
         actor,
@@ -826,9 +830,9 @@ def _render_git(
         "git",
         "space-git.html",
         credential_kind=git_sync.credential_kind(page.db, page.box, space) if manage else None,
-        credential_expires=format_day(expires, page.locale)
-        if manage and (expires := git_sync.credential_expiry(page.db, page.box, space))
-        else None,
+        credential_expires=expires if manage else None,
+        credential_expires_label=format_day(expires, page.locale) if manage and expires else "",
+        credential_expires_soon=bool(expires and expires - date.today() <= timedelta(days=30)),
         has_webhook_secret=bool(git_sync.webhook_secret(page.db, actor, page.box, space))
         if manage
         else False,
