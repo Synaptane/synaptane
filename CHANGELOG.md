@@ -10,7 +10,7 @@ of the target version.
 
 ## [Unreleased]
 
-## [1.13.0] - 2026-11-09
+## [1.13.0] - 2026-11-08
 
 Give a team several spaces at once with groups, have a new space's repository created on GitHub or
 GitLab, see a page as it will read while writing it, and get a verified backup every night without
