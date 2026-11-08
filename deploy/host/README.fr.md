@@ -151,9 +151,11 @@ volumes Docker, `crontab -e`, sous le compte qui fait tourner Docker (créez d'a
   `~/synaptane-backups/journal.log` ;
 - `OFFSITE=1` ajoute la copie hors serveur (`synaptane backup --offsite`, voir
   [Sauvegarde](../../docs/admin/backup.fr.md)) : `0 3 * * * OFFSITE=1 $HOME/synaptane/…` ;
-- sans étiquette (la tâche cron), une fois son archive vérifiée et en place, il signale à
-  Synaptane qu'il a fait la sauvegarde du jour : la sauvegarde automatique du worker s'efface,
-  et reprend d'elle-même dès que cette sauvegarde a plus de 26 heures.
+- une fois son archive vérifiée et en place, il la marque dans le volume de données ; sans
+  étiquette (la tâche cron), il signale aussi qu'il tourne pendant qu'il tourne, et qu'il a
+  fait la sauvegarde du jour : la sauvegarde automatique du worker s'efface, et reprend
+  d'elle-même dès que la dernière bonne sauvegarde s'est terminée il y a plus de 26 heures et
+  qu'aucun passage n'est en cours.
 
 Ces sauvegardes sont sur le même disque que le serveur : elles protègent d'une erreur,
 pas de la perte du serveur.

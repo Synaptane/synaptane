@@ -69,7 +69,10 @@ Chaque jour à `BACKUP_TIME` (4 h, heure du serveur `TZ`), le worker :
 4. envoie la copie chiffrée hors serveur, si elle est en place (plus bas).
 
 Elle n'a besoin de rien : ni tâche cron, ni réglage. Un worker démarré après l'heure
-(installation neuve, redémarrage, mise à jour) fait aussitôt la sauvegarde du jour. Avec
+(installation neuve, redémarrage, mise à jour) fait aussitôt la sauvegarde du jour, sauf si une
+sauvegarde a été faite moins de 6 heures avant (celle que `deploy.sh` fait avant la mise à
+jour, par exemple). Si une autre sauvegarde tient le verrou à ce moment, le worker attend
+qu'elle finisse, sans renoncer à la journée. Avec
 7 jours gardés, comptez jusqu'à 10 archives de la taille de votre base et de vos dépôts dans
 le volume `synaptane-backups`, sur le disque du serveur.
 
@@ -345,13 +348,23 @@ Autres commandes :
 Avant la sauvegarde automatique, les sauvegardes étaient faites par une tâche cron du serveur,
 avec le script versionné `deploy/host/backup.sh`. **Une installation qui en a une ne change
 rien** : le script garde ses archives (14 jours par défaut dans `~/synaptane-backups`), envoie
-la copie hors serveur avec `OFFSITE=1` et, une fois son archive vérifiée et en place, signale
-à Synaptane qu'il a fait la sauvegarde du jour. La sauvegarde automatique du worker s'efface
-alors (**Administration → Santé** le dit), et efface ses propres archives plus anciennes que la
-rétention (la tâche cron garde les siennes). Elle regarde de nouveau chaque minute et
-**reprend d'elle-même** dès que la dernière bonne sauvegarde de la tâche cron (avec sa copie
-hors serveur, si des destinations sont en place) a plus de 26 heures : une nuit où la tâche
-cron échoue, le worker fait la sauvegarde environ 26 heures après la précédente, le jour même.
+la copie hors serveur avec `OFFSITE=1`, signale qu'il tourne pendant qu'il tourne et, une fois
+son archive vérifiée et en place, signale à Synaptane qu'il a fait la sauvegarde du jour. La
+sauvegarde automatique du worker s'efface alors (**Administration → Santé** le dit), et efface
+ses propres archives plus anciennes que la rétention (la tâche cron garde les siennes). Elle
+regarde de nouveau chaque minute et **reprend d'elle-même** quand les deux conditions sont
+réunies :
+- la dernière bonne sauvegarde de la tâche cron (archive vérifiée et déplacée sur le serveur,
+  avec sa copie hors serveur si des destinations sont en place) s'est terminée il y a plus de
+  26 heures ;
+- aucun passage de la tâche cron n'est en cours (un passage encore signalé au bout de 12 heures
+  est tenu pour interrompu).
+
+Une nuit où la tâche cron échoue, le worker fait donc la sauvegarde 26 heures après la fin de
+la précédente bonne, le jour même ; une nuit où elle est seulement lente (une longue copie hors
+serveur), le worker l'attend. Si l'archive est sortie du conteneur mais que le côté serveur a
+échoué (disque plein), rien n'est marqué : la page de santé montre toujours l'archive
+précédente, et le worker prend le relais de la même façon.
 
 - Avec `OFFSITE=1`, la tâche cron fait tout ; sans, tant que des destinations hors serveur
   sont en place, le worker fait quand même sa sauvegarde chaque nuit pour envoyer la copie.
@@ -400,8 +413,10 @@ Options :
 L'archive est écrite dans un fichier caché `.part`, renommé une fois relu. Si une autre
 sauvegarde est en cours, la commande attend qu'elle se termine (au plus deux fois
 `BACKUP_TIMEOUT_MINUTES`), et le dit. Une sauvegarde complète (avec les dépôts et la clé)
-gardée dans `/backups` ou envoyée sur la sortie standard, comme celle d'un déploiement, compte
-comme la sauvegarde du jour si elle a moins de 6 heures quand vient l'heure du worker.
+gardée dans `/backups`, ou celle de `deploy/host/backup.sh` une fois en place sur le serveur
+(celle d'un déploiement), compte comme la sauvegarde du jour si elle a moins de 6 heures quand
+vient l'heure du worker. Une archive envoyée à la main sur la sortie standard est marquée comme
+vérifiée, pas comme la sauvegarde du jour : seul celui qui la reçoit sait qu'elle est gardée.
 
 Codes de sortie :
 

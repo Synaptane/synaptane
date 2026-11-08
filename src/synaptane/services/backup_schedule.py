@@ -18,9 +18,11 @@ existing installation keep working:
 - **one backup at a time**: the worker's, the host's cron job (`deploy/host/backup.sh`), a
   deployment or a manual run share the lock of `backup.exclusive`;
 - **the host's cron job has precedence**: when `deploy/host/backup.sh` (run without a label,
-  as in cron) has made a complete backup in the last `HOST_FRESH`, the worker makes none. It
-  looks again every minute: as soon as the cron job's last backup is older than `HOST_FRESH`
-  (the cron job stopped, or failed one night), the automatic backup is queued. While the cron
+  as in cron) has made a complete backup in the last `HOST_FRESH`, or is running, the worker
+  makes none. It looks again every minute: as soon as the cron job's last backup is older
+  than `HOST_FRESH` and no run is in progress (the cron job stopped, or failed one night),
+  the automatic backup is queued. If another backup holds the lock at that moment, the day
+  is not marked: it is queued once that backup is over. While the cron
   job is in charge, the worker's own archives older than the retention are deleted (the cron
   job keeps its own in `~/synaptane-backups`). A complete backup less than `RECENT` old (a
   deployment's, for example) counts as the backup of the day.
@@ -59,6 +61,13 @@ SCHEDULE, MANUAL = "schedule", "manual"  # triggers
 DEFAULT_TIME = time(4, 0)  # when `backup_time` cannot be read
 SCHEDULED = ".backup-scheduled"  # mark: day of the last automatic run queued
 HOST_DONE = ".backup-host"  # mark, touched by deploy/host/backup.sh once its archive is good
+# mark, touched by deploy/host/backup.sh (cron form) while it runs, removed when it ends
+HOST_RUNNING = ".backup-host-running"
+# Set to 1 by deploy/host/backup.sh: `synaptane backup --output -` then leaves the marks to the
+# script, which sets them once the archive is checked and in place on the host. An older image
+# ignores the variable (and marks as before).
+HOST_MARKS = "SYNAPTANE_BACKUP_HOST_MARKS"
+HOST_RUN_MAX = timedelta(hours=12)  # a run mark older than this was left by a killed script
 # mark: last full backup kept (not --without-…, not /tmp); also touched by backup.sh, with or
 # without a label, so that a deployment made with an older image counts.
 COMPLETE_DONE = ".backup-complete"
@@ -153,10 +162,13 @@ def schedule(database: Database, settings: Settings, now: datetime | None = None
         # the newest ones too (the cron job keeps its own).
         prune_local(folder, settings.backup_local_retention_days, keep_at_least=0)
         return False
-    if _complete_since(settings, COMPLETE_DONE, moment - RECENT):
+    if recent(settings, moment):
         # A deployment's backup, for example: it is the backup of the day.
         instance.mark(settings, SCHEDULED)
         return False
+    with backup.exclusive(settings) as free:
+        if not free:
+            return False  # another backup runs (a cron job's dump): looked at again next time
     with database.session() as session:
         queued = _enqueue(session, SCHEDULE)
     instance.mark(settings, SCHEDULED)  # queued, or one already waits or runs
@@ -176,8 +188,23 @@ def request(session: Session, actor: Actor, settings: Settings) -> bool:
 
 
 def host_in_charge(settings: Settings, now: datetime | None = None) -> bool:
-    """The host's cron job (deploy/host/backup.sh) made a complete backup recently."""
-    return _complete_since(settings, HOST_DONE, (now or datetime.now(UTC)) - HOST_FRESH)
+    """The host's cron job (deploy/host/backup.sh) made a complete backup recently, or is
+    running: a run that ends later than the day before (a slow off-site copy, outside the
+    lock) is not doubled by the worker."""
+    moment = now or datetime.now(UTC)
+    running = instance.marked(settings, HOST_RUNNING)
+    if running is not None and moment - HOST_RUN_MAX < running <= moment + timedelta(minutes=5):
+        return True
+    return _complete_since(settings, HOST_DONE, moment - HOST_FRESH)
+
+
+def recent(settings: Settings, now: datetime) -> bool:
+    """A complete backup less than `RECENT` old: the backup of the day. Until a complete
+    backup was ever marked (an instance upgraded by the deploy.sh of an older version, whose
+    backup only leaves `.backup-done`), any verified backup counts."""
+    if instance.marked(settings, COMPLETE_DONE) is None:
+        return _complete_since(settings, instance.BACKUP_DONE, now - RECENT)
+    return _complete_since(settings, COMPLETE_DONE, now - RECENT)
 
 
 def _complete_since(settings: Settings, mark: str, since: datetime) -> bool:
@@ -243,13 +270,15 @@ def _run(
     with backup.exclusive(settings) as acquired:
         if not acquired:
             log.info("Backup skipped: another one is running.")
+            if trigger == SCHEDULE:  # not the backup of the day: queued again once it is over
+                (settings.data_dir / SCHEDULED).unlink(missing_ok=True)
             return Result(skipped="busy")
         now = datetime.now(UTC)
         if trigger == SCHEDULE:
             if host_in_charge(settings, now):
                 log.info("Automatic backup skipped: the host's cron job made one.")
                 return Result(skipped="host")
-            if _complete_since(settings, COMPLETE_DONE, now - RECENT):
+            if recent(settings, now):
                 log.info("Automatic backup skipped: a complete backup is less than 6 hours old.")
                 return Result(skipped="recent")
         try:
@@ -412,9 +441,15 @@ def write_status(settings: Settings, trigger: str, outcome: str, error: str = ""
         "error": error[:300],
     }
     try:
-        path = settings.data_dir / STATUS
-        path.with_suffix(".new").write_text(json.dumps(record), encoding="utf-8")
-        path.with_suffix(".new").replace(path)
+        # A temporary file of its own (several workers), mode 600, replaced atomically.
+        fd, temporary = tempfile.mkstemp(prefix=".backup-last-", dir=settings.data_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write(json.dumps(record))
+            os.replace(temporary, settings.data_dir / STATUS)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
     except OSError:
         log.warning("Outcome of the backup not recorded", exc_info=True)
 

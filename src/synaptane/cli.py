@@ -344,14 +344,19 @@ def _write_backup(
         with path.open("rb") as source:
             shutil.copyfileobj(source, sys.stdout.buffer)
         sys.stdout.buffer.flush()  # a broken stream raises here: nothing is marked
+        if os.environ.get(backup_schedule.HOST_MARKS) == "1":
+            # deploy/host/backup.sh: the archive is good only once checked and moved on the
+            # host; the script marks it then (verified, complete, and the cron job's).
+            return path, info, kept
     instance.mark(settings, instance.BACKUP_DONE)
     in_folder = (
         kept is not None
         and settings.backup_dir is not None
         and kept.parent.resolve() == settings.backup_dir.resolve()
     )
-    if info.repos and info.key and (args.output == "-" or in_folder):
-        # A full backup kept: the backup of the day for the worker, if recent (deployment).
+    if info.repos and info.key and in_folder:
+        # A full backup kept here: the backup of the day for the worker, if recent. Sent to
+        # standard output, it is only known to be kept by the one who receives it.
         instance.mark(settings, backup_schedule.COMPLETE_DONE)
     return path, info, kept
 

@@ -11,7 +11,8 @@ of the target version.
 ## [Unreleased]
 
 Upgrading: **automatic backups are now on by default**. After the upgrade, the worker makes a
-verified backup right away, then every night at 04:00 (server time), in the
+verified backup right away, unless one was made less than 6 hours before (`deploy.sh` makes
+one before upgrading), then every night at 04:00 (server time), in the
 `synaptane-backups` Docker volume (`/backups`), on the server's disk: up to about ten archives
 of the size of your database and repositories (7 days kept, always the 3 newest). Only its own
 archives (`synaptane-…-auto.tar.gz`) are ever deleted. It writes nothing if the disk would keep
@@ -59,12 +60,18 @@ makes no backup of its own while that cron job does. No migration.
   another backup was running, failed and why) and, when the backup or the off-site copy is
   missing or late, the command to run and a link to the documentation. Destinations without an
   encryption key are reported. `synaptane doctor` reports the automatic backup too.
-- **`deploy/host/backup.sh`**: existing cron jobs keep working unchanged. Run without a label
-  (the cron job), once its archive is checked and in place, the script tells Synaptane it made
-  the backup of the day: the worker's automatic backup then steps aside, and takes over by
-  itself, the same day, as soon as that backup is more than 26 hours old.
+- **`deploy/host/backup.sh`**: existing cron jobs keep working unchanged. Once its archive is
+  checked and in place, the script marks it as verified (and, for the health page, as the last
+  archive) instead of `synaptane backup`. Run without a label (the cron job), it also says
+  while it runs that it is running, and that it made the backup of the day: the worker's
+  automatic backup then steps aside, and takes over by itself, the same day, once the last good
+  backup of the cron job ended more than 26 hours ago and no run is in progress (a run marked
+  for more than 12 hours counts as killed). A night the cron job is only slow, the worker waits
+  for it; if another backup holds the lock, it waits for it too, without giving up the day.
 - **`synaptane backup`** writes its archive to a hidden `.part` file renamed once read back,
-  also in a folder, and counts a backup sent to standard output only once it has gone through.
+  also in a folder. A backup sent to standard output is marked as verified only once it has
+  gone through, and never as the backup of the day (with `deploy/host/backup.sh`, the script
+  marks it once in place).
 - The backup documentation starts with the simplest path, then the options.
 
 ## [1.12.0] - 2026-11-08

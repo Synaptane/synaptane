@@ -277,11 +277,14 @@ def test_the_host_cron_job_keeps_working_and_takes_precedence(
     ctx: Workspace,
     tmp_path: Path,
     capsysbinary: pytest.CaptureFixture[bytes],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`docker compose exec -T app synaptane backup --output -`, as deploy/host/backup.sh runs
-    it: the archive on standard output as before. Once it is in place on the host, the script
-    touches the host mark: the worker then waits, and takes over when that mark is too old."""
+    """`docker compose exec -T -e SYNAPTANE_BACKUP_HOST_MARKS=1 app synaptane backup --output -`,
+    as deploy/host/backup.sh runs it: the archive on standard output as before, and no mark:
+    the script sets them once the archive is checked and in place on the host. The worker then
+    waits, and takes over when the cron job's mark is too old."""
     config = write_config(automatic, tmp_path / "synaptane.toml", backup_dir=automatic.backup_dir)
+    monkeypatch.setenv(backup_schedule.HOST_MARKS, "1")
     assert main(["--config", str(config), "backup", "--output", "-"]) == 0
     archive = capsysbinary.readouterr().out
     with backup.exclusive(automatic) as free:
@@ -289,18 +292,25 @@ def test_the_host_cron_job_keeps_working_and_takes_precedence(
     target = tmp_path / "from-cron.tar.gz"
     target.write_bytes(archive)
     assert backup.verify(automatic, target)["format"] == backup.FORMAT
-    assert not (automatic.data_dir / backup_schedule.HOST_DONE).exists()  # the host's to say
-    assert (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()  # a full backup
+    marks = (instance.BACKUP_DONE, backup_schedule.COMPLETE_DONE, backup_schedule.HOST_DONE)
+    assert not any((automatic.data_dir / mark).exists() for mark in marks)  # the host's to say
     folder = automatic.backup_dir
     assert folder is not None and not folder.exists()  # --output -: nothing in /backups
+    # By hand, without the script (or with an older backup.sh): verified, not "complete".
+    monkeypatch.delenv(backup_schedule.HOST_MARKS)
+    assert main(["--config", str(config), "backup", "--output", "-"]) == 0
+    capsysbinary.readouterr()
+    assert (automatic.data_dir / instance.BACKUP_DONE).exists()
+    assert not (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()
     early = automatic.model_copy(update={"backup_time": "00:00"})
-    # A full backup just made (a deployment's): it is the backup of the day.
+    # No complete backup ever marked (upgraded by an older deploy.sh): a verified backup less
+    # than 6 hours old is the backup of the day.
     assert not backup_schedule.schedule(database, early)
     scheduled = automatic.data_dir / backup_schedule.SCHEDULED
     assert scheduled.exists() and backup_jobs(database) == []
     scheduled.unlink()  # the next day
-    instance.mark(automatic, backup_schedule.HOST_DONE)  # what backup.sh does after its `mv`
-    (automatic.data_dir / backup_schedule.COMPLETE_DONE).unlink()
+    for mark in marks:  # what backup.sh does after its `mv`
+        instance.mark(automatic, mark)
     assert not backup_schedule.schedule(database, early)  # the cron job is in charge
     assert not (automatic.data_dir / backup_schedule.SCHEDULED).exists()  # looked at again
     assert backup_jobs(database) == []
@@ -309,7 +319,8 @@ def test_the_host_cron_job_keeps_working_and_takes_precedence(
     # The cron job failed last night: as soon as its backup is too old, the worker takes over,
     # the same day, without waiting for the next one.
     late = time.time() - backup_schedule.HOST_FRESH.total_seconds() - 60
-    os.utime(automatic.data_dir / backup_schedule.HOST_DONE, (late, late))
+    for mark in marks:
+        os.utime(automatic.data_dir / mark, (late, late))
     assert backup_schedule.schedule(database, early)
     (job,) = backup_jobs(database)
     assert job.payload == {"trigger": backup_schedule.SCHEDULE}
@@ -593,6 +604,9 @@ def test_the_health_page_shows_the_workers_last_run(
     job.status = "done"
     db.commit()
     backup_schedule.write_status(automatic, backup_schedule.MANUAL, "busy")
+    status = automatic.data_dir / backup_schedule.STATUS
+    assert (status.stat().st_mode & 0o777) == 0o600
+    assert [p.name for p in automatic.data_dir.glob(".backup-last-*")] == []  # no leftover
     check = check_of(automatic, db, database, ctx)
     assert check.run == backup_schedule.OUTCOMES["busy"] and check.run_at is not None
     backup_schedule.write_status(automatic, backup_schedule.MANUAL, "failed", "disk full")

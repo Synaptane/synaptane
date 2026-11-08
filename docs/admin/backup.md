@@ -67,7 +67,9 @@ Every day at `BACKUP_TIME` (04:00, server time `TZ`), the worker:
 4. sends the encrypted off-site copy, if it is set up (below).
 
 It needs nothing: no cron job, no setting. A worker started after its time (new installation,
-restart, upgrade) makes the backup of the day right away. With the 7 days kept, expect up to
+restart, upgrade) makes the backup of the day right away, unless a backup was made less than
+6 hours before (the one `deploy.sh` makes before upgrading, for example). If another backup
+holds the lock at that moment, the worker waits for it to end, without giving up the day. With the 7 days kept, expect up to
 10 archives of the size of your database plus repositories in the `synaptane-backups` volume,
 on the disk of the server.
 
@@ -336,13 +338,21 @@ Other commands:
 Before the automatic backup, the backups were made by a cron job on the server, with the
 versioned script `deploy/host/backup.sh`. **An installation that has one changes nothing**:
 the script keeps its archives (14 days by default in `~/synaptane-backups`), sends the off-site
-copy with `OFFSITE=1` and, once its archive is checked and in place, tells Synaptane it made
-the backup of the day. The worker's automatic backup then steps aside (**Administration →
-Health** says so), and deletes its own archives older than the retention (the cron job keeps
-its own). It looks again every minute and **takes over by itself** as soon as the cron job's
-last good backup (with its off-site copy, if destinations are set up) is more than 26 hours
-old: a night the cron job fails, the worker makes the backup about 26 hours after the
-previous one, the same day.
+copy with `OFFSITE=1`, says while it runs that it is running and, once its archive is
+checked and in place, tells Synaptane it made the backup of the day. The worker's automatic
+backup then steps aside (**Administration → Health** says so), and deletes its own archives
+older than the retention (the cron job keeps its own). It looks again every minute and **takes
+over by itself** when both are true:
+- the cron job's last good backup (archive checked and moved on the server, with its off-site
+  copy if destinations are set up) ended more than 26 hours ago;
+- no run of the cron job is in progress (a run still marked after 12 hours is taken for one
+  that was killed).
+
+A night the cron job fails, the worker therefore makes the backup 26 hours after the end of the
+previous good one, the same day; a night it is only slow (a long off-site copy), the worker
+waits for it. If the archive left the container but the server side failed (disk full there),
+nothing is marked: the health page keeps showing the previous archive, and the worker takes
+over in the same way.
 
 - With `OFFSITE=1`, the cron job does everything; without it, while off-site destinations are
   set up, the worker still makes its own backup every night to send the copy. Add `OFFSITE=1`,
@@ -389,9 +399,11 @@ Options:
 
 The archive is written to a hidden `.part` file, renamed once read back. If another backup is
 running, the command waits for it to finish (twice `BACKUP_TIMEOUT_MINUTES` at most), and says
-so. A full backup (with the repositories and the key) kept in `/backups` or sent to standard
-output, like a deployment's, counts as the backup of the day if it is less than 6 hours old
-when the worker's time comes.
+so. A full backup (with the repositories and the key) kept in `/backups`, or one of
+`deploy/host/backup.sh` once in place on the server (a deployment's), counts as the backup of
+the day if it is less than 6 hours old when the worker's time comes. An archive sent to
+standard output by hand is marked as verified, not as the backup of the day: only the one who
+receives it knows it was kept.
 
 Exit codes:
 

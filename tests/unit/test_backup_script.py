@@ -68,9 +68,12 @@ def run(tmp_path: Path, *args: str, **env: str) -> subprocess.CompletedProcess[s
     )
 
 
-MARKS = 'docker compose exec -T app sh -c cd "${SYNAPTANE_DATA_DIR:-/data}" && touch "$@" sh'
-HOST_MARK = f"{MARKS} .backup-complete .backup-host"
-DEPLOY_MARK = f"{MARKS} .backup-complete"
+IN_DATA = 'docker compose exec -T app sh -c cd "${SYNAPTANE_DATA_DIR:-/data}" && "$@" sh'
+BACKUP = "docker compose exec -T -e SYNAPTANE_BACKUP_HOST_MARKS=1 app synaptane backup"
+RUNNING = f"{IN_DATA} touch .backup-host-running"
+DONE_RUNNING = f"{IN_DATA} rm -f .backup-host-running"
+HOST_MARK = f"{IN_DATA} touch .backup-done .backup-complete .backup-host"
+DEPLOY_MARK = f"{IN_DATA} touch .backup-done .backup-complete"
 
 
 def marks(tmp_path: Path) -> list[str]:
@@ -90,12 +93,10 @@ def test_the_cron_job_says_it_made_the_backup_of_the_day(tmp_path: Path) -> None
     assert archive.read_bytes() == archive_bytes()
     assert (archive.stat().st_mode & 0o777) == 0o600
     assert ((tmp_path / "backups").stat().st_mode & 0o777) == 0o700
-    assert calls(tmp_path) == [
-        "docker compose exec -T app synaptane backup --output -",
-        HOST_MARK,
-    ]
+    # Running while it runs (the worker waits), marked once in place, no longer running.
+    assert calls(tmp_path) == [RUNNING, f"{BACKUP} --output -", HOST_MARK, DONE_RUNNING]
     assert not list((tmp_path / "backups").glob("*.part"))
-    assert marks(tmp_path) == [".backup-complete", ".backup-host"]  # in the data volume
+    assert marks(tmp_path) == [".backup-complete", ".backup-done", ".backup-host"]
     assert str(archive) in (tmp_path / "backups" / "journal.log").read_text()
 
 
@@ -103,19 +104,16 @@ def test_a_deployment_backup_is_not_the_backup_of_the_day(tmp_path: Path) -> Non
     done = run(tmp_path, "avant-abc1234")
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip().endswith("-avant-abc1234.tar.gz")
-    assert calls(tmp_path) == [
-        "docker compose exec -T app synaptane backup --output -",
-        DEPLOY_MARK,
-    ]
-    assert marks(tmp_path) == [".backup-complete"]  # counted, but not the cron job's
+    assert calls(tmp_path) == [f"{BACKUP} --output -", DEPLOY_MARK]
+    assert marks(tmp_path) == [".backup-complete", ".backup-done"]  # not the cron job's
 
 
 def test_offsite_failure_keeps_the_archive_with_code_3(tmp_path: Path) -> None:
     done = run(tmp_path, OFFSITE="1", FAKE_STATUS="3")
     assert done.returncode == 3
     assert Path(done.stdout.strip()).exists()
-    assert calls(tmp_path)[-2].endswith("app synaptane backup --offsite --output -")
-    assert calls(tmp_path)[-1] == HOST_MARK  # the copy failed: the worker still sees it
+    assert calls(tmp_path)[-3] == f"{BACKUP} --offsite --output -"
+    assert calls(tmp_path)[-2] == HOST_MARK  # the copy failed: the worker still sees it
     assert "FAILED off-site copy" in (tmp_path / "backups" / "journal.log").read_text()
     done = run(tmp_path, OFFSITE="1")
     assert done.returncode == 0
@@ -132,6 +130,7 @@ def test_a_failed_or_truncated_backup_replaces_nothing(tmp_path: Path) -> None:
     assert done.returncode == 1 and "Unreadable or incomplete archive" in done.stderr
     assert not list((tmp_path / "backups").glob("synaptane-*"))
     assert HOST_MARK not in calls(tmp_path) and marks(tmp_path) == []
+    assert calls(tmp_path)[-1] == DONE_RUNNING  # a failed run is no longer in progress
 
 
 def test_without_the_application_the_mark_is_not_an_error(tmp_path: Path) -> None:

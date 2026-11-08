@@ -149,9 +149,10 @@ there):
   `~/synaptane-backups/journal.log`;
 - `OFFSITE=1` adds the offsite copy (`synaptane backup --offsite`, see
   [Backup](../../docs/admin/backup.md)): `0 3 * * * OFFSITE=1 $HOME/synaptane/…`;
-- without a label (the cron job), once its archive is checked and in place, it tells
-  Synaptane it made the backup of the day: the worker's automatic backup steps aside, and
-  takes over by itself as soon as that backup is more than 26 hours old.
+- once its archive is checked and in place, it marks it in the data volume; without a label
+  (the cron job), it also says while it runs that it is running, and that it made the backup
+  of the day: the worker's automatic backup steps aside, and takes over by itself once the
+  last good backup ended more than 26 hours ago and no run is in progress.
 
 These backups are on the same disk as the server: they protect against a mistake, not against
 losing the server.
