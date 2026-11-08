@@ -152,8 +152,9 @@ tidy-up is turned off.
   **Write** goes back to the text, which stays as it is. On a large screen, **Side by side**
   shows both: the preview follows the typing after a short pause, and this choice is
   remembered in your browser. In the preview, links open in a new tab, so the text being
-  written is never left. The preview needs JavaScript; it is refused above 512 KiB of text (the
-  save is not), and nothing is committed, indexed or dropped in the inbox until you save.
+  written is never left. The preview needs JavaScript and only exists for Markdown pages; it is refused
+  above 262,144 characters (the save is not), it is prepared one at a time for each account,
+  and nothing is committed, indexed or dropped in the inbox until you save.
 - Each save produces a commit in your name, pushed to the repository at once.
 - **Move** keeps links right, in the same commit: the relative links of the moved page are
   recomputed for its new location, and the pages that linked to it are rewritten (relative

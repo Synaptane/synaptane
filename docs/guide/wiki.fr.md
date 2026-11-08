@@ -165,9 +165,10 @@ dans ce navigateur. Elle n'apparaît pas quand le rangement de l'espace est dés
   Mermaid dessinés. **Écrire** revient au texte, qui reste tel quel. Sur grand écran, **Côte à
   côte** montre les deux : l'aperçu suit la frappe après une courte pause, et ce choix est
   retenu par votre navigateur. Dans l'aperçu, les liens s'ouvrent dans un nouvel onglet : on ne
-  quitte jamais le texte en cours. L'aperçu demande JavaScript ; il est refusé au-delà de
-  512 Kio de texte (pas l'enregistrement), et rien n'est commité, indexé ni déposé dans l'inbox
-  avant l'enregistrement.
+  quitte jamais le texte en cours. L'aperçu demande JavaScript et n'existe que pour les pages
+  Markdown ; il est refusé au-delà de 262 144 caractères (pas l'enregistrement), il est préparé
+  un à la fois pour chaque compte, et rien n'est commité, indexé ni déposé dans l'inbox avant
+  l'enregistrement.
 - Chaque enregistrement produit un commit à votre nom, poussé aussitôt sur le dépôt.
 - **Déplacer** garde les liens justes, dans le même commit : les liens relatifs de la page
   déplacée sont recalculés pour son nouvel emplacement, et les pages qui pointaient vers elle

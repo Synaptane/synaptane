@@ -75,17 +75,43 @@ def test_pdf_link_shows_on_phones() -> None:
 
 
 def test_the_preview_never_leaves_the_text_being_written() -> None:
-    """The editor's preview: a POST with the form token, the sign-in page (session expired)
-    is never shown as a preview, links open in a new tab, anchors stay inside the preview,
-    and typing asks the server only after a pause, side by side."""
+    """The editor's preview: a POST with the form token (multipart: the 1 MiB of a field is
+    counted in bytes, not in percent-escapes), the sign-in page (session expired) is never shown
+    as a preview, links open in a new tab, resolved from the page's reading address."""
     preview = _function("setupPreview")
-    assert 'method: "POST"' in preview and "form.elements.csrf.value" in preview
-    assert "response.redirected" in preview and "controller?.abort()" in preview
-    assert "setTimeout(refresh, 700)" in preview and 'mode === "split"' in preview
-    assert "key === asked" in preview  # a text already shown is not asked for again
+    assert 'method: "POST"' in preview and "new FormData()" in preview
+    assert "URLSearchParams" not in preview and "form.elements.csrf.value" in preview
+    assert "response.redirected" in preview and "previewExpired" in preview
+    assert "previewMax" in preview and "previewTooLong" in preview
     isolate = _function("isolatePreview")
     assert 'link.target = "_blank"' in isolate and "#preview-" in isolate
+    assert "new URL(href, page)" in isolate and "new URL(src, page)" in isolate
     # The textarea is only hidden, never removed or disabled: it is always submitted.
-    assert "editor.hidden" in preview and "disabled" not in preview and ".remove()" not in preview
-    # Mermaid in the preview: the reading view's drawing, in its sandboxed frame.
-    assert "observeDiagrams(node)" in _function("patchPreview")
+    assert "editor.hidden" in preview and "editor.disabled" not in preview
+    # Mermaid in the preview: the reading view's drawing, its frame kept while it is edited.
+    patch = _function("patchPreview")
+    assert "observeDiagrams(node)" in patch and "redrawDiagram(frame, target)" in patch
+    assert "forgetDiagrams(node)" in patch
+
+
+def test_the_preview_does_not_pile_up_requests() -> None:
+    """One request at a time: no abort-and-resend (the server would keep rendering the
+    abandoned one), the latest text once the answer is in, a pause at least as long as the last
+    rendering, and a 429 (another preview of the account) waited out without an error."""
+    preview = _function("setupPreview")
+    assert "abort" not in preview and "AbortController" not in preview
+    assert "if (busy) { again = true; return; }" in preview
+    assert "pause = Math.max(700, performance.now() - started)" in preview
+    assert "response.status === 429" in preview
+    assert "key === shownKey" in preview  # a text already shown is not asked for again
+
+
+def test_a_removed_diagram_stops_listening() -> None:
+    """A frame taken out of the page stops listening, even before its first message, and its
+    code block is no longer watched."""
+    assert "diagramStates.get(frame)?.stop()" in _function("removeDiagram")
+    assert "nearDiagrams?.unobserve(code)" in _function("forgetDiagrams")
+    draw = _function("drawDiagram")
+    assert 'removeEventListener("message", listen)' in draw
+    diagram = (STATIC / "diagram.js").read_text(encoding="utf-8")
+    assert "queue = queue.then(" in diagram and "observed = true" in diagram

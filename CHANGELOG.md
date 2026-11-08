@@ -18,8 +18,10 @@ of the target version.
   diagrams are drawn in the same sandboxed frame as when reading. **Write** goes back to the
   text, kept as it is; on a large screen, **Side by side** shows both, the preview following the
   typing after a short pause (remembered in the browser). Links in the preview open in a new
-  tab. Contributors only, with the form's token; nothing is committed, indexed or dropped in the
-  inbox, and a text above 512 KiB is not previewed. No migration.
+  tab. Contributors only, with the form's token, Markdown pages only; nothing is committed, indexed or
+  dropped in the inbox, a text above 262,144 characters is not previewed, and each account
+  gets one preview at a time (the database connection is given back before rendering). No
+  migration.
 
 ## [1.12.0] - 2026-11-08
 

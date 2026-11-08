@@ -1,14 +1,23 @@
 """The editor's preview: the text not saved yet, rendered exactly as the page will read, with
 nothing written (no commit, no index, no inbox), and only for those who can edit."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from markupsafe import Markup
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import QueuePool
 
 from synaptane.core.access import SpaceRole
+from synaptane.core.errors import not_found
 from synaptane.services import content, deposits, git_sync, spaces
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
+from synaptane.web import wiki as wiki_module
 from synaptane.web.wiki import MAX_PREVIEW
 from tests.htmlutil import data_test, select, select_one
 from tests.integration.gitutil import git
@@ -113,8 +122,34 @@ def test_a_new_page_links_from_where_it_will_be(client: TestClient, wiki: Wiki) 
     html = preview(client, token, text=text, folder="serveurs").text
     assert 'href="/o/acme/infra/p/serveurs/proxmox.md"' in html
     # At the root.
-    html = preview(client, token, text="[Proxmox](serveurs/proxmox.md)").text
-    assert 'href="/o/acme/infra/p/serveurs/proxmox.md"' in html
+    root = preview(client, token, text="[Proxmox](serveurs/proxmox.md)")
+    assert 'href="/o/acme/infra/p/serveurs/proxmox.md"' in root.text
+    # Its reading address: what the editor resolves the links left relative from.
+    assert root.headers["x-preview-page"] == "/o/acme/infra/p/untitled.md"
+    named = preview(client, token, text="# x", folder="serveurs", name="Notes été")
+    assert named.headers["x-preview-page"] == "/o/acme/infra/p/serveurs/Notes%20%C3%A9t%C3%A9.md"
+
+
+def test_a_new_page_links_to_itself_as_once_saved(client: TestClient, wiki: Wiki) -> None:
+    token = signed_in(client, "alice")
+    html = preview(client, token, text="[[autolien-x]]", folder="infra", name="autolien-x").text
+    assert 'href="/o/acme/infra/p/infra/autolien-x.md" rel=' in html
+    assert "wikilink-missing" not in html
+    # A name already taken elsewhere: the link leads to the page being written, the nearest.
+    html = preview(client, token, text="[[proxmox]]", folder="autre", name="proxmox").text
+    assert 'href="/o/acme/infra/p/autre/proxmox.md"' in html
+
+
+def test_only_markdown_pages_are_previewed(client: TestClient, wiki: Wiki) -> None:
+    token = signed_in(client, "alice")
+    for name in ("notes.txt", "page.html"):
+        refused = preview(client, token, text="# Titre", folder="serveurs", name=name)
+        assert refused.status_code == 400 and "<h1" not in refused.text
+        assert french(refused.text) == "Seules les pages Markdown ont un aperçu."
+    refused = preview(client, token, text="# Titre", path="serveurs/notes.txt")
+    assert refused.status_code == 400
+    for name in ("notes", "notes.md", "notes.MARKDOWN"):
+        assert preview(client, token, text="# T", folder="x", name=name).status_code == 200
 
 
 def test_an_empty_text_previews_as_nothing(client: TestClient, wiki: Wiki) -> None:
@@ -180,6 +215,19 @@ def test_a_text_too_long_is_not_rendered(client: TestClient, wiki: Wiki) -> None
     )
 
 
+def test_the_longest_text_fits_in_a_form_field(client: TestClient, wiki: Wiki) -> None:
+    """Sent as the editor sends it (multipart): even four bytes per character fit."""
+    token = signed_in(client, "alice")
+    for character in ("é", "\N{GRINNING FACE}"):
+        shown = client.post(
+            PREVIEW,
+            data={"csrf": token, "path": PAGE},
+            files={"text": (None, character * MAX_PREVIEW)},
+            follow_redirects=False,
+        )
+        assert shown.status_code == 200, shown.text[:200]
+
+
 def test_the_message_follows_the_interface_language(client: TestClient, wiki: Wiki) -> None:
     token = signed_in(client, "alice")
     client.post("/account/locale", data={"csrf": token, "locale": "en"})
@@ -196,6 +244,11 @@ def test_the_editors_offer_the_preview(client: TestClient, wiki: Wiki) -> None:
         french(box.attrs["data-preview-failed"]) == "L'aperçu n'a pas pu être chargé : réessayez."
     )
     assert box.attrs["data-preview-empty"] == "(texte vide)"
+    assert box.attrs["data-preview-max"] == str(MAX_PREVIEW)
+    assert french(box.attrs["data-preview-expired"]) == (
+        "Votre session a expiré : reconnectez-vous dans un autre onglet, votre texte est conservé."
+    )
+    assert french(box.attrs["data-preview-too-long"]).startswith("Ce texte est trop long")
     modes = select_one(page, data_test("editor-modes"))
     assert "hidden" in modes.attrs and modes.attrs["role"] == "group"  # shown by preferences.js
     assert modes.attrs["aria-label"] == "Affichage de l'éditeur"
@@ -228,3 +281,56 @@ def test_a_space_not_synced_yet_previews_without_resolving_wiki_links(
     html = preview(client, token, "/o/acme/neuf/-/preview", text="# Neuf\n\n[[proxmox]]").text
     assert '<h1 id="neuf">Neuf</h1>' in html
     assert 'href="/o/acme/neuf/p/proxmox.md" class="wikilink-missing"' in html
+
+
+def checked_out(database: Database) -> int:
+    """Connections of the pool in use."""
+    pool = database.engine.pool
+    assert isinstance(pool, QueuePool)
+    return pool.checkedout()
+
+
+def test_one_preview_at_a_time_and_the_connection_is_given_back(
+    client: TestClient, wiki: Wiki, database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long rendering (thousands of `[`) neither holds a database connection nor piles up:
+    a second preview of the same account while the first renders is refused (429)."""
+    token = signed_in(client, "alice")
+    started, finish = threading.Event(), threading.Event()
+    connections: list[int] = []
+    render = wiki_module._render_at
+
+    def slow(*args: Any) -> Markup:
+        if args[1] == "# Long":  # the preview, not the reading of a page
+            connections.append(checked_out(database))
+            started.set()
+            assert finish.wait(10)
+        return render(*args)
+
+    monkeypatch.setattr(wiki_module, "_render_at", slow)
+    idle = checked_out(database)
+    with ThreadPoolExecutor(1) as pool:
+        first = pool.submit(preview, client, token, text="# Long", path=PAGE)
+        assert started.wait(10)
+        assert connections == [idle]  # none taken by the request being rendered
+        # Meanwhile, the rest of the site answers, and a second preview waits its turn.
+        assert client.get(f"/o/acme/infra/p/{PAGE}").status_code == 200
+        second = preview(client, token, text="# Autre", path=PAGE)
+        assert second.status_code == 429
+        assert second.headers["content-type"].startswith("text/plain")
+        assert french(second.text) == (
+            "Un aperçu est déjà en préparation pour votre compte : il suivra."
+        )
+        finish.set()
+        assert first.result(10).status_code == 200 and "Long" in first.result().text
+    # The turn is given back, also after an error during the rendering.
+    assert preview(client, token, text="# Après", path=PAGE).status_code == 200
+
+    def broken(*args: Any) -> Markup:
+        raise not_found("Page not found.")
+
+    monkeypatch.setattr(wiki_module, "_render_at", broken)
+    assert preview(client, token, text="# x", path=PAGE).status_code == 404
+    monkeypatch.setattr(wiki_module, "_render_at", render)
+    assert preview(client, token, text="# x", path=PAGE).status_code == 200
+    assert set() == wiki_module._PREVIEWING

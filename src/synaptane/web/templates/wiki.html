@@ -34,7 +34,7 @@
 {# Markdown editor and its preview: the server renders the text as the reading view does,
 preferences.js shows it (Write, Preview, side by side on a large screen). Without JS: the text. #}
 {% macro editor(value, rows, preview, preview_path='', label='') -%}
-<div class="field editor-field"{% if preview %} data-preview="{{ home }}/-/preview" data-preview-path="{{ preview_path }}" data-preview-empty="{{ _('(empty text)') }}" data-preview-failed="{{ _('The preview could not be loaded: try again.') }}"{% endif %}>
+<div class="field editor-field"{% if preview %} data-preview="{{ home }}/-/preview" data-preview-path="{{ preview_path }}" data-preview-max="{{ max_preview }}" data-preview-empty="{{ _('(empty text)') }}" data-preview-failed="{{ _('The preview could not be loaded: try again.') }}" data-preview-too-long="{{ _('This text is too long to preview: save it, then read the page.') }}" data-preview-expired="{{ _('Your session has expired: sign in again in another tab, your text is kept.') }}"{% endif %}>
   <div class="editor-head">
     <label for="text">{{ label or _("Content (Markdown)") }}</label>
     {% if preview %}
