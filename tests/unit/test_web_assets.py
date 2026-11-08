@@ -72,3 +72,20 @@ def test_pdf_link_shows_on_phones() -> None:
         r"@media \(max-width:(\d+)px\),\(pointer:coarse\)\{[^{}]*\.doc-open\{display:block", CSS
     )
     assert rule is not None and int(rule.group(1)) >= 640
+
+
+def test_the_preview_never_leaves_the_text_being_written() -> None:
+    """The editor's preview: a POST with the form token, the sign-in page (session expired)
+    is never shown as a preview, links open in a new tab, anchors stay inside the preview,
+    and typing asks the server only after a pause, side by side."""
+    preview = _function("setupPreview")
+    assert 'method: "POST"' in preview and "form.elements.csrf.value" in preview
+    assert "response.redirected" in preview and "controller?.abort()" in preview
+    assert "setTimeout(refresh, 700)" in preview and 'mode === "split"' in preview
+    assert "key === asked" in preview  # a text already shown is not asked for again
+    isolate = _function("isolatePreview")
+    assert 'link.target = "_blank"' in isolate and "#preview-" in isolate
+    # The textarea is only hidden, never removed or disabled: it is always submitted.
+    assert "editor.hidden" in preview and "disabled" not in preview and ".remove()" not in preview
+    # Mermaid in the preview: the reading view's drawing, in its sandboxed frame.
+    assert "observeDiagrams(node)" in _function("patchPreview")

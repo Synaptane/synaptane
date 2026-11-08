@@ -2,7 +2,8 @@
 
 URLs: `/o/<org>/<space>/p/<path>` (page or folder), `/raw/<path>` (raw file),
 `/history/<path>`, `/diff/<commit>/<path>`, `/-/restore` (put a version back), `/edit/<path>`,
-`/new`, `/-/verify` (mark a page as verified, choose its owner and its cadence).
+`/new`, `/-/preview` (the editor's text rendered, not saved), `/-/verify` (mark a page as
+verified, choose its owner and its cadence).
 """
 
 import difflib
@@ -44,7 +45,16 @@ from synaptane.services.content import Folder, build_tree, folder_index
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
 from synaptane.storage.models import Space, User
 from synaptane.web.i18n import plural
-from synaptane.web.pages import Csrf, Page, WebPage, failure, find_space, linked_redirect, redirect
+from synaptane.web.pages import (
+    ERROR_STATUS,
+    Csrf,
+    Page,
+    WebPage,
+    failure,
+    find_space,
+    linked_redirect,
+    redirect,
+)
 from synaptane.web.render import highlight_file, pygments_css, render_markdown, url_path
 
 router = APIRouter()
@@ -691,6 +701,46 @@ def wiki_new(
             error=error,
         )
     return redirect(page_url(space, path), page, "Page created.")
+
+
+MAX_PREVIEW = 512 * 1024  # characters: beyond, no preview (saving stays possible)
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/preview", response_class=HTMLResponse)
+def wiki_preview(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    text: Annotated[str, Form()] = "",
+    path: Annotated[str, Form()] = "",
+    folder: Annotated[str, Form()] = "",
+    name: Annotated[str, Form()] = "",
+) -> Response:
+    """The editor's "Preview" (contributor): the text not saved yet, as the page will read.
+
+    The reading view's rendering, unchanged (Markdown and Obsidian syntax, links and images
+    resolved in the space, sanitized HTML); Mermaid is drawn by preferences.js, as in reading.
+    `path` is the edited page; for a new page, `folder` and `name` say where it will be (its
+    relative links depend on it). Nothing is written: no commit, no index, no inbox. An HTML
+    fragment, or a plain-text message with the error's status."""
+    try:
+        actor = page.check_csrf(csrf)
+        space = find_space(page, actor, org_slug, space_slug)
+        _require_contributor(page, actor, space)
+        if len(text) > MAX_PREVIEW:
+            raise invalid("This text is too long to preview: save it, then read the page.")
+        current = path.strip("/") or _page_path(folder, name.strip() or "untitled")
+    except SynaptaneError as error:
+        return PlainTextResponse(
+            page.translate(error.template, **error.params), ERROR_STATUS[error.code]
+        )
+    try:
+        names: WikiIndex | None = WikiIndex.of(b.path for b in page.space_files(actor, space))
+    except SynaptaneError:  # not synced yet: wiki links stay unresolved
+        names = None
+    html = _render_md(space, text.replace("\r\n", "\n"), current, names)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/upload")

@@ -1910,5 +1910,10 @@
  "Not restricted": "Non restreint",
  "Space restriction changed": "Restriction de l'espace modifiée",
  "Input read from the cache: ${price} per million tokens.": "Entrée relue depuis le cache : {price} $ par million de jetons.",
- "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $."
+ "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $.",
+ "Editor view": "Affichage de l'éditeur",
+ "Write": "Écrire",
+ "Side by side": "Côte à côte",
+ "The preview could not be loaded: try again.": "L'aperçu n'a pas pu être chargé : réessayez.",
+ "This text is too long to preview: save it, then read the page.": "Ce texte est trop long pour l'aperçu : enregistrez-le, puis lisez la page."
 }

@@ -158,6 +158,16 @@ dans ce navigateur. Elle n'apparaît pas quand le rangement de l'espace est dés
 - **Modifier** une page texte, **Nouvelle page**, **Ajouter** un fichier (25 Mo maximum, de
   tout type : voir [Fichiers autres que Markdown](#fichiers-autres-que-markdown)),
   **Déplacer** (ou renommer) ou **Supprimer ce fichier** (menu ⋮).
+- **Aperçu**, au-dessus du texte d'une page Markdown (en la modifiant ou en la créant), montre
+  la page telle qu'elle se lira, sans rien enregistrer : le même rendu qu'en lecture, syntaxe
+  Obsidian (`![[image]]`, encadrés, `==surligné==`, commentaires `%%`), liens et
+  `[[liens wiki]]` résolus dans l'espace, images de l'espace, code coloré et diagrammes
+  Mermaid dessinés. **Écrire** revient au texte, qui reste tel quel. Sur grand écran, **Côte à
+  côte** montre les deux : l'aperçu suit la frappe après une courte pause, et ce choix est
+  retenu par votre navigateur. Dans l'aperçu, les liens s'ouvrent dans un nouvel onglet : on ne
+  quitte jamais le texte en cours. L'aperçu demande JavaScript ; il est refusé au-delà de
+  512 Kio de texte (pas l'enregistrement), et rien n'est commité, indexé ni déposé dans l'inbox
+  avant l'enregistrement.
 - Chaque enregistrement produit un commit à votre nom, poussé aussitôt sur le dépôt.
 - **Déplacer** garde les liens justes, dans le même commit : les liens relatifs de la page
   déplacée sont recalculés pour son nouvel emplacement, et les pages qui pointaient vers elle

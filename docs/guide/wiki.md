@@ -145,6 +145,15 @@ tidy-up is turned off.
 - **Edit** a text page, **New page**, **Add** a file (25 MB maximum, any type: see
   [Files other than Markdown](#files-other-than-markdown)), **Move** (or rename) or **Delete
   this file** (⋮ menu).
+- **Preview**, above the text of a Markdown page (when editing it or creating it), shows the
+  page as it will read, without saving anything: the same rendering as reading it, Obsidian
+  syntax (`![[image]]`, callouts, `==highlight==`, `%%` comments), links and `[[wiki links]]`
+  resolved in the space, images of the space, highlighted code and Mermaid diagrams drawn.
+  **Write** goes back to the text, which stays as it is. On a large screen, **Side by side**
+  shows both: the preview follows the typing after a short pause, and this choice is
+  remembered in your browser. In the preview, links open in a new tab, so the text being
+  written is never left. The preview needs JavaScript; it is refused above 512 KiB of text (the
+  save is not), and nothing is committed, indexed or dropped in the inbox until you save.
 - Each save produces a commit in your name, pushed to the repository at once.
 - **Move** keeps links right, in the same commit: the relative links of the moved page are
   recomputed for its new location, and the pages that linked to it are rewritten (relative

@@ -10,6 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Preview while editing**. Above the text of a Markdown page, when editing it or creating it
+  (**Edit**, **New page**), **Preview** shows the page as it will read, without saving
+  anything: the server renders it exactly as the reading view does (Obsidian syntax, links and
+  `[[wiki links]]` resolved in the space, images, highlighted code, sanitized HTML), and Mermaid
+  diagrams are drawn in the same sandboxed frame as when reading. **Write** goes back to the
+  text, kept as it is; on a large screen, **Side by side** shows both, the preview following the
+  typing after a short pause (remembered in the browser). Links in the preview open in a new
+  tab. Contributors only, with the form's token; nothing is committed, indexed or dropped in the
+  inbox, and a text above 512 KiB is not previewed. No migration.
+
 ## [1.12.0] - 2026-11-08
 
 Give the whole team access to every space at once, keep a few spaces apart, see who changed what

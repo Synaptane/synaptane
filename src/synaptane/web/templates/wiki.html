@@ -31,6 +31,34 @@
   <button class="button button-small" type="submit" data-test="restore-version">{{ icon('refresh', 14) }}{{ _("Restore this version") }}</button>
 </form>
 {%- endmacro %}
+{# Markdown editor and its preview: the server renders the text as the reading view does,
+preferences.js shows it (Write, Preview, side by side on a large screen). Without JS: the text. #}
+{% macro editor(value, rows, preview, preview_path='', label='') -%}
+<div class="field editor-field"{% if preview %} data-preview="{{ home }}/-/preview" data-preview-path="{{ preview_path }}" data-preview-empty="{{ _('(empty text)') }}" data-preview-failed="{{ _('The preview could not be loaded: try again.') }}"{% endif %}>
+  <div class="editor-head">
+    <label for="text">{{ label or _("Content (Markdown)") }}</label>
+    {% if preview %}
+    <div class="segmented segmented-labels editor-modes" role="group" aria-label="{{ _('Editor view') }}" data-test="editor-modes" hidden>
+      <button type="button" data-preview-mode="write" aria-pressed="true" aria-controls="text">{{ icon('pencil', 14) }}{{ _("Write") }}</button>
+      <button type="button" data-preview-mode="preview" aria-pressed="false" aria-controls="text-preview" data-test="editor-preview">{{ icon('eye', 14) }}{{ _("Preview") }}</button>
+      <button type="button" class="editor-split-mode" data-preview-mode="split" aria-pressed="false" aria-controls="text text-preview" data-test="editor-split">{{ icon('columns', 14) }}{{ _("Side by side") }}</button>
+    </div>
+    {% endif %}
+  </div>
+  <div class="editor-panes">
+    <textarea id="text" name="text" class="editor" rows="{{ rows }}" spellcheck="true">{{ value }}</textarea>
+    {% if preview %}
+    <div id="text-preview" class="editor-preview" data-preview-pane hidden>
+      <div class="editor-preview-scroll" tabindex="0" role="region" aria-labelledby="text-preview-label">
+        <p class="section-label editor-preview-label" id="text-preview-label">{{ _("Preview — not saved yet") }}</p>
+        <p class="editor-preview-status" data-preview-status role="status" aria-live="polite"></p>
+        <div class="doc-body"><div class="markdown hl" data-preview-output></div></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{%- endmacro %}
 {% block topbar_end %}
 {% if view == 'file' %}
 <div class="topbar-doc">
@@ -261,7 +289,7 @@
     <form method="post" action="{{ home }}/edit/{{ file.path|pathurl }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="base_sha" value="{{ base_sha or file.sha }}">
-      <div class="field"><label for="text">{{ _("Content (Markdown)") if file.kind == 'markdown' else _("Content") }}</label><textarea id="text" name="text" class="editor" rows="24" spellcheck="true">{{ draft }}</textarea></div>
+      {{ editor(draft, 24, file.kind == 'markdown', file.path, '' if file.kind == 'markdown' else _("Content")) }}
       <div class="field"><label for="message">{{ _("Change summary (optional)") }}</label><input id="message" name="message" value="{{ message }}" maxlength="200"></div>
       {{ secret_confirm(error) }}
       <div class="actions">
@@ -283,7 +311,7 @@
         <div class="field"><label for="folder">{{ _("Folder") }}</label><input id="folder" name="folder" value="{{ folder }}" placeholder="{{ _('root') }}"></div>
         <div class="field"><label for="name">{{ _("File name") }}</label><input id="name" name="name" required placeholder="{{ _('my-page.md') }}" value="{{ name or '' }}"></div>
       </div>
-      <div class="field"><label for="text">{{ _("Content (Markdown)") }}</label><textarea id="text" name="text" class="editor" rows="18">{{ draft or '' }}</textarea></div>
+      {{ editor(draft or '', 18, true) }}
       <div class="field"><label for="message">{{ _("Change summary (optional)") }}</label><input id="message" name="message" maxlength="200" value="{{ message or '' }}"></div>
       {{ secret_confirm(error) }}
       <button class="button button-primary" type="submit">{{ _("Create page") }}</button>

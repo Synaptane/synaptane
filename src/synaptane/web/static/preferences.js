@@ -27,6 +27,8 @@
   // --- Mermaid diagrams -------------------------------------------------------------------------
   // The code stays in the page: without JS, or if the text cannot be drawn, it is what you read.
   // Each drawing is made in a sandboxed frame (see server.py, /diagram), when it comes near.
+  // The editor's preview reuses it: its frames go away with their block (`diagramFrames`).
+  const diagramFrames = new WeakMap();
   const drawDiagram = code => {
     const block = code.closest("pre");
     const frame = document.createElement("iframe");
@@ -34,7 +36,9 @@
     frame.src = "/diagram";
     frame.title = root.dataset.diagramLabel;
     frame.setAttribute("sandbox", "allow-scripts");
+    diagramFrames.set(block, frame);
     const listen = event => {
+      if (!frame.isConnected) { window.removeEventListener("message", listen); return; }
       if (event.source !== frame.contentWindow) return;
       const { ready, height, failed } = event.data ?? {};
       if (ready) {
@@ -54,17 +58,19 @@
     window.addEventListener("message", listen);
     block.after(frame);
   };
-  const setupDiagrams = () => {
-    const blocks = document.querySelectorAll(".markdown code.language-mermaid");
+  let nearDiagrams = null;
+  const observeDiagrams = scope => {
+    const blocks = scope.querySelectorAll(".markdown code.language-mermaid");
     if (!blocks.length) return;
-    const near = new IntersectionObserver((entries, observer) => {
+    nearDiagrams ??= new IntersectionObserver((entries, observer) => {
       entries.filter(entry => entry.isIntersecting).forEach(entry => {
         observer.unobserve(entry.target);
-        drawDiagram(entry.target);
+        if (entry.target.isConnected) drawDiagram(entry.target);
       });
     }, { rootMargin: "400px" });
-    blocks.forEach(code => near.observe(code));
+    blocks.forEach(code => nearDiagrams.observe(code));
   };
+  const setupDiagrams = () => observeDiagrams(document);
 
   // --- First steps of a space: can be hidden, remembered in this browser -------------------------
   const setupFirstSteps = () => {
@@ -167,6 +173,122 @@
       editor.addEventListener("input", () => { dirty = true; });
       form?.addEventListener("submit", () => { dirty = false; });
       window.addEventListener("beforeunload", event => { if (dirty) event.preventDefault(); });
+    });
+  };
+
+  // --- Editor: preview of the text, as the page will read -----------------------------------------
+  // The server renders it (/-/preview: the reading view's rendering, nothing saved); "Write",
+  // "Preview", or both side by side on a large screen (remembered in this browser). Side by
+  // side, it follows the typing after a pause; a text already shown is not asked for again, and
+  // only the blocks that changed are replaced (a diagram elsewhere is not drawn again). Links
+  // open in a new tab and anchors stay inside the preview: the text being written is never
+  // left. Without JS: the editor alone.
+  const previewSources = node => (node.nodeType === Node.ELEMENT_NODE ? node.outerHTML : `#${node.textContent}`);
+  const isolatePreview = node => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    [node, ...node.querySelectorAll("[id]")].filter(el => el.id).forEach(el => { el.id = `preview-${el.id}`; });
+    [node, ...node.querySelectorAll("a[href]")].filter(el => el.matches("a[href]")).forEach(link => {
+      const href = link.getAttribute("href");
+      if (href.startsWith("#")) link.setAttribute("href", `#preview-${href.slice(1)}`);
+      else link.target = "_blank";
+    });
+  };
+  const patchPreview = (output, shown, html) => {
+    const fresh = document.createElement("template");
+    fresh.innerHTML = html;
+    const nodes = [...fresh.content.childNodes];
+    const sources = nodes.map(previewSources);
+    let start = 0;
+    while (start < shown.length && start < nodes.length && shown[start].source === sources[start]) start += 1;
+    let end = 0;
+    while (end < shown.length - start && end < nodes.length - start
+      && shown[shown.length - 1 - end].source === sources[nodes.length - 1 - end]) end += 1;
+    const anchor = end ? shown[shown.length - end].node : null;
+    const gone = shown.slice(start, shown.length - end);
+    gone.forEach(({ node }) => { diagramFrames.get(node)?.remove(); node.remove(); });
+    const added = nodes.slice(start, nodes.length - end);
+    added.forEach(node => { isolatePreview(node); output.insertBefore(node, anchor); });
+    shown.splice(start, gone.length, ...added.map((node, i) => ({ source: sources[start + i], node })));
+    added.forEach(node => { if (node.nodeType === Node.ELEMENT_NODE) observeDiagrams(node); });
+  };
+  const setupPreview = () => {
+    document.querySelectorAll("[data-preview]").forEach(box => {
+      const editor = box.querySelector("textarea");
+      const form = editor?.form;
+      const modes = box.querySelector(".editor-modes");
+      if (!form || !modes || !window.fetch) return;
+      const panes = box.querySelector(".editor-panes");
+      const pane = box.querySelector("[data-preview-pane]");
+      const output = box.querySelector("[data-preview-output]");
+      const status = box.querySelector("[data-preview-status]");
+      const buttons = [...modes.querySelectorAll("[data-preview-mode]")];
+      const wide = window.matchMedia("(min-width: 1280px)");
+      const shown = [];
+      let mode = "write";
+      let asked = null;  // text (and place) asked for or shown
+      let controller = null;
+      let timer = 0;
+      const where = () => (box.dataset.previewPath
+        ? { path: box.dataset.previewPath }
+        : { folder: form.elements.folder?.value ?? "", name: form.elements.name?.value ?? "" });
+      const refresh = async () => {
+        clearTimeout(timer);
+        const place = where();
+        const key = JSON.stringify([editor.value, place]);
+        if (key === asked) return;
+        asked = key;
+        controller?.abort();
+        controller = null;
+        if (!editor.value.trim()) {
+          patchPreview(output, shown, "");
+          status.textContent = box.dataset.previewEmpty;
+          pane.removeAttribute("aria-busy");
+          return;
+        }
+        const mine = controller = new AbortController();
+        pane.setAttribute("aria-busy", "true");
+        try {
+          const body = new URLSearchParams({ csrf: form.elements.csrf.value, text: editor.value, ...place });
+          const response = await fetch(box.dataset.preview, { method: "POST", body, credentials: "same-origin", signal: mine.signal });
+          const text = await response.text();
+          if (response.redirected || !response.ok) {  // session expired (sign-in page), refusal
+            asked = null;
+            const plain = !response.redirected && (response.headers.get("content-type") || "").startsWith("text/plain");
+            status.textContent = plain && text ? text : box.dataset.previewFailed;
+            return;
+          }
+          patchPreview(output, shown, text);
+          status.textContent = "";
+        } catch (error) {
+          if (error.name === "AbortError") return;
+          asked = null;  // network: can retry
+          status.textContent = box.dataset.previewFailed;
+        } finally {
+          if (controller === mine) pane.removeAttribute("aria-busy");
+        }
+      };
+      const apply = next => {
+        mode = next === "split" && !wide.matches ? "write" : next;
+        buttons.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.previewMode === mode)));
+        panes.classList.toggle("split", mode === "split");
+        editor.hidden = mode === "preview";
+        pane.hidden = mode === "write";
+        if (mode !== "write") refresh();
+      };
+      buttons.forEach(button => button.addEventListener("click", () => {
+        const next = button.dataset.previewMode;
+        if (next === "split" || mode === "split") write("editor-split", String(next === "split"));
+        apply(next);
+      }));
+      const later = () => { if (mode === "split") { clearTimeout(timer); timer = setTimeout(refresh, 700); } };
+      editor.addEventListener("input", later);
+      ["folder", "name"].forEach(field => form.elements[field]?.addEventListener?.("input", later));
+      // Narrowed window: back to the text; widened again: side by side if it was chosen.
+      wide.addEventListener("change", () => {
+        if (mode === "split" || (mode === "write" && read("editor-split") === "true")) apply(wide.matches ? "split" : "write");
+      });
+      modes.hidden = false;
+      apply(read("editor-split") === "true" ? "split" : "write");
     });
   };
 
@@ -763,6 +885,7 @@
     setupForms();
     setupDates();
     setupEditor();
+    setupPreview();
     setupVocationTemplate();
     setupCopy();
     setupTabs();
