@@ -19,15 +19,26 @@ of the target version.
   fine-grained token with the Administration permission; GitLab: the `api` scope), serves this
   creation only and is never saved, logged or returned. Synaptane keeps an access limited to the
   new repository: an SSH deploy key with write access on GitHub (github.com's SSH keys read from
-  its API), a project access token (`read_repository`, `write_repository`, Maintainer) on GitLab.
-  Every refusal is explained (token refused, missing rights, owner not found, name taken,
-  provider unreachable or limiting requests) and creates nothing; a repository created whose
-  access cannot be set up (on GitLab.com Free, project access tokens are not available) is
-  still connected to the space, with a message giving its address, and is never deleted. A
+  its API, and read again from it if GitHub changes them), a project access token
+  (`read_repository`, `write_repository`, Maintainer) on GitLab, whose expiry date is shown in
+  **Settings → Git repository**. Every refusal is explained (token refused, missing rights,
+  owner not found, name taken, provider unreachable, too slow or limiting requests, GitLab.com
+  namespace on the free plan, where project access tokens do not exist) and creates nothing; a
+  repository created whose access cannot be set up is still connected to the space, with a
+  message giving its address, and is never deleted. Each call to the provider is abandoned
+  after 20 seconds and the whole creation after 60, without holding a database connection. A
   self-hosted GitLab must be at a public address, checked as for webhooks, except for the super
-  admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`). REST:
-  `create_repository` in `POST /organizations/{org}/spaces`, with a `repository` block in the
-  answer. No migration. See `docs/admin/git.md`.
+  admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`) and
+  "GitHub SSH host keys updated" (`space.git_host_keys_refreshed`). REST: `create_repository`
+  in `POST /organizations/{org}/spaces`, with a `repository` block in the answer. No migration.
+  See `docs/admin/git.md`.
+
+### Changed
+- **New space** without JavaScript: the repository address is now required by the server when
+  the repository is not created by Synaptane (the browser already required it).
+- REST: a malformed request body (422) no longer quotes the values received in `detail`
+  (`input`, `ctx`), only `loc`, `msg` and `type`: they could hold a token or a key sent in the
+  same body.
 
 ## [1.12.0] - 2026-11-08
 

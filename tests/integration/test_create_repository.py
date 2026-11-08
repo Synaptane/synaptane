@@ -18,6 +18,7 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole
@@ -90,7 +91,10 @@ def gitlab(forge: Forge, *, namespace: bool = True) -> Forge:
             200, json={"scopes": ["api"]}
         ),
         ("GET", "/api/v4/namespaces/acme%2Fteam"): httpx2.Response(
-            200, json={"id": 12, "kind": "group", "full_path": "acme/team"}
+            200, json={"id": 12, "kind": "group", "full_path": "acme/team", "plan": "premium"}
+        ),
+        ("GET", "/api/v4/namespaces/carla"): httpx2.Response(
+            200, json={"id": 3, "kind": "user", "full_path": "carla"}
         ),
         ("POST", "/api/v4/projects"): httpx2.Response(
             201,
@@ -208,7 +212,8 @@ def test_github_private_repository_with_a_deploy_key(
     ]
     assert all(r.url.host == "api.github.com" for r in forge.seen)
     assert forge.seen[0].headers["authorization"] == f"Bearer {TOKEN}"
-    assert "authorization" not in forge.seen[1].headers  # the server keys: no token needed
+    # The server keys: with the token (60 calls per hour without one).
+    assert forge.seen[1].headers["authorization"] == f"Bearer {TOKEN}"
     repo = forge.body("POST", "/user/repos")
     assert repo == {
         "name": "infra",
@@ -323,12 +328,18 @@ def test_github_token_refused_before_anything_is_created(
 
 
 def test_github_unreachable(db: Session, client: TestClient, acme: None, forge: Forge) -> None:
-    def down(request: httpx2.Request) -> httpx2.Response:
-        raise httpx2.ConnectTimeout("timed out", request=request)
+    def slow(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("timed out", request=request)
 
-    forge.routes[("GET", "/user")] = down
+    def down(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("refused", request=request)
+
+    forge.routes[("GET", "/user")] = slow
     error = refusal(lambda: create(db, box_of(client)))
     assert error.code is ErrorCode.UNAVAILABLE
+    assert error.message == "GitHub did not answer in time: try again in a moment."
+    forge.routes[("GET", "/user")] = down
+    error = refusal(lambda: create(db, box_of(client)))
     assert error.message == "GitHub cannot be reached: try again in a moment."
 
 
@@ -430,7 +441,7 @@ def test_gitlab_personal_project_without_scope_information(
         201, json={"token": PROJECT_TOKEN, "expires_at": None}
     )
     space, created = create(db, box_of(client), provider="gitlab")
-    assert "namespace_id" not in forge.body("POST", "/api/v4/projects")
+    assert forge.body("POST", "/api/v4/projects")["namespace_id"] == 3
     assert space.repo_url == "https://gitlab.com/carla/infra.git"
     assert created.token_expires is None
 
@@ -715,7 +726,8 @@ def test_new_space_form_offers_to_create_the_repository(client: TestClient, acme
     login(client, "carla")
     page = client.get("/o/acme/-/new-space").text
     assert "Créer le dépôt pour moi sur GitHub ou GitLab" in page
-    assert 'name="repo_token" type="password" autocomplete="off"' in page
+    assert 'name="repo_token" type="password" autocomplete="new-password"' in page
+    assert "Dépôt créé par Synaptane" in page and "Dépôt existant" in page  # without JS
     assert 'data-repo-provider="gitlab"' in page
 
 
@@ -758,7 +770,9 @@ def test_web_creation_gitlab_mentions_the_token_expiry(
     client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
     message = flash(client.get("/o/acme/infra/-/git").text)
     assert message is not None and message[0] == "ok"
-    assert "expire le 2027-11-08" in message[1]
+    assert "expire le 8 novembre 2027" in message[1]
+    page = client.get("/o/acme/infra/-/git").text
+    assert "expire le 8 novembre 2027" in page and 'data-test="git-token-expiry"' in page
 
 
 def test_web_creation_without_access(
@@ -891,3 +905,268 @@ def test_api_refusals(client: TestClient, database: Database, acme: None, forge:
     assert forge.seen == []
     with database.session() as session:
         assert session.scalar(select(Space)) is None
+
+
+# --- Second review ------------------------------------------------------------------------------
+
+
+def test_no_database_transaction_held_during_the_calls(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    """A slow provider must not keep a connection of the pool "idle in transaction"."""
+    github(forge)
+    during: list[bool] = []
+    handle = forge.handle
+
+    def watching(request: httpx2.Request) -> httpx2.Response:
+        during.append(db.in_transaction())
+        return handle(request)
+
+    forge.handle = watching  # type: ignore[method-assign]
+    monkeypatch_transport(forge)
+    create(db, box_of(client))
+    assert during == [False, False, False, False]
+    assert db.scalar(select(Space.slug)) == "infra"  # created, and committed
+
+
+def monkeypatch_transport(forge: Forge) -> None:
+    forges.TRANSPORT = httpx2.MockTransport(forge.handle)  # the fixture restores it
+
+
+def test_gitlab_namespace_found_by_search_behind_a_decoding_proxy(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge)
+    del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
+    forge.routes[("GET", "/api/v4/namespaces?search=team")] = httpx2.Response(
+        200,
+        json=[
+            {"id": 99, "full_path": "other/team"},
+            {"id": 12, "full_path": "Acme/Team", "plan": "premium"},
+        ],
+    )
+    create(db, box_of(client), provider="gitlab", owner="acme/team")
+    assert forge.body("POST", "/api/v4/projects")["namespace_id"] == 12
+
+
+def test_gitlab_search_without_the_exact_path_is_not_found(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge)
+    del forge.routes[("GET", "/api/v4/namespaces/acme%2Fteam")]
+    forge.routes[("GET", "/api/v4/namespaces?search=team")] = httpx2.Response(
+        200, json=[{"id": 99, "full_path": "other/team"}]
+    )
+    error = refusal(lambda: create(db, box_of(client), provider="gitlab", owner="acme/team"))
+    assert error.message.startswith("Namespace not found on GitLab")
+
+
+def test_gitlab_com_free_plan_is_refused_before_anything_is_created(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge, namespace=False)
+    forge.routes[("GET", "/api/v4/namespaces/carla")] = httpx2.Response(
+        200, json={"id": 3, "kind": "user", "full_path": "carla", "plan": "free"}
+    )
+    error = refusal(lambda: create(db, box_of(client), provider="gitlab"))
+    assert "free plan" in error.message and "Use an existing repository" in error.message
+    assert "POST /api/v4/projects" not in forge.paths()
+
+
+def test_self_hosted_gitlab_plan_is_not_checked(
+    db: Session, client: TestClient, acme: None, forge: Forge
+) -> None:
+    gitlab(forge, namespace=False)
+    forge.routes[("GET", "/api/v4/namespaces/carla")] = httpx2.Response(
+        200, json={"id": 3, "full_path": "carla", "plan": "free"}
+    )
+    _, created = create(
+        db, box_of(client), provider="gitlab", gitlab_url="https://git.lan", allow_private=True
+    )
+    assert created.credentials is not None
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        # Projects::CreateService#validate_create_permissions
+        ({"message": {"namespace": ["is not valid"]}}, "role allowed to create projects there"),
+        (
+            {"message": {"limit_reached": ["Personal project creation is not allowed."]}},
+            "reached its limit of projects",
+        ),
+        (
+            {"message": {"project_namespace.name": ["has already been taken"]}},
+            "already exists in acme/team on GitLab",
+        ),
+        ({"message": {"path": ["can contain only letters"]}}, "refused the repository name"),
+    ],
+)
+def test_gitlab_project_refusals_say_why(
+    db: Session,
+    client: TestClient,
+    acme: None,
+    forge: Forge,
+    answer: dict[str, Any],
+    message: str,
+) -> None:
+    gitlab(forge)
+    forge.routes[("POST", "/api/v4/projects")] = httpx2.Response(400, json=answer)
+    error = refusal(lambda: create(db, box_of(client), provider="gitlab", owner="acme/team"))
+    assert message in error.message, error.message
+
+
+@pytest.mark.parametrize(
+    ("gitlab_url", "answer", "message"),
+    [
+        (
+            "",
+            httpx2.Response(
+                400,
+                json={
+                    "message": "Access level of the token can't be greater the access level of "
+                    "the user who created the token"
+                },
+            ),
+            "Maintainer role",
+        ),
+        ("", httpx2.Response(403, json={"message": "403 Forbidden"}), "Premium"),
+        (
+            "https://git.lan",
+            httpx2.Response(400, json={"message": {"expires_at": ["is too far"]}}),
+            "GitLab refused to create the project access token: expires_at: is too far",
+        ),
+    ],
+)
+def test_gitlab_token_refusal_depends_on_the_answer_and_the_host(
+    db: Session,
+    client: TestClient,
+    acme: None,
+    forge: Forge,
+    gitlab_url: str,
+    answer: httpx2.Response,
+    message: str,
+) -> None:
+    gitlab(forge)
+    forge.routes[("POST", "/api/v4/projects/42/access_tokens")] = answer
+    _, created = create(
+        db,
+        box_of(client),
+        provider="gitlab",
+        owner="acme/team",
+        gitlab_url=gitlab_url,
+        allow_private=True,
+    )
+    assert created.access_error is not None
+    assert message in created.access_error.message, created.access_error.message
+    if gitlab_url:
+        assert "Premium" not in created.access_error.message
+
+
+def test_slug_taken_meanwhile_reports_the_repository(
+    db: Session, client: TestClient, acme: None, forge: Forge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    github(forge)
+
+    def race(*_: object, **__: object) -> Space:
+        raise IntegrityError("INSERT INTO spaces", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(spaces, "create_space", race)
+    error = refusal(lambda: create(db, box_of(client)))
+    assert error.code is ErrorCode.CONFLICT
+    assert "https://github.com/carla-gh/infra" in error.message
+    assert "“infra” already exists" in error.message
+
+
+def test_unexpected_failure_after_the_creation_reports_the_repository(
+    db: Session,
+    client: TestClient,
+    acme: None,
+    forge: Forge,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The purpose written to disk fails (`then`): nothing of the space is kept, the message and
+    the server log give the repository's address, never the token."""
+    github(forge)
+    actor = actor_of(db, accounts.get_user(db, "carla"))
+    org = organizations.get_organization(db, actor, "acme")
+
+    def broken(_: Space) -> None:
+        raise OSError("disk full")
+
+    error = refusal(
+        lambda: forges.create_space_with_repository(
+            db,
+            actor,
+            box_of(client),
+            org,
+            forges.NewRepository("github", TOKEN),
+            slug="infra",
+            name="Infra",
+            then=broken,
+        )
+    )
+    assert error.code is ErrorCode.CONFLICT
+    assert "https://github.com/carla-gh/infra" in error.message
+    assert "Unexpected error" in error.message
+    assert "https://github.com/carla-gh/infra" in caplog.text and TOKEN not in caplog.text
+    assert db.scalar(select(Space)) is None
+    assert "space.repository_created" not in events(db)
+
+
+def test_web_existing_mode_requires_the_address(
+    client: TestClient, database: Database, acme: None, forge: Forge
+) -> None:
+    """Without JavaScript, the address field is not marked required: the server checks it."""
+    login(client, "carla")
+    data = form(csrf(client, "/o/acme/-/new-space"), repo_mode="existing", repo_url=" ")
+    response = client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
+    assert response.headers["location"] == "/o/acme/-/new-space"
+    assert flash(client.get("/o/acme/-/new-space").text) == (
+        "error",
+        "Saisissez l'adresse du dépôt Git, ou choisissez de le faire créer.",
+    )
+    assert forge.seen == []
+    with database.session() as session:
+        assert session.scalar(select(Space)) is None
+
+
+def test_web_purpose_is_kept_with_a_created_repository(
+    client: TestClient, database: Database, acme: None, forge: Forge
+) -> None:
+    github(forge)
+    login(client, "carla")
+    data = form(csrf(client, "/o/acme/-/new-space"), vocation_template="job-search")
+    client.post("/o/acme/-/spaces", data=data, follow_redirects=False)
+    with database.session() as session:
+        actions = set(session.scalars(select(AuditEvent.action)))
+    assert {"space.repository_created", "space.vocation_updated"} <= actions
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        # `slug` missing: FastAPI's 422 would quote the whole body, token included.
+        (
+            "/api/v1/organizations/acme/spaces",
+            {"name": "Infra", "create_repository": {"provider": "github", "token": TOKEN}},
+        ),
+        (
+            "/api/v1/organizations/acme/spaces",
+            {"slug": "x", "name": "X", "create_repository": TOKEN},
+        ),
+        # Another route with a secret: Git credentials without `kind`.
+        ("/api/v1/organizations/acme/spaces/infra/git/credentials", {"token": TOKEN}),
+    ],
+)
+def test_api_validation_errors_never_quote_the_values(
+    client: TestClient, database: Database, acme: None, path: str, payload: dict[str, Any]
+) -> None:
+    headers = {"Authorization": f"Bearer {token_for(database, 'carla')}"}
+    method = client.put if path.endswith("credentials") else client.post
+    response = method(path, json=payload, headers=headers)
+    assert response.status_code == 422
+    assert TOKEN not in response.text
+    detail = response.json()["detail"]
+    assert detail and all(set(item) <= {"type", "loc", "msg"} for item in detail)
+    assert all(item["loc"] and item["msg"] and item["type"] for item in detail)

@@ -49,7 +49,7 @@ from synaptane.services import (
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import Organization, Space, User, WebSession
-from synaptane.web.i18n import LOCALES, negotiate, plural, translator
+from synaptane.web.i18n import LOCALES, format_day, negotiate, plural, translator
 
 SESSION_COOKIE = "synaptane_session"
 
@@ -826,6 +826,9 @@ def _render_git(
         "git",
         "space-git.html",
         credential_kind=git_sync.credential_kind(page.db, page.box, space) if manage else None,
+        credential_expires=format_day(expires, page.locale)
+        if manage and (expires := git_sync.credential_expiry(page.db, page.box, space))
+        else None,
         has_webhook_secret=bool(git_sync.webhook_secret(page.db, actor, page.box, space))
         if manage
         else False,

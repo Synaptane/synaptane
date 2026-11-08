@@ -154,7 +154,9 @@
       const button = event.submitter;
       if (button) {
         setTimeout(() => { button.disabled = true; button.setAttribute("aria-busy", "true"); }, 0);
-        setTimeout(() => { button.disabled = false; button.removeAttribute("aria-busy"); }, 15000);
+        // A long operation (a repository created on GitHub) says how long it may take.
+        const busy = 1000 * (Number(form.dataset.busySeconds) || 15);
+        setTimeout(() => { button.disabled = false; button.removeAttribute("aria-busy"); }, busy);
       }
     });
   };

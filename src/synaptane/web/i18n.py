@@ -15,6 +15,7 @@ A catalog maps an English text to its translation, with two refinements:
 import json
 import re
 from collections.abc import Callable
+from datetime import date
 from functools import cache
 from pathlib import Path
 
@@ -74,6 +75,46 @@ def translator(locale: str) -> Translate:
         )
 
     return translate
+
+
+_MONTHS = {
+    "fr": (
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ),
+    "en": (
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ),
+}
+
+
+def format_day(value: date, locale: str) -> str:
+    """A date written out in the language: "8 novembre 2027", "November 8, 2027"."""
+    month = _MONTHS["fr" if locale == "fr" else "en"][value.month - 1]
+    if locale == "fr":
+        return f"{'1er' if value.day == 1 else value.day} {month} {value.year}"
+    return f"{month} {value.day}, {value.year}"
 
 
 def plural(locale: str, count: int, one: str, many: str) -> str:

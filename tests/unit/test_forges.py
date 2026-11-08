@@ -1,7 +1,11 @@
 """Creating a repository on GitHub or GitLab: what can be checked without a database."""
 
 import shutil
+import socket
 import subprocess
+import threading
+import time
+from datetime import date
 from pathlib import Path
 
 import httpx2
@@ -10,6 +14,7 @@ import pytest
 from synaptane.core.errors import SynaptaneError
 from synaptane.git.credentials import GitCredentials
 from synaptane.services import forges
+from synaptane.web.i18n import format_day
 
 
 def test_the_deploy_key_is_a_usable_openssh_key(tmp_path: Path) -> None:
@@ -58,7 +63,103 @@ def test_an_endless_answer_is_not_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     big = httpx2.Response(
         200, content=b"x" * 1000, headers={"x-ratelimit-remaining": "0"}, request=request
     )
-    bounded = forges._bounded(big)
+    bounded = forges._bounded(big, forges.Deadline())
     assert bounded.content == b"" and bounded.headers["x-ratelimit-remaining"] == "0"
-    small = forges._bounded(httpx2.Response(201, json={"a": 1}, request=request))
+    small = forges._bounded(httpx2.Response(201, json={"a": 1}, request=request), forges.Deadline())
     assert small.json() == {"a": 1}
+
+
+class Dribble:
+    """Local HTTP server that answers drop by drop: one byte every `pause` seconds, from the
+    status line (`headers=True`) or only for the body."""
+
+    def __init__(self, headers: bool, pause: float = 0.1) -> None:
+        self.server = socket.create_server(("127.0.0.1", 0))
+        self.port = self.server.getsockname()[1]
+        self.headers, self.pause = headers, pause
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self) -> None:
+        connection, _ = self.server.accept()
+        with connection:
+            connection.recv(65536)
+            head = b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n"
+            if not self.headers:
+                connection.sendall(head)
+                head = b""
+            for byte in head + b"x" * 100000:
+                if self.stop.is_set():
+                    return
+                try:
+                    connection.sendall(bytes([byte]))
+                except OSError:
+                    return
+                time.sleep(self.pause)
+
+    def close(self) -> None:
+        self.stop.set()
+        self.server.close()
+
+
+def api(port: int, deadline: forges.Deadline) -> forges._Api:
+    return forges._Api(
+        "gitlab",
+        f"http://127.0.0.1:{port}",
+        {},
+        pin=False,
+        rights=forges.GITLAB_RIGHTS,
+        deadline=deadline,
+    )
+
+
+@pytest.mark.parametrize("headers", [True, False])
+def test_a_server_answering_drop_by_drop_is_cut_off(
+    monkeypatch: pytest.MonkeyPatch, headers: bool
+) -> None:
+    """The read timeout (15 s) restarts with each byte: only the call's deadline stops a server
+    that sends one byte at a time, in its headers as in its body."""
+    monkeypatch.setattr(forges, "CALL_SECONDS", 1.0)
+    server = Dribble(headers)
+    started = time.monotonic()
+    try:
+        with pytest.raises(SynaptaneError, match="did not answer in time"):
+            api(server.port, forges.Deadline()).call("GET", "/api/v4/user")
+    finally:
+        server.close()
+    assert time.monotonic() - started < 5
+
+
+def test_the_operation_deadline_bounds_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = Dribble(headers=False)
+    deadline = forges.Deadline(seconds=0.5)  # shorter than one call (20 s)
+    started = time.monotonic()
+    try:
+        with pytest.raises(SynaptaneError, match="did not answer in time"):
+            api(server.port, deadline).call("GET", "/api/v4/user")
+    finally:
+        server.close()
+    assert time.monotonic() - started < 4
+    with pytest.raises(SynaptaneError, match="did not answer in time"):
+        api(server.port, deadline).call("GET", "/api/v4/user")  # nothing left: no connection
+
+
+def test_the_deadline_is_installed_on_the_real_transport() -> None:
+    """`client` reaches into httpx2's transport: a new version that moves it must fail here."""
+    deadline = forges.Deadline()
+    with forges.client(deadline) as http:
+        transport = http._transport
+        assert isinstance(transport, httpx2.HTTPTransport)
+        assert isinstance(transport._pool._network_backend, forges._DeadlineBackend)
+
+
+def test_the_expiry_of_a_created_token_is_kept_with_it() -> None:
+    kept = GitCredentials.https("glpat-x", expiry=date(2027, 11, 1))
+    back = GitCredentials.from_json(kept.to_json())
+    assert back.expiry == date(2027, 11, 1) and back.token == "glpat-x"
+    assert "glpat-x" not in repr(back)
+    assert GitCredentials.from_json(GitCredentials.https("t").to_json()).expiry is None
+    assert GitCredentials(kind="https", token="t", expires="garbage").expiry is None
+    assert format_day(date(2027, 11, 1), "fr") == "1er novembre 2027"
+    assert format_day(date(2027, 11, 8), "en") == "November 8, 2027"

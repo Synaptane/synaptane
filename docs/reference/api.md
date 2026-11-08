@@ -54,8 +54,9 @@ The code never changes; the message is in English, or in French with
 | `unavailable` | 503 (database, repository or server temporarily unavailable; `Retry-After` header) |
 
 A malformed request body (missing field, wrong type) returns 422 in FastAPI's format:
-`{"detail": [{"loc": […], "msg": …, "type": …}]}`. Too many sign-in attempts, or OAuth
-registrations, return 429 as well.
+`{"detail": [{"loc": […], "msg": …, "type": …}]}`, without the values received (they may hold
+a secret sent in the same body). Too many sign-in attempts, or OAuth registrations, return 429
+as well.
 
 `too_many_requests` limits, over a sliding window:
 - inbox drops: 120 notes per hour per account, across all spaces and interfaces (web, REST,
@@ -143,9 +144,9 @@ The answer (201) adds `repository`: `provider`, `host`, `path` (`acme/infra`), `
 the provider), `access` (`ssh`: deploy key, `https`: GitLab project access token, `null`: not
 set up), `access_error` (why, in the caller's language: the repository exists, send its
 credentials with `PUT …/git/credentials`) and `token_expires` (expiry of the GitLab token).
-Nothing is created on a refused token or right, an unknown owner (400), a name already taken
-(409), a provider limiting requests (429) or unreachable (503). Giving both `repo_url` and
-`create_repository` is refused (400).
+Nothing is created on a refused token or right, an unknown owner or, on GitLab.com, a free
+plan (400), a name already taken (409), a provider limiting requests (429), unreachable or too
+slow (503). Giving both `repo_url` and `create_repository` is refused (400).
 
 ## Git of a space
 

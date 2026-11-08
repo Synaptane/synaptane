@@ -1,7 +1,7 @@
 {% extends "org-base.html" %}
 {% from "ui.html" import csrf_field with context %}
 {% block section %}
-<form class="card content-narrow" method="post" action="/o/{{ org.slug }}/-/spaces">
+<form class="card content-narrow" method="post" action="/o/{{ org.slug }}/-/spaces" data-busy-seconds="90">
   <h2>{{ _("New space") }}</h2>
   {{ csrf_field() }}
   <div class="form-columns">
@@ -16,10 +16,12 @@
       <label class="checkbox"><input type="radio" name="repo_mode" value="existing" checked data-test="repo-mode-existing">{{ _("Use an existing repository") }}</label>
       <label class="checkbox"><input type="radio" name="repo_mode" value="create" data-test="repo-mode-create">{{ _("Create the repository for me on GitHub or GitLab") }}</label>
     </fieldset>
+    <h3 class="field-label" data-repo-when="existing">{{ _("Existing repository") }}</h3>
     <div class="form-columns" data-repo-when="existing">
       <div class="field"><label for="space-repo">{{ _("Git repository address") }}</label><input id="space-repo" name="repo_url" placeholder="https://gitlab.com/acme/brain.git" data-required><p class="muted">{{ _("HTTPS or SSH. An empty repository is fine: Synaptane prepares it.") }}</p></div>
     </div>
     <div data-repo-when="create">
+      <h3 class="field-label">{{ _("Repository created by Synaptane") }}</h3>
       <p class="muted">{{ _("Synaptane creates a private, empty repository, then keeps only an access limited to it: an SSH deploy key on GitHub, a project access token on GitLab. Your token is used once and never saved.") }}</p>
       <div class="form-columns">
         <div class="field"><label for="repo-provider">{{ _("Git provider") }}</label><select id="repo-provider" name="provider"><option value="github">GitHub</option><option value="gitlab">GitLab</option></select></div>
@@ -29,7 +31,7 @@
         <div class="field"><label for="repo-owner">{{ _("Owner (optional)") }}</label><input id="repo-owner" name="repo_owner" maxlength="255" placeholder="acme" aria-describedby="repo-owner-help"><p class="muted" id="repo-owner-help">{{ _("Organization (GitHub), group or subgroup (GitLab: acme/team). Empty: the token's own account.") }}</p></div>
         <div class="field"><label for="repo-name">{{ _("Repository name") }}</label><input id="repo-name" name="repo_name" maxlength="100" pattern="[A-Za-z0-9_][A-Za-z0-9._\-]*" placeholder="infra" aria-describedby="repo-name-help" data-repo-name><p class="muted" id="repo-name-help">{{ _("Empty: the space's identifier.") }}</p></div>
       </div>
-      <div class="field"><label for="repo-token">{{ _("Access token that can create the repository") }}</label><input id="repo-token" name="repo_token" type="password" autocomplete="off" spellcheck="false" aria-describedby="repo-token-help" data-required><p class="muted" id="repo-token-help">{{ _("GitHub: fine-grained token on the owner, with access to all repositories and the Administration permission (read and write). GitLab: personal access token with the api scope. Used for this creation only, never saved.") }}</p></div>
+      <div class="field"><label for="repo-token">{{ _("Access token that can create the repository") }}</label><input id="repo-token" name="repo_token" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="repo-token-github repo-token-gitlab repo-token-help" data-required><p class="muted" id="repo-token-github" data-repo-provider="github">{{ _("GitHub: fine-grained token whose resource owner is the owner above, with access to all repositories and the Administration permission (read and write).") }}</p><p class="muted" id="repo-token-gitlab" data-repo-provider="gitlab">{{ _("GitLab: personal access token with the api scope. On GitLab.com, the namespace needs a Premium or Ultimate plan.") }}</p><p class="muted" id="repo-token-help">{{ _("Used for this creation only, never saved.") }}</p></div>
     </div>
     <div class="form-columns">
       <div class="field"><label for="space-branch">{{ _("Branch") }}</label><input id="space-branch" name="branch" value="main" required></div>

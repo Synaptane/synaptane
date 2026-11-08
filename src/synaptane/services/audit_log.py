@@ -277,6 +277,7 @@ ACTIONS: dict[str, Kind] = {
     ),
     "space.git_credentials_set": Kind("settings", Label("Git access set"), ("credentials",)),
     "space.git_credentials_cleared": Kind("settings", Label("Git access removed")),
+    "space.git_host_keys_refreshed": Kind("settings", Label("GitHub SSH host keys updated")),
     "space.webhook_secret_rotated": Kind("settings", Label("Git webhook secret renewed")),
     "space.tidy_settings": Kind("settings", Label("Tidy-up settings changed"), ("changed",)),
     "space.embeddings": Kind("settings", Label("Semantic search of the space"), ("enabled",)),

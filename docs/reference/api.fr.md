@@ -55,8 +55,9 @@ correspondant. Le code ne change jamais ; le message est en anglais, ou en fran�
 | `unavailable` | 503 (base, dépôt ou serveur momentanément indisponible ; en-tête `Retry-After`) |
 
 Un corps de requête mal formé (champ manquant, mauvais type) renvoie 422 au format de
-FastAPI : `{"detail": [{"loc": […], "msg": …, "type": …}]}`. Trop de tentatives de connexion,
-ou d'inscriptions OAuth, renvoient aussi 429.
+FastAPI : `{"detail": [{"loc": […], "msg": …, "type": …}]}`, sans les valeurs reçues (elles
+peuvent contenir un secret envoyé dans le même corps). Trop de tentatives de connexion, ou
+d'inscriptions OAuth, renvoient aussi 429.
 
 Limites `too_many_requests`, sur une fenêtre glissante :
 - dépôts dans l'inbox : 120 notes par heure et par compte, tous espaces et toutes interfaces
@@ -145,9 +146,9 @@ chez le fournisseur), `access` (`ssh` : clé de déploiement, `https` : jeton d'
 GitLab, `null` : non configuré), `access_error` (pourquoi, dans la langue de l'appelant : le
 dépôt existe, envoyez ses identifiants par `PUT …/git/credentials`) et `token_expires`
 (expiration du jeton GitLab). Rien n'est créé si le jeton ou ses droits sont refusés, si le
-propriétaire est inconnu (400), si le nom est déjà pris (409), si le fournisseur limite les
-requêtes (429) ou est injoignable (503). Donner à la fois `repo_url` et `create_repository` est
-refusé (400).
+propriétaire est inconnu ou, sur GitLab.com, en offre gratuite (400), si le nom est déjà pris
+(409), si le fournisseur limite les requêtes (429), est injoignable ou trop lent (503). Donner
+à la fois `repo_url` et `create_repository` est refusé (400).
 
 ## Git d'un espace
 

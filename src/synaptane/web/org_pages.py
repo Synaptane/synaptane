@@ -10,7 +10,7 @@ from synaptane.ai import cli_agents, pricing
 from synaptane.ai.base import DEFAULT_MODELS, EFFORTS
 from synaptane.ai.embeddings import DEFAULT_EMBEDDING_MODELS, EMBEDDING_PROVIDERS
 from synaptane.core.access import Action, OrgRole, can
-from synaptane.core.errors import Label, SynaptaneError, not_found
+from synaptane.core.errors import Label, SynaptaneError, invalid, not_found
 from synaptane.services import (
     Actor,
     accounts,
@@ -27,7 +27,8 @@ from synaptane.services import (
     vocation,
     webhooks,
 )
-from synaptane.storage.models import Organization
+from synaptane.storage.models import Organization, Space
+from synaptane.web.i18n import format_day
 from synaptane.web.pages import (
     Csrf,
     Page,
@@ -263,6 +264,11 @@ def space_create(
     created = None
     try:
         chosen = vocation.template(vocation_template) if vocation_template else None
+
+        def start_with(space: Space) -> None:
+            if chosen is not None:
+                vocation.start_with(page.db, actor, page.workspace, space, chosen)
+
         if repo_mode == "create":
             space, created = forges.create_space_with_repository(
                 page.db,
@@ -277,8 +283,14 @@ def space_create(
                 restricted=restricted,
                 allow_private=page.settings.allow_private_webhooks,
                 public_host=urlsplit(page.settings.public_url).netloc,
+                then=start_with,
             )
         else:
+            # Required in the form too; checked here for a browser without JavaScript.
+            if not repo_url.strip():
+                raise invalid(
+                    "Enter the address of the Git repository, or choose to have it created."
+                )
             space = spaces.create_space(
                 page.db,
                 actor,
@@ -290,8 +302,7 @@ def space_create(
                 branch=branch,
                 restricted=restricted,
             )
-        if chosen is not None:
-            vocation.start_with(page.db, actor, page.workspace, space, chosen)
+            start_with(space)
     except SynaptaneError as error:
         return failure(f"{org_url(org)}/-/new-space", page, error)
     if space.repo_url:
@@ -322,7 +333,7 @@ def space_create(
             "is preparing it. Its access token expires on {date}: renew it before then.",
             address=created.web_url,
             provider=created.provider_name,
-            date=created.token_expires.isoformat(),
+            date=format_day(created.token_expires, page.locale),
         )
     return redirect(
         space_settings_url(space, "git"),

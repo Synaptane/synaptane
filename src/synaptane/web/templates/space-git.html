@@ -80,6 +80,7 @@
 <section class="card section-gap">
   <h2><span class="step">2</span>{{ _("Repository access") }}</h2>
   <p class="muted">{% if credential_kind == 'https' %}{{ _("HTTPS access token saved.") }}{% elif credential_kind == 'ssh' %}{{ _("SSH key saved.") }}{% else %}{{ _("No credentials: only public repositories can be read.") }}{% endif %} {{ _("Secrets are encrypted and never shown again.") }}</p>
+  {% if credential_expires %}<p class="notice notice-warning" data-test="git-token-expiry">{{ _("The project access token created by Synaptane expires on {date}: before then, create a new one on GitLab (Settings → Access tokens, read_repository and write_repository, Maintainer role) and save it below.", date=credential_expires) }}</p>{% endif %}
   {% if space.repo_url.startswith('https://') %}
   <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/git/https">
     {{ csrf_field() }}
