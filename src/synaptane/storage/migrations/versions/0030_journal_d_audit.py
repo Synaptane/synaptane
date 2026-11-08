@@ -8,7 +8,7 @@ the first one and the export included, goes through up to all the organization's
 covers.
 
 Revision ID: 0030
-Revises: 0028
+Revises: 0029
 """
 
 from collections.abc import Sequence
@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "0030"
-down_revision: str | None = "0028"
+down_revision: str | None = "0029"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 

@@ -290,6 +290,10 @@ def test_details_in_french() -> None:
     assert details("org.ai_budget_alert", level="80") == []  # incomplete: nothing
     assert details("space.vocation_updated", template="nope") == ["Modèle : nope"]
     assert details("space.member_set", role="owner") == []  # unknown value: nothing
+    assert details("org.default_space_role", role="reader") == ["Lecteur"]
+    assert details("org.default_space_role", role="none") == ["Pas d'accès"]
+    assert details("space.restricted", restricted=True) == ["Restreint"]
+    assert details("space.restricted", restricted=False) == ["Non restreint"]
 
 
 def test_the_author_of_an_event_without_an_account() -> None:

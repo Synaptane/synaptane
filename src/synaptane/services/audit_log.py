@@ -164,6 +164,10 @@ FIELDS = {
     "prompt": Field(_prompt, subject=True),
     # Details
     "role": Field(_choice("role", ROLES)),
+    "default_role": Field(_choice("role", {**ROLES, "none": Label("No access")})),
+    "restricted": Field(
+        _choice("restricted", {"True": Label("Restricted"), "False": Label("Not restricted")})
+    ),
     "provider": Field(_value("provider", "Provider: {value}")),
     "model": Field(_value("model", "Model: {value}")),
     "key": Field(
@@ -231,6 +235,9 @@ ACTIONS: dict[str, Kind] = {
     # Settings
     "org.created": Kind("settings", Label("Organization created")),
     "org.updated": Kind("settings", Label("Organization settings changed")),
+    "org.default_space_role": Kind(
+        "settings", Label("Default role in the spaces"), ("default_role",)
+    ),
     "org.deleted": Kind("settings", Label("Organization deleted"), ("slug",)),
     "org.ai_configured": Kind(
         "settings", Label("AI settings changed"), ("provider", "model", "key", "budget")
@@ -243,6 +250,7 @@ ACTIONS: dict[str, Kind] = {
     "org.webhook_reactivated": Kind("settings", Label("Webhook re-enabled"), ("webhook",)),
     "space.created": Kind("settings", Label("Space created")),
     "space.updated": Kind("settings", Label("Space settings changed"), ("changed",)),
+    "space.restricted": Kind("settings", Label("Space restriction changed"), ("restricted",)),
     "space.deleted": Kind("settings", Label("Space deleted"), ("slug",)),
     "space.git_credentials_set": Kind("settings", Label("Git access set"), ("credentials",)),
     "space.git_credentials_cleared": Kind("settings", Label("Git access removed")),
