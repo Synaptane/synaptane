@@ -433,10 +433,13 @@ par le webhook `space.alert`, de ce qui demande leur attention, par exemple quan
   avant la fin ;
 - un espace ne se synchronise plus avec son dépôt (identifiants refusés, dépôt introuvable) ;
 - une inbox garde des éléments jamais examinés depuis plus de 3 jours ;
-- l'agent de rangement atteint le plafond de suppressions, ou fait de gros changements.
+- l'agent de rangement atteint le plafond de suppressions, ou fait de gros changements ;
+- le jeton d'accès Git d'un espace expire dans 30 jours, 7 jours, demain, ou a expiré (voir
+  [Expiration des jetons](git.fr.md#expiration-des-jetons)).
 
 La liste complète des types d'alerte est dans [Webhooks](webhooks.fr.md). Une même alerte
-(type et espace) ne repart pas avant 20 heures. Le budget d'IA a ses propres alertes (voir
+(type et espace) ne repart pas avant 20 heures ; l'expiration d'un jeton est signalée une fois
+par palier. Le budget d'IA a ses propres alertes (voir
 [Intelligence artificielle](ai.fr.md)).
 
 Les super-administrateurs sont prévenus, par e-mail si l'envoi est configuré, quand la
@@ -447,8 +450,9 @@ l'alerte s'affiche aussi dans **Administration > Santé**.
 
 **Administration > Santé** (`/admin/health`, super-administrateurs) montre l'instance sur une
 page : base de données, clé maîtresse, worker, tâches de fond, dernière sauvegarde, copie hors
-site, disque, envoi d'e-mails et HTTPS, puis la synchronisation et le rangement de chaque espace,
-puis les alertes système des 30 derniers jours. Une sauvegarde compte une fois écrite et vérifiée,
+site, disque, envoi d'e-mails, HTTPS et les jetons d'accès Git qui expirent d'ici 30 jours ou ont
+expiré (avec un lien vers la page Git de chaque espace), puis la synchronisation et le rangement
+de chaque espace, puis les alertes système des 30 derniers jours. Une sauvegarde compte une fois écrite et vérifiée,
 où qu'elle soit allée ; une copie hors site, une fois que toutes les destinations l'ont. Les
 copies faites avant la 1.11.0 ne sont pas vues.
 

@@ -1,7 +1,8 @@
 """Alerts to the administrators of an organization: what needs their attention.
 
 An alert goes out by email (if sending is configured), by webhook (`space.alert`) and to the
-audit log. The same alert (kind and space) is not sent again before `QUIET`.
+audit log. The same alert (kind and space) is not sent again before `QUIET`, or, for an alert
+given a `once` key (each step before a Git token expires), never again with the same key.
 """
 
 import logging
@@ -31,6 +32,8 @@ KINDS = (
     "tidy_interrupted",
     "job_abandoned",
     "routine_failed",
+    "git_token_expiring",
+    "git_token_expired",
 )
 
 
@@ -40,22 +43,26 @@ def notify(
     space: Space,
     kind: str,
     public_url: str = "",
+    *,
+    once: str = "",
     **values: object,
 ) -> bool:
-    """Notifies the admins of the organization of `space`. False if notified recently."""
+    """Notifies the admins of the organization of `space`. False if notified recently, or,
+    with `once` (a key naming this very alert: a token's expiry and the step reached), if an
+    alert of this kind already had this key for the space, however long ago."""
     assert kind in KINDS
     action = f"alert.{kind}"
-    recent = session.scalar(
-        select(AuditEvent.id).where(
-            AuditEvent.action == action,
-            AuditEvent.space_id == space.id,
-            AuditEvent.at > datetime.now(UTC) - QUIET,
-        )
+    query = select(AuditEvent.id).where(
+        AuditEvent.action == action, AuditEvent.space_id == space.id
     )
-    if recent is not None:
+    if once:
+        query = query.where(AuditEvent.details["once"].astext == once)
+    else:
+        query = query.where(AuditEvent.at > datetime.now(UTC) - QUIET)
+    if session.scalar(query.limit(1)) is not None:
         return False
     details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
-    audit(session, None, action, space=space, **details)
+    audit(session, None, action, space=space, **details, **({"once": once} if once else {}))
     webhooks.emit(session, space, "space.alert", {"kind": kind, **details})
     if not mail.configured(session):
         return True

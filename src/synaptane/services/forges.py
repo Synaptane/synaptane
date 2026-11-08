@@ -24,6 +24,11 @@ database connection is given back during the calls: a slow provider holds no con
 A self-hosted GitLab is only reached over HTTPS, at a public address (same check as the
 webhooks: resolved once, then connected to the checked address), unless the account is the
 super admin, who can reach a GitLab of the local network.
+
+An HTTPS token an admin saves by hand has its expiry date read from its provider
+(`save_https_token`), with the same protections: one call, `EXPIRY_SECONDS` at most, to the
+repository's own host (GitHub: api.github.com), never redirected. Unknown, it is simply not
+kept: saving the token never depends on it.
 """
 
 import json
@@ -36,7 +41,7 @@ import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -71,6 +76,7 @@ CALL_SECONDS = 20.0  # one call, from the connection to the last byte of the ans
 OPERATION_SECONDS = 60.0  # the whole creation, every call included
 MAX_ANSWER = 1_000_000  # bytes read from an answer, at most
 SEARCH_PAGES = 5  # pages of 100 namespaces read, at most, when searching one
+EXPIRY_SECONDS = 10.0  # reading the expiry of a token saved by hand: the admin waits
 # Tests: simulated provider APIs (`httpx2.MockTransport`). Never a real call in the tests.
 TRANSPORT: httpx2.BaseTransport | None = None
 
@@ -753,6 +759,101 @@ def create_repository(
     if new.provider == "github":
         return _github(new, key_title, description, deadline)
     return _gitlab(new, key_title, description, allow_private=allow_private, deadline=deadline)
+
+
+# --- Expiry of a token saved by hand ------------------------------------------------------------
+
+
+def _github_expiry(value: str) -> date | None:
+    """`GitHub-Authentication-Token-Expiration: 2027-11-08 07:00:00 UTC` (or `+0100`): the
+    day, in UTC. None for any other form."""
+    value = value.strip().replace(" UTC", " +0000")
+    try:
+        moment = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None
+    return moment.astimezone(UTC).date()
+
+
+def _gitlab_expiry(answer: Any) -> date | None:
+    expires = answer.get("expires_at") if isinstance(answer, dict) else None
+    try:
+        return date.fromisoformat(expires[:10]) if isinstance(expires, str) else None
+    except ValueError:
+        return None
+
+
+def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> date | None:
+    """Expiry date of an HTTPS access token, read from the provider of `repo_url`:
+    - github.com: the `GitHub-Authentication-Token-Expiration` header GitHub adds to any
+      answer for an expiring token (`GET /rate_limit`, which counts against no limit);
+    - any other host, taken for a GitLab: `GET /api/v4/personal_access_tokens/self` and its
+      `expires_at` (personal, group and project access tokens). Another Git host answers 404.
+
+    The token only goes to the repository's own host, which receives it for the sync anyway
+    (GitHub: its API). None when the date is unknown: no expiry, refused (the API scope may be
+    missing), another provider, unreachable, too slow, a private address (unless
+    `allow_private`). Never raises, never logs the token."""
+    parts = urlsplit(repo_url)
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not host:
+        return None
+    deadline = Deadline(EXPIRY_SECONDS)
+    try:
+        if host == "github.com":
+            api = _github_api(token, deadline)
+            if api.call("GET", "/rate_limit", optional=True) is None:
+                return None
+            header = api.last_headers.get("github-authentication-token-expiration", "")
+            return _github_expiry(header)
+        base = f"https://{host}" + (f":{port}" if port else "")
+        api = _Api(
+            "gitlab",
+            base + "/api/v4",
+            {"PRIVATE-TOKEN": token, "Accept": "application/json"},
+            pin=base != GITLAB_COM and not allow_private,
+            rights=GITLAB_RIGHTS,
+            deadline=deadline,
+        )
+        return _gitlab_expiry(api.call("GET", "/personal_access_tokens/self", optional=True))
+    except SynaptaneError as error:
+        log.info("Expiry of the token for %s not read: %s", host, error.message)
+        return None
+
+
+def save_https_token(
+    session: Session,
+    actor: Actor,
+    box: SecretBox,
+    space: Space,
+    token: str,
+    username: str = "",
+    *,
+    allow_private: bool = False,
+) -> GitCredentials:
+    """An HTTPS token saved by an organization admin (web, REST), with its expiry date when the
+    provider gives it (`token_expiry`): the Health page and the alerts then know it.
+
+    Rights and the token's form are checked first, before any call; the transaction is
+    committed before the call (no database connection held while the provider answers).
+    `allow_private`: a host of the local network may be asked (development; always for the
+    super admin)."""
+    require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    credentials = GitCredentials.https(token, username)
+    repo_url = space.repo_url or ""
+    if repo_url and credentials.matches(repo_url):
+        session.commit()
+        expiry = token_expiry(
+            repo_url, credentials.token, allow_private=allow_private or actor.access.is_superadmin
+        )
+        if expiry is not None:
+            credentials = replace(credentials, expires=expiry.isoformat())
+    git_sync.set_credentials(session, actor, box, space, credentials)
+    return credentials
 
 
 # --- Use case ---------------------------------------------------------------------------------

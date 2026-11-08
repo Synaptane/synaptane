@@ -10,12 +10,14 @@ from synaptane.core.errors import SynaptaneError, forbidden
 from synaptane.git.credentials import GitCredentials, scan_host_keys
 from synaptane.services import (
     accounts,
+    forges,
     git_sync,
     groups,
     jobs,
     spaces,
 )
 from synaptane.web.group_pages import access_label, removal_label
+from synaptane.web.i18n import format_day
 from synaptane.web.pages import (
     Csrf,
     WebPage,
@@ -151,10 +153,24 @@ def space_git_https(
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     try:
-        credentials = GitCredentials.https(token, username)
-        git_sync.set_credentials(page.db, actor, page.box, space, credentials)
+        credentials = forges.save_https_token(
+            page.db,
+            actor,
+            page.box,
+            space,
+            token,
+            username,
+            allow_private=page.settings.allow_private_webhooks,
+        )
     except SynaptaneError as error:
         return failure(space_settings_url(space, "git"), page, error)
+    if (expiry := credentials.expiry) is not None:
+        return redirect(
+            space_settings_url(space, "git"),
+            page,
+            "Repository access saved. The token expires on {date}.",
+            date=format_day(expiry, page.locale),
+        )
     return redirect(space_settings_url(space, "git"), page, "Repository access saved.")
 
 

@@ -12,7 +12,6 @@ import re
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
@@ -39,6 +38,7 @@ from synaptane.services import (
     accounts,
     budget,
     changes,
+    git_expiry,
     git_sync,
     load_actor,
     mail,
@@ -300,7 +300,11 @@ def _log_text(context: Any, text: object) -> str:
 templates.env.globals["log_text"] = _log_text
 
 
-templates.env.globals["git_error"] = pass_context(lambda c, text: describe_error(str(text), c["_"]))
+templates.env.globals["git_error"] = pass_context(
+    lambda c, text: describe_error(str(text), c["_"], c["locale"])
+)
+# A date written out in the page's language: "8 novembre 2027", "November 8, 2027".
+templates.env.filters["day"] = pass_context(lambda c, value: format_day(value, c["locale"]))
 
 
 templates.env.filters["commit_label"] = _commit_label
@@ -813,6 +817,13 @@ def render_space_settings(
     )
 
 
+def _host(url: str | None) -> str:
+    try:
+        return (urlsplit(url or "").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 def _render_git(
     page: Page,
     actor: Actor,
@@ -823,6 +834,7 @@ def _render_git(
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     org = space.organization
     expires = git_sync.credential_expiry(page.db, page.box, space) if manage else None
+    days = git_expiry.days_left(expires) if expires else None
     return render_space_settings(
         page,
         actor,
@@ -832,7 +844,10 @@ def _render_git(
         credential_kind=git_sync.credential_kind(page.db, page.box, space) if manage else None,
         credential_expires=expires if manage else None,
         credential_expires_label=format_day(expires, page.locale) if manage and expires else "",
-        credential_expires_soon=bool(expires and expires - date.today() <= timedelta(days=30)),
+        credential_expires_soon=days is not None and days <= git_expiry.WARN_DAYS,
+        credential_expired=days is not None and days <= 0,
+        # Where to create the next token: GitHub, or a GitLab (any other host).
+        token_host="github" if _host(space.repo_url) == "github.com" else "gitlab",
         has_webhook_secret=bool(git_sync.webhook_secret(page.db, actor, page.box, space))
         if manage
         else False,

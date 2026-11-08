@@ -38,6 +38,7 @@ from synaptane.services import (
     backup_schedule,
     changes,
     freshness,
+    git_expiry,
     git_sync,
     instance,
     jobs,
@@ -340,6 +341,10 @@ class Worker:
                 freshness.send_reminders(self.database, self.ctx)
             except Exception:  # noqa: BLE001 — a missed reminder must not stop the worker
                 log.warning("Verification reminders not sent", exc_info=True)
+            try:  # Git tokens: 30, 7 and 1 day before their expiry, then on the day
+                git_expiry.check(self.database, self.ctx)
+            except Exception:  # noqa: BLE001 — a missed alert must not stop the worker
+                log.warning("Git token expiry not checked", exc_info=True)
         self.remove_orphan_clones()
         with self.database.session() as session:
             jobs.prune(session)

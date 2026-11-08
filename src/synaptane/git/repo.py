@@ -13,6 +13,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, replace
+from datetime import date
 from itertools import batched
 from pathlib import Path, PurePosixPath
 
@@ -90,6 +91,16 @@ EXPLANATIONS = (
         "Unknown SSH host key: save the deploy key again to read the host's keys again.",
     ),
 )
+AUTHENTICATION_REQUIRED = EXPLANATIONS[0][1]
+# Authentication refused while the saved token's expiry date has passed (`expired_error`):
+# replaces the general explanation, the date in ISO form, written out when shown.
+TOKEN_EXPIRED = (
+    "The access token expired on {date}: create a new one on the Git host and save it in "
+    "“Repository access”."
+)
+_TOKEN_EXPIRED = re.compile(
+    re.escape(TOKEN_EXPIRED).replace(re.escape("{date}"), r"(\d{4}-\d{2}-\d{2})")
+)
 LOCAL_REPOS_DISABLED = "Local repositories (file://) are disabled on this instance."
 REMOTE_TOO_FAST = "The remote repository changes too fast: retrying later."
 # The same messages as stored in French before the interface texts became English.
@@ -121,9 +132,26 @@ def explain(command: str, output: str) -> str:
     return f"git {command}: {output}"
 
 
-def describe_error(text: str, translate: Callable[..., str]) -> str:
+def expired_error(text: str, expiry: date) -> str:
+    """A Git error (`explain`) refused for authentication, with a token whose expiry date has
+    passed: it says so, Git's output kept. Any other error is returned as it is."""
+    if not text.startswith(AUTHENTICATION_REQUIRED):
+        return text
+    return TOKEN_EXPIRED.format(date=expiry.isoformat()) + text[len(AUTHENTICATION_REQUIRED) :]
+
+
+def describe_error(text: str, translate: Callable[..., str], locale: str = "en") -> str:
     """A stored Git error (`explain`, or a message of Synaptane) for display: its known message
-    translated, Git's own output kept as it is. Also reads errors stored in French."""
+    translated, Git's own output kept as it is. Also reads errors stored in French. `locale`:
+    the language of `translate`, for a date written out."""
+    if match := _TOKEN_EXPIRED.match(text):
+        from synaptane.web.i18n import format_day  # the interface's way of writing a date
+
+        try:
+            day = format_day(date.fromisoformat(match.group(1)), locale)
+        except ValueError:
+            day = match.group(1)
+        return translate(TOKEN_EXPIRED, date=day) + text[match.end() :]
     known = [message for _, message in EXPLANATIONS] + [LOCAL_REPOS_DISABLED, REMOTE_TOO_FAST]
     for message in known:
         if text.startswith(message):

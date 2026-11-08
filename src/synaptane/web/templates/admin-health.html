@@ -12,8 +12,9 @@
       <div class="admin-row-main"><span class="admin-row-title">{{ _(check.title) }}</span><span class="admin-row-meta">{{ _(check.message.template, **check.message.params) }}{% if check.at %} {{ when(check.at) }}{% endif %}</span>
         {% if check.note %}<span class="admin-row-meta">{{ _(check.note.template, **check.note.params) }}</span>{% endif %}
         {% if check.run %}<span class="admin-row-meta">{{ _(check.run.template, **check.run.params) }}{% if check.run_at %} {{ when(check.run_at) }}{% endif %}</span>{% endif %}
+        {% if check.tokens %}<ul class="health-tokens" data-test="health-git-tokens">{% for token in check.tokens %}<li><a href="{{ token.git_url }}">{{ token.space.address }}</a> · {% if token.expired %}<span class="status status-error">{{ _("expired on {date}", date=token.expires|day) }}</span>{% elif token.days == 1 %}{{ _("expires on {date} (tomorrow)", date=token.expires|day) }}{% else %}{{ _(pl(token.days, "expires on {date} (in {n} day)", "expires on {date} (in {n} days)"), n=token.days, date=token.expires|day) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
         {% if check.command %}<span class="admin-row-meta">{{ copyable("health-command-" ~ loop.index, check.command) }}</span>{% endif %}
-        {% if check.guide %}<span class="admin-row-meta"><a href="https://github.com/synaptane/synaptane/blob/main/docs/admin/{{ check.guide }}{{ '.fr' if locale == 'fr' else '' }}.md" rel="noopener" target="_blank">{{ _("How to set up the backups") }}</a></span>{% endif %}
+        {% if check.guide %}<span class="admin-row-meta"><a href="https://github.com/synaptane/synaptane/blob/main/docs/admin/{{ check.guide }}{{ '.fr' if locale == 'fr' else '' }}.md" rel="noopener" target="_blank">{% if check.guide == "git" %}{{ _("How to renew a Git access token") }}{% else %}{{ _("How to set up the backups") }}{% endif %}</a></span>{% endif %}
       </div>
       {{ state_label(check.state) }}
     </div>

@@ -32,7 +32,8 @@ class GitCredentials:
     token: str = field(default="", repr=False)
     private_key: str = field(default="", repr=False)
     known_hosts: str = ""
-    # Expiry of a token Synaptane created itself (GitLab project access token), ISO date.
+    # Expiry of the token, ISO date, when known: created by Synaptane (GitLab project access
+    # token) or read from the provider when saved (`forges.save_https_token`).
     expires: str = ""
 
     @property
