@@ -112,7 +112,7 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
 | `GET /organizations/{org}/spaces` | membre | Espaces visibles de l'organisation |
-| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true` : fermé au rôle par défaut de l'organisation dès sa création |
+| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true` : fermé au rôle par défaut de l'organisation dès sa création. Avec `create_repository` au lieu de `repo_url`, Synaptane crée le dépôt sur GitHub ou GitLab (voir plus bas) |
 | `GET …/spaces/{space}` | lecteur | Détail, avec le `role` effectif de l'appelant, `review_every` (périodicité de vérification par défaut des pages, `""` : jamais) et `restricted` (le rôle par défaut de l'organisation ne s'applique pas) |
 | `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""` ; 400 si illisible), `restricted` (`true` : seuls les membres ajoutés à l'espace, et les admins de l'organisation, y accèdent). Changer `repo_url` retire les identifiants Git |
 | `DELETE …/spaces/{space}` | admin | Supprime l'espace dans Synaptane ; le dépôt distant n'est pas touché (204) |
@@ -125,6 +125,29 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 
 `…` vaut `/organizations/{org}`. Pour créer un espace avec une vocation, créez-le puis
 envoyez `PUT …/vocation` (le texte attend la première synchronisation).
+
+**Création du dépôt** (voir [Dépôts Git](../admin/git.fr.md#ou-laisser-synaptane-créer-le-dépôt)) :
+`POST /organizations/{org}/spaces` avec, au lieu de `repo_url` :
+
+```json
+{"slug": "infra", "name": "Infra",
+ "create_repository": {"provider": "github", "owner": "acme", "name": "", "token": "github_pat_…"}}
+```
+
+- `provider` : `github` ou `gitlab` ; `gitlab_url` : adresse d'un GitLab auto-hébergé, en
+  `https://` (vide : gitlab.com) ;
+- `owner` : organisation GitHub, ou chemin du groupe GitLab (`acme/equipe`) ; vide : le compte
+  du jeton lui-même. `name` : vide, le `slug` de l'espace ;
+- `token` : ne sert qu'à cette requête, jamais conservé ni renvoyé.
+
+La réponse (201) ajoute `repository` : `provider`, `host`, `path` (`acme/infra`), `url` (page
+chez le fournisseur), `access` (`ssh` : clé de déploiement, `https` : jeton d'accès de projet
+GitLab, `null` : non configuré), `access_error` (pourquoi, dans la langue de l'appelant : le
+dépôt existe, envoyez ses identifiants par `PUT …/git/credentials`) et `token_expires`
+(expiration du jeton GitLab). Rien n'est créé si le jeton ou ses droits sont refusés, si le
+propriétaire est inconnu (400), si le nom est déjà pris (409), si le fournisseur limite les
+requêtes (429) ou est injoignable (503). Donner à la fois `repo_url` et `create_repository` est
+refusé (400).
 
 ## Git d'un espace
 

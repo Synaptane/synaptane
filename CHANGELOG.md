@@ -10,6 +10,25 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Create the space's repository from Synaptane**. In **New space**, "Create the repository
+  for me on GitHub or GitLab" creates a private, empty repository on github.com, gitlab.com or a
+  self-hosted GitLab (HTTPS), for the token's account or an organization, group or subgroup,
+  named after the space's identifier unless another name is given; the first sync then prepares
+  it as for any space. The admin's token, which must be able to create repositories (GitHub:
+  fine-grained token with the Administration permission; GitLab: the `api` scope), serves this
+  creation only and is never saved, logged or returned. Synaptane keeps an access limited to the
+  new repository: an SSH deploy key with write access on GitHub (github.com's SSH keys read from
+  its API), a project access token (`read_repository`, `write_repository`, Maintainer) on GitLab.
+  Every refusal is explained (token refused, missing rights, owner not found, name taken,
+  provider unreachable or limiting requests) and creates nothing; a repository created whose
+  access cannot be set up (on GitLab.com Free, project access tokens are not available) is
+  still connected to the space, with a message giving its address, and is never deleted. A
+  self-hosted GitLab must be at a public address, checked as for webhooks, except for the super
+  admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`). REST:
+  `create_repository` in `POST /organizations/{org}/spaces`, with a `repository` block in the
+  answer. No migration. See `docs/admin/git.md`.
+
 ## [1.12.0] - 2026-11-08
 
 Give the whole team access to every space at once, keep a few spaces apart, see who changed what

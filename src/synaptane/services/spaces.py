@@ -65,6 +65,21 @@ def role_in(actor: Actor, space: Space) -> SpaceRole | None:
     return actor.access.space_roles.get(space.id)
 
 
+def check_new_space(
+    session: Session, actor: Actor, org: Organization, *, slug: str, name: str, branch: str
+) -> str:
+    """What `create_space` checks before creating anything (rights, identifier free, name and
+    branch valid): done first when the space's repository is created elsewhere beforehand.
+    Returns the identifier."""
+    require(actor.access, Action.MANAGE_ORG, org_id=org.id)
+    slug = names.slug(slug)
+    if session.scalar(select(Space).where(Space.org_id == org.id, Space.slug == slug)):
+        raise conflict("The space “{slug}” already exists in this organization.", slug=slug)
+    names.display_name(name)
+    _validate_branch(branch)
+    return slug
+
+
 def create_space(
     session: Session,
     actor: Actor,
@@ -79,10 +94,7 @@ def create_space(
 ) -> Space:
     """`restricted`: closed to the organization's default role from the start (human
     resources, management)."""
-    require(actor.access, Action.MANAGE_ORG, org_id=org.id)
-    slug = names.slug(slug)
-    if session.scalar(select(Space).where(Space.org_id == org.id, Space.slug == slug)):
-        raise conflict("The space “{slug}” already exists in this organization.", slug=slug)
+    slug = check_new_space(session, actor, org, slug=slug, name=name, branch=branch)
     space = Space(
         org_id=org.id,
         slug=slug,

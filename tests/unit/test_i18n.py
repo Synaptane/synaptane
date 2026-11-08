@@ -148,6 +148,8 @@ SAME_IN_FRENCH = {
     "Anthropic (Claude)",
     "ChatGPT",
     "Claude Code",
+    "GitHub",
+    "GitLab",
     "Google Gemini",
     "Mistral",
     "Ollama",
