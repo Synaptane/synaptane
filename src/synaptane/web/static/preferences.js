@@ -273,6 +273,23 @@
     shown.splice(start, gone.length, ...added.map((node, i) => ({ source: sources[start + i], node })));
     added.forEach(node => { if (node.nodeType === Node.ELEMENT_NODE) observeDiagrams(node); });
   };
+  // One preview request at a time for the whole page (the server renders one at a time per
+  // account): the other editors wait their turn, then send their latest text.
+  const previewLine = { holder: null, waiting: [] };
+  const takeTurn = send => {
+    if (previewLine.holder && previewLine.holder !== send) {
+      if (!previewLine.waiting.includes(send)) previewLine.waiting.push(send);
+      return false;
+    }
+    previewLine.holder = send;
+    return true;
+  };
+  const giveTurn = send => {
+    if (previewLine.holder !== send) return;
+    previewLine.holder = null;
+    // The next one that still has something to send (it takes the turn before any await).
+    while (!previewLine.holder && previewLine.waiting.length) previewLine.waiting.shift()();
+  };
   const setupPreview = () => {
     document.querySelectorAll("[data-preview]").forEach(box => {
       const editor = box.querySelector("textarea");
@@ -302,6 +319,9 @@
       let hold = 0;  // after a 429: wait longer
       let pause = 700;
       let timer = 0;
+      // Rendered only once on screen (or near): a page of many editors shown side by side does
+      // not ask for every preview at once.
+      let seen = !window.IntersectionObserver;
       const where = () => ({ ...params, ...Object.fromEntries(fields.map(name => [name, field(name)?.value ?? ""])) });
       // The preview's address; a note dropped from anywhere: in the space chosen in the form
       // ("" while none is).
@@ -328,7 +348,7 @@
         const place = where();
         const url = endpoint();
         const key = JSON.stringify([editor.value, place, url]);
-        if (key === shownKey || !url) return;
+        if (key === shownKey || !url || !seen) return;
         if (!editor.value.trim()) {
           patchPreview(output, shown, "", base, prefix);
           say(box.dataset.previewEmpty);
@@ -336,6 +356,7 @@
           return;
         }
         if (editor.value.length > max) { say(box.dataset.previewTooLong); shownKey = key; return; }
+        if (!takeTurn(send)) return;  // another editor of the page first: called back after it
         busy = true;
         pane.setAttribute("aria-busy", "true");
         const started = performance.now();
@@ -368,6 +389,7 @@
         } finally {
           busy = false;
           pane.removeAttribute("aria-busy");
+          giveTurn(send);
           if (again) { again = false; schedule(Math.max(pause, hold)); hold = 0; }
         }
       };
@@ -400,6 +422,12 @@
       field(box.dataset.previewName)?.addEventListener?.("input", settle);
       field(box.dataset.previewSpace)?.addEventListener?.("change", settle);
       wide.addEventListener("change", settle);
+      if (!seen) {
+        new IntersectionObserver(entries => {
+          seen = entries.some(entry => entry.isIntersecting);
+          if (seen && mode !== "write") schedule(0);
+        }, { rootMargin: "200px" }).observe(box);
+      }
       // The form's preview by reloading: not needed any more.
       form.querySelectorAll("[data-preview-fallback]").forEach(button => { button.hidden = true; });
       modes.hidden = false;

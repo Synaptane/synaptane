@@ -144,29 +144,12 @@ def inbox_item(
     return _item_page(page, actor, space, item, _rendered(page, actor, space, item), editing=edit)
 
 
-NOTE_NAME = "note.md"  # a note seen as a page of the folder its hint suggests (`note_place`)
-
-
-def note_place(hint: str, paths: list[str] | None) -> str:
-    """Where a note's relative links start from, as if it were a page: the folder its hint
-    suggests, when the hint names a folder or a file of the space (`servers/`,
-    `servers/proxmox.md`); the root otherwise (no hint, or a sentence)."""
-    wanted = hint.strip().strip("/")
-    if not wanted or not paths:
-        return ""
-    for path in paths:
-        if path == wanted:  # a page: its folder
-            return wanted
-    if any(path.startswith(f"{wanted}/") for path in paths):
-        return f"{wanted}/{NOTE_NAME}"
-    return ""
-
-
-def _note_html(base: str, body: str, hint: str, paths: list[str] | None) -> Markup:
-    """A note as it reads in the inbox, and as its editor's preview shows it: wiki links to the
-    space's pages, relative links from the folder its hint suggests."""
+def _note_html(base: str, body: str, paths: list[str] | None) -> Markup:
+    """A note as it reads in the inbox, and as its editor's preview shows it: links from the
+    root of the space (paths relative to its content, as assistants write them), wiki links to
+    its pages."""
     names = WikiIndex.of(paths) if paths is not None else None
-    return render_at(base, body, note_place(hint, paths), names)
+    return render_at(base, body, "", names)
 
 
 def _rendered(page: Page, actor: Actor, space: Space, item: InboxItem) -> Markup:
@@ -174,7 +157,7 @@ def _rendered(page: Page, actor: Actor, space: Space, item: InboxItem) -> Markup
         paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
     except SynaptaneError:
         paths = None
-    return _note_html(space_url(space), item.body, item.hint, paths)
+    return _note_html(space_url(space), item.body, paths)
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/inbox/preview", response_class=HTMLResponse)
@@ -185,12 +168,12 @@ def inbox_preview(
     csrf: Csrf,
     text: Annotated[str, Form()] = "",
     note: Annotated[str, Form()] = "",
-    hint: Annotated[str, Form()] = "",
+    title: Annotated[str, Form()] = "",
 ) -> Response:
     """The preview of a note being written, as it will read in the inbox: a new note (the right
     to drop one in the space), or the note `note` being corrected (the right to correct it, and
-    it must be a note of this inbox). `hint`: the filing suggestion typed, which its relative
-    links start from. See `wiki.preview_response`."""
+    it must be a note of this inbox). `title`: the title typed, which a first line `# <title>`
+    repeating it is left out with, as when reading. See `wiki.preview_response`."""
 
     def check(actor: Actor, space: Space) -> PreviewRender:
         if note:
@@ -199,8 +182,9 @@ def inbox_preview(
             require(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
 
         def render(base: str, paths: list[str] | None) -> tuple[Markup, str]:
-            html = _note_html(base, text.replace("\r\n", "\n"), hint, paths)
-            return html, f"{base}/inbox" + (f"/{url_path(note)}" if note else "")
+            body = deposits.without_title(text.replace("\r\n", "\n"), title)
+            # Its reading address, or one next to it (a new note has no name yet).
+            return _note_html(base, body, paths), f"{base}/inbox/{url_path(note)}"
 
         return render
 

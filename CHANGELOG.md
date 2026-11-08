@@ -27,10 +27,13 @@ of the target version.
   prompts get one too. No migration.
 
 ### Changed
-- An inbox note's relative links start from the folder its filing suggestion (**Where to file
-  it?**) names, when it is a folder or a page of the space, as they will once it is filed
-  there; from the root of the space otherwise, as before. The purpose's preview now resolves
-  `[[wiki links]]` in the space, and refuses a text above 262,144 characters.
+- The purpose's preview now resolves `[[wiki links]]` in the space, and refuses a text above
+  262,144 characters.
+
+### Fixed
+- After **Preview** (without JavaScript) or an error, saving the purpose or the filing
+  instructions no longer replaces, without a conflict, a version saved by someone else in the
+  meantime: the form keeps the version the text started from.
 
 ## [1.13.0] - 2026-11-08
 

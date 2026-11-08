@@ -193,8 +193,9 @@ def _check_hint(hint: str, origin: str) -> None:
         raise invalid("Origin too long (2,000 characters maximum).")
 
 
-def _without_title(body: str, title: str) -> str:
-    """Body without the leading "# Title" that repeats the title (notes from before 1.0)."""
+def without_title(body: str, title: str) -> str:
+    """Body without the leading "# Title" that repeats the title (notes from before 1.0): how
+    a note reads, and how its editor's preview shows it."""
     first, _, rest = body.lstrip().partition("\n")
     if first.startswith("# ") and first[2:].strip() == title.strip():
         return rest.lstrip("\n")
@@ -205,7 +206,7 @@ def _parse_item(path: str, data: bytes) -> InboxItem:
     fields, body = parse_front_matter(data.decode("utf-8", "replace"))
     by = fields.get("deposited_by", "")
     title = str(fields.get("title") or PurePosixPath(path).stem)
-    body = _without_title(body, title)
+    body = without_title(body, title)
     return InboxItem(
         path=path,
         type=str(fields.get("type", "note")),

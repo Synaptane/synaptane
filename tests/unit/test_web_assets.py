@@ -150,3 +150,20 @@ def test_the_preview_follows_its_own_editor() -> None:
     )
     assert "(!canSplit || !wide.matches)" in preview
     assert 'editor.dispatchEvent(new Event("input"' in _function("setupVocationTemplate")
+
+
+def test_many_editors_do_not_flood_the_server() -> None:
+    """A page of many editors opened side by side (14 prompts): one request at a time for the
+    whole page, the others waiting their turn (not a 429 each), and a preview asked for only
+    once its editor is on screen."""
+    assert "const previewLine = { holder: null, waiting: [] }" in JS
+    take = _function("takeTurn")
+    assert "previewLine.waiting.push(send)" in take and "return false" in take
+    give = _function("giveTurn")
+    assert "while (!previewLine.holder && previewLine.waiting.length)" in give
+    preview = _function("setupPreview")
+    assert "if (!takeTurn(send)) return;" in preview and "giveTurn(send);" in preview
+    assert "let seen = !window.IntersectionObserver;" in preview
+    assert "|| !seen) return;" in preview and ".observe(box)" in preview
+    # The turn is given back whatever happens: in the `finally` of the request.
+    assert preview.index("finally {") < preview.index("giveTurn(send);")

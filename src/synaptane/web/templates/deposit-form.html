@@ -23,7 +23,7 @@
   {% endif %}
   <div class="field"><label for="title">{{ _("Title") }}</label><input id="title" name="title" required maxlength="120" value="{{ form.title if form else '' }}"></div>
   {# The note's preview: in the space of the form, or in the one chosen in it. #}
-  {{ editor(form.body if form else '', 8, "/o/{space}/-/inbox/preview" if choices is not none else action ~ "/preview", id="body", name="body", fields="hint", space_field="space" if choices is not none else "", split=false, classes="") }}
+  {{ editor(form.body if form else '', 8, "/o/{space}/-/inbox/preview" if choices is not none else action ~ "/preview", id="body", name="body", fields="title", space_field="space" if choices is not none else "", split=false, classes="") }}
   <div class="field"><label for="hint">{{ _("Where to file it? (optional, a hint for the agent)") }}</label><input id="hint" name="hint" maxlength="500" placeholder="{{ _('servers/') }}" value="{{ form.hint if form else '' }}"></div>
   <div class="field"><label for="origin">{{ _("Origin (optional: link, meeting, conversation…)") }}</label><input id="origin" name="origin" maxlength="2000" placeholder="https://…" value="{{ form.origin if form else '' }}"></div>
   <div class="field"><label for="files">{{ _("Attachments (up to 10, 25 MB each)") }}</label>{{ file_input("files", "files", multiple=true) }}{% if form %}<p class="muted">{{ _("Attach the files again: the browser does not keep them.") }}</p>{% endif %}</div>

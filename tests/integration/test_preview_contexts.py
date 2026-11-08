@@ -21,7 +21,6 @@ from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import AuditEvent
 from synaptane.web import wiki as wiki_module
-from synaptane.web.inbox_pages import note_place
 from synaptane.web.wiki import MAX_PREVIEW
 from tests.htmlutil import data_test, select_one
 from tests.htmlutil import select as select_html
@@ -33,7 +32,7 @@ from tests.integration.wikidata import Wiki
 NOTES = "/o/acme/infra/-/inbox/preview"
 DOCUMENTS = "/o/acme/infra/-/vocation/preview"
 BODY = """Décision : **migrer**. Voir [[proxmox]], [la voisine](proxmox.md),
-l'[accueil](../README.md) et ![[schema.png]].
+l'[accueil](../README.md), [la procédure](serveurs/proxmox.md) et ![plan](serveurs/plan.png).
 
 ```mermaid
 graph TD
@@ -75,51 +74,58 @@ def test_a_note_previews_as_it_reads(
 ) -> None:
     name = drop(db, database, ctx, wiki, hint)
     token = signed_in(client, "alice")
-    shown = preview(client, token, NOTES, text=BODY, note=name, hint=hint)
+    shown = preview(client, token, NOTES, text=BODY, note=name, title="Note")
     assert shown.status_code == 200, shown.text
     assert shown.headers["cache-control"] == "no-store"
     assert shown.headers["x-preview-page"] == f"/o/acme/infra/inbox/{name}"
     html = shown.text
-    assert (
-        "<strong>migrer</strong>" in html and 'href="/o/acme/infra/p/serveurs/proxmox.md"' in html
-    )
+    assert "<strong>migrer</strong>" in html
     assert "<script" not in html and 'href="javascript' not in html
     assert '<code class="language-mermaid">' in html
     # Exactly what the note shows in the inbox.
     reading = client.get(f"/o/acme/infra/inbox/{name}").text
     assert f'<div class="markdown hl">{html}</div>' in reading
-    # Relative links: from the folder the hint names, from the root otherwise.
-    neighbour = html.split(">la voisine</a>")[0].rsplit("<a ", 1)[1]
-    if hint.startswith("serveurs"):
-        assert 'href="/o/acme/infra/p/serveurs/proxmox.md"' in neighbour
-        assert html.count('href="/o/acme/infra/p/README.md"') == 1  # ../README.md
-    else:
-        assert 'href="/o/acme/infra/p/proxmox.md"' in neighbour
+    # Links and images from the root of the space, whatever the filing suggestion: paths
+    # relative to the content, as assistants write them, never doubled.
+    assert '<a href="/o/acme/infra/p/serveurs/proxmox.md" rel="noopener noreferrer">la proc' in html
+    assert '<img src="/o/acme/infra/raw/serveurs/plan.png" alt="plan">' in html
+    assert '<a href="/o/acme/infra/p/proxmox.md" rel="noopener noreferrer">la voisine' in html
+    assert "serveurs/serveurs" not in html
 
 
-def test_where_the_links_of_a_note_start_from() -> None:
-    paths = ["README.md", "serveurs/proxmox.md", "serveurs/réseau/vlan.md"]
-    assert note_place("", paths) == ""
-    assert note_place("serveurs", paths) == "serveurs/note.md"
-    assert note_place("/serveurs/réseau/", paths) == "serveurs/réseau/note.md"
-    assert note_place("serveurs/proxmox.md", paths) == "serveurs/proxmox.md"
-    assert note_place("serv", paths) == ""  # not a folder: a prefix of one
-    assert note_place("dans serveurs, page Proxmox", paths) == ""
-    assert note_place("serveurs", None) == ""  # space not synced yet
+def test_a_title_repeated_in_the_text_is_left_out_as_when_reading(
+    client: TestClient, wiki: Wiki, db: Session, database: Database, ctx: Workspace
+) -> None:
+    body = "# Compte rendu\n\nCorps de la note."
+    path = deposits.deposit(
+        db, database, wiki.alice, ctx, wiki.infra, title="Compte rendu", body=body, source="web"
+    )
+    db.commit()
+    name = path.rsplit("/", 1)[1]
+    token = signed_in(client, "alice")
+    shown = preview(client, token, NOTES, text=body, title="Compte rendu").text
+    assert shown == "<p>Corps de la note.</p>\n"
+    assert (
+        f'<div class="markdown hl">{shown}</div>' in client.get(f"/o/acme/infra/inbox/{name}").text
+    )
+    # Another title: the line stays, as it would when reading.
+    other = preview(client, token, NOTES, text=body, title="Autre").text
+    assert '<h1 id="compte-rendu">Compte rendu</h1>' in other
 
 
 def test_a_new_note_previews_from_the_inbox_and_from_anywhere(
     client: TestClient, wiki: Wiki
 ) -> None:
     token = signed_in(client, "alice")
-    shown = preview(client, token, NOTES, text="[voisine](proxmox.md)", hint="serveurs")
+    shown = preview(client, token, NOTES, text="[dep](serveurs/proxmox.md)", title="x")
     assert shown.status_code == 200
     assert 'href="/o/acme/infra/p/serveurs/proxmox.md"' in shown.text
-    assert shown.headers["x-preview-page"] == "/o/acme/infra/inbox"
+    # Next to where it will read (a new note has no name yet).
+    assert shown.headers["x-preview-page"] == "/o/acme/infra/inbox/"
     # The inbox's drop form: Write and Preview (a narrow column, no side by side).
     inbox = client.get("/o/acme/infra/inbox").text
     [box] = select_html(inbox, "[data-preview]")
-    assert box.attrs["data-preview"] == NOTES and box.attrs["data-preview-fields"] == "hint"
+    assert box.attrs["data-preview"] == NOTES and box.attrs["data-preview-fields"] == "title"
     assert (
         box.attrs["data-preview-space"] == "" and json.loads(box.attrs["data-preview-params"]) == {}
     )
@@ -169,7 +175,7 @@ def test_the_note_editor_offers_the_preview(
     [box] = select_html(page, "[data-preview]")
     assert box.attrs["data-preview"] == NOTES
     assert json.loads(box.attrs["data-preview-params"]) == {"note": name}
-    assert box.attrs["data-preview-fields"] == "hint"
+    assert box.attrs["data-preview-fields"] == "title"
     assert box.attrs["data-preview-max"] == str(MAX_PREVIEW)
     assert french(box.attrs["data-preview-too-long"]) == "Ce texte est trop long pour l'aperçu."
     assert [b.text for b in select_html(page, "[data-preview-mode]")] == [
@@ -201,9 +207,7 @@ def test_previewing_a_note_writes_nothing(
     events = audit_count(db)
     for data in ({"note": name}, {}):
         for text in ("# Autre", "Mot de passe : hunter2-tres-secret"):
-            assert (
-                preview(client, token, NOTES, text=text, hint="serveurs", **data).status_code == 200
-            )
+            assert preview(client, token, NOTES, text=text, title="Note", **data).status_code == 200
     assert ctx.local_repository(wiki.infra).head() == head
     assert git(wiki.remote.bare, "rev-parse", "main") == remote_head
     assert deposits.read_item(wiki.alice, ctx, wiki.infra, name) == before
@@ -423,3 +427,100 @@ def test_one_preview_at_a_time_whatever_the_editor(
         assert first.result(10).status_code == 200
     assert preview(client, token, DOCUMENTS, text="# Après").status_code == 200
     assert set() == wiki_module._PREVIEWING
+
+
+def base_of(html: str, action: str) -> str:
+    """The version a form's draft started from (`base_sha` of the form posting to `action`)."""
+    [form] = [
+        f
+        for f in select_html(html, "form.vocation-form")
+        if (f.action or "").split("#")[0] == action
+    ]
+    return select_one(form, "input[name=base_sha]").attrs["value"]
+
+
+@pytest.mark.parametrize(
+    ("url", "page_url", "kind"),
+    [
+        ("/o/acme/infra/-/vocation", "/o/acme/infra/-/vocation", vocation.VOCATION),
+        ("/o/acme/infra/-/vocation/tidy-rules", "/o/acme/infra/-/vocation", vocation.RULES),
+        ("/o/acme/infra/-/prompts/revue", "/o/acme/infra/-/prompts", team_prompts.kind("revue")),
+    ],
+)
+def test_a_preview_without_js_keeps_the_version_the_draft_started_from(
+    client: TestClient,
+    wiki: Wiki,
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    url: str,
+    page_url: str,
+    kind: vocation.Kind,
+) -> None:
+    """Previewed, then saved: a version saved meanwhile by someone else is a conflict, never
+    silently replaced."""
+    vocation.save(db, database, wiki.root, ctx, wiki.infra, kind, PROMPT)
+    db.commit()
+    token = signed_in(client, "root")
+    started = base_of(client.get(page_url).text, url)
+    assert started
+    # Another administrator saves meanwhile.
+    vocation.save(
+        db, database, wiki.root, ctx, wiki.infra, kind, PROMPT + "\nAutre.\n", base_sha=started
+    )
+    db.commit()
+    shown = nojs(client, url, token, text=PROMPT + "\nLe mien.\n", base_sha=started)
+    assert base_of(shown, url) == started
+    saved = client.post(
+        url,
+        data={"csrf": token, "text": PROMPT + "\nLe mien.\n", "base_sha": base_of(shown, url)},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 409
+    document = vocation.document(wiki.root, ctx, wiki.infra, kind)
+    assert "Autre." in (document.text or "")
+    # An error keeps it too (a likely secret to confirm).
+    secret = client.post(
+        url, data={"csrf": token, "text": "x AKIA" + "ABCDEFGHIJKLMNOP", "base_sha": started}
+    )
+    assert secret.status_code == 400 and base_of(secret.text, url) == started
+
+
+def test_a_preview_without_js_gives_the_connection_back_and_comes_back_to_its_form(
+    client: TestClient, wiki: Wiki, database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = signed_in(client, "root")
+    connections: list[int] = []
+    render = wiki_module.render_at
+
+    def counted(*args: Any) -> Markup:
+        connections.append(checked_out(database))
+        return render(*args)
+
+    monkeypatch.setattr("synaptane.web.vocation_pages.render_at", counted)
+    idle = checked_out(database)
+    page = nojs(client, "/o/acme/infra/-/vocation/tidy-rules", token, text="# Règle")
+    assert connections == [idle]
+    # Back to the card of the form (its anchor), the rendering a named region.
+    actions = [f.action for f in select_html(page, "form.vocation-form")]
+    assert actions == [
+        "/o/acme/infra/-/vocation#vocation",
+        "/o/acme/infra/-/vocation/tidy-rules#tidy-rules",
+    ]
+    region = select_one(page, ".vocation-preview")
+    assert (
+        region.get("role") == "region"
+        and region.get("aria-labelledby") == "tidy-rules-preview-title"
+    )
+    client.post("/o/acme/infra/-/prompts", data={"csrf": token, "name": "revue", "text": PROMPT})
+    page = nojs(client, "/o/acme/infra/-/prompts/revue", token, text=PROMPT)
+    actions = [f.action for f in select_html(page, "form.vocation-form")]
+    assert actions == [
+        "/o/acme/infra/-/prompts/revue#prompt-revue",
+        "/o/acme/infra/-/prompts#new-prompt",
+    ]
+    region = select_one(page, ".vocation-preview")
+    assert (
+        region.get("role") == "region"
+        and region.get("aria-labelledby") == "prompt-revue-preview-title"
+    )

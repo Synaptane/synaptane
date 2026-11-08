@@ -4,7 +4,7 @@
 {% set preview_url = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/preview" %}
 {# The preview without JS: the typed text rendered under its form, nothing saved. #}
 {% macro shown(key) %}{% if preview_for == key %}
-  <div class="vocation-preview" aria-labelledby="prompt-{{ key or 'new' }}-preview-title">
+  <div class="vocation-preview" role="region" aria-labelledby="prompt-{{ key or 'new' }}-preview-title">
     <p class="section-label" id="prompt-{{ key or 'new' }}-preview-title">{{ _("Preview — not saved yet") }}</p>
     <div class="markdown">{{ preview_html|safe if preview_html.strip() else _("(empty text)") }}</div>
   </div>
@@ -27,9 +27,10 @@
   <div class="section-heading"><h2>{{ p.title }}</h2><code>/{{ p.mcp_name }}</code></div>
   {% if p.description %}<p class="muted">{{ p.description }}</p>{% endif %}
   {% if error and error_for == p.name %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
-  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts/{{ p.name }}" class="vocation-form">
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts/{{ p.name }}#prompt-{{ p.name }}" class="vocation-form">
     {{ csrf_field() }}
-    <input type="hidden" name="base_sha" value="{{ doc.sha or '' }}">
+    {# The version the draft started from, kept through a preview or an error. #}
+    <input type="hidden" name="base_sha" value="{{ bases[p.name] if p.name in bases else (doc.sha or '') }}">
     {% set label %}{{ _("Text (Markdown)") }} · <code>{{ doc.path }}</code>{% endset %}
     {{ editor(drafts[p.name] if p.name in drafts else doc.text, 12, preview_url, id="prompt-" ~ p.name ~ "-text", label=label, params={"kind": "prompt"}, classes="editor vocation-editor", help=_("An empty text removes the prompt.")) }}
     <div class="actions"><button class="button button-primary" type="submit" name="action" value="save">{{ _("Save") }}</button><button class="button" type="submit" name="action" value="preview" data-preview-fallback>{{ _("Preview") }}</button></div>
@@ -44,7 +45,7 @@
 <section class="card vocation-card" id="new-prompt">
   <div class="section-heading"><h2>{{ _("New prompt") }}</h2></div>
   {% if error and not error_for %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
-  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts" class="vocation-form">
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/prompts#new-prompt" class="vocation-form">
     {{ csrf_field() }}
     <div class="field"><label for="new-prompt-name">{{ _("Name (file name)") }}</label><input id="new-prompt-name" name="name" value="{{ new_name }}" required maxlength="40" pattern="[a-z0-9][a-z0-9-]*" placeholder="{{ _('meeting-notes') }}" autocomplete="off"></div>
     {{ editor(drafts[""] if "" in drafts else example, 14, preview_url, id="new-prompt-text", label=_("Text (Markdown)"), params={"kind": "prompt"}, classes="editor vocation-editor") }}

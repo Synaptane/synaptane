@@ -344,10 +344,8 @@ n'avez pas accès.
 - **Aperçu** d'une note : au-dessus de son texte, en la déposant (dans l'inbox ou depuis
   **Déposer une information**, dans l'espace choisi) ou en la corrigeant, comme pour une page
   (voir [Écrire](#écrire-contributeurs)) : la note telle qu'elle se lira dans l'inbox, sans rien
-  enregistrer. Ses liens relatifs partent du dossier que nomme **Où le ranger ?**, quand c'est
-  un dossier ou une page de l'espace (`serveurs/`, `serveurs/proxmox.md`) ; de la racine sinon.
-  La note elle-même se lit de la même façon dans l'inbox. Le côte à côte est proposé en
-  corrigeant une note, pas dans le formulaire de dépôt, trop étroit. L'aperçu demande le même
+  enregistrer (liens depuis la racine de l'espace, comme à la lecture de la note). Le côte à
+  côte est proposé en corrigeant une note, pas dans le formulaire de dépôt, trop étroit. L'aperçu demande le même
   droit que déposer ou corriger la note (contributeur).
 - **Activité** : tout ce qui change dans l'espace, d'après l'historique Git (pages, inbox,
   rangements), avec les commits poussés hors de Synaptane signalés. Chaque page touchée mène

@@ -76,7 +76,11 @@ def _shown(page: Page, actor: Actor, space: Space, key: str, text: str) -> Marku
             paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
         except SynaptaneError:
             paths = None
-        return _document_html(space_url(space), key, text, paths)
+        base = space_url(space)
+        # Nothing more to read before rendering: the connection goes back to the pool (the
+        # page around it takes one again).
+        page.db.commit()
+        return _document_html(base, key, text, paths)
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/vocation/preview", response_class=HTMLResponse)
@@ -116,8 +120,10 @@ def _render(
     error: SynaptaneError | None = None,
     error_kind: str = "",
     preview: tuple[str, str] | None = None,
+    bases: dict[str, str] | None = None,
     status_code: int = 200,
 ) -> Response:
+    """`bases`: for a draft shown again (preview, error), the version it started from."""
     _require_admin(actor, space)
     documents = {
         key: vocation.document(actor, page.workspace, space, kind)
@@ -141,6 +147,7 @@ def _render(
             for key, doc in documents.items()
         },
         drafts=drafts or {},
+        bases=bases or {},
         chosen=chosen,
         templates=list(vocation.TEMPLATES.values()),
         template_texts={key: t.text_for(page.locale) for key, t in vocation.TEMPLATES.items()},
@@ -192,11 +199,14 @@ def _save(
                 actor,
                 space,
                 drafts={key: text},
+                bases={key: base_sha},
                 error=error,
                 error_kind=key,
                 status_code=ERROR_STATUS[error.code],
             )
-        return _render(page, actor, space, drafts={key: text}, preview=(key, html))
+        return _render(
+            page, actor, space, drafts={key: text}, bases={key: base_sha}, preview=(key, html)
+        )
     try:
         sha = vocation.save(
             page.db,
@@ -223,6 +233,7 @@ def _save(
             actor,
             space,
             drafts={key: text},
+            bases={key: base_sha},
             error=error,
             error_kind=key,
             status_code=status,
@@ -299,8 +310,10 @@ def _prompts(
     error: SynaptaneError | None = None,
     error_for: str = "",
     preview: tuple[str, Markup] | None = None,
+    bases: dict[str, str] | None = None,
     status_code: int = 200,
 ) -> Response:
+    """`bases`: for a draft shown again (preview, error), the version it started from."""
     _require_admin(actor, space)
     found = team_prompts.of_space(page.workspace, space)
     documents = {
@@ -321,6 +334,7 @@ def _prompts(
         example=team_prompts.EXAMPLES.get(page.locale, team_prompts.EXAMPLES["en"]),
         error=error,
         error_for=error_for,
+        bases=bases or {},
         preview_for=preview[0] if preview else None,
         preview_html=preview[1] if preview else "",
         limit=team_prompts.MAX_PROMPTS,
@@ -334,7 +348,13 @@ def space_prompts_page(page: WebPage, org_slug: str, space_slug: str) -> Respons
 
 
 def _prompt_preview(
-    page: Page, actor: Actor, space: Space, name: str, text: str, new_name: str = ""
+    page: Page,
+    actor: Actor,
+    space: Space,
+    name: str,
+    text: str,
+    base_sha: str = "",
+    new_name: str = "",
 ) -> Response:
     """ "Preview" without JS: the page again, the text kept and rendered under its form (`name`:
     the prompt, "" for a new one)."""
@@ -347,13 +367,20 @@ def _prompt_preview(
             actor,
             space,
             drafts={name: text},
+            bases={name: base_sha},
             new_name=new_name,
             error=error,
             error_for=name,
             status_code=ERROR_STATUS[error.code],
         )
     return _prompts(
-        page, actor, space, drafts={name: text}, new_name=new_name, preview=(name, html)
+        page,
+        actor,
+        space,
+        drafts={name: text},
+        bases={name: base_sha},
+        new_name=new_name,
+        preview=(name, html),
     )
 
 
@@ -424,7 +451,7 @@ def space_prompt_save(
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     if action == "preview":
-        return _prompt_preview(page, actor, space, name, text)
+        return _prompt_preview(page, actor, space, name, text, base_sha)
     try:
         return _save_prompt(page, space, actor, name, text, base_sha)
     except SynaptaneError as error:
@@ -435,6 +462,7 @@ def space_prompt_save(
             actor,
             space,
             drafts={name: text},
+            bases={name: base_sha},
             error=error,
             error_for=name,
             status_code=status,
