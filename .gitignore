@@ -23,6 +23,9 @@ data/
 *.pem
 *.log
 
+# Outputs of the MCP evaluation bench (`./scripts/eval.sh mcp --json …`), kept out of Git
+/mcp*.json
+
 # OCR test corpus (large, kept out of Git)
 tests/fixtures/ocr/
 
