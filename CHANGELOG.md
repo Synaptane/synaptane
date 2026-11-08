@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-08
+
+Give the whole team access to every space at once, keep a few spaces apart, see who changed what
+in the audit log, and have the costs of OpenAI, Gemini, Mistral and DeepSeek estimated without
+entering a price. Upgrading from 1.11.0: two migrations (`0029`, `0030`), applied at startup;
+existing organizations get "no access" as default role and no space is restricted, so nobody's
+access changes. Back up first: going back to 1.11.0 then means restoring that backup. With a
+monthly budget, a model whose public price is not known (it used to borrow a close model's price)
+now needs its prices entered on the AI page.
+
 ### Added
 - **Default role in the spaces**. In the organization's **Settings**, "Default role in the
   spaces" gives every member a role on all the spaces of the organization, present and future,
@@ -631,7 +641,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/synaptane/synaptane/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/synaptane/synaptane/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/synaptane/synaptane/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/synaptane/synaptane/compare/v1.9.0...v1.9.1
