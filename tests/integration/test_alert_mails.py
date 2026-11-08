@@ -246,3 +246,48 @@ def test_a_failed_tidying_mails_the_admins_and_closes_its_log(
     for body in (french_body, english_body):
         assert "RuntimeError: panne du modèle" in body
         assert f"{PUBLIC_URL}/o/acme/infra/tidy" in body
+
+
+def test_a_failed_backup_reaches_the_super_admins_in_their_language(
+    db: Session, ctx: Workspace, wiki: Wiki, admins: dict[str, User], smtp: Inbox
+) -> None:
+    """Instance alert: the super admins, not the organization admins (ada, grace)."""
+    wiki.root.user.email = "root@example.com"
+    other = accounts.create_user(
+        db,
+        None,
+        username="ops",
+        display_name="Ops",
+        password=PASSWORD,
+        email="ops@example.com",
+        is_superadmin=True,
+        locale="en",
+    )
+    accounts.create_user(
+        db,
+        None,
+        username="former",
+        display_name="Former",
+        password=PASSWORD,
+        email="former@example.com",
+        is_superadmin=True,
+        locale="en",
+    ).is_active = False
+    db.commit()
+    error = "Archive: pg_dump failed: no space left on device"
+    assert alerts.notify_instance(
+        db, ctx.box, kind="backup_failed", public_url=PUBLIC_URL, error=error
+    )
+    db.commit()
+    mails = by_recipient(smtp)
+    assert set(mails) == {"root@example.com", "ops@example.com"}
+    link = f"{PUBLIC_URL}/admin/health"
+    assert mails["root@example.com"] == mail.compose(
+        "alert_backup_failed", "fr", link=link, error=error
+    )
+    assert mails["ops@example.com"] == mail.compose(
+        "alert_backup_failed", "en", link=link, error=error
+    )
+    assert "sauvegarde automatique" in mails["root@example.com"][1] and other.locale == "en"
+    # The same failure the next night: not sent again within QUIET.
+    assert not alerts.notify_instance(db, ctx.box, kind="backup_failed", error=error)

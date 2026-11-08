@@ -9,6 +9,7 @@ Example (`synaptane.toml`):
 
 import os
 import tomllib
+from datetime import time
 from pathlib import Path
 from typing import Literal
 
@@ -51,6 +52,12 @@ class Settings(BaseModel):
     backup_remotes: tuple[str, ...] = ()  # rclone destinations: `remote:path`, or a folder
     backup_retention_days: int = 30  # older remote archives deleted; 0: never
     backup_rclone_config: Path | None = None  # default: $RCLONE_CONFIG, else <data_dir>/rclone/
+    # Automatic backup by the worker (`services.backup_schedule`): every day at `backup_time`
+    # (HH:MM, server time; "off": never) into `backup_dir` (/backups in the image; none: no
+    # automatic backup), whose archives older than `backup_local_retention_days` are deleted.
+    backup_dir: Path | None = None
+    backup_time: str = "04:00"
+    backup_local_retention_days: int = 7
 
     @field_validator("public_url")
     @classmethod
@@ -92,28 +99,31 @@ class Settings(BaseModel):
     @classmethod
     def _remotes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         for remote in value:
-            # No rclone option disguised as a destination; no connection parameters
-            # (`:s3,secret_access_key=…:`): credentials stay in the rclone config.
-            if remote.startswith("-") or "\0" in remote:
-                raise ValueError("invalid rclone destination")
-            if ":" in remote:
-                backend = (
-                    remote.split(":", 2)[1] if remote.startswith(":") else remote.split(":")[0]
-                )
-                if "," in backend or "=" in backend:
-                    raise ValueError("connection parameters not allowed: use rclone config")
+            check_remote(remote)
         return value
 
-    @field_validator("backup_age_recipients_file", "backup_rclone_config", mode="before")
+    @field_validator(
+        "backup_age_recipients_file", "backup_rclone_config", "backup_dir", mode="before"
+    )
     @classmethod
     def _optional_path(cls, value: object) -> object:
         return None if value == "" else value  # empty variable in compose.yaml
 
-    @field_validator("backup_retention_days")
+    @field_validator("backup_retention_days", "backup_local_retention_days")
     @classmethod
     def _retention(cls, value: int) -> int:
         if value < 0:
             raise ValueError("a number of days of zero or more is expected")
+        return value
+
+    @field_validator("backup_time")
+    @classmethod
+    def _backup_time(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value in ("", "off"):
+            return "off"
+        if parse_time(value) is None:
+            raise ValueError('a time as HH:MM (for example 04:00), or "off"')
         return value
 
     @property
@@ -137,6 +147,27 @@ class Settings(BaseModel):
     @property
     def repos_dir(self) -> Path:
         return self.data_dir / "repos"
+
+
+def check_remote(remote: str) -> None:
+    """Refuses an rclone option disguised as a destination, and connection parameters
+    (`:s3,secret_access_key=…:`): credentials stay in the rclone configuration."""
+    if not remote or remote.startswith("-") or "\0" in remote or "\n" in remote:
+        raise ValueError("invalid rclone destination")
+    if ":" in remote:
+        backend = remote.split(":", 2)[1] if remote.startswith(":") else remote.split(":")[0]
+        if "," in backend or "=" in backend:
+            raise ValueError("connection parameters not allowed: use rclone config")
+
+
+def parse_time(value: str) -> time | None:
+    """`HH:MM` (24 hours), or None."""
+    hours, colon, minutes = value.strip().partition(":")
+    if not (colon and hours.isdigit() and minutes.isdigit() and len(minutes) == 2):
+        return None
+    if int(hours) > 23 or int(minutes) > 59:
+        return None
+    return time(int(hours), int(minutes))
 
 
 def load_settings(path: Path | None = None) -> Settings:

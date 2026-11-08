@@ -4,6 +4,11 @@
 #   deploy/host/backup.sh                 # daily backup (cron, see README.md)
 #   deploy/host/backup.sh avant-abc1234   # label added to the name (deploy.sh)
 #
+# Optional: the worker already makes a backup every night in the synaptane-backups
+# volume. Without a label (the cron job), this script tells Synaptane it made the backup of the
+# day: the worker's automatic backup then steps aside, and takes over again by itself if this
+# cron job stops (docs/admin/backup.md).
+#
 # Settings through environment variables:
 #   BACKUP_DIR      archive folder (default ~/synaptane-backups)
 #   RETENTION_DAYS  older archives are deleted (default 14 days)
@@ -39,9 +44,13 @@ log() { echo "$(date -Is) $*" >> "$dir/journal.log"; }
 cd "$repo"
 command=(synaptane backup --output -)
 [ "${OFFSITE:-0}" = 1 ] && command=(synaptane backup --offsite --output -)
+# An environment variable, not an option: an older image ignores it (deploy.sh runs this
+# script before upgrading).
+host=()
+[ -z "$label" ] && host=(-e SYNAPTANE_HOST_BACKUP=1)
 # Code 3: archive checked and written, but an off-site destination failed.
 status=0
-docker compose exec -T app "${command[@]}" > "$out.part" || status=$?
+docker compose exec -T ${host[@]+"${host[@]}"} app "${command[@]}" > "$out.part" || status=$?
 if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
   log "FAILED backup ${out##*/}"
   echo "Backup impossible (is the application running? docker compose ps)." >&2

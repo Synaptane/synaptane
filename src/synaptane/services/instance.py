@@ -51,7 +51,11 @@ ALERT_TITLES = {
     "job_abandoned": Label("A background task was given up"),
     "routine_failed": Label("A routine failed"),
     "webhook_disabled": Label("A webhook was turned off"),
+    "backup_failed": Label("A backup failed"),
 }
+# What to run, on the server, to set up or check the backups (docs/admin/backup.md).
+SETUP_COMMAND = "docker compose exec -it app synaptane backup setup"
+CHECK_COMMAND = "docker compose exec app synaptane backup check"
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,9 @@ class Check:
     state: str  # OK, WARN or ERROR
     message: Label
     at: datetime | None = None  # moment the message is about
+    note: Label | None = None  # how it works, shown under the message
+    command: str = ""  # what to run on the server to fix it
+    guide: str = ""  # page of the documentation that explains it ("backup")
 
 
 @dataclass(frozen=True)
@@ -107,7 +114,8 @@ def marked(settings: Settings, name: str) -> datetime | None:
 def last_backup(settings: Settings, folder: str | None = None) -> datetime | None:
     """Last archive: the mark of `synaptane backup`, or a file in the backup folder
     (SYNAPTANE_BACKUP_DIR, /backups in the image), for those written by an older version."""
-    folder = folder if folder is not None else os.environ.get("SYNAPTANE_BACKUP_DIR", "")
+    if folder is None:
+        folder = str(settings.backup_dir or os.environ.get("SYNAPTANE_BACKUP_DIR", ""))
     times = [found] if (found := marked(settings, BACKUP_DONE)) else []
     if folder:
         with suppress(OSError):
@@ -192,30 +200,108 @@ def _queue(session: Session, now: datetime) -> Check:
     return Check(title, OK, Label("Nothing waiting for long."))
 
 
+def backup_note(settings: Settings, now: datetime) -> Label:
+    """How the backups are made: by the worker, by the host's cron job, or by nobody."""
+    from synaptane.services import backup_schedule
+
+    if backup_schedule.host_in_charge(settings, now):
+        return Label(
+            "Made by the server's cron job (deploy/host/backup.sh): the automatic backup steps "
+            "aside while it runs."
+        )
+    if backup_schedule.enabled(settings):
+        days = settings.backup_local_retention_days
+        if not days:
+            return Label(
+                "Automatic every day at {time}, in {folder}, all kept.",
+                time=settings.backup_time,
+                folder=str(settings.backup_dir),
+            )
+        return Label(
+            "Automatic every day at {time}, in {folder}, kept {days} days.",
+            time=settings.backup_time,
+            folder=str(settings.backup_dir),
+            days=days,
+        )
+    if settings.backup_dir is None:
+        return Label("No automatic backup: no backup folder (SYNAPTANE_BACKUP_DIR).")
+    return Label("No automatic backup (BACKUP_TIME=off): a cron job on the server must make it.")
+
+
 def _backup(settings: Settings, now: datetime) -> Check:
+    from synaptane.services import backup_schedule
+
     title = Label("Backup")
+    note = backup_note(settings, now)
     last = last_backup(settings)
+    automatic = backup_schedule.enabled(settings)
     if last is None:
-        return Check(title, ERROR, Label("None seen yet. See docs/admin/backup.md."))
+        if automatic:
+            return Check(
+                title,
+                WARN,
+                Label("None yet: the first one runs at {time}.", time=settings.backup_time),
+                note=note,
+                command=CHECK_COMMAND,
+                guide="backup",
+            )
+        return Check(
+            title,
+            ERROR,
+            Label("None seen yet."),
+            note=note,
+            command=SETUP_COMMAND,
+            guide="backup",
+        )
     if now - last > BACKUP_LOST:
-        return Check(title, ERROR, Label("Too old. Last verified archive:"), last)
+        message = Label("Too old. Last verified archive:")
+        return Check(title, ERROR, message, last, note, CHECK_COMMAND, "backup")
     if now - last > BACKUP_LATE:
-        return Check(title, WARN, Label("Late. Last verified archive:"), last)
-    return Check(title, OK, Label("Last verified archive:"), last)
+        message = Label("Late. Last verified archive:")
+        return Check(title, WARN, message, last, note, CHECK_COMMAND, "backup")
+    return Check(title, OK, Label("Last verified archive:"), last, note)
 
 
 def _offsite(settings: Settings, now: datetime) -> Check:
+    from synaptane.services import offsite
+
     title = Label("Off-site copy")
-    if not settings.backup_remotes:
+    remotes = offsite.remotes(settings)
+    if not remotes:
         return Check(
-            title, WARN, Label("Not set up: a backup on this server does not survive losing it.")
+            title,
+            WARN,
+            Label("Not set up: a backup on this server does not survive losing it."),
+            note=Label("Encrypted, to the storage of your choice, in a few questions:"),
+            command=SETUP_COMMAND,
+            guide="backup",
+        )
+    note = Label("Destinations: {remotes}.", remotes=", ".join(remotes))
+    if not offsite.has_recipients(settings):
+        return Check(
+            title,
+            WARN,
+            Label(
+                "No encryption key: the copy is refused, since the archive holds the master key."
+            ),
+            note=note,
+            command=SETUP_COMMAND,
+            guide="backup",
         )
     last = marked(settings, OFFSITE_DONE)
     if last is None:
-        return Check(title, WARN, Label("None complete yet."))
+        return Check(
+            title,
+            WARN,
+            Label("None complete yet."),
+            note=note,
+            command=CHECK_COMMAND,
+            guide="backup",
+        )
     if now - last > BACKUP_LATE:
-        return Check(title, WARN, Label("Late. Last complete copy:"), last)
-    return Check(title, OK, Label("Last complete copy:"), last)
+        message = Label("Late. Last complete copy:")
+        return Check(title, WARN, message, last, note, CHECK_COMMAND, "backup")
+    return Check(title, OK, Label("Last complete copy:"), last, note)
 
 
 def _disk(settings: Settings) -> Check:

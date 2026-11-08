@@ -273,6 +273,7 @@ ACTIONS: dict[str, Kind] = {
     "sso.provider_deleted": Kind("settings", Label("SSO provider deleted"), ("sso",)),
     "instance.mail_configured": Kind("settings", Label("Email sending set up"), ("mail_host",)),
     "instance.mail_removed": Kind("settings", Label("Email sending removed")),
+    "instance.backup_requested": Kind("settings", Label("Backup requested")),
     # Accounts and security
     "user.created": Kind("security", Label("Account created"), ("account", "superadmin")),
     "user.created_by_sso": Kind(

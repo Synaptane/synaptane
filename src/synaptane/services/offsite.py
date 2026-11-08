@@ -10,6 +10,11 @@
   returned, and retention only applies to a destination that has just received the day's
   copy (old copies are never deleted from a destination that did not receive the new one).
 
+Public keys and destinations come from the settings (`SYNAPTANE_BACKUP_AGE_RECIPIENTS`,
+`SYNAPTANE_BACKUP_REMOTES`) and, in addition, from two files of the data folder written by
+`synaptane backup setup`, `offsite key` and `offsite add` (`<data_dir>/backup/`): set up from
+the command line, without editing `.env` or restarting. The private key is never written.
+
 No shell calls: arguments as a list, and `--` before paths.
 """
 
@@ -21,7 +26,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from synaptane.config import Settings
+from synaptane.config import Settings, check_remote
 from synaptane.core.errors import BackupError
 
 SUFFIX = ".age"
@@ -74,6 +79,129 @@ def _rclone(
         return subprocess.CompletedProcess(args, 124, "", f"timed out ({timeout} s)")
 
 
+# --- Settings saved from the command line -------------------------------------------------------
+
+RECIPIENTS_FILE = "age-recipients.txt"
+REMOTES_FILE = "remotes.txt"
+PUBLIC_KEY = re.compile(r"^(age1[0-9a-z]{20,}|ssh-ed25519 \S+|ssh-rsa \S+)(?: .*)?$")
+
+
+def setup_dir(settings: Settings) -> Path:
+    return settings.data_dir / "backup"
+
+
+def _saved(path: Path) -> list[str]:
+    """Lines of a saved file, without blank lines and `#` comments."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+
+
+def _write(path: Path, lines: list[str], header: str) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(f"{path}.new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        out.write("".join(f"{line}\n" for line in [header, *lines]))
+    os.replace(f"{path}.new", path)
+
+
+def saved_recipients(settings: Settings) -> list[str]:
+    return _saved(setup_dir(settings) / RECIPIENTS_FILE)
+
+
+def recipients(settings: Settings) -> list[str]:
+    """Public keys given in the settings and saved by `offsite key` (not those of an
+    `age -R` file named in the settings, read by age itself)."""
+    return list(dict.fromkeys([*settings.backup_age_recipients, *saved_recipients(settings)]))
+
+
+def save_recipient(settings: Settings, public_key: str) -> bool:
+    """Adds a public key (`age1…`, `ssh-ed25519 …`). False if it was already there."""
+    public_key = public_key.strip()
+    if not PUBLIC_KEY.match(public_key):
+        raise BackupError("Not an age public key (age1…, ssh-ed25519 … or ssh-rsa …).")
+    saved = saved_recipients(settings)
+    if public_key in saved or public_key in settings.backup_age_recipients:
+        return False
+    _write(
+        setup_dir(settings) / RECIPIENTS_FILE,
+        [*saved, public_key],
+        "# age public keys of the off-site copy, saved by `synaptane offsite key`.",
+    )
+    return True
+
+
+def generate_identity() -> tuple[str, str]:
+    """A new age key pair, in memory: (private key as written by age-keygen, public key).
+    Nothing is written to disk; showing the private key once is up to the caller."""
+    if shutil.which("age-keygen") is None:
+        raise BackupError("age-keygen not found: install age (the Docker image includes it).")
+    result = subprocess.run(
+        ["age-keygen"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30
+    )
+    found = re.search(r"^# public key: (age1\S+)$", result.stdout, re.M)
+    if result.returncode != 0 or found is None or "AGE-SECRET-KEY-" not in result.stdout:
+        raise BackupError(f"age-keygen failed: {_tail(result.stderr)}")
+    return result.stdout, found.group(1)
+
+
+def saved_remotes(settings: Settings) -> list[str]:
+    found = []
+    for remote in _saved(setup_dir(settings) / REMOTES_FILE):
+        try:
+            check_remote(remote)
+        except ValueError:
+            continue  # edited by hand: never passed to rclone
+        found.append(remote)
+    return found
+
+
+def remotes(settings: Settings) -> tuple[str, ...]:
+    """Destinations: those of the settings, then those saved by `offsite add`."""
+    return tuple(dict.fromkeys([*settings.backup_remotes, *saved_remotes(settings)]))
+
+
+def save_remote(settings: Settings, remote: str) -> bool:
+    """Adds a destination. False if it was already there."""
+    remote = remote.strip()
+    try:
+        check_remote(remote)
+    except ValueError as error:
+        raise BackupError(f"Destination refused: {error}.") from None
+    if remote in remotes(settings):
+        return False
+    _write(
+        setup_dir(settings) / REMOTES_FILE,
+        [*saved_remotes(settings), remote],
+        "# Off-site destinations (rclone), saved by `synaptane offsite add`.",
+    )
+    return True
+
+
+def remove_remote(settings: Settings, remote: str) -> bool:
+    """Removes a destination saved by `offsite add`. False if it was not saved there (a
+    destination of SYNAPTANE_BACKUP_REMOTES is removed from `.env`)."""
+    saved = saved_remotes(settings)
+    if remote.strip() not in saved:
+        return False
+    _write(
+        setup_dir(settings) / REMOTES_FILE,
+        [r for r in saved if r != remote.strip()],
+        "# Off-site destinations (rclone), saved by `synaptane offsite add`.",
+    )
+    return True
+
+
+def rclone_remotes(settings: Settings) -> list[str]:
+    """Names declared in the rclone configuration (`rclone config`)."""
+    if shutil.which("rclone") is None:
+        return []
+    result = _rclone(settings, "listremotes", timeout=30)
+    return [line.strip().rstrip(":") for line in result.stdout.splitlines() if line.strip()]
+
+
 # --- Preparation ------------------------------------------------------------------------------
 
 
@@ -82,12 +210,12 @@ def missing_tools() -> list[str]:
 
 
 def has_recipients(settings: Settings) -> bool:
-    return bool(settings.backup_age_recipients or settings.backup_age_recipients_file)
+    return bool(recipients(settings) or settings.backup_age_recipients_file)
 
 
 def require_ready(settings: Settings) -> None:
     """Refuses before starting: nothing is copied if a setting is missing."""
-    if not settings.backup_remotes:
+    if not remotes(settings):
         raise BackupError(
             "No off-server destination: set SYNAPTANE_BACKUP_REMOTES "
             '(for example "b2:my-bucket/synaptane"), see docs/admin/backup.md.'
@@ -95,8 +223,8 @@ def require_ready(settings: Settings) -> None:
     if not has_recipients(settings):
         raise BackupError(
             "Off-server copy refused: no age recipient. The archive holds the master key in "
-            "clear; put your public key in SYNAPTANE_BACKUP_AGE_RECIPIENTS (age-keygen on your "
-            "workstation, see docs/admin/backup.md)."
+            "clear; run `synaptane offsite key`, or put your public key in "
+            "SYNAPTANE_BACKUP_AGE_RECIPIENTS (see docs/admin/backup.md)."
         )
     recipients_file = settings.backup_age_recipients_file
     if recipients_file and not recipients_file.is_file():
@@ -115,7 +243,7 @@ def require_ready(settings: Settings) -> None:
 def encrypt(settings: Settings, source: Path, encrypted: Path) -> None:
     """Encrypts `source` for each recipient (any one of the private keys opens it)."""
     command = ["age", "--encrypt"]
-    for recipient in settings.backup_age_recipients:
+    for recipient in recipients(settings):
         command += ["--recipient", recipient]
     if settings.backup_age_recipients_file:
         command += ["--recipients-file", str(settings.backup_age_recipients_file)]
@@ -134,14 +262,25 @@ def send(settings: Settings, encrypted: Path) -> list[Outcome]:
     """Copies the encrypted file to each destination, then applies retention to those that
     received it."""
     outcomes = []
-    for remote in settings.backup_remotes:
-        copy = ["copyto", "--", str(encrypted), target(remote, encrypted.name)]
-        result = _rclone(settings, *copy, timeout=COPY_TIMEOUT)
+    for remote in remotes(settings):
+        command = ["copyto", "--", str(encrypted), target(remote, encrypted.name)]
+        result = _rclone(settings, *command, timeout=COPY_TIMEOUT)
         if result.returncode != 0:
             outcomes.append(Outcome(remote, f"copy: {_tail(result.stderr)}"))
             continue
         outcomes.append(Outcome(remote, prune(settings, remote)))
     return outcomes
+
+
+def copy(settings: Settings, archive: Path, scratch: Path) -> list[Outcome]:
+    """Encrypts `archive` into `scratch`, then copies it to every destination. Raises
+    BackupError if encryption fails (nothing was sent)."""
+    encrypted = scratch / f"{archive.name}{SUFFIX}"
+    try:
+        encrypt(settings, archive, encrypted)
+        return send(settings, encrypted)
+    finally:
+        encrypted.unlink(missing_ok=True)
 
 
 def prune(settings: Settings, remote: str) -> str:
@@ -213,9 +352,7 @@ def undefined_remotes(settings: Settings) -> list[str] | None:
     to be declared."""
     if shutil.which("rclone") is None:
         return None
-    named = {m.group(1) for r in settings.backup_remotes if (m := NAMED_REMOTE.match(r))}
+    named = {m.group(1) for r in remotes(settings) if (m := NAMED_REMOTE.match(r))}
     if not named:
         return []
-    result = _rclone(settings, "listremotes", timeout=30)
-    known = {line.strip().rstrip(":") for line in result.stdout.splitlines()}
-    return sorted(named - known)
+    return sorted(named - set(rclone_remotes(settings)))

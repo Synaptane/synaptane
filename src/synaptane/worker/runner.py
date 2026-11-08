@@ -1,6 +1,6 @@
 """`synaptane worker` process: runs the job queue and schedules the sync.
 
-Four lanes, each with its share of the queue (LANES), so that no job waits behind another of
+Five lanes, each with its share of the queue (LANES), so that no job waits behind another of
 a different kind:
 - fast (main thread, with maintenance): Git sync, resolution, subscription connection test,
   and any new kind of job;
@@ -8,7 +8,8 @@ a different kind:
 - tidy-up: a pass with a subscription can last 45 minutes; it no longer delays the indexing
   of other spaces. Agent routines run there too (same cost, same slowness, and never at the
   same time as a tidy-up of the same space);
-- webhooks: a slow or silent recipient no longer delays syncs.
+- webhooks: a slow or silent recipient no longer delays syncs;
+- backup: the automatic backup of the night, whose off-site copy can last hours.
 Several workers can run: job claiming and the per-space lock prevent duplicates.
 """
 
@@ -34,6 +35,7 @@ from synaptane.mcp import oauth
 from synaptane.services import (
     ai_settings,
     alerts,
+    backup_schedule,
     changes,
     freshness,
     git_sync,
@@ -68,6 +70,7 @@ LANES: dict[str, frozenset[str]] = {
     "index": frozenset({INDEX}),
     "tidy": frozenset({tidy.TIDY, routines.ROUTINE}),
     "webhook": frozenset({webhooks.WEBHOOK}),
+    "backup": frozenset({backup_schedule.BACKUP}),
 }
 DEDICATED: frozenset[str] = frozenset().union(*LANES.values())
 # Wait for the dedicated lanes on shutdown, below Compose's `stop_grace_period` (60 s): beyond
@@ -94,6 +97,7 @@ class Worker:
             routines.ROUTINE: self._routine,
             webhooks.WEBHOOK: self._webhook,
             ai_settings.AI_TEST: self._ai_test,
+            backup_schedule.BACKUP: self._backup,
         }
 
     # --- Jobs ---------------------------------------------------------------------------------
@@ -118,6 +122,16 @@ class Worker:
         login only exist in the worker. Bounded (`SUBSCRIPTION_TEST_TIMEOUT`), it goes
         through the fast lane."""
         ai_settings.run_test(self.database, self.ctx.box, UUID(str(job.payload["org_id"])))
+
+    def _backup(self, job: Job) -> None:
+        """Automatic backup of the night, or "Back up now" from the health page."""
+        backup_schedule.run(
+            self.settings,
+            self.database,
+            self.ctx.box,
+            trigger=str(job.payload.get("trigger", backup_schedule.SCHEDULE)),
+            public_url=self.settings.public_url,
+        )
 
     def _tidy(self, job: Job) -> None:
         """Inbox tidy-up by the AI agent (scheduled or requested)."""
@@ -315,6 +329,7 @@ class Worker:
         tidy.close_orphans(self.database)
         routines.schedule(self.database)
         routine_agent.close_orphans(self.database)
+        backup_schedule.schedule(self.database, self.settings)
         alerts.check_abandoned_jobs(self.database, self.ctx)  # attempts exhausted: notify
         if now - self._last_backlog_check > 3600:  # inbox backlog: once an hour
             self._last_backlog_check = now

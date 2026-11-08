@@ -360,6 +360,20 @@ _TEXTS = {
             "it from the webhooks page:\n{link}/-/webhooks\n",
         ),
     },
+    "alert_backup_failed": {
+        "fr": (
+            "Sauvegarde de Synaptane en échec",
+            "Bonjour,\n\nLa sauvegarde automatique de Synaptane a échoué :\n{error}\n\n"
+            "Les sauvegardes précédentes sont gardées. Pour voir ce qui manque, lancez "
+            "`synaptane backup check` sur le serveur ; état de l'instance :\n{link}\n",
+        ),
+        "en": (
+            "Synaptane backup failed",
+            "Hello,\n\nThe automatic backup of Synaptane failed:\n{error}\n\nThe previous "
+            "backups are kept. To see what is missing, run `synaptane backup check` on the "
+            "server; state of the instance:\n{link}\n",
+        ),
+    },
     "tidy_notice": {
         "fr": (
             "Rangement de « {space} » : vos notes",

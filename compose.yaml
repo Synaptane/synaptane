@@ -42,7 +42,10 @@ x-synaptane: &synaptane
     SYNAPTANE_OCR_LANGUAGES: ${OCR_LANGUAGES:-fra+eng}
     SYNAPTANE_LOG_LEVEL: ${SYNAPTANE_LOG_LEVEL:-INFO}
     SYNAPTANE_DEFAULT_LOCALE: ${SYNAPTANE_DEFAULT_LOCALE:-en}
-    # Off-site backup (`synaptane backup --offsite`, docs/admin/backup.md).
+    # Automatic backup by the worker, every night into /backups (docs/admin/backup.md).
+    SYNAPTANE_BACKUP_TIME: ${BACKUP_TIME:-04:00}
+    SYNAPTANE_BACKUP_LOCAL_RETENTION_DAYS: ${BACKUP_LOCAL_RETENTION_DAYS:-7}
+    # Off-site backup: `synaptane backup setup`, or these variables (docs/admin/backup.md).
     SYNAPTANE_BACKUP_AGE_RECIPIENTS: ${BACKUP_AGE_RECIPIENTS:-}
     SYNAPTANE_BACKUP_REMOTES: ${BACKUP_REMOTES:-}
     SYNAPTANE_BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
@@ -51,8 +54,8 @@ x-synaptane: &synaptane
     TZ: ${TZ:-Europe/Paris}
   volumes:
     - synaptane-data:/data
-    # `synaptane backup` without --output writes here. Same disk, and erased by `down -v`:
-    # copy the backups elsewhere (docs/admin/backup.md).
+    # The automatic backup (and `synaptane backup` without --output) writes here. Same disk,
+    # and erased by `down -v`: the off-site copy protects against losing it.
     - synaptane-backups:/backups
 
 services:

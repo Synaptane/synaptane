@@ -12,6 +12,7 @@ Text extracted from PDFs and images is not backed up: it is rebuilt from Git. Ne
 logins of subscription CLIs (Claude Code, Codex): they are redone.
 """
 
+import fcntl
 import gzip
 import hashlib
 import io
@@ -21,8 +22,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -47,6 +49,40 @@ DUMP = "database.dump"
 KEY = "master.key"
 REPOS = "repos"
 MANIFEST = "manifest.json"
+LOCK = ".backup.lock"  # in the data folder, shared by the containers (app, worker)
+
+
+@contextmanager
+def exclusive(
+    settings: Settings, wait: float = 0, on_wait: Callable[[], None] | None = None
+) -> Iterator[bool]:
+    """One backup (or restore) at a time, whoever starts it: the worker's automatic backup,
+    the host's cron job (`docker compose exec app synaptane backup`), a deployment. Yields
+    False if another one still holds the lock after `wait` seconds (`on_wait` is called once,
+    when waiting starts). An exclusive lock on a file of the data folder: released by the
+    system if the process dies."""
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(settings.data_dir / LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + wait
+        waited = False
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    yield False
+                    return
+                if not waited and on_wait is not None:
+                    on_wait()
+                waited = True
+                time.sleep(min(5.0, left))
+                continue
+            yield True
+            return
+    finally:
+        os.close(fd)  # releases the lock
 
 
 def _libpq(database_url: str) -> tuple[str, dict[str, str]]:
@@ -81,6 +117,14 @@ def _run(command: list[str], env: dict[str, str]) -> None:
 def _revision(database: Database) -> str:
     with database.engine.connect() as connection:
         return str(connection.execute(text("SELECT version_num FROM alembic_version")).scalar())
+
+
+@contextmanager
+def _alone(settings: Settings) -> Iterator[None]:
+    with exclusive(settings) as acquired:
+        if not acquired:
+            raise BackupError("A backup is running: wait for it to finish, then run again.")
+        yield
 
 
 # --- Backup -----------------------------------------------------------------------------------
@@ -254,6 +298,7 @@ def restore(settings: Settings, source: IO[bytes], *, force: bool = False) -> Re
     """
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     with (
+        _alone(settings),
         tempfile.TemporaryDirectory(prefix="restore-", dir=settings.data_dir) as scratch,
         _unpacked(source, Path(scratch)) as manifest,
     ):

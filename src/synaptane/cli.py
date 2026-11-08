@@ -10,7 +10,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from synaptane import version_label
+from synaptane import backup_cli, version_label
 from synaptane.config import ConfigError, Settings, load_settings
 from synaptane.core.errors import BackupError, SynaptaneError
 from synaptane.core.security import SecretBox
@@ -238,6 +238,7 @@ def cmd_reindex(args: argparse.Namespace) -> int:
 
 
 OFFSITE_INCOMPLETE = 3  # good (and written) archive, incomplete off-site copy
+BACKUP_WAIT = 5 * 3600  # seconds a backup waits for the one running (worker, cron)
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
@@ -247,26 +248,46 @@ def cmd_backup(args: argparse.Namespace) -> int:
     3 archive verified and written, but at least one off-site destination failed. A cron job
     can therefore keep the local archive on code 3, and alert.
     """
-    import tempfile
-
-    from synaptane.services import backup, instance, offsite
+    from synaptane.services import backup, offsite
 
     settings = _settings(args)
     if args.offsite:
         offsite.require_ready(settings)  # refused before any write
-    options = {"with_repos": not args.without_repos, "with_key": not args.without_key}
     if args.output == "-" and sys.stdout.isatty():
         print("Redirect the output to a file: … backup --output - > file", file=sys.stderr)
         return 2
+    with backup.exclusive(
+        settings,
+        BACKUP_WAIT,
+        lambda: print("Another backup is running: waiting for it to finish…", file=sys.stderr),
+    ) as acquired:
+        if not acquired:
+            print(
+                f"Another backup has been running for more than {BACKUP_WAIT // 3600} hours: "
+                "nothing was done.",
+                file=sys.stderr,
+            )
+            return 1
+        return _backup(settings, args)
+
+
+def _backup(settings: Settings, args: argparse.Namespace) -> int:
+    import tempfile
+
+    from synaptane.services import backup, backup_schedule, instance
+
+    options = {"with_repos": not args.without_repos, "with_key": not args.without_key}
     name = backup.default_name()
     keep: Path | None = None  # local archive kept (file or folder)
     if args.output != "-" and (args.output or not args.offsite):
         # Without --output, the archive goes to $SYNAPTANE_BACKUP_DIR, except with --offsite
-        # alone: the /backups volume has no rotation, the day's copy goes off-site.
-        keep = Path(args.output or os.environ.get("SYNAPTANE_BACKUP_DIR", "."))
+        # alone: the day's copy goes off-site.
+        keep = Path(args.output or settings.backup_dir or ".")
         if keep.is_dir():
             keep = keep / name
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # deploy/host/backup.sh run by cron: the worker's automatic backup steps aside.
+    by_host = os.environ.get(backup_schedule.HOST_ENV) == "1"
     # In the data folder (mode 700), not in /tmp: in a container, /tmp is in memory.
     with tempfile.TemporaryDirectory(prefix="backup-", dir=settings.data_dir) as scratch:
         path = keep or Path(scratch) / name
@@ -279,6 +300,8 @@ def cmd_backup(args: argparse.Namespace) -> int:
             path.unlink(missing_ok=True)
             raise
         instance.mark(settings, instance.BACKUP_DONE)
+        if by_host:
+            instance.mark(settings, backup_schedule.HOST_DONE)
         if args.output == "-":
             with path.open("rb") as source:
                 shutil.copyfileobj(source, sys.stdout.buffer)
@@ -296,21 +319,20 @@ def cmd_backup(args: argparse.Namespace) -> int:
             )
         if not args.offsite:
             return 0
-        return _send_offsite(settings, path, Path(scratch) / f"{name}{offsite.SUFFIX}")
+        return _send_offsite(settings, path, Path(scratch))
 
 
-def _send_offsite(settings: Settings, archive: Path, encrypted: Path) -> int:
+def _send_offsite(settings: Settings, archive: Path, scratch: Path) -> int:
     from synaptane.services import instance, offsite
 
     try:
-        offsite.encrypt(settings, archive, encrypted)
+        outcomes = offsite.copy(settings, archive, scratch)
     except BackupError as error:
         print(f"Off-site copy failed: {error}", file=sys.stderr)
         return OFFSITE_INCOMPLETE
-    outcomes = offsite.send(settings, encrypted)
     for outcome in outcomes:
         state = "ok" if outcome.ok else f"FAILED — {outcome.error}"
-        where = offsite.target(outcome.remote, encrypted.name)
+        where = offsite.target(outcome.remote, f"{archive.name}{offsite.SUFFIX}")
         print(f"Off-site: {where}: {state}", file=sys.stderr)
     failed = [outcome.remote for outcome in outcomes if not outcome.ok]
     if failed:
@@ -321,19 +343,25 @@ def _send_offsite(settings: Settings, archive: Path, encrypted: Path) -> int:
     return 0
 
 
+NO_DESTINATION = (
+    "No destination: run `synaptane backup setup` (or `synaptane offsite add NAME:PATH`), "
+    "or set SYNAPTANE_BACKUP_REMOTES."
+)
+
+
 def cmd_offsite_test(args: argparse.Namespace) -> int:
     """Write, read back and delete a probe file on each destination."""
     from synaptane.services import offsite
 
     settings = _settings(args)
-    if not settings.backup_remotes:
-        print("No destination: set SYNAPTANE_BACKUP_REMOTES.", file=sys.stderr)
+    if not offsite.remotes(settings):
+        print(NO_DESTINATION, file=sys.stderr)
         return 1
     if shutil.which("rclone") is None:
         print("rclone not found.", file=sys.stderr)
         return 1
     ok = True
-    for remote in settings.backup_remotes:
+    for remote in offsite.remotes(settings):
         outcome = offsite.check(settings, remote)
         ok &= outcome.ok
         state = "ok" if outcome.ok else "FAILED"
@@ -352,11 +380,11 @@ def cmd_offsite_list(args: argparse.Namespace) -> int:
     from synaptane.services import offsite
 
     settings = _settings(args)
-    if not settings.backup_remotes:
-        print("No destination: set SYNAPTANE_BACKUP_REMOTES.", file=sys.stderr)
+    if not offsite.remotes(settings):
+        print(NO_DESTINATION, file=sys.stderr)
         return 1
     ok = True
-    for remote in settings.backup_remotes:
+    for remote in offsite.remotes(settings):
         print(f"{remote}")
         try:
             files = offsite.listing(settings, remote)
@@ -392,22 +420,31 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def _doctor_offsite(settings: Settings, check: Callable[..., None]) -> None:
     """Off-site backup: always a "warning", never a failure (optional)."""
-    from synaptane.services import offsite
+    from synaptane.services import backup_schedule, offsite
 
-    if not settings.backup_remotes:
+    if backup_schedule.enabled(settings):
+        check(f"Automatic backup: every day at {settings.backup_time}", True)
+    else:
+        check(
+            "Automatic backup",
+            False,
+            "off: `synaptane backup check` says what is missing",
+            optional=True,
+        )
+    if not offsite.remotes(settings):
         check(
             "Off-site backup",
             False,
-            "not configured: SYNAPTANE_BACKUP_REMOTES (docs/admin/backup.md)",
+            "not configured: run `synaptane backup setup` (docs/admin/backup.md)",
             optional=True,
         )
         return
-    count = len(settings.backup_remotes)
+    count = len(offsite.remotes(settings))
     check(f"Off-site backup: {count} destination(s)", True)
     check(
         "age recipients",
         offsite.has_recipients(settings),
-        "no public key: `backup --offsite` will refuse to copy (SYNAPTANE_BACKUP_AGE_RECIPIENTS)",
+        "no public key: `backup --offsite` will refuse to copy (`synaptane offsite key`)",
         optional=True,
     )
     for tool, role in (("age", "encryption"), ("rclone", "copy")):
@@ -644,7 +681,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     clis.set_defaults(handler=cmd_check_clis)
 
-    save = commands.add_parser("backup", help="back up the database, master key and repositories")
+    save = commands.add_parser(
+        "backup",
+        help="back up the database, master key and repositories; `backup check`, `backup setup`",
+    )
     save.add_argument(
         "--output",
         help="file or folder (default: $SYNAPTANE_BACKUP_DIR or ., none with --offsite);"
@@ -670,6 +710,7 @@ def build_parser() -> argparse.ArgumentParser:
     away.add_parser("list", help="archives present on each destination").set_defaults(
         handler=cmd_offsite_list
     )
+    backup_cli.register(save, away)
     load = commands.add_parser("restore", help="restore a backup (application and worker stopped)")
     load.add_argument("archive", help='a .tar.gz file, or "-" for standard input')
     load.add_argument(
