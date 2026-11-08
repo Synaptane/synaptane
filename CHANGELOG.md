@@ -126,7 +126,8 @@ longer quotes the values received.
 - **`synaptane backup`** writes its archive to a hidden `.part` file renamed once read back,
   also in a folder. A backup sent to standard output is marked as verified only once it has
   gone through, and never as the backup of the day (with `deploy/host/backup.sh`, the script
-  marks it once in place).
+  marks it once in place). A second backup in the same second into a folder gets a suffix
+  (`-2`) instead of failing; an explicit file is still never overwritten.
 - The backup documentation starts with the simplest path, then the options.
 - **New space** without JavaScript: the repository address is now required by the server when
   the repository is not created by Synaptane (the browser already required it).

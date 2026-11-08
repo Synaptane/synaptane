@@ -383,6 +383,28 @@ def test_a_kept_archive_appears_under_its_name_once_verified(
     assert (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()
 
 
+@needs_pg
+def test_two_backups_in_the_same_second_both_kept(
+    automatic: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Archive names are to the second: a second backup in the same second into a folder
+    gets a suffix instead of failing; an explicit file is still never overwritten."""
+    config = write_config(automatic, tmp_path / "synaptane.toml", backup_dir=automatic.backup_dir)
+    folder = automatic.backup_dir
+    assert folder is not None
+    folder.mkdir()
+    monkeypatch.setattr(backup, "default_name", lambda: "synaptane-2026-11-08-120000.tar.gz")
+    for _ in range(3):
+        assert main(["--config", str(config), "backup"]) == 0
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "synaptane-2026-11-08-120000-2.tar.gz",
+        "synaptane-2026-11-08-120000-3.tar.gz",
+        "synaptane-2026-11-08-120000.tar.gz",
+    ]
+    explicit = folder / "synaptane-2026-11-08-120000.tar.gz"
+    assert main(["--config", str(config), "backup", "--output", str(explicit)]) == 1
+
+
 def test_a_cron_backup_waits_for_the_running_one(
     automatic: Settings,
     tmp_path: Path,
