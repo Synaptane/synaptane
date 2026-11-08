@@ -150,11 +150,16 @@ def update_user(
         require(actor.access, Action.MANAGE_INSTANCE)
     if own and (is_active is False or is_superadmin is False):
         raise invalid("You cannot remove your own permissions or deactivate yourself.")
+    changed = []
     if display_name is not None:
-        user.display_name = names.display_name(display_name)
+        display_name = names.display_name(display_name)
+        if display_name != user.display_name:
+            changed.append("display_name")
+        user.display_name = display_name
     if email is not None:
         email = email.strip().lower() or None
         if email != user.email:
+            changed.append("email")
             if (
                 own
                 and user.password_hash
@@ -169,14 +174,30 @@ def update_user(
     if locale is not None:
         if locale not in LOCALES:
             raise invalid("Unsupported language.")
+        if locale != user.locale:
+            changed.append("locale")
         user.locale = locale
+    if is_active is not None and is_active != user.is_active:
+        audit(
+            session,
+            actor,
+            "user.reactivated" if is_active else "user.deactivated",
+            username=user.username,
+        )
     if is_active is not None:
         user.is_active = is_active
         if not is_active:
             _revoke_everything(session, user.id)
-    if is_superadmin is not None:
+    if is_superadmin is not None and is_superadmin != user.is_superadmin:
+        audit(
+            session,
+            actor,
+            "user.superadmin_granted" if is_superadmin else "user.superadmin_revoked",
+            username=user.username,
+        )
         user.is_superadmin = is_superadmin
-    audit(session, actor, "user.updated", username=user.username)
+    if changed:
+        audit(session, actor, "user.updated", username=user.username, fields=" ".join(changed))
     return user
 
 
@@ -400,6 +421,7 @@ def create_api_token(
         name=api_token.name,
         read_only=read_only,
         inbox_only=inbox_only,
+        scoped=api_token.space_ids is not None,
     )
     return token, api_token
 

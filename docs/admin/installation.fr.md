@@ -499,6 +499,36 @@ groups:
         expr: time() - synaptane_backup_last_timestamp_seconds > 2 * 86400
 ```
 
+## Journal d'audit
+
+Qui a changé un rôle, un jeton ou un réglage, et quand. Synaptane note ces changements au fil de
+l'eau ; deux pages les lisent, du plus récent au plus ancien, 50 par page (**Plus ancien** pour
+la suite) :
+
+- onglet **Journal** d'une organisation (`/o/<organisation>/-/journal`, ses administrateurs) :
+  ses membres et rôles, les invitations, les réglages (organisation, IA, recherche sémantique,
+  webhooks, espaces, accès Git, rangement, vocation, prompts d'assistant, routines) et les alertes envoyées à ses
+  administrateurs. Rien d'une autre organisation ;
+- **Administration > Journal** (`/admin/journal`, super-administrateurs) : toute l'instance,
+  avec ce qui ne relève d'aucune organisation : les comptes (création, droits de super-admin,
+  désactivation, mot de passe, double authentification, sessions), les jetons personnels, les
+  applications connectées, la connexion SSO et l'envoi d'e-mails. Un filtre par organisation
+  en garde une seule, ou ce qui ne relève d'aucune.
+
+Chaque ligne donne la date, l'auteur (**Système** pour ce que Synaptane fait de lui-même, comme
+une alerte), l'action, ce qu'elle concerne (espace, membre, jeton…) et ses détails utiles : rôle,
+fournisseur et modèle, « Clé d'API remplacée ». Jamais de secret : aucune clé, aucun jeton, aucun
+mot de passe, et d'un webhook seulement son hôte. Filtrez par type (membres et rôles, jetons et
+applications, paramètres, comptes et sécurité, alertes) et par période (dates en UTC) ;
+**Exporter (CSV)** télécharge la sélection, ses 10 000 lignes les plus récentes au plus (une
+dernière ligne le dit quand il s'est arrêté là).
+
+Les modifications de pages, les notes de l'inbox, les passages du rangement et les coûts d'IA
+n'y sont pas : ils ont leurs propres pages (**Activité** et **Rangement** de chaque espace,
+**Intelligence artificielle** de l'organisation). Les événements d'un espace supprimé restent
+dans le journal de son organisation, sans son nom. Les changements notés avant cette page y sont
+aussi, avec moins de détails (qui est devenu super-admin, quelle clé a changé).
+
 ## Rôles
 
 | Rôle | Portée | Peut |

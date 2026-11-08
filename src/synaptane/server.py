@@ -49,6 +49,7 @@ from synaptane.storage.db import Database
 from synaptane.web import (
     account_pages,
     admin_pages,
+    audit_pages,
     health_pages,
     home_pages,
     import_pages,
@@ -135,6 +136,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.include_router(org_pages.router, include_in_schema=False)
     app.include_router(space_pages.router, include_in_schema=False)
     app.include_router(admin_pages.router, include_in_schema=False)
+    app.include_router(audit_pages.router, include_in_schema=False)
     app.include_router(account_pages.router, include_in_schema=False)
     app.include_router(import_pages.router, include_in_schema=False)
     app.include_router(wiki.router, include_in_schema=False)

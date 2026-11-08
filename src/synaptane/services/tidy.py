@@ -1149,6 +1149,14 @@ def update_settings(
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     if model is not None:  # before any change: a refusal leaves nothing half done
         check_space_model(session, space, model.strip())
+    fields = ("enabled", "schedule", "timezone", "model", "delay")
+    before = (
+        space.tidy_enabled,
+        space.tidy_time,
+        space.tidy_timezone,
+        space.ai_model,
+        space.tidy_delay,
+    )
     if delay is not None:
         if not 0 <= delay <= MAX_DELAY:
             raise invalid("Invalid delay (1 to 1,440 minutes, 0 to turn off).")
@@ -1162,4 +1170,12 @@ def update_settings(
         space.tidy_enabled = enabled
     if model is not None:
         space.ai_model = model.strip() or None
-    audit(session, actor, "space.tidy_settings", space=space)
+    after = (
+        space.tidy_enabled,
+        space.tidy_time,
+        space.tidy_timezone,
+        space.ai_model,
+        space.tidy_delay,
+    )
+    changed = [field for field, old, new in zip(fields, before, after, strict=True) if old != new]
+    audit(session, actor, "space.tidy_settings", space=space, fields=" ".join(changed))

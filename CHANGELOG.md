@@ -30,6 +30,15 @@ of the target version.
   and in `GET /spaces`. A restricted space shows a badge in the organization's list of spaces.
   Changes of the default role (`org.default_space_role`) and of the restriction
   (`space.restricted`) are written to the audit log.
+- **Audit log**. Who changed a role, a token or a setting, and when. An organization's admins
+  read its log in its **Audit log** tab: members and roles, invitations, settings of the
+  organization and of its spaces, alerts. Super admins read the whole instance in
+  **Administration > Audit log**, accounts, personal tokens, connected applications, single
+  sign-on and email sending included. Filters by type and period (UTC days), 50 lines per page, CSV
+  export of the selection (its 10,000 newest lines, said in the file when it stops there). Each line shows only the known details of its action, never a key, a token
+  or a password, and of a webhook only its host. One migration (`0030`) replaces the index of
+  the audit events on the organization with one on the organization and the date, applied at
+  startup.
 
 ### Changed
 - **Members of a space**. The page now says whether the organization's default role applies,
@@ -45,6 +54,13 @@ of the target version.
   the access actually given, the spaces opened by the default role included.
 - **Routine emails "to the members"** also reach those who access the space through the
   default role.
+- **More precise audit events**. Granting or removing super admin rights, and disabling or
+  re-enabling an account, are now events of their own; a profile change says which fields
+  changed. The AI and semantic search settings say whether the API key was replaced or removed
+  and whether the monthly budget changed; a space's and its tidy-up's settings say which fields
+  changed; a space's purpose, tidy-up rules and assistant prompts say which file and whether it
+  was removed; an invitation keeps its role; a connected application and a personal token, their
+  name and restrictions. The keys themselves are never recorded.
 
 ## [1.11.0] - 2026-11-06
 

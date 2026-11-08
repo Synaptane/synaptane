@@ -1321,3 +1321,21 @@ a.admin-row-title:hover{text-decoration:underline}
   .related-title{white-space:normal}
   .related-side{margin-left:23px}
 }
+/* Journal d'audit : filtres sur une ligne qui passent à la ligne, puis une ligne par événement,
+   date et auteur à droite (dessous sur mobile). */
+.audit-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px;padding:16px 20px}
+.audit-filters .field{margin:0;flex:1 1 150px;min-width:0}
+.audit-filters .actions{flex:none}
+.audit-export-note{flex:1 1 100%;margin:0;font-size:12.5px}
+.audit-list{list-style:none;margin-bottom:0}
+.audit-entry{display:flex;justify-content:space-between;align-items:flex-start;gap:6px 16px;padding:12px 20px;border-top:1px solid var(--border)}
+.audit-entry:first-child{border-top:0}
+.audit-entry-main{min-width:0;flex:1 1 auto}
+.audit-entry-side{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;max-width:40%;font-size:12.5px;color:var(--ink-3);text-align:right}
+.audit-author{color:var(--ink-2);overflow-wrap:anywhere}
+.audit-details{color:var(--ink-2)}
+@media(max-width:700px){
+  .audit-filters{padding:14px 16px}
+  .audit-entry{flex-direction:column;padding:12px 16px}
+  .audit-entry-side{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 8px;max-width:none;text-align:left}
+}

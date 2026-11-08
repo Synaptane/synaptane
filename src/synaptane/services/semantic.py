@@ -147,10 +147,18 @@ def configure(
         meaning_min_similarity = None
     row.provider, row.model, row.base_url = provider, model, base_url
     row.meaning_min_similarity = meaning_min_similarity
+    key_change = ""  # what changed, never the key itself
     if api_key is not None:
         put_org_secret(session, box, org.id, EMBEDDING_KEY, api_key.strip(), actor.user.id)
+        key_change = "replaced" if api_key.strip() else "removed"
     audit(
-        session, actor, "org.embeddings_configured", org_id=org.id, provider=provider, model=model
+        session,
+        actor,
+        "org.embeddings_configured",
+        org_id=org.id,
+        provider=provider,
+        model=model,
+        key=key_change,
     )
     for space in session.scalars(
         select(Space).where(Space.org_id == org.id, Space.embeddings_enabled.is_(True))

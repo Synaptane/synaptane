@@ -8,6 +8,7 @@
   ("semantic", "/o/" ~ org.slug ~ "/-/embeddings", _("Semantic search")),
   ("webhooks", "/o/" ~ org.slug ~ "/-/webhooks", _("Webhooks")),
   ("settings", "/o/" ~ org.slug ~ "/-/settings", _("Settings")),
+  ("journal", "/o/" ~ org.slug ~ "/-/journal", _("Audit log")),
 ] %}{% endif %}
 {% set section_title = (sections|selectattr(0, "equalto", section)|map(attribute=2)|first) if section != "spaces" else "" %}
 {% block title %}{% if section_title %}{{ section_title }} · {% endif %}{{ org.name }} · Synaptane{% endblock %}
