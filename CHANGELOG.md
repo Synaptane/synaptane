@@ -10,6 +10,24 @@ of the target version.
 
 ## [Unreleased]
 
+### Changed
+- Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
+  2.5.0, an overloaded (529) or unavailable (503) Claude API raises a subclass of its server
+  error: Synaptane still reports it as a temporary error, retried later, as before.
+- Downloaded images, still pinned by digest in `compose.yaml`: PostgreSQL
+  (`pgvector/pgvector:pg17`) rebuilt on 31 October 2026 with the Debian fixes of its base,
+  still PostgreSQL 17.11 and pgvector 0.8.7, so the data needs nothing; certbot 5.9.0, whose
+  renewal hooks no longer receive the names that failed to renew as renewed (Synaptane's
+  renewal uses no hook). They are fetched by the usual
+  `docker compose pull --ignore-buildable` of an upgrade.
+- Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
+
+### Security
+- pydantic 2.14.3: fixes two validation bypasses when extra data is allowed
+  (GHSA-qpmf-fgh3-ff25, keys of `__pydantic_extra__` in JSON; GHSA-3r8g-cqwr-jr29, aliased
+  fields of a `TypedDict` or dataclass). Synaptane declares no model that allows extra data, so
+  it was not exposed; the update clears the advisories reported against its dependencies.
+
 ## [1.13.0] - 2026-11-08
 
 Give a team several spaces at once with groups, have a new space's repository created on GitHub or

@@ -61,7 +61,7 @@ x-synaptane: &synaptane
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
     restart: unless-stopped
     logging: *logging
     environment:
@@ -151,7 +151,7 @@ services:
 
   certbot:
     profiles: [proxy]
-    image: certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    image: certbot/certbot:v5.9.0@sha256:bc93cb710b413e6b456d622f9b0133b3e109c0a78c2ed9976af43d209b0a1805
     restart: unless-stopped
     logging: *logging
     entrypoint: ["/bin/sh", "/renew.sh"]
