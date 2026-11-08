@@ -12,13 +12,14 @@ from synaptane.ai.base import AIConfig, Turn, Usage
 def test_cache_writes_cost_a_quarter_more_than_plain_input() -> None:
     price = pricing.price_for("anthropic", "claude-sonnet-5-5", None, None)
     assert price is not None and price.cache_write == Decimal("1.25")
-    # 1 M input of which 400,000 written to cache, 1 M read back, 100,000 output ($2 / $10).
+    # 1 M input of which 400,000 written to cache, 1 M read back, 100,000 output ($2 / $10,
+    # cache hits $0.10).
     usage = Usage(input_tokens=1_000_000, output_tokens=100_000, cached_tokens=1_000_000)
     usage.cache_write_tokens = 400_000
-    # 2 (input) + 0.2 (write surcharge: 0.4 × 2 × 0.25) + 0.2 (cache read) + 1 (output)
-    assert pricing.cost(usage, price) == Decimal("3.4000")
+    # 2 (input) + 0.2 (write surcharge: 0.4 × 2 × 0.25) + 0.1 (cache read) + 1 (output)
+    assert pricing.cost(usage, price) == Decimal("3.3000")
     usage.cache_write_tokens = 0
-    assert pricing.cost(usage, price) == Decimal("3.2000")  # the old calculation, without writes
+    assert pricing.cost(usage, price) == Decimal("3.1000")  # the old calculation, without writes
 
 
 def test_usage_adds_and_merges_cache_writes() -> None:

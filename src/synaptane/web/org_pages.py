@@ -125,7 +125,11 @@ def organization_ai_page(page: WebPage, org_slug: str) -> Response:
         efforts=EFFORTS,
         spending=budget.spending(page.db, org.id) if view else None,
         suggested_budget=budget.SUGGESTED_BUDGET,
-        public_price=pricing.public_price(view.model if view else DEFAULT_MODELS["anthropic"]),
+        public_price=(
+            pricing.tariff(view.provider, view.model)
+            if view
+            else pricing.tariff("anthropic", DEFAULT_MODELS["anthropic"])
+        ),
         docker=cli_agents.in_docker(),
         cli_login={p: cli_agents.login_command(p) for p in cli_agents.LOGIN},
         # Old sign-in in the data volume (before the worker's volume): only the folders'

@@ -161,11 +161,12 @@ avant chaque mise à jour.
 - **Fonctions bêta d'Anthropic.** Avec les modèles Claude, Synaptane utilise une fonction bêta
   de l'API (repli côté serveur quand un filtre de sécurité refuse une requête). Une fonction
   bêta peut changer.
-- **Coûts.** L'estimation automatique des coûts n'existe que pour les modèles Claude (et, pour
-  la recherche sémantique, les modèles d'embeddings d'OpenAI, Gemini, Mistral et Voyage AI).
-  Pour les autres fournisseurs, saisissez vous-même le tarif par million de jetons : sans
-  tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La vectorisation des
-  requêtes de recherche n'est pas comptée.
+- **Coûts.** L'estimation automatique des coûts couvre les principaux modèles d'Anthropic,
+  d'OpenAI, de Google Gemini, de Mistral et de DeepSeek (et, pour la recherche sémantique, les
+  modèles d'embeddings d'OpenAI, Gemini, Mistral et Voyage AI), au tarif public du fournisseur
+  en dollars compté en euros. Pour les autres modèles, saisissez vous-même le tarif par million
+  de jetons : sans tarif, aucun coût n'est calculé et aucun budget ne peut s'appliquer. La
+  vectorisation des requêtes de recherche n'est pas comptée.
 - **Plateformes :** Linux sur x86-64 ou arm64, ou WSL2 sous Windows. macOS n'est pas testé.
 - **Langue :** l'interface web, les e-mails, les messages d'erreur de l'API REST et la
   documentation sont en anglais et en français. La ligne de commande, les journaux et les

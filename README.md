@@ -153,9 +153,10 @@ tools and the configuration only change in a compatible way. Every change is lis
   > Enterprise plan. Details: [AI and tidy-up](docs/admin/ai.md).
 - **Anthropic beta features.** With Claude models, Synaptane uses a beta API feature
   (server-side fallback when a safety filter refuses a request). Beta features can change.
-- **Costs.** Automatic cost estimates exist only for Claude models (and, for semantic
-  search, the embedding models of OpenAI, Gemini, Mistral and Voyage AI). For other
-  providers, enter the price per million tokens yourself: without a price, no cost is
+- **Costs.** Automatic cost estimates cover the main models of Anthropic, OpenAI, Google
+  Gemini, Mistral and DeepSeek (and, for semantic search, the embedding models of OpenAI,
+  Gemini, Mistral and Voyage AI), at the provider's public price in dollars counted as euros.
+  For other models, enter the price per million tokens yourself: without a price, no cost is
   computed and no budget can apply. Vectorizing search queries is not counted.
 - **Platforms:** Linux on x86-64 or arm64, or WSL2 on Windows. macOS is not tested.
 - **Language:** the web UI, emails, REST error messages and documentation are in English and

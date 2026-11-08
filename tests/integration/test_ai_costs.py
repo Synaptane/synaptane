@@ -127,8 +127,100 @@ def test_an_unknown_price_is_counted_at_the_highest_known_price(
 
 def test_prudent_price_is_the_most_expensive_public_price() -> None:
     price = pricing.prudent_price()
-    assert (price.input, price.output) == max(pricing.PUBLIC_PRICES.values(), key=lambda p: p[1])
-    assert price.cache_read == pricing.CACHE_READ
+    rates = [
+        rate
+        for table in pricing.PUBLIC_PRICES.values()
+        for model in table
+        if (rate := pricing.public_price("openai_compatible", model)) is not None
+    ]
+    assert (price.input, price.output) == max((r.input, r.output) for r in rates)
+    assert price.output == max(r.output for r in rates)
+    assert price.cache_read == pricing.CACHE_READ and price.long is None
+
+
+def test_other_providers_have_their_public_price(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, client: TestClient
+) -> None:
+    org = wiki.infra.organization
+    # OpenAI: a budget needs no price entered for its models, and the run is counted at the
+    # public price: (1,000 × 0.75 + 200 × 4.50) per million, 0.00165.
+    ai_settings.configure(
+        db,
+        wiki.root,
+        ctx.box,
+        org,
+        provider="openai",
+        model="gpt-5.4-mini",
+        api_key="sk-test",
+        monthly_budget=Decimal(10),
+    )
+    db.commit()
+    deposit_note(db, database, ctx, wiki)
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="manual", factory=CloseAll().factory)
+    assert record is not None and record.status == "done"
+    assert record.cost == Decimal("0.0016")
+    assert not [op for op in record.operations if op["op"] == "attention"]  # not a prudent price
+
+    # The AI page shows the price applied, with its cache and long-prompt prices.
+    ai_settings.configure(
+        db, wiki.root, ctx.box, org, provider="openai", model="gpt-5.4", monthly_budget=Decimal(10)
+    )
+    db.commit()
+    login(client, "root")
+    page = client.get("/o/acme/-/ai").text
+    assert "tarif public du modèle, 2,5 $ / 15 $ par million de jetons" in page
+    assert "Entrée relue depuis le cache\xa0: 0,25 $ par million de jetons." in page
+    assert "Requêtes dont le prompt dépasse 272 000 jetons\xa0: 5 $ / 22,5 $." in page
+
+    # Gemini or DeepSeek behind an OpenAI-compatible API: known prices, router prefix included.
+    ai_settings.configure(
+        db,
+        wiki.root,
+        ctx.box,
+        org,
+        provider="openai_compatible",
+        model="models/gemini-3.1-flash-lite",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key="AIza-test",
+        monthly_budget=Decimal(10),
+    )
+    tidy.update_settings(db, wiki.root, wiki.infra, model="deepseek-v4-pro")
+    db.commit()
+    with pytest.raises(SynaptaneError, match="Unknown price for the model “gpt-5-pro”"):
+        tidy.update_settings(db, wiki.root, wiki.infra, model="gpt-5-pro")  # not gpt-5's price
+    db.rollback()
+    page = client.get("/o/acme/-/ai").text
+    assert "tarif public du modèle, 0,25 $ / 1,5 $ par million de jetons" in page
+    assert "Requêtes dont le prompt dépasse" not in page
+
+    # Ollama runs locally: no public price, even with the name of a paid model.
+    tidy.update_settings(db, wiki.root, wiki.infra, model="")
+    db.commit()
+    with pytest.raises(SynaptaneError, match="Unknown price for this model"):
+        ai_settings.configure(
+            db,
+            wiki.root,
+            ctx.box,
+            org,
+            provider="ollama",
+            model="mistral-small-latest",
+            base_url="http://localhost:11434/v1",
+            api_key="",
+            monthly_budget=Decimal(10),
+        )
+    db.rollback()
+    ai_settings.configure(
+        db,
+        wiki.root,
+        ctx.box,
+        org,
+        provider="ollama",
+        model="mistral-small-latest",
+        base_url="http://localhost:11434/v1",
+        api_key="",
+    )
+    db.commit()
+    assert "pas de coût calculé pour ce modèle" in client.get("/o/acme/-/ai").text
 
 
 # --- 2. Suggested budget and warning -------------------------------------------------------------
@@ -311,7 +403,8 @@ def test_embedding_usage_is_read_from_the_provider(monkeypatch: pytest.MonkeyPat
     assert (tally.tokens, tally.estimated) == (18, True)
 
     assert pricing.embedding_cost("openai", "text-embedding-3-small", 1_000_000) == Decimal("0.02")
-    assert pricing.embedding_cost("voyage", "modele-inconnu", 1_000_000) == Decimal("0.15")
+    # Unknown model: the highest price of its provider (voyage-3-large), never zero.
+    assert pricing.embedding_cost("voyage", "modele-inconnu", 1_000_000) == Decimal("0.18")
     assert pricing.embedding_cost("ollama", "bge-m3", 1_000_000) is None
     assert pricing.embedding_cost("openai", "text-embedding-3-small", 0) is None
 

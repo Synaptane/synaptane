@@ -12,7 +12,7 @@ organization's AI provider.
 | Anthropic (Claude) | API key (Anthropic Console) | Default model: `claude-sonnet-5-5`, medium thinking (good value for tidy-up; `claude-opus-5-5` for demanding spaces). Automatic fallback when a safety filter refuses. |
 | OpenAI, Mistral | API key | Model to enter (`mistral-large-latest` by default for Mistral). |
 | Ollama | None (local address) | The model must support tool calling. |
-| OpenAI-compatible | Address and, if needed, key | vLLM, LM Studio, gateways… |
+| OpenAI-compatible | Address and, if needed, key | vLLM, LM Studio, gateways…, or Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`) and DeepSeek (`https://api.deepseek.com`), whose public prices are known. |
 | **Claude subscription (Claude Code)** | CLI signed in on the server | Super admin only. See below. |
 | **ChatGPT subscription (Codex)** | CLI signed in on the server | Super admin only. See below. |
 
@@ -406,14 +406,37 @@ Organization page → **Artificial intelligence**, "Cost and budget" section (or
 `PUT …/organizations/{org}/ai` with `price_input`, `price_output`, `monthly_budget`).
 
 - **Price**: in € per million tokens, input and output. Empty: Synaptane applies the model's
-  public price when it knows it (Claude models), in dollars counted as euros; the cost shown
-  is therefore an estimate. With no price and no known model, no cost is computed. Prices
-  entered apply to every model of the organization, including those chosen by its spaces.
-- Input read from the provider's cache counts for a tenth of the input price (a twentieth for
-  `claude-opus-5-5`, a fortieth for `claude-fable-5-1`), input written to the cache for 1.25
-  times the input price (Anthropic's price for the 5-minute cache, the only one Synaptane
-  requests). With Anthropic, Synaptane turns caching on: each turn rereads the previous one
-  at a lower cost.
+  public price when it knows it, in dollars counted as euros; the cost shown is therefore an
+  estimate. With no price and no known model, no cost is computed. Prices entered apply to
+  every model of the organization, including those chosen by its spaces. The page shows the
+  public price applied to the organization's model.
+- **Known public prices**: the main models of Anthropic (Claude), OpenAI, Google Gemini,
+  Mistral and DeepSeek, at the standard pay-as-you-go price of the provider's own API (no
+  batch, priority or regional surcharge, no free allowance). They are looked up for the
+  provider's own models: Anthropic models with the Anthropic provider, OpenAI models with
+  OpenAI, Mistral models with Mistral; through an OpenAI-compatible API (Gemini, DeepSeek,
+  OpenRouter, LiteLLM…), in all the tables. Ollama has no public price. The model's name is
+  recognized with a router prefix (`openai/gpt-5`, `models/gemini-2.5-pro`), as a dated
+  snapshot (`gpt-5-2025-08-07`, `claude-haiku-4-5-20251001`) or with OpenRouter's dots
+  (`anthropic/claude-sonnet-5.5`); any other model is unknown, even if its name starts like a
+  known one (`gpt-5-pro` does not take the price of `gpt-5`). A gateway that bills its own
+  price (Azure, OpenRouter fees): enter it.
+- **Cache**, as each provider bills it: input read from the cache counts at the model's
+  cached-input price (usually a tenth of the input price; a twentieth for `claude-opus-5-5`
+  and `claude-sonnet-5-5`, a fortieth for `claude-fable-5-1`). Input written to the cache
+  costs 1.25 times the input price with Anthropic (5-minute cache, the only one Synaptane
+  requests) and with OpenAI's GPT-5.6 and later models (30-minute default), with no surcharge
+  elsewhere. With Anthropic, Synaptane turns caching on: each turn rereads the previous one at
+  a lower cost; with the other providers, Synaptane counts the cache reads and writes they
+  report. With a price you entered, the cache shares of the model's public price apply to it.
+- **Long prompts**: some models cost more for a request whose prompt is long (cache included):
+  OpenAI's models from GPT-5.4 on (not the mini and nano ones) over 272,000 tokens, Gemini Pro
+  over 200,000, `claude-haiku-5-5` over 100,000. Synaptane counts such requests one by one at
+  the higher price.
+- **Price changes** announced by the provider apply on their date (for example Gemini 4 Argon
+  on December 1, 2026). A promotional price whose end is announced without the next price
+  stops being known on that date (`gpt-5.6-sol`, December 1, 2026): see below. DeepSeek is
+  counted at its peak-hour price (a run off peak costs half).
 - **Subscriptions** (Claude Code, Codex): no usage cost, and no budget to set.
 - **Monthly budget** (optional): sum of the month's estimated costs (UTC) across all the
   organization's spaces: tidy-up runs, routine runs and semantic indexing (see below). The
@@ -427,16 +450,19 @@ Organization page → **Artificial intelligence**, "Cost and budget" section (or
   as long as no budget is set, the AI page shows a warning: spending has no limit. This does
   not apply to subscriptions, Ollama or an OpenAI-compatible API without a key.
 - **A budget requires a known price** for the organization's model **and** for the model
-  chosen by each space (public price for Claude models, or prices entered by the admin).
+  chosen by each space (known public price, or prices entered by the admin).
   Otherwise the budget is refused, and once a budget is set, a space cannot pick a model
   without a known price. If a model loses its price later (for example after an update), each
-  run with it is counted at the highest known public price, never zero, and the run's log
-  says so.
-- **Semantic indexing** counts toward the month's spending: tokens reported by the provider,
-  or overestimated (one token per three characters) when it does not report them, at the
-  public prices of the OpenAI, Gemini, Mistral and Voyage AI models (the highest of them for
-  a model it does not know). Ollama and OpenAI-compatible APIs are not counted, nor is the
-  vectorization of search queries. Indexing is not stopped by the budget.
+  run with it is counted at the highest known public price ($10 / $50 per million tokens in
+  November 2026), never zero, and the run's log says so. Models that Synaptane cannot use
+  (OpenAI's "pro" models, available through the Responses API only) are not in the table, so
+  that they do not raise this price.
+- **Semantic indexing** counts toward the month's spending: tokens reported by the provider, or
+  overestimated (one token per three characters) when it does not report them, at the public
+  prices of the OpenAI, Gemini, Mistral and Voyage AI models (for a model it does not know, the
+  highest price of its provider; Voyage AI's free tokens are not deducted). Ollama and
+  OpenAI-compatible APIs are not counted, nor is the vectorization of search queries. Indexing
+  is not stopped by the budget.
 - **Usage limits**: **Tidy now** allows 5 manual runs per person and per space over 24 hours
   (20 for an organization admin); scheduled and as-you-go runs are not affected. An account
   drops at most 120 notes per hour into inboxes, across all spaces and interfaces (web, REST,

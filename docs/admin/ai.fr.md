@@ -12,7 +12,7 @@ fournisseur d'IA de l'organisation.
 | Anthropic (Claude) | Clé d'API (console Anthropic) | Modèle par défaut : `claude-sonnet-5-5`, réflexion moyenne (bon rapport qualité-prix pour ranger ; `claude-opus-5-5` pour des espaces exigeants). Repli automatique en cas de refus par un filtre de sécurité. |
 | OpenAI, Mistral | Clé d'API | Modèle à indiquer (`mistral-large-latest` par défaut pour Mistral). |
 | Ollama | Aucune (adresse locale) | Le modèle doit savoir appeler des outils. |
-| Compatible OpenAI | Adresse et, au besoin, clé | vLLM, LM Studio, passerelles… |
+| Compatible OpenAI | Adresse et, au besoin, clé | vLLM, LM Studio, passerelles…, ou Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`) et DeepSeek (`https://api.deepseek.com`), dont les tarifs publics sont connus. |
 | **Abonnement Claude (Claude Code)** | Connexion du CLI sur le serveur | Réservé au super-admin. Voir plus bas. |
 | **Abonnement ChatGPT (Codex)** | Connexion du CLI sur le serveur | Réservé au super-admin. Voir plus bas. |
 
@@ -428,15 +428,39 @@ Page de l'organisation → **Intelligence artificielle**, rubrique « Coût et b
 `PUT …/organizations/{org}/ai` avec `price_input`, `price_output`, `monthly_budget`).
 
 - **Tarif** : en € par million de jetons, entrée et sortie. Vide : Synaptane applique le tarif
-  public du modèle quand il le connaît (modèles Claude), en dollars compté en euros ; le coût
-  affiché est donc une estimation. Sans tarif ni modèle connu, aucun coût n'est calculé. Les
-  tarifs saisis valent pour tous les modèles de l'organisation, y compris ceux choisis par
-  ses espaces.
-- L'entrée relue depuis le cache du fournisseur compte pour un dixième du tarif d'entrée
-  (un vingtième pour `claude-opus-5-5`, un quarantième pour `claude-fable-5-1`), l'entrée
-  écrite en cache pour 1,25 fois le tarif d'entrée (tarif d'Anthropic pour le cache de
-  5 minutes, le seul que Synaptane demande). Avec Anthropic, Synaptane active le cache :
-  chaque tour relit le précédent à moindre coût.
+  public du modèle quand il le connaît, en dollars compté en euros ; le coût affiché est donc
+  une estimation. Sans tarif ni modèle connu, aucun coût n'est calculé. Les tarifs saisis
+  valent pour tous les modèles de l'organisation, y compris ceux choisis par ses espaces. La
+  page affiche le tarif public appliqué au modèle de l'organisation.
+- **Tarifs publics connus** : les principaux modèles d'Anthropic (Claude), d'OpenAI, de Google
+  Gemini, de Mistral et de DeepSeek, au tarif standard à l'usage de l'API du fournisseur (sans
+  supplément batch, prioritaire ou régional, sans gratuité). Ils sont cherchés parmi les
+  modèles du fournisseur : modèles Anthropic avec le fournisseur Anthropic, OpenAI avec
+  OpenAI, Mistral avec Mistral ; derrière une API compatible OpenAI (Gemini, DeepSeek,
+  OpenRouter, LiteLLM…), dans toutes les tables. Ollama n'a pas de tarif public. Le nom du
+  modèle est reconnu avec un préfixe de routeur (`openai/gpt-5`, `models/gemini-2.5-pro`),
+  en version datée (`gpt-5-2025-08-07`, `claude-haiku-4-5-20251001`) ou avec les points
+  d'OpenRouter (`anthropic/claude-sonnet-5.5`) ; tout autre modèle est inconnu, même si son
+  nom commence comme celui d'un modèle connu (`gpt-5-pro` ne prend pas le tarif de `gpt-5`).
+  Une passerelle qui facture son propre tarif (Azure, frais d'OpenRouter) : saisissez-le.
+- **Cache**, tel que chaque fournisseur le facture : l'entrée relue depuis le cache compte au
+  tarif d'entrée en cache du modèle (le plus souvent un dixième du tarif d'entrée ; un
+  vingtième pour `claude-opus-5-5` et `claude-sonnet-5-5`, un quarantième pour
+  `claude-fable-5-1`). L'entrée écrite en cache coûte 1,25 fois le tarif d'entrée chez
+  Anthropic (cache de 5 minutes, le seul que Synaptane demande) et pour les modèles GPT-5.6 et
+  suivants d'OpenAI (30 minutes par défaut), sans supplément ailleurs. Avec Anthropic,
+  Synaptane active le cache : chaque tour relit le précédent à moindre coût ; avec les autres
+  fournisseurs, Synaptane compte les lectures et écritures en cache qu'ils indiquent. Avec un
+  tarif saisi, les parts de cache du tarif public du modèle s'y appliquent.
+- **Prompts longs** : certains modèles coûtent plus cher pour une requête dont le prompt est
+  long (cache compris) : les modèles d'OpenAI à partir de GPT-5.4 (hors mini et nano) au-delà
+  de 272 000 jetons, Gemini Pro au-delà de 200 000, `claude-haiku-5-5` au-delà de 100 000.
+  Synaptane compte ces requêtes une à une au tarif le plus élevé.
+- **Changements de tarif** annoncés par le fournisseur : appliqués à leur date (par exemple
+  Gemini 4 Argon le 1er décembre 2026). Un tarif promotionnel dont la fin est annoncée sans le
+  tarif suivant cesse d'être connu à cette date (`gpt-5.6-sol`, 1er décembre 2026) : voir
+  plus bas. DeepSeek est compté à son tarif des heures pleines (un passage en heures creuses
+  coûte moitié moins).
 - **Abonnements** (Claude Code, Codex) : pas de coût à l'usage, ni de budget à fixer.
 - **Budget mensuel** (facultatif) : somme des coûts estimés du mois (UTC) dans tous les
   espaces de l'organisation : passages de rangement, passages de routines et indexation
@@ -450,16 +474,19 @@ Page de l'organisation → **Intelligence artificielle**, rubrique « Coût et b
   configuration, et tant qu'aucun budget n'est fixé, la page IA affiche un avertissement : la
   dépense n'a pas de limite. Ni les abonnements, ni Ollama, ni une API compatible sans clé ne
   sont concernés.
-- **Un budget exige un tarif connu** pour le modèle de l'organisation **et** pour celui
-  choisi par chaque espace (tarif public pour les modèles Claude, ou tarifs saisis par
-  l'admin). Sinon le budget est refusé, et une fois un budget fixé, un espace ne peut pas
-  choisir un modèle sans tarif connu. Si un modèle perd son tarif plus tard (par exemple après
-  une mise à jour), chaque passage avec ce modèle est compté au tarif public le plus élevé
-  connu, jamais zéro, et le journal du passage le signale.
+- **Un budget exige un tarif connu** pour le modèle de l'organisation **et** pour celui choisi
+  par chaque espace (tarif public connu, ou tarifs saisis par l'admin). Sinon le budget est
+  refusé, et une fois un budget fixé, un espace ne peut pas choisir un modèle sans tarif connu.
+  Si un modèle perd son tarif plus tard (par exemple après une mise à jour), chaque passage avec
+  ce modèle est compté au tarif public le plus élevé connu (10 $ / 50 $ par million de jetons en
+  novembre 2026), jamais zéro, et le journal du passage le signale. Les modèles que Synaptane ne
+  peut pas utiliser (les modèles « pro » d'OpenAI, disponibles par l'API Responses seulement) ne
+  sont pas dans la table, pour ne pas relever ce tarif.
 - **L'indexation sémantique** compte dans la dépense du mois : jetons relevés chez le
   fournisseur, ou estimés par excès (un jeton pour trois caractères) quand il ne les indique
-  pas, aux tarifs publics des modèles d'OpenAI, Gemini, Mistral et Voyage AI (le plus élevé
-  d'entre eux pour un modèle inconnu). Ollama et les API compatibles OpenAI ne sont pas
+  pas, aux tarifs publics des modèles d'OpenAI, Gemini, Mistral et Voyage AI (pour un modèle
+  inconnu, le tarif le plus élevé de son fournisseur ; les jetons gratuits de Voyage AI ne
+  sont pas déduits). Ollama et les API compatibles OpenAI ne sont pas
   comptés, ni la vectorisation des requêtes de recherche. Le budget n'arrête pas
   l'indexation.
 - **Limites d'usage** : **Ranger maintenant** permet 5 passages manuels par personne et par

@@ -98,6 +98,9 @@ class Usage:
     turns: int = 0
     notes: list[str] = field(default_factory=list)
     quota: dict[str, Any] | None = None  # subscription: used share of the windows (ai.quota)
+    # Tokens of each turn (input, cache read, cache write, output): some prices depend on the
+    # size of each request's prompt (`pricing.cost`).
+    turn_tokens: list[tuple[int, int, int, int]] = field(default_factory=list, repr=False)
 
     def add(self, turn: Turn) -> None:
         self.input_tokens += turn.input_tokens
@@ -105,6 +108,9 @@ class Usage:
         self.cached_tokens += turn.cached_tokens
         self.cache_write_tokens += turn.cache_write_tokens
         self.turns += 1
+        self.turn_tokens.append(
+            (turn.input_tokens, turn.cached_tokens, turn.cache_write_tokens, turn.output_tokens)
+        )
 
     def merge(self, other: "Usage") -> None:
         self.input_tokens += other.input_tokens
@@ -112,6 +118,7 @@ class Usage:
         self.cached_tokens += other.cached_tokens
         self.cache_write_tokens += other.cache_write_tokens
         self.turns += other.turns
+        self.turn_tokens.extend(other.turn_tokens)
         self.notes.extend(other.notes)
         self.quota = quota.merge(self.quota, other.quota)
 
