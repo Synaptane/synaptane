@@ -90,6 +90,7 @@ def organization_journal_page(
         first_page=not before,
         instance_view=False,
         links=_links(f"{org_url(org)}/-/journal", filters, selection),
+        export_limit=EXPORT_LIMIT,
     )
 
 
@@ -127,6 +128,7 @@ def admin_journal_page(
         instance_view=True,
         orgs=organizations.list_organizations(page.db, actor),
         links=_links("/admin/journal", filters, selection),
+        export_limit=EXPORT_LIMIT,
     )
 
 
@@ -144,7 +146,7 @@ def admin_journal_export(
 def _csv_response(page: Page, selection: Selection, name: str) -> Response:
     day = datetime.now(UTC).date().isoformat()
     return Response(
-        to_csv(selection.entries, page.translate),
+        to_csv(selection.entries, page.translate, cut=bool(selection.older)),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}-{day}.csv"'},
     )
@@ -166,9 +168,18 @@ def _plain(label: Label, translate: Translate) -> str:
     return str(label.params["value"]) if label.template == "@{value}" else translate(label)
 
 
-def to_csv(entries: list[Entry], translate: Translate) -> str:
+# Thousands with a narrow no-break space, as elsewhere in the interface.
+EXPORT_LIMIT = f"{audit_log.EXPORT_LIMIT:,}".replace(",", "\u202f")
+CUT = Label(
+    "Export stopped at the {count} newest lines: narrow the period to get the older ones.",
+    count=EXPORT_LIMIT,
+)
+
+
+def to_csv(entries: list[Entry], translate: Translate, cut: bool = False) -> str:
     """One line per entry, in the reader's language; the action code as well, for scripts.
-    A leading BOM: spreadsheets then read the file as UTF-8."""
+    A leading BOM: spreadsheets then read the file as UTF-8. `cut`: more entries matched than
+    exported, said on a last line (without a code)."""
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow([translate(column) for column in COLUMNS])
@@ -191,4 +202,6 @@ def to_csv(entries: list[Entry], translate: Translate) -> str:
                 )
             ]
         )
+    if cut:
+        writer.writerow(["", "", translate(CUT), "", "", "", ""])
     return "﻿" + out.getvalue()

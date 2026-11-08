@@ -1831,7 +1831,6 @@
  "Existing account added by invitation": "Compte existant ajouté par invitation",
  "Export (CSV)": "Exporter (CSV)",
  "Filter the audit log": "Filtrer le journal",
- "From": "Du",
  "Git access removed": "Accès Git retiré",
  "Git access set": "Accès Git configuré",
  "Git webhook secret renewed": "Secret du webhook Git renouvelé",
@@ -1890,7 +1889,6 @@
  "Template: {value}": "Modèle : {value}",
  "Tidy-up rules changed": "Règles de rangement modifiées",
  "Tidy-up settings changed": "Réglages du rangement modifiés",
- "To": "Au",
  "Tokens and applications": "Jetons et applications",
  "Two-factor authentication reset": "Double authentification réinitialisée",
  "Two-factor authentication turned off": "Double authentification désactivée",
@@ -1902,5 +1900,11 @@
  "Who changed a role, a token, a setting or an account, and when, across the instance: the organizations' events and those of no organization (accounts, tokens, connected applications, single sign-on, email sending).": "Qui a changé un rôle, un jeton, un réglage ou un compte, et quand, sur toute l'instance : les événements des organisations et ceux qui ne relèvent d'aucune (comptes, jetons, applications connectées, connexion SSO, envoi d'e-mails).",
  "Who changed a role, an invitation, a setting of the organization or of one of its spaces, and when; and the alerts sent to its administrators. Pages and notes have their own history: the Activity of each space.": "Qui a changé un rôle, une invitation, un réglage de l'organisation ou de l'un de ses espaces, et quand ; et les alertes envoyées à ses administrateurs. Les pages et les notes ont leur propre historique : l'Activité de chaque espace.",
  "Without organization": "Sans organisation",
- "{level}% of the monthly budget ({spent} € of {budget} €)": "{level} % du budget mensuel ({spent} € sur {budget} €)"
+ "{level}% of the monthly budget ({spent} € of {budget} €)": "{level} % du budget mensuel ({spent} € sur {budget} €)",
+ "Assistant prompt changed": "Prompt d'assistant modifié",
+ "Text removed": "Texte supprimé",
+ "From (UTC)": "Du (UTC)",
+ "To (UTC)": "Au (UTC)",
+ "Export stopped at the {count} newest lines: narrow the period to get the older ones.": "Export arrêté aux {count} lignes les plus récentes : resserrez la période pour obtenir les plus anciennes.",
+ "The export holds the newest {count} lines of the selection at most.": "L'export contient au plus les {count} lignes les plus récentes de la sélection."
 }

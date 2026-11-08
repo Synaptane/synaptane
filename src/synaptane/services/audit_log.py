@@ -119,6 +119,12 @@ def _budget_alert(details: Details) -> list[Label]:
     ]
 
 
+def _prompt(details: Details) -> list[Label]:
+    """A team prompt's name, from its file (`.synaptane/prompts/<name>.md`)."""
+    name = _text(details, "file").rsplit("/", 1)[-1].removesuffix(".md")
+    return [Label("{value}", value=name)] if name else []
+
+
 def _template(names: Mapping[str, str]) -> Show:
     def show(details: Details) -> list[Label]:
         key = _text(details, "template")
@@ -155,6 +161,7 @@ FIELDS = {
     "webhook": Field(_host, subject=True),
     "slug": Field(_value("slug"), subject=True),  # of a deleted space or organization
     "mail_host": Field(_value("host"), subject=True),
+    "prompt": Field(_prompt, subject=True),
     # Details
     "role": Field(_choice("role", ROLES)),
     "provider": Field(_value("provider", "Provider: {value}")),
@@ -178,6 +185,7 @@ FIELDS = {
     "error": Field(_value("error")),
     "reason": Field(_value("reason")),
     "status": Field(_value("status")),
+    "removed": Field(_flag("removed", Label("Text removed"))),
 }
 
 # Author of an event without an account (`actor_id` empty).
@@ -242,9 +250,12 @@ ACTIONS: dict[str, Kind] = {
     "space.tidy_settings": Kind("settings", Label("Tidy-up settings changed"), ("changed",)),
     "space.embeddings": Kind("settings", Label("Semantic search of the space"), ("enabled",)),
     "space.vocation_updated": Kind(
-        "settings", Label("Space purpose changed"), ("vocation_template",)
+        "settings", Label("Space purpose changed"), ("vocation_template", "removed")
     ),
-    "space.tidy_rules_updated": Kind("settings", Label("Tidy-up rules changed")),
+    "space.tidy_rules_updated": Kind("settings", Label("Tidy-up rules changed"), ("removed",)),
+    "space.prompt_updated": Kind(
+        "settings", Label("Assistant prompt changed"), ("prompt", "removed")
+    ),
     "routine.created": Kind("settings", Label("Routine created"), ("routine", "routine_template")),
     "routine.updated": Kind("settings", Label("Routine changed"), ("routine",)),
     "routine.deleted": Kind("settings", Label("Routine deleted"), ("routine",)),
@@ -300,7 +311,9 @@ ACTIONS: dict[str, Kind] = {
 }
 
 # Written to `audit_events`, but not part of the audit log: content and daily operations,
-# personal preferences, costs. Each action written is either here or in ACTIONS (see the tests).
+# personal preferences, costs. `tests/unit/test_audit_log.py` finds every action the code
+# writes (literal, constant, or given to `vocation.Kind`, `content._after_write`…) and fails
+# when one is neither here nor in ACTIONS.
 NOISE = frozenset(
     {
         "content.written",

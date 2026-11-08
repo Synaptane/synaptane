@@ -34,8 +34,8 @@ of the target version.
   read its log in its **Audit log** tab: members and roles, invitations, settings of the
   organization and of its spaces, alerts. Super admins read the whole instance in
   **Administration > Audit log**, accounts, personal tokens, connected applications, single
-  sign-on and email sending included. Filters by type and period, 50 lines per page, CSV export
-  of the selection. Each line shows only the known details of its action, never a key, a token
+  sign-on and email sending included. Filters by type and period (UTC days), 50 lines per page, CSV
+  export of the selection (its 10,000 newest lines, said in the file when it stops there). Each line shows only the known details of its action, never a key, a token
   or a password, and of a webhook only its host. One migration (`0030`) replaces the index of
   the audit events on the organization with one on the organization and the date, applied at
   startup.
@@ -58,7 +58,8 @@ of the target version.
   re-enabling an account, are now events of their own; a profile change says which fields
   changed. The AI and semantic search settings say whether the API key was replaced or removed
   and whether the monthly budget changed; a space's and its tidy-up's settings say which fields
-  changed; an invitation keeps its role; a connected application and a personal token, their
+  changed; a space's purpose, tidy-up rules and assistant prompts say which file and whether it
+  was removed; an invitation keeps its role; a connected application and a personal token, their
   name and restrictions. The keys themselves are never recorded.
 
 ## [1.11.0] - 2026-11-06

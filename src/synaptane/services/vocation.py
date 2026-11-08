@@ -381,6 +381,8 @@ def save(
             actor,
             kind.action,
             space=space,
+            file=kind.path,
+            removed=data is None,
             chars=len(clean),
             pending=repo is None,
             source=source,

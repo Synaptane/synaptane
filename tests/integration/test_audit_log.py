@@ -5,6 +5,7 @@ import csv
 import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -279,8 +280,8 @@ def test_settings_say_what_changed_without_the_key(db: Session, ctx: Workspace, 
 
     configure(api_key="sk-ant-" + SECRET)
     assert last("org.ai_configured") == {**sonnet, "key": "replaced", "budget": ""}
-    configure(monthly_budget=Decimal(20))
-    assert last("org.ai_configured") == {**sonnet, "key": "", "budget": "20"}
+    configure(monthly_budget=Decimal("12.5"))
+    assert last("org.ai_configured") == {**sonnet, "key": "", "budget": "12.5"}
     configure(api_key="")
     assert last("org.ai_configured") == {**sonnet, "key": "removed", "budget": "none"}
     semantic.configure(db, wiki.root, ctx.box, org, provider="openai", api_key=SECRET)
@@ -314,3 +315,101 @@ def test_service_refuses_other_people(db: Session, wiki: Wiki) -> None:
     assert audit_log.select_events(db, actor_of(db, admin), org, filters).entries
     with pytest.raises(SynaptaneError):
         audit_log.select_events(db, actor_of(db, admin), None, filters)
+
+
+def test_a_team_prompt_change_is_shown(client: TestClient, db: Session, wiki: Wiki) -> None:
+    """Changing what assistants are told is a setting: in the log, with the prompt's name."""
+    login(client, "root")
+    token = csrf(client, "/o/acme/infra/-/prompts")
+    response = client.post(
+        "/o/acme/infra/-/prompts",
+        data={"csrf": token, "name": "revue", "text": "Résume les décisions de la semaine."},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    page = client.get("/o/acme/-/journal", params={"family": "settings"}).text
+    assert actions(page)[0] == "space.prompt_updated"
+    assert "Prompt d&#39;assistant modifié" in page and "acme/infra</a> · revue" in page
+    assert "Résume les décisions" not in page  # the text itself is not shown
+
+
+def test_anonymous_gets_nothing(client: TestClient, wiki: Wiki) -> None:
+    for url in (
+        "/o/acme/-/journal",
+        "/o/acme/-/journal.csv",
+        "/admin/journal",
+        "/admin/journal.csv",
+    ):
+        response = client.get(url, follow_redirects=False)
+        assert response.status_code == 303, url
+        assert "token.created" not in response.text and "acme/infra" not in response.text
+
+
+def test_forged_parameters_keep_an_organization_to_itself(
+    client: TestClient, db: Session, wiki: Wiki
+) -> None:
+    beta(db, wiki)
+    acme_admin(db, wiki)
+    accounts.create_api_token(db, wiki.alice, "laptop")
+    db.commit()
+    login(client, "carol")
+    future = audit_log.cursor(
+        audit_log.describe(AuditEvent(id=uuid4(), at=datetime(2100, 1, 1, tzinfo=UTC)), None)
+    )
+    for params in (
+        {"org": "beta"},
+        {"org": "-"},
+        {"family": "security"},
+        {"family": "access"},
+        {"before": future},
+        {"family": "members' OR 1=1 --"},
+    ):
+        page = client.get("/o/acme/-/journal", params=params)
+        assert page.status_code == 200, params
+        shown = set(actions(page.text))
+        assert shown and not shown & {"token.created", "user.created"}, params
+        assert "beta/docs" not in page.text and ">Beta<" not in page.text, params
+        export = client.get("/o/acme/-/journal.csv", params=params).text
+        rows = list(csv.reader(io.StringIO(export.removeprefix("﻿"))))
+        assert all(row[4] in ("", "acme", "acme/infra", "acme/autre") for row in rows[1:])
+        assert not {row[3] for row in rows[1:]} & {"token.created", "user.created"}, params
+    client.cookies.clear()
+    login(client, "alice")  # a plain member: nothing, even with a forged parameter
+    assert client.get("/o/acme/-/journal.csv", params={"org": "-"}).status_code == 404
+    assert client.get("/admin/journal.csv").status_code == 403
+
+
+def test_free_texts_are_escaped_and_never_formulas(
+    client: TestClient, db: Session, wiki: Wiki
+) -> None:
+    evil = "<script>alert(1)</script>"
+    audit(db, wiki.alice, "oauth.approved", app=evil, read_only=True)
+    audit(db, wiki.alice, "oauth.denied", app='=HYPERLINK("http://x","y")')
+    audit(db, wiki.alice, "token.created", name="+cmd|' /C calc'!A0")
+    audit(db, None, "alert.sync_error", space=wiki.infra, error="@SUM(1+1)")
+    db.commit()
+    login(client, "root")
+    page = client.get("/admin/journal").text
+    assert evil not in page and "&lt;script&gt;" in page
+    export = client.get("/admin/journal.csv").text.removeprefix("﻿")
+    for row in list(csv.reader(io.StringIO(export)))[1:]:
+        assert all(value[:1] not in ("=", "+", "-", "@") for value in row), row
+
+
+def test_the_export_says_where_it_stops(
+    client: TestClient, db: Session, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    login(client, "root")
+    page = client.get("/o/acme/-/journal").text
+    assert "au plus les 10 000 lignes les plus récentes" in page
+    assert "Du (UTC)" in page and "Au (UTC)" in page
+
+    def rows() -> list[list[str]]:
+        text = client.get("/o/acme/-/journal.csv").text.removeprefix("﻿")
+        return list(csv.reader(io.StringIO(text)))
+
+    assert all(row[3] for row in rows()[1:])  # everything fits: no note
+    monkeypatch.setattr(audit_log, "EXPORT_LIMIT", 2)
+    found = rows()
+    assert len(found) == 1 + 2 + 1 and all(row[3] for row in found[1:3])
+    assert found[-1][3] == "" and found[-1][2].startswith("Export arrêté aux 10")

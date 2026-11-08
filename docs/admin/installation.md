@@ -491,7 +491,7 @@ happen; two pages read them, newest first, 50 per page (**Older** for the next o
 
 - **Audit log** tab of an organization (`/o/<organization>/-/journal`, its admins): its members
   and roles, invitations, settings (organization, AI, semantic search, webhooks, spaces, Git
-  access, tidy-up, purpose, routines) and the alerts sent to its admins. Nothing of another
+  access, tidy-up, purpose, assistant prompts, routines) and the alerts sent to its admins. Nothing of another
   organization.
 - **Administration > Audit log** (`/admin/journal`, super admins): the whole instance, with
   what belongs to no organization: accounts (creation, super admin rights, disabling,
@@ -504,7 +504,7 @@ alert), the action, what it is about (space, member, token…) and its useful de
 provider and model, "API key replaced". Never a secret: no key, no token, no password, and of
 a webhook only its host. Filter by type (members and roles, tokens and applications, settings,
 accounts and security, alerts) and by period (dates in UTC); **Export (CSV)** downloads the
-selection, 10,000 lines at most.
+selection, its 10,000 newest lines at most (a last line says when it stopped there).
 
 Page edits, inbox notes, tidy-up runs and AI costs are not in it: they have their own pages
 (**Activity** and **Tidy-up** of each space, **Artificial intelligence** of the organization).

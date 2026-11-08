@@ -507,7 +507,7 @@ la suite) :
 
 - onglet **Journal** d'une organisation (`/o/<organisation>/-/journal`, ses administrateurs) :
   ses membres et rôles, les invitations, les réglages (organisation, IA, recherche sémantique,
-  webhooks, espaces, accès Git, rangement, vocation, routines) et les alertes envoyées à ses
+  webhooks, espaces, accès Git, rangement, vocation, prompts d'assistant, routines) et les alertes envoyées à ses
   administrateurs. Rien d'une autre organisation ;
 - **Administration > Journal** (`/admin/journal`, super-administrateurs) : toute l'instance,
   avec ce qui ne relève d'aucune organisation : les comptes (création, droits de super-admin,
@@ -520,7 +520,8 @@ une alerte), l'action, ce qu'elle concerne (espace, membre, jeton…) et ses dé
 fournisseur et modèle, « Clé d'API remplacée ». Jamais de secret : aucune clé, aucun jeton, aucun
 mot de passe, et d'un webhook seulement son hôte. Filtrez par type (membres et rôles, jetons et
 applications, paramètres, comptes et sécurité, alertes) et par période (dates en UTC) ;
-**Exporter (CSV)** télécharge la sélection, 10 000 lignes au plus.
+**Exporter (CSV)** télécharge la sélection, ses 10 000 lignes les plus récentes au plus (une
+dernière ligne le dit quand il s'est arrêté là).
 
 Les modifications de pages, les notes de l'inbox, les passages du rangement et les coûts d'IA
 n'y sont pas : ils ont leurs propres pages (**Activité** et **Rangement** de chaque espace,

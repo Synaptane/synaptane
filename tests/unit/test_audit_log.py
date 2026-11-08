@@ -5,10 +5,9 @@ import ast
 import csv
 import io
 from datetime import UTC, date, datetime
-from pathlib import Path
 from uuid import uuid4
 
-from synaptane.services import alerts, audit_log, budget, freshness, reports, vocation
+from synaptane.services import alerts, audit_log, reports
 from synaptane.services.audit_log import ACTIONS, FAMILIES, FIELDS, NOISE, Entry
 from synaptane.storage.models import AuditEvent, User
 from synaptane.web.audit_pages import cell, to_csv
@@ -18,44 +17,153 @@ from tests.unit.test_i18n import CATALOG, SOURCE, worded
 SECRET = "syn_not-to-be-seen-0123456789"
 
 
-def written_actions() -> set[str]:
-    """Actions the code writes to `audit_events`: literal ones (`audit(…, "x.y")`,
-    `AuditEvent(action="x.y")`), and those it builds or keeps in constants."""
+# Calls whose argument becomes an action written elsewhere: (function, position, keyword).
+CARRIERS = {
+    ("vocation", "Kind"): (4, "action"),  # `vocation.save` writes `kind.action`
+    ("", "_after_write"): (3, "action"),  # content: `audit(…, action, …)`
+}
+# Writers whose action is not written out: the file, and the actions it can write. A new one
+# fails the test until it is listed here.
+INDIRECT = {
+    "services/__init__.py": set(),  # `audit` itself, which every writer above goes through
+    "services/vocation.py": set(),  # `kind.action`: the `vocation.Kind` carried above
+    "services/content.py": set(),  # `action`: given to `_after_write`, carried above
+    "services/alerts.py": {f"alert.{kind}" for kind in (*alerts.KINDS, *alerts.ORG_KINDS)},
+    "services/reports.py": {
+        f"page.report_{r}" for r in (reports.VERIFIED, reports.DISMISSED, reports.WITHDRAWN)
+    },
+}
+
+
+def _modules() -> dict[str, ast.Module]:
+    return {
+        str(path.relative_to(SOURCE)): ast.parse(path.read_text(encoding="utf-8"))
+        for path in SOURCE.rglob("*.py")
+    }
+
+
+def _constants(module: ast.Module) -> dict[str, str]:
+    """Module-level `NAME = "text"`."""
+    return {
+        target.id: node.value.value
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+
+def _names(node: ast.expr | None, local: dict[str, str], shared: dict[str, str]) -> set[str] | None:
+    """The texts an expression can be, or None if they cannot be read from the code."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.IfExp):  # `"a" if x else "b"`: both
+        body, orelse = _names(node.body, local, shared), _names(node.orelse, local, shared)
+        return body | orelse if body is not None and orelse is not None else None
+    if isinstance(node, ast.Name) and node.id in local:
+        return {local[node.id]}
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):  # module.NAME
+        return {shared[node.attr]} if node.attr in shared else None
+    return None
+
+
+def _argument(call: ast.Call, position: int, keyword: str) -> ast.expr | None:
+    if len(call.args) > position:
+        return call.args[position]
+    return next((k.value for k in call.keywords if k.arg == keyword), None)
+
+
+def _callee(call: ast.Call) -> tuple[str, str]:
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        owner = func.value.id if isinstance(func.value, ast.Name) else ""
+        return owner, func.attr
+    return "", func.id if isinstance(func, ast.Name) else ""
+
+
+def written_actions() -> tuple[set[str], set[str], list[str]]:
+    """Every action the code writes to `audit_events`: (actions, files whose writes are not
+    written out, carriers whose action cannot be read)."""
+    modules = _modules()
+    locals_ = {name: _constants(module) for name, module in modules.items()}
+    shared = {k: v for constants in locals_.values() for k, v in constants.items()}
     found: set[str] = set()
-    for path in SOURCE.rglob("*.py"):
-        for node in ast.walk(ast.parse(Path(path).read_text(encoding="utf-8"))):
+    indirect: set[str] = set()
+    unreadable: list[str] = []
+    for name, module in modules.items():
+        for node in ast.walk(module):
             if not isinstance(node, ast.Call):
                 continue
-            name = getattr(node.func, "id", getattr(node.func, "attr", ""))
-            argument: ast.expr | None
-            if name == "audit" and len(node.args) >= 3:
-                argument = node.args[2]
-            elif name == "AuditEvent":
-                argument = next((k.value for k in node.keywords if k.arg == "action"), None)
+            owner, function = _callee(node)
+            if function == "audit":
+                argument = _argument(node, 2, "action")
+            elif function == "AuditEvent":
+                argument = _argument(node, 99, "action")
+            elif (owner, function) in CARRIERS or (
+                function == "Kind" and name == "services/vocation.py"
+            ):
+                position, keyword = CARRIERS.get((owner, function), CARRIERS[("vocation", "Kind")])
+                carried = _names(_argument(node, position, keyword), locals_[name], shared)
+                if carried is None:
+                    unreadable.append(f"{name}:{node.lineno}")
+                else:
+                    found |= carried
+                continue
             else:
                 continue
-            # `"a" if x else "b"`: both.
-            choices = (
-                [argument.body, argument.orelse] if isinstance(argument, ast.IfExp) else [argument]
-            )
-            for choice in choices:
-                if isinstance(choice, ast.Constant) and isinstance(choice.value, str):
-                    found.add(choice.value)
-    found |= {f"alert.{kind}" for kind in (*alerts.KINDS, *alerts.ORG_KINDS)}
-    found |= {f"page.report_{r}" for r in (reports.VERIFIED, reports.DISMISSED, reports.WITHDRAWN)}
-    found |= {kind.action for kind in vocation.KINDS.values()}
-    found |= {budget.EMBEDDING_COST, freshness.REMINDER}
-    found |= {"content.written", "content.deleted", "content.moved"}  # `content._after_write`
-    return found
+            names = _names(argument, locals_[name], shared)
+            if names is None:
+                indirect.add(name)
+            else:
+                found |= names
+    for actions in INDIRECT.values():
+        found |= actions
+    return found, indirect, unreadable
 
 
 def test_every_action_written_is_shown_or_left_out_on_purpose() -> None:
-    """A new action must be given a line in the log (`ACTIONS`) or be declared noise."""
-    written = written_actions()
-    assert "org.member_set" in written and "user.superadmin_granted" in written
+    """A new action must be given a line in the log (`ACTIONS`) or be declared noise, however
+    it is written: literal, constant, `vocation.Kind`, `_after_write`…"""
+    written, indirect, unreadable = written_actions()
+    assert unreadable == []
+    assert sorted(indirect) == sorted(INDIRECT)  # a new indirect writer must be explained
+    for action in (
+        "org.member_set",  # literal
+        "user.superadmin_granted",  # `"a" if x else "b"`
+        "ai.embedding_cost",  # constant of the module
+        "freshness.reminder",  # `AuditEvent(action=CONSTANT)`
+        "space.vocation_updated",  # `Kind` of the module
+        "space.prompt_updated",  # `vocation.Kind` elsewhere
+        "content.moved",  # `_after_write`
+        "alert.sync_error",
+    ):
+        assert action in written, action
     assert sorted(written - set(ACTIONS) - NOISE) == []
     assert sorted(set(ACTIONS) & NOISE) == []
     assert sorted(NOISE - written) == []  # no stale exception
+
+
+def test_the_guard_reads_every_form() -> None:
+    """The forms `written_actions` understands, and the one it refuses."""
+    local, shared = {"COST": "a.cost"}, {"REMINDER": "a.reminder"}
+    code = ast.parse(
+        'f("x.y"); f("a" if c else "b"); f(COST); f(mod.REMINDER); f(other); f(f"alert.{k}")'
+    )
+    calls = [node for node in ast.walk(code) if isinstance(node, ast.Call) and node.args]
+    assert [_names(call.args[0], local, shared) for call in calls] == [
+        {"x.y"},
+        {"a", "b"},
+        {"a.cost"},
+        {"a.reminder"},
+        None,
+        None,
+    ]
+    keyword = ast.parse('vocation.Kind("k", "p", "c", "r", action="z.w")').body[0]
+    assert isinstance(keyword, ast.Expr) and isinstance(keyword.value, ast.Call)
+    assert _callee(keyword.value) == ("vocation", "Kind")
+    assert _names(_argument(keyword.value, 4, "action"), {}, {}) == {"z.w"}
 
 
 def test_actions_are_well_formed() -> None:

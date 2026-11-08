@@ -4,9 +4,10 @@
 <form class="card audit-filters" method="get" action="{{ links.base }}" aria-label="{{ _('Filter the audit log') }}">
   <div class="field"><label for="audit-family">{{ _("Type") }}</label><select id="audit-family" name="family"><option value="">{{ _("All") }}</option>{% for key in log.families %}<option value="{{ key }}"{% if filters.family == key %} selected{% endif %}>{{ _(families[key]) }}</option>{% endfor %}</select></div>
   {% if instance_view %}<div class="field"><label for="audit-org">{{ _("Organization") }}</label><select id="audit-org" name="org"><option value="">{{ _("All") }}</option><option value="-"{% if filters.org == "-" %} selected{% endif %}>{{ _("Without organization") }}</option>{% for o in orgs %}<option value="{{ o.slug }}"{% if filters.org == o.slug %} selected{% endif %}>{{ o.name }}</option>{% endfor %}</select></div>{% endif %}
-  <div class="field"><label for="audit-since">{{ _("From") }}</label><input id="audit-since" name="since" type="date" value="{{ filters.since.isoformat() if filters.since else '' }}"></div>
-  <div class="field"><label for="audit-until">{{ _("To") }}</label><input id="audit-until" name="until" type="date" value="{{ filters.until.isoformat() if filters.until else '' }}"></div>
+  <div class="field"><label for="audit-since">{{ _("From (UTC)") }}</label><input id="audit-since" name="since" type="date" value="{{ filters.since.isoformat() if filters.since else '' }}"></div>
+  <div class="field"><label for="audit-until">{{ _("To (UTC)") }}</label><input id="audit-until" name="until" type="date" value="{{ filters.until.isoformat() if filters.until else '' }}"></div>
   <div class="actions"><button class="button button-primary" type="submit">{{ _("Filter") }}</button><a class="button" href="{{ links.export_url }}" download>{{ _("Export (CSV)") }}</a></div>
+  <p class="muted audit-export-note">{{ _("The export holds the newest {count} lines of the selection at most.", count=export_limit) }}</p>
 </form>
 {% if log.entries %}
 <ol class="card admin-table-card audit-list section-gap-small" data-test="audit-log">
