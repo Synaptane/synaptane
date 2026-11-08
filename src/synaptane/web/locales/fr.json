@@ -1910,5 +1910,13 @@
  "Not restricted": "Non restreint",
  "Space restriction changed": "Restriction de l'espace modifiée",
  "Input read from the cache: ${price} per million tokens.": "Entrée relue depuis le cache : {price} $ par million de jetons.",
- "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $."
+ "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $.",
+ "Editor view": "Affichage de l'éditeur",
+ "Write": "Écrire",
+ "Side by side": "Côte à côte",
+ "The preview could not be loaded: try again.": "L'aperçu n'a pas pu être chargé : réessayez.",
+ "This text is too long to preview: save it, then read the page.": "Ce texte est trop long pour l'aperçu : enregistrez-le, puis lisez la page.",
+ "Your session has expired: sign in again in another tab, your text is kept.": "Votre session a expiré : reconnectez-vous dans un autre onglet, votre texte est conservé.",
+ "A preview is already being prepared for your account: it will follow.": "Un aperçu est déjà en préparation pour votre compte : il suivra.",
+ "Only Markdown pages have a preview.": "Seules les pages Markdown ont un aperçu."
 }
