@@ -104,7 +104,14 @@ def invite(
         if not existing.is_active:
             raise conflict("This account is disabled: a super admin must reactivate it.")
         _apply(session, actor, org, existing, org_role, space_roles)
-        audit(session, actor, "org.member_invited", org_id=org.id, username=existing.username)
+        audit(
+            session,
+            actor,
+            "org.member_invited",
+            org_id=org.id,
+            username=existing.username,
+            role=org_role,
+        )
         return Created(None, None, existing)
     # A single pending invitation per address and organization: re-inviting renews it.
     for previous in session.scalars(
@@ -127,7 +134,7 @@ def invite(
     )
     session.add(invitation)
     session.flush()
-    audit(session, actor, "org.invitation_created", org_id=org.id, email=email)
+    audit(session, actor, "org.invitation_created", org_id=org.id, email=email, role=org_role)
     return Created(invitation, token, None)
 
 

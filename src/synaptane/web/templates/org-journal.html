@@ -1,0 +1,5 @@
+{% extends "org-base.html" %}
+{% block section %}
+<p class="muted admin-intro">{{ _("Who changed a role, an invitation, a setting of the organization or of one of its spaces, and when; and the alerts sent to its administrators. Pages and notes have their own history: the Activity of each space.") }}</p>
+{% include "audit-log.html" %}
+{% endblock %}

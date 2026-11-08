@@ -174,12 +174,26 @@ def configure(
         row.tested_at, row.test_ok, row.test_message = None, None, ""  # to test again
     row.provider, row.model, row.base_url, row.effort = provider, model, base_url, effort
     row.price_input, row.price_output = price_input, price_output
+    # The audit log says what changed, never the key itself.
+    budget_change = ""
     if row.monthly_budget != monthly_budget:
         row.budget_alert = ""  # new budget: thresholds will be reported again
+        budget_change = str(monthly_budget) if monthly_budget is not None else "none"
     row.monthly_budget = monthly_budget
+    key_change = ""
     if api_key is not None:
         put_org_secret(session, box, org.id, AI_KEY, api_key.strip(), actor.user.id)
-    audit(session, actor, "org.ai_configured", org_id=org.id, provider=provider, model=model)
+        key_change = "replaced" if api_key.strip() else "removed"
+    audit(
+        session,
+        actor,
+        "org.ai_configured",
+        org_id=org.id,
+        provider=provider,
+        model=model,
+        key=key_change,
+        budget=budget_change,
+    )
     session.flush()
     result = view(session, actor, box, org)
     assert result is not None

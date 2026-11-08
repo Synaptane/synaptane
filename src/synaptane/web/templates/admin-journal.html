@@ -1,0 +1,5 @@
+{% extends "admin-base.html" %}
+{% block section %}
+<p class="muted admin-intro">{{ _("Who changed a role, a token, a setting or an account, and when, across the instance: the organizations' events and those of no organization (accounts, tokens, connected applications, single sign-on, email sending).") }}</p>
+{% include "audit-log.html" %}
+{% endblock %}

@@ -593,11 +593,13 @@ class AuditEvent(Base):
     at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     actor_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(64))
-    org_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("organizations.id", ondelete="SET NULL"), index=True
-    )
+    org_id: Mapped[UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"))
     space_id: Mapped[UUID | None] = mapped_column(ForeignKey("spaces.id", ondelete="SET NULL"))
     details: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+
+    # An organization's audit log, newest first (`services.audit_log`); also serves the
+    # queries on `org_id` alone.
+    __table_args__ = (Index("ix_audit_events_org_id_at", "org_id", "at"),)
 
 
 class MailSettings(Base):

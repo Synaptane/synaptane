@@ -68,6 +68,8 @@ def consent_decision(
     except SynaptaneError as error:
         # Incomplete choice: stay on the consent page, the request is not lost.
         return _consent(page, request, status_code=400, limits_error=error)
+    pending = oauth.pending_request(page.database, request)
+    app = (pending[0].client_name or pending[0].client_id) if pending else ""
     target = oauth.decide(
         page.db,
         request,
@@ -80,13 +82,25 @@ def consent_decision(
         raise not_found(
             "Authorization request expired: start the connection again from your application."
         )
-    audit(page.db, actor, "oauth.approved" if approved else "oauth.denied")
+    if approved:
+        audit(
+            page.db,
+            actor,
+            "oauth.approved",
+            app=app,
+            read_only=chosen.read_only,
+            inbox_only=chosen.inbox_only,
+            scoped=space_ids is not None,
+        )
+    else:
+        audit(page.db, actor, "oauth.denied", app=app)
     return RedirectResponse(target, status_code=303)
 
 
 @router.post("/account/apps/{family}/revoke")
 def revoke_app(page: WebPage, family: UUID, csrf: Csrf) -> Response:
     actor = page.check_csrf(csrf)
+    names = {f: name for f, name, _ in oauth.connected_apps(page.db, actor.user.id)}
     oauth.revoke_user_family(page.db, actor.user.id, family)
-    audit(page.db, actor, "oauth.revoked")
+    audit(page.db, actor, "oauth.revoked", app=names.get(family, ""))
     return redirect("/account/assistants", page, "Application disconnected.")

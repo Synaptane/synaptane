@@ -484,6 +484,34 @@ groups:
         expr: time() - synaptane_backup_last_timestamp_seconds > 2 * 86400
 ```
 
+## Audit log
+
+Who changed a role, a token or a setting, and when. Synaptane records these changes as they
+happen; two pages read them, newest first, 50 per page (**Older** for the next ones):
+
+- **Audit log** tab of an organization (`/o/<organization>/-/journal`, its admins): its members
+  and roles, invitations, settings (organization, AI, semantic search, webhooks, spaces, Git
+  access, tidy-up, purpose, routines) and the alerts sent to its admins. Nothing of another
+  organization.
+- **Administration > Audit log** (`/admin/journal`, super admins): the whole instance, with
+  what belongs to no organization: accounts (creation, super admin rights, disabling,
+  password, two-factor authentication, sessions), personal tokens, connected applications,
+  single sign-on and email sending. An organization filter keeps one of them, or what belongs
+  to none.
+
+Each line gives the date, the author (**System** for what Synaptane does by itself, such as an
+alert), the action, what it is about (space, member, token…) and its useful details: role,
+provider and model, "API key replaced". Never a secret: no key, no token, no password, and of
+a webhook only its host. Filter by type (members and roles, tokens and applications, settings,
+accounts and security, alerts) and by period (dates in UTC); **Export (CSV)** downloads the
+selection, 10,000 lines at most.
+
+Page edits, inbox notes, tidy-up runs and AI costs are not in it: they have their own pages
+(**Activity** and **Tidy-up** of each space, **Artificial intelligence** of the organization).
+The events of a deleted space stay in its organization's log, without its name. Changes recorded
+before this page existed are there too, with fewer details (who became super admin, which key
+changed).
+
 ## Roles
 
 | Role | Scope | Can |

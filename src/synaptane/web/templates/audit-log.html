@@ -1,0 +1,40 @@
+{# The audit log, filters and lines: an organization's (org-journal.html) or the instance's
+   (admin-journal.html, `instance_view`: the organization filter, and the organization of each line). #}
+{% from "ui.html" import when with context %}
+<form class="card audit-filters" method="get" action="{{ links.base }}" aria-label="{{ _('Filter the audit log') }}">
+  <div class="field"><label for="audit-family">{{ _("Type") }}</label><select id="audit-family" name="family"><option value="">{{ _("All") }}</option>{% for key in log.families %}<option value="{{ key }}"{% if filters.family == key %} selected{% endif %}>{{ _(families[key]) }}</option>{% endfor %}</select></div>
+  {% if instance_view %}<div class="field"><label for="audit-org">{{ _("Organization") }}</label><select id="audit-org" name="org"><option value="">{{ _("All") }}</option><option value="-"{% if filters.org == "-" %} selected{% endif %}>{{ _("Without organization") }}</option>{% for o in orgs %}<option value="{{ o.slug }}"{% if filters.org == o.slug %} selected{% endif %}>{{ o.name }}</option>{% endfor %}</select></div>{% endif %}
+  <div class="field"><label for="audit-since">{{ _("From") }}</label><input id="audit-since" name="since" type="date" value="{{ filters.since.isoformat() if filters.since else '' }}"></div>
+  <div class="field"><label for="audit-until">{{ _("To") }}</label><input id="audit-until" name="until" type="date" value="{{ filters.until.isoformat() if filters.until else '' }}"></div>
+  <div class="actions"><button class="button button-primary" type="submit">{{ _("Filter") }}</button><a class="button" href="{{ links.export_url }}" download>{{ _("Export (CSV)") }}</a></div>
+</form>
+{% if log.entries %}
+<ol class="card admin-table-card audit-list section-gap-small" data-test="audit-log">
+  {% for entry in log.entries %}
+  <li class="audit-entry" data-action="{{ entry.action }}">
+    <div class="audit-entry-main">
+      <span class="admin-row-title">{{ _(entry.title) }}</span>
+      {% set place = entry.space or (entry.organization if instance_view else none) %}
+      {% if place or entry.subject %}<span class="admin-row-meta audit-target">
+        {%- if entry.space %}<a href="/o/{{ entry.space.organization.slug }}/{{ entry.space.slug }}">{{ entry.space.address }}</a>
+        {%- elif place %}<a href="/o/{{ place.slug }}">{{ place.name }}</a>{% endif %}
+        {%- for subject in entry.subject %}{% if place or not loop.first %} · {% endif %}{{ _(subject) }}{% endfor -%}
+      </span>{% endif %}
+      {% if entry.details %}<span class="admin-row-meta audit-details">{% for detail in entry.details %}{% if not loop.first %} · {% endif %}{{ _(detail) }}{% endfor %}</span>{% endif %}
+    </div>
+    <div class="audit-entry-side">
+      {{ when(entry.at) }}
+      <span class="audit-author">{% if entry.author %}{{ entry.author.display_name }} <span class="muted">@{{ entry.author.username }}</span>{% else %}<span class="muted">{{ _(entry.author_label) }}</span>{% endif %}</span>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="empty section-gap-small">{{ _("No event in this selection.") if not first_page or filters.family or filters.since or filters.until or filters.org else _("No event yet.") }}</p>
+{% endif %}
+{% if links.older_url or not first_page %}
+<nav class="actions section-gap-small" aria-label="{{ _('Audit log pages') }}">
+  {% if not first_page %}<a class="button" href="{{ links.newest_url }}">{{ _("Newest") }}</a>{% endif %}
+  {% if links.older_url %}<a class="button" href="{{ links.older_url }}">{{ _("Older") }}</a>{% endif %}
+</nav>
+{% endif %}
