@@ -20,6 +20,32 @@ class SpaceRole(StrEnum):
     CONTRIBUTOR = "contributor"
 
 
+# An organization's default role in its spaces (`Organization.default_space_role`): what each
+# of its members has on every space without being added to it, restricted spaces excepted.
+NO_DEFAULT_ROLE = "none"
+DEFAULT_ROLES = (NO_DEFAULT_ROLE, SpaceRole.READER.value, SpaceRole.CONTRIBUTOR.value)
+
+_RANK = {SpaceRole.READER: 1, SpaceRole.CONTRIBUTOR: 2}
+
+
+def higher_role(first: SpaceRole | None, second: SpaceRole | None) -> SpaceRole | None:
+    """The higher of two space roles (None: no access)."""
+    if first is None or second is None:
+        return first or second
+    return first if _RANK[first] >= _RANK[second] else second
+
+
+def effective_role(
+    explicit: SpaceRole | None, org_default: str, restricted: bool
+) -> SpaceRole | None:
+    """Role of an organization member on one of its spaces: the higher of the role they were
+    given in the space and the organization's default role, which a restricted space ignores.
+    (An organization admin contributes everywhere: see `can`.)"""
+    if restricted or org_default == NO_DEFAULT_ROLE:
+        return explicit
+    return higher_role(explicit, SpaceRole(org_default))
+
+
 class Action(StrEnum):
     # Instance
     MANAGE_INSTANCE = "manage_instance"  # accounts, organizations, organization admins
@@ -39,6 +65,7 @@ class Access:
     user_id: UUID
     is_superadmin: bool = False
     org_roles: dict[UUID, OrgRole] = field(default_factory=dict)
+    # Effective roles: given in the space, or the organization's default role (`load_actor`).
     space_roles: dict[UUID, SpaceRole] = field(default_factory=dict)
     inbox_only: bool = False  # connection limited to the inbox: a contributor drops notes only
 

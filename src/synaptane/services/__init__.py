@@ -9,8 +9,15 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synaptane.core.access import Access, Limits, OrgRole, SpaceRole
-from synaptane.storage.models import AuditEvent, OrgMember, Space, SpaceMember, User
+from synaptane.core.access import (
+    NO_DEFAULT_ROLE,
+    Access,
+    Limits,
+    OrgRole,
+    SpaceRole,
+    effective_role,
+)
+from synaptane.storage.models import AuditEvent, Organization, OrgMember, Space, SpaceMember, User
 
 
 @dataclass(frozen=True)
@@ -28,10 +35,14 @@ def load_actor(session: Session, user: User, via: str = "", limits: Limits | Non
         m.org_id: OrgRole(m.role)
         for m in session.scalars(select(OrgMember).where(OrgMember.user_id == user.id))
     }
-    space_roles = {
-        m.space_id: SpaceRole(m.role)
-        for m in session.scalars(select(SpaceMember).where(SpaceMember.user_id == user.id))
-    }
+    space_roles = _with_default_roles(
+        session,
+        org_roles,
+        {
+            m.space_id: SpaceRole(m.role)
+            for m in session.scalars(select(SpaceMember).where(SpaceMember.user_id == user.id))
+        },
+    )
     limits = limits or Limits()
     if limits.restricted:
         org_roles, space_roles = _narrow(session, org_roles, space_roles, limits)
@@ -43,6 +54,31 @@ def load_actor(session: Session, user: User, via: str = "", limits: Limits | Non
         inbox_only=limits.inbox_only,
     )
     return Actor(user=user, access=access, via=via, restricted=limits.restricted)
+
+
+def _with_default_roles(
+    session: Session, org_roles: dict[UUID, OrgRole], explicit: dict[UUID, SpaceRole]
+) -> dict[UUID, SpaceRole]:
+    """Effective space roles: those given in each space, raised to the default role of the
+    organizations the account belongs to, except in their restricted spaces. Computed before
+    a token's limits (`_narrow`), which then apply to these roles as to the others."""
+    roles = dict(explicit)
+    if not org_roles:
+        return roles
+    rows = session.execute(
+        select(Space.id, Space.restricted, Organization.default_space_role)
+        .join(Organization, Organization.id == Space.org_id)
+        .where(
+            Space.org_id.in_(org_roles),
+            Space.restricted.is_(False),
+            Organization.default_space_role != NO_DEFAULT_ROLE,
+        )
+    )
+    for space_id, restricted, default in rows:
+        role = effective_role(roles.get(space_id), default, restricted)
+        if role is not None:
+            roles[space_id] = role
+    return roles
 
 
 def _narrow(

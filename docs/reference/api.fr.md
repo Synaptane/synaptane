@@ -84,7 +84,7 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | `GET /me/tokens` | Jetons personnels : `id`, `name`, `hint` (4 derniers caractères), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
 | `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201) ; `days: null` : sans expiration. Renvoie le `token`, une seule fois |
 | `DELETE /me/tokens/{id}` | Révoque (204) |
-| `GET /spaces` | Tous les espaces visibles : `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` |
+| `GET /spaces` | Tous les espaces visibles : `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effectif : donné dans l'espace, rôle par défaut de l'organisation, ou admin), `restricted` |
 
 ## Comptes (super-admin)
 
@@ -98,10 +98,10 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
-| `GET /organizations` | membre | Organisations visibles : `slug`, `name`, `description`, `role` |
+| `GET /organizations` | membre | Organisations visibles : `slug`, `name`, `description`, `role`, `default_space_role` (`none`, `reader` ou `contributor` : rôle de chaque membre sur chaque espace sans y être ajouté, espaces restreints exceptés) |
 | `POST /organizations` | super-admin | `{"slug": …, "name": …, "description": …, "join": true}` (201) ; `join` : le créateur en devient admin |
 | `GET /organizations/{org}` | membre | Détail |
-| `PATCH /organizations/{org}` | admin | `name`, `description` |
+| `PATCH /organizations/{org}` | admin | `name`, `description`, `default_space_role` (`none`, `reader`, `contributor` ; 422 sinon) |
 | `DELETE /organizations/{org}` | super-admin | Supprime une organisation sans espace (204 ; 400 s'il en reste) |
 | `GET /organizations/{org}/members` | membre | `username`, `display_name`, `role` (`admin` ou `member`) |
 | `PUT /organizations/{org}/members/{username}` | admin | `{"role": "member"}` : ajoute ou change le rôle |
@@ -112,12 +112,12 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
 | `GET /organizations/{org}/spaces` | membre | Espaces visibles de l'organisation |
-| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main"}` (201) |
-| `GET …/spaces/{space}` | lecteur | Détail, avec le `role` de l'appelant et `review_every` (périodicité de vérification par défaut des pages, `""` : jamais) |
-| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""` ; 400 si illisible). Changer `repo_url` retire les identifiants Git |
+| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true` : fermé au rôle par défaut de l'organisation dès sa création |
+| `GET …/spaces/{space}` | lecteur | Détail, avec le `role` effectif de l'appelant, `review_every` (périodicité de vérification par défaut des pages, `""` : jamais) et `restricted` (le rôle par défaut de l'organisation ne s'applique pas) |
+| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""` ; 400 si illisible), `restricted` (`true` : seuls les membres ajoutés à l'espace, et les admins de l'organisation, y accèdent). Changer `repo_url` retire les identifiants Git |
 | `DELETE …/spaces/{space}` | admin | Supprime l'espace dans Synaptane ; le dépôt distant n'est pas touché (204) |
-| `GET …/spaces/{space}/members` | lecteur | `username`, `display_name`, `role` (`reader` ou `contributor`) |
-| `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}` |
+| `GET …/spaces/{space}/members` | lecteur | Membres ajoutés à l'espace : `username`, `display_name`, `role` (`reader` ou `contributor`, le rôle qui y est donné). Ceux qui n'y accèdent que par le rôle par défaut n'y figurent pas (`GET /organizations/{org}/members` les liste) |
+| `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}`. Un compte qui n'est pas membre de l'organisation le devient : avec un rôle par défaut (`default_space_role`), il reçoit alors aussi ce rôle sur chaque espace non restreint de l'organisation |
 | `DELETE …/spaces/{space}/members/{username}` | admin | Retire (204) |
 | `GET …/spaces/{space}/vocation` | lecteur | Vocation de l'espace (`.synaptane/vocation.md`) : `path`, `text` (`""` si elle n'existe pas), `sha`, `pending` (en attente de la première synchronisation), `history` (5 dernières modifications : `commit`, `author`, `date`, `subject`) |
 | `PUT …/spaces/{space}/vocation` | admin | `{"text": …, "base_sha": …, "allow_secrets": false}` : un commit au nom de l'appelant, puis une synchronisation. `text` : 20 000 caractères au plus, `""` retire le fichier. `base_sha` : empreinte lue avant modification (`""` : le fichier ne doit pas exister) ; 409 s'il a changé entre-temps. 422 si un secret probable est détecté. Renvoie `commit` (`null` si rien n'a changé) et `pending` : avant la première synchronisation, le texte est mis en attente et écrit par elle |

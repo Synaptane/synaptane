@@ -69,6 +69,7 @@ from synaptane.services import (
 )
 from synaptane.services import related as related_service
 from synaptane.services import search as search_service
+from synaptane.services import spaces as spaces_service
 from synaptane.services import verdicts as verdicts_service
 from synaptane.services.ai_settings import config_for
 from synaptane.services.content import content_path, kind_of, window
@@ -1331,7 +1332,8 @@ def _publish(
 
 def recipients(session: Session, space: Space, target: str) -> list[User]:
     """Recipients of a routine email: verified address, active account, "routine
-    summaries" preference ticked, and able to read the space."""
+    summaries" preference ticked, and able to read the space. "members": everyone who
+    accesses it, the organization's members included when its default role applies."""
     admins = select(OrgMember.user_id).where(
         OrgMember.org_id == space.org_id, OrgMember.role == OrgRole.ADMIN.value
     )
@@ -1339,6 +1341,9 @@ def recipients(session: Session, space: Space, target: str) -> list[User]:
     if target == "members":
         members = select(SpaceMember.user_id).where(SpaceMember.space_id == space.id)
         who = or_(who, User.id.in_(members))
+        if spaces_service.default_role(space) is not None:
+            org = select(OrgMember.user_id).where(OrgMember.org_id == space.org_id)
+            who = or_(who, User.id.in_(org))
     users = session.scalars(
         select(User)
         .where(

@@ -2,7 +2,8 @@
 {% from "ui.html" import csrf_field, action, when, reveal_notice with context %}
 {% block section %}
 <div class="content-narrow">
-<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members only access the spaces they are added to.") }}</p>
+{% if org.default_space_role == 'none' %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members only access the spaces they are added to.") }}</p>
+{% else %}<p class="muted">{{ _("Administrators manage the organization and access all its spaces. Members access every space that is not restricted as {role} (default role, in the settings), and the spaces they are added to with the role given there.", role=(_("Reader") if org.default_space_role == 'reader' else _("Contributor"))|lower) }}</p>{% endif %}
 {% set members_url = "/o/" ~ org.slug ~ "/-/members" %}
 {% set role_labels = [("member", _("Member")), ("admin", _("Administrator"))] %}
 {% set empty_text = _("No members.") %}
@@ -24,7 +25,13 @@
         {% for item in org_spaces %}
         <li>
           <label for="space-role-{{ item.id }}">{{ item.name }}</label>
-          <select class="select-compact" id="space-role-{{ item.id }}" name="space_role"><option value="">{{ _("No access") }}</option><option value="{{ item.id }}:reader">{{ _("Reader") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option></select>
+          {# The default role is a floor: only higher roles are offered. #}
+          {% set floor = org.default_space_role if not item.restricted else "none" %}
+          <select class="select-compact" id="space-role-{{ item.id }}" name="space_role">
+            {%- if floor == "contributor" %}<option value="">{{ _("Contributor (by default)") }}</option>
+            {%- elif floor == "reader" %}<option value="">{{ _("Reader (by default)") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option>
+            {%- else %}<option value="">{{ _("No access") }}</option><option value="{{ item.id }}:reader">{{ _("Reader") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option>{% endif -%}
+          </select>
         </li>
         {% endfor %}
       </ul>

@@ -199,6 +199,24 @@ def organization_update(
     return redirect(f"{org_url(org)}/-/settings", page, "Organization updated.")
 
 
+@router.post("/o/{org_slug}/-/default-role")
+def organization_default_role(
+    page: WebPage,
+    org_slug: str,
+    csrf: Csrf,
+    default_space_role: Annotated[str, Form()],
+) -> Response:
+    actor = page.check_csrf(csrf)
+    org = organizations.get_organization(page.db, actor, org_slug)
+    try:
+        organizations.update_organization(
+            page.db, actor, org, default_space_role=default_space_role
+        )
+    except SynaptaneError as error:
+        return failure(f"{org_url(org)}/-/settings", page, error)
+    return redirect(f"{org_url(org)}/-/settings", page, "Default role saved.")
+
+
 @router.post("/o/{org_slug}/-/delete")
 def organization_delete(
     page: WebPage, org_slug: str, csrf: Csrf, confirm: Annotated[str, Form()] = ""
@@ -224,6 +242,7 @@ def space_create(
     repo_url: Annotated[str, Form()] = "",
     branch: Annotated[str, Form()] = "main",
     vocation_template: Annotated[str, Form()] = "",
+    restricted: Annotated[bool, Form()] = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
@@ -238,6 +257,7 @@ def space_create(
             description=description,
             repo_url=repo_url,
             branch=branch,
+            restricted=restricted,
         )
         if chosen is not None:
             vocation.start_with(page.db, actor, page.workspace, space, chosen)

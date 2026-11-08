@@ -79,12 +79,22 @@ class User(Base):
 
 class Organization(Base):
     __tablename__ = "organizations"
+    __table_args__ = (
+        CheckConstraint(
+            "default_space_role IN ('none', 'reader', 'contributor')", name="default_space_role"
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Role of every member on every space of the organization without being added to it
+    # (`none`, `reader`, `contributor`), restricted spaces excepted (`core.access`).
+    default_space_role: Mapped[str] = mapped_column(
+        String(16), default="none", server_default="none"
+    )
 
     spaces: Mapped[list["Space"]] = relationship(back_populates="organization")
 
@@ -140,6 +150,9 @@ class Space(Base):
     # Default review period of pages (`6m`, `1y`…); empty: never due for review
     # (a page can carry its own, `review_every` in its front matter).
     review_every: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    # Restricted: the organization's default role does not apply, only the members added to
+    # the space (and the organization admins) access it.
+    restricted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     organization: Mapped[Organization] = relationship(back_populates="spaces")
 

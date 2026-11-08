@@ -1,12 +1,58 @@
 {% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field with context %}
 {% set section = "members" %}
 {% block section %}
 <div class="content-narrow">
 <p class="muted">{{ _("Readers read and search; contributors drop into the inbox and edit the wiki. Organization administrators access all its spaces.") }}</p>
+{% set role_names = {"reader": _("Reader"), "contributor": _("Contributor")} %}
+<section class="card" data-test="space-default-access">
+  <h2>{{ _("Access by default") }}</h2>
+  {% if space.restricted %}
+  <p><span class="badge badge-quiet">{{ _("Restricted") }}</span> {{ _("Only the members added below, and the organization administrators, access this space: the organization's default role does not apply here.") }}</p>
+  {% elif org_default %}
+  <p>{{ _("Every member of the organization accesses this space as {role}, without being added. A member added below keeps their role here if it is higher.", role=role_names[org_default]|lower) }}</p>
+  {% else %}
+  <p>{{ _("The organization gives no default role: only the members added below, and the organization administrators, access this space.") }}</p>
+  {% endif %}
+  {% if manage %}
+  <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/access" data-test="space-restricted">
+    {{ csrf_field() }}
+    <label class="checkbox"><input type="checkbox" name="restricted" value="true" {% if space.restricted %}checked{% endif %}>{{ _("Restricted space: ignore the organization's default role") }}</label>
+    <p class="muted">{{ _("For a space only some people should see (human resources, management). The default role is set in the organization's settings.") }}{% if default_setting == 'none' %} {{ _("The organization currently gives none.") }}{% endif %} <a href="/o/{{ org.slug }}/-/settings">{{ _("Organization settings") }}</a></p>
+    <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+  </form>
+  {% endif %}
+</section>
+
+<h2 class="section-gap">{{ _("Members added to the space") }}</h2>
 {% set members_url = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/members" %}
 {% set role_labels = [("reader", _("Reader")), ("contributor", _("Contributor"))] %}
 {% set empty_text = _("No direct member.") %}
-{% set add_help = "" %}
+{% if default_setting != "none" %}
+{% set add_help = _("Someone who is not a member of the organization yet becomes one, and then accesses every space of the organization that is not restricted as {role} (its default role).", role=role_names[default_setting]|lower) %}
+{% else %}{% set add_help = "" %}{% endif %}
+{% set remove_note = _("They keep access to this space as {role}, through the organization's default role.", role=role_names[org_default]|lower) if org_default else "" %}
 {% include "members-table.html" %}
+
+<section class="section-gap" data-test="through-org">
+  <h2>{{ _("Access through the organization") }}</h2>
+  <div class="card">
+    <div class="table-scroll">
+      <table class="table-stack">
+        <thead><tr><th>{{ _("Account") }}</th><th>{{ _("Access") }}</th></tr></thead>
+        <tbody>
+          {% for person, effective in through_org %}
+          <tr>
+            <td>{{ person.display_name }}<br><span class="muted">@{{ person.username }}</span></td>
+            <td>{% if effective == 'admin' %}{{ _("Organization administrator") }}{% else %}{{ _("{role}, by default", role=role_names[effective]) }}{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">{{ _("Nobody else.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
 </div>
 {% endblock %}

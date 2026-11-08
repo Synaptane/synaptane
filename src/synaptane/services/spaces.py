@@ -4,13 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synaptane.core import names
-from synaptane.core.access import Action, SpaceRole, can, require
+from synaptane.core.access import Action, OrgRole, SpaceRole, can, effective_role, require
 from synaptane.core.errors import conflict, invalid, not_found
 from synaptane.services import Actor, audit
 from synaptane.services.freshness import clean_period
 from synaptane.services.organizations import ensure_member
 from synaptane.services.secrets import delete_space_secret
-from synaptane.storage.models import Organization, Space, SpaceMember, User
+from synaptane.storage.models import Organization, OrgMember, Space, SpaceMember, User
 
 
 def _validate_repo_url(value: str | None) -> str | None:
@@ -75,7 +75,10 @@ def create_space(
     description: str = "",
     repo_url: str | None = None,
     branch: str = "main",
+    restricted: bool = False,
 ) -> Space:
+    """`restricted`: closed to the organization's default role from the start (human
+    resources, management)."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     slug = names.slug(slug)
     if session.scalar(select(Space).where(Space.org_id == org.id, Space.slug == slug)):
@@ -87,10 +90,13 @@ def create_space(
         description=description.strip(),
         repo_url=_validate_repo_url(repo_url),
         branch=_validate_branch(branch),
+        restricted=restricted,
     )
     session.add(space)
     session.flush()
     audit(session, actor, "space.created", space=space, slug=slug)
+    if restricted:
+        audit(session, actor, "space.restricted", space=space, restricted=True)
     return space
 
 
@@ -104,10 +110,15 @@ def update_space(
     repo_url: str | None = None,
     branch: str | None = None,
     review_every: str | None = None,
+    restricted: bool | None = None,
 ) -> Space:
     """Settings of a space (organization admin). `review_every`: default review period of
-    the pages (`6m`, `1y`…; "": never due for review)."""
+    the pages (`6m`, `1y`…; "": never due for review). `restricted`: the organization's
+    default role does not apply, only the members added to the space access it."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    if restricted is not None and restricted != space.restricted:
+        space.restricted = restricted
+        audit(session, actor, "space.restricted", space=space, restricted=restricted)
     if review_every is not None:
         space.review_every = clean_period(review_every)
     if name is not None:
@@ -128,7 +139,11 @@ def update_space(
         new_branch = _validate_branch(branch)
         if new_branch != space.branch:
             space.branch, space.remote_head, space.sync_status = new_branch, None, "never"
-    audit(session, actor, "space.updated", space=space)
+    if restricted is None or any(
+        value is not None for value in (name, description, repo_url, branch, review_every)
+    ):
+        # The restriction has its own event: changing only it is not a settings change.
+        audit(session, actor, "space.updated", space=space)
     return space
 
 
@@ -139,6 +154,8 @@ def delete_space(session: Session, actor: Actor, space: Space) -> None:
 
 
 def list_members(session: Session, actor: Actor, space: Space) -> list[tuple[User, SpaceRole]]:
+    """Members added to the space, with the role given there (see `list_access` for the
+    others who access it)."""
     require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
     rows = session.execute(
         select(User, SpaceMember.role)
@@ -149,15 +166,52 @@ def list_members(session: Session, actor: Actor, space: Space) -> list[tuple[Use
     return [(user, SpaceRole(role)) for user, role in rows]
 
 
-def set_member(session: Session, actor: Actor, space: Space, user: User, role: SpaceRole) -> None:
+def default_role(space: Space) -> SpaceRole | None:
+    """Role the members of the organization have on the space without being added to it."""
+    return effective_role(None, space.organization.default_space_role, space.restricted)
+
+
+def list_access(
+    session: Session, actor: Actor, space: Space
+) -> list[tuple[User, SpaceRole | None, OrgRole | SpaceRole]]:
+    """Everyone who accesses the space as a member of its organization: (account, role given
+    in the space or None, effective access: `OrgRole.ADMIN` for an organization admin,
+    otherwise the effective space role). Organization members without access are left out."""
+    require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
+    rows = session.execute(
+        select(User, OrgMember.role, SpaceMember.role)
+        .join(OrgMember, OrgMember.user_id == User.id)
+        .outerjoin(
+            SpaceMember, (SpaceMember.user_id == User.id) & (SpaceMember.space_id == space.id)
+        )
+        .where(OrgMember.org_id == space.org_id)
+        .order_by(User.username)
+    )
+    found: list[tuple[User, SpaceRole | None, OrgRole | SpaceRole]] = []
+    for user, org_role, given in rows:
+        explicit = SpaceRole(given) if given else None
+        if org_role == OrgRole.ADMIN:
+            found.append((user, explicit, OrgRole.ADMIN))
+        elif role := effective_role(
+            explicit, space.organization.default_space_role, space.restricted
+        ):
+            found.append((user, explicit, role))
+    return found
+
+
+def set_member(session: Session, actor: Actor, space: Space, user: User, role: SpaceRole) -> bool:
+    """Adds to the space, or changes the role. True if the account was not a member of the
+    organization: it becomes one, and so gets the default role on every space that is not
+    restricted."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
-    ensure_member(session, space.organization, user)
+    joined = ensure_member(session, space.organization, user)
     member = session.get(SpaceMember, (space.id, user.id))
     if member is None:
         session.add(SpaceMember(space_id=space.id, user_id=user.id, role=role.value))
     else:
         member.role = role.value
     audit(session, actor, "space.member_set", space=space, username=user.username, role=role)
+    return joined
 
 
 def remove_member(session: Session, actor: Actor, space: Space, user: User) -> None:

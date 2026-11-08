@@ -113,7 +113,8 @@ def test_space_member_forms_are_shown_to_org_admins_only(
         as_user(client, username)
         page = client.get("/o/acme/infra/-/members")
         assert page.status_code == 200
-        assert "@bob" in select_one(page.text, "table").text  # it is indeed the members page
+        members = select(page.text, "table")[0]  # then the access through the organization
+        assert "@bob" in members.text  # it is indeed the members page
         assert select(page.text, data_test("member-add")) == []
         assert select(page.text, data_test("member-role")) == []
 

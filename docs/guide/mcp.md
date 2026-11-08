@@ -26,8 +26,9 @@ The consent screen shows the name the application gives itself and its redirect 
 the name suggests a well-known vendor (Claude, ChatGPT…) but the redirect does not go to one of
 its domains, a warning is shown: allow only if you started the connection yourself.
 
-Through an assistant, each person reaches only the spaces they are a member of (or whose
-organization they administer): a super admin does not expose the whole instance to their
+Through an assistant, each person reaches only the spaces they are a member of, those their
+organization's default role opens to them (restricted spaces excepted), and those of the
+organizations they administer: a super admin does not expose the whole instance to their
 assistant. A read-only connection does not see the write tools; one limited to the inbox only
 sees, besides reading, `inbox_add`, `inbox_update` and `inbox_delete`, and a page write is
 refused with the reason.

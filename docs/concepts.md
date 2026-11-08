@@ -52,6 +52,20 @@ The next morning, the page shows in the wiki and the assistant finds it through 
 | Reader | Space | Read and search. A reader does not drop notes into the inbox. |
 
 - An account can hold roles in several spaces of several organizations.
+- **Default role.** An organization can give each of its members a role on every one of its
+  spaces, present and future, without adding them one by one (organization **Settings**,
+  "Default role in the spaces": no access, which is the default, reader or contributor). A
+  member's effective role is the higher of the role given in the space and the default role.
+  A **restricted** space (space **Settings → Members**, for human resources or management)
+  ignores the default role: only the members added to it, and the organization's
+  administrators, access it. The default role applies everywhere access is checked: web UI and
+  downloads, search (semantic too), REST API, MCP, emails. Nobody ever reaches the spaces of an
+  organization they do not belong to, and a token limited to some spaces, to reading or to
+  the inbox stays limited. Changes of the default role and of the restriction are written to
+  the audit log. A space can be created restricted.
+- Adding someone to a space (or inviting them) makes them a member of its organization: with
+  a default role, they then also get it on every space of the organization that is not
+  restricted. Removing them from a space that is not restricted leaves them the default role.
 - A personal token or an OAuth connection never has more rights than its owner. It can be
   limited to reading and to some spaces; a limited token administers nothing.
 - Through MCP, a super admin only reaches the spaces they are actually a member of (or whose
