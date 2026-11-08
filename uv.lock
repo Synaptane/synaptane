@@ -1373,7 +1373,7 @@ requires-dist = [
     { name = "pgvector", specifier = ">=0.5.0" },
     { name = "pillow", specifier = ">=13.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
-    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pydantic", specifier = ">=2.14.2" },
     { name = "pygments", specifier = ">=2.21.0" },
     { name = "pypdfium2", specifier = ">=5.13.0" },
     { name = "python-multipart", specifier = ">=0.0.32" },
