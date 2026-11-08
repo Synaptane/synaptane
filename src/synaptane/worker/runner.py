@@ -330,6 +330,7 @@ class Worker:
         routines.schedule(self.database)
         routine_agent.close_orphans(self.database)
         backup_schedule.schedule(self.database, self.settings)
+        backup_schedule.check_abandoned(self.database, self.ctx.box, self.settings.public_url)
         alerts.check_abandoned_jobs(self.database, self.ctx)  # attempts exhausted: notify
         if now - self._last_backlog_check > 3600:  # inbox backlog: once an hour
             self._last_backlog_check = now
@@ -352,6 +353,12 @@ class Worker:
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         log.info("Worker started.")
+        if backup_schedule.time_invalid(self.settings):
+            log.warning(
+                'SYNAPTANE_BACKUP_TIME "%s" is not a time (HH:MM, or off): the automatic '
+                "backup runs at 04:00.",
+                self.settings.backup_time,
+            )
         # One thread per dedicated lane; all the other jobs (and maintenance) in the main
         # thread: a new kind of job is fast by default.
         lanes = [

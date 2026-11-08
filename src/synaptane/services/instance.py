@@ -67,6 +67,8 @@ class Check:
     note: Label | None = None  # how it works, shown under the message
     command: str = ""  # what to run on the server to fix it
     guide: str = ""  # page of the documentation that explains it ("backup")
+    run: Label | None = None  # the worker's backup: waiting, in progress, or its last outcome
+    run_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -207,19 +209,25 @@ def backup_note(settings: Settings, now: datetime) -> Label:
     if backup_schedule.host_in_charge(settings, now):
         return Label(
             "Made by the server's cron job (deploy/host/backup.sh): the automatic backup steps "
-            "aside while it runs."
+            "aside while it runs, and takes over if its last backup is more than 26 hours old."
+        )
+    if backup_schedule.time_invalid(settings):
+        return Label(
+            "BACKUP_TIME “{value}” is not a time: the automatic backup runs at 04:00 (write "
+            "HH:MM, or off).",
+            value=settings.backup_time,
         )
     if backup_schedule.enabled(settings):
         days = settings.backup_local_retention_days
         if not days:
             return Label(
                 "Automatic every day at {time}, in {folder}, all kept.",
-                time=settings.backup_time,
+                time=backup_schedule.time_text(settings),
                 folder=str(settings.backup_dir),
             )
         return Label(
             "Automatic every day at {time}, in {folder}, kept {days} days.",
-            time=settings.backup_time,
+            time=backup_schedule.time_text(settings),
             folder=str(settings.backup_dir),
             days=days,
         )
@@ -228,38 +236,30 @@ def backup_note(settings: Settings, now: datetime) -> Label:
     return Label("No automatic backup (BACKUP_TIME=off): a cron job on the server must make it.")
 
 
-def _backup(settings: Settings, now: datetime) -> Check:
+def _backup(session: Session, settings: Settings, now: datetime) -> Check:
     from synaptane.services import backup_schedule
 
     title = Label("Backup")
     note = backup_note(settings, now)
+    run, run_at = backup_schedule.run_state(session, settings) or (None, None)
     last = last_backup(settings)
     automatic = backup_schedule.enabled(settings)
     if last is None:
         if automatic:
-            return Check(
-                title,
-                WARN,
-                Label("None yet: the first one runs at {time}.", time=settings.backup_time),
-                note=note,
-                command=CHECK_COMMAND,
-                guide="backup",
+            message = Label(
+                "None yet: the first one runs at {time}.", time=backup_schedule.time_text(settings)
             )
-        return Check(
-            title,
-            ERROR,
-            Label("None seen yet."),
-            note=note,
-            command=SETUP_COMMAND,
-            guide="backup",
-        )
+            return Check(title, WARN, message, None, note, CHECK_COMMAND, "backup", run, run_at)
+        message = Label("None seen yet.")
+        return Check(title, ERROR, message, None, note, SETUP_COMMAND, "backup", run, run_at)
     if now - last > BACKUP_LOST:
         message = Label("Too old. Last verified archive:")
-        return Check(title, ERROR, message, last, note, CHECK_COMMAND, "backup")
+        return Check(title, ERROR, message, last, note, CHECK_COMMAND, "backup", run, run_at)
     if now - last > BACKUP_LATE:
         message = Label("Late. Last verified archive:")
-        return Check(title, WARN, message, last, note, CHECK_COMMAND, "backup")
-    return Check(title, OK, Label("Last verified archive:"), last, note)
+        return Check(title, WARN, message, last, note, CHECK_COMMAND, "backup", run, run_at)
+    state = WARN if backup_schedule.time_invalid(settings) else OK
+    return Check(title, state, Label("Last verified archive:"), last, note, run=run, run_at=run_at)
 
 
 def _offsite(settings: Settings, now: datetime) -> Check:
@@ -389,7 +389,7 @@ def report(session: Session, database: Database, ws: Workspace, settings: Settin
             _key(session, ws),
             _worker(settings, now),
             _queue(session, now),
-            _backup(settings, now),
+            _backup(session, settings, now),
             _offsite(settings, now),
             _disk(settings),
             _mail(session),

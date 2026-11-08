@@ -45,6 +45,7 @@ x-synaptane: &synaptane
     # Automatic backup by the worker, every night into /backups (docs/admin/backup.md).
     SYNAPTANE_BACKUP_TIME: ${BACKUP_TIME:-04:00}
     SYNAPTANE_BACKUP_LOCAL_RETENTION_DAYS: ${BACKUP_LOCAL_RETENTION_DAYS:-7}
+    SYNAPTANE_BACKUP_TIMEOUT_MINUTES: ${BACKUP_TIMEOUT_MINUTES:-120}
     # Off-site backup: `synaptane backup setup`, or these variables (docs/admin/backup.md).
     SYNAPTANE_BACKUP_AGE_RECIPIENTS: ${BACKUP_AGE_RECIPIENTS:-}
     SYNAPTANE_BACKUP_REMOTES: ${BACKUP_REMOTES:-}

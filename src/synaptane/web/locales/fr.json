@@ -1911,7 +1911,6 @@
  "Input read from the cache: ${price} per million tokens.": "Entrée relue depuis le cache : {price} $ par million de jetons.",
  "Requests whose prompt exceeds {tokens} tokens: ${input} / ${output}.": "Requêtes dont le prompt dépasse {tokens} jetons : {input} $ / {output} $.",
  "A backup failed": "Une sauvegarde a échoué",
- "Made by the server's cron job (deploy/host/backup.sh): the automatic backup steps aside while it runs.": "Faite par la tâche cron du serveur (deploy/host/backup.sh) : la sauvegarde automatique s'efface tant qu'elle tourne.",
  "Automatic every day at {time}, in {folder}, all kept.": "Automatique chaque jour à {time}, dans {folder}, toutes gardées.",
  "Automatic every day at {time}, in {folder}, kept {days} days.": "Automatique chaque jour à {time}, dans {folder}, gardées {days} jours.",
  "No automatic backup: no backup folder (SYNAPTANE_BACKUP_DIR).": "Pas de sauvegarde automatique : aucun dossier de sauvegarde (SYNAPTANE_BACKUP_DIR).",
@@ -1928,5 +1927,15 @@
  "A backup is already waiting or running.": "Une sauvegarde attend déjà ou est en cours.",
  "Backup requested: the worker makes it in a moment.": "Sauvegarde demandée : le worker la fait dans un instant.",
  "No backup folder: set SYNAPTANE_BACKUP_DIR.": "Aucun dossier de sauvegarde : définissez SYNAPTANE_BACKUP_DIR.",
- "Backup requested": "Sauvegarde demandée"
+ "Backup requested": "Sauvegarde demandée",
+ "Made by the server's cron job (deploy/host/backup.sh): the automatic backup steps aside while it runs, and takes over if its last backup is more than 26 hours old.": "Faite par la tâche cron du serveur (deploy/host/backup.sh) : la sauvegarde automatique s'efface tant qu'elle tourne, et prend le relais si sa dernière sauvegarde a plus de 26 heures.",
+ "BACKUP_TIME “{value}” is not a time: the automatic backup runs at 04:00 (write HH:MM, or off).": "BACKUP_TIME « {value} » n'est pas une heure : la sauvegarde automatique a lieu à 04:00 (écrivez HH:MM, ou off).",
+ "Last run of the worker: archive verified.": "Dernier passage du worker : archive vérifiée.",
+ "Last run of the worker: archive verified, off-site copy failed.": "Dernier passage du worker : archive vérifiée, copie hors site en échec.",
+ "Last run of the worker: skipped, another backup was running.": "Dernier passage du worker : sauté, une autre sauvegarde était en cours.",
+ "Last run of the worker: skipped, a backup had just been made.": "Dernier passage du worker : sauté, une sauvegarde venait d'être faite.",
+ "Last run of the worker: failed.": "Dernier passage du worker : en échec.",
+ "Last run of the worker: failed ({error}).": "Dernier passage du worker : en échec ({error}).",
+ "Backup by the worker: waiting to start. Requested:": "Sauvegarde par le worker : en attente. Demandée le",
+ "Backup by the worker: in progress. Requested:": "Sauvegarde par le worker : en cours. Demandée le"
 }

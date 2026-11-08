@@ -5,9 +5,10 @@
 #   deploy/host/backup.sh avant-abc1234   # label added to the name (deploy.sh)
 #
 # Optional: the worker already makes a backup every night in the synaptane-backups
-# volume. Without a label (the cron job), this script tells Synaptane it made the backup of the
-# day: the worker's automatic backup then steps aside, and takes over again by itself if this
-# cron job stops (docs/admin/backup.md).
+# volume. Without a label (the cron job), once its archive is checked and in place, this
+# script tells Synaptane it made the backup of the day: the worker's automatic backup then
+# steps aside, and takes over by itself as soon as the last one is more than 26 hours old
+# (docs/admin/backup.md).
 #
 # Settings through environment variables:
 #   BACKUP_DIR      archive folder (default ~/synaptane-backups)
@@ -44,13 +45,9 @@ log() { echo "$(date -Is) $*" >> "$dir/journal.log"; }
 cd "$repo"
 command=(synaptane backup --output -)
 [ "${OFFSITE:-0}" = 1 ] && command=(synaptane backup --offsite --output -)
-# An environment variable, not an option: an older image ignores it (deploy.sh runs this
-# script before upgrading).
-host=()
-[ -z "$label" ] && host=(-e SYNAPTANE_HOST_BACKUP=1)
 # Code 3: archive checked and written, but an off-site destination failed.
 status=0
-docker compose exec -T ${host[@]+"${host[@]}"} app "${command[@]}" > "$out.part" || status=$?
+docker compose exec -T app "${command[@]}" > "$out.part" || status=$?
 if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
   log "FAILED backup ${out##*/}"
   echo "Backup impossible (is the application running? docker compose ps)." >&2
@@ -65,6 +62,14 @@ if ! listing="$(tar -tzf "$out.part")" || ! grep -qx "database.dump" <<<"$listin
 fi
 chmod 600 "$out.part"
 mv "$out.part" "$out"
+# The backup is in place: the worker's automatic backup counts it (a deployment's) or, for the
+# cron job, steps aside. A plain `touch`, harmless with an older image (deploy.sh runs this
+# script before upgrading); a failure here only means one backup more.
+marks=(.backup-complete)
+[ -z "$label" ] && marks+=(.backup-host)
+# shellcheck disable=SC2016  # expanded in the container
+docker compose exec -T app sh -c 'cd "${SYNAPTANE_DATA_DIR:-/data}" && touch "$@"' sh "${marks[@]}" \
+  > /dev/null 2>&1 || true
 find "$dir" -maxdepth 1 -name 'synaptane-*.tar.gz' -mtime +"$retention" -delete
 log "$out $(du -h "$out" | cut -f1)"
 

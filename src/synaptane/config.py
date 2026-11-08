@@ -8,6 +8,7 @@ Example (`synaptane.toml`):
 """
 
 import os
+import re
 import tomllib
 from datetime import time
 from pathlib import Path
@@ -55,9 +56,14 @@ class Settings(BaseModel):
     # Automatic backup by the worker (`services.backup_schedule`): every day at `backup_time`
     # (HH:MM, server time; "off": never) into `backup_dir` (/backups in the image; none: no
     # automatic backup), whose archives older than `backup_local_retention_days` are deleted.
+    # A time that cannot be read falls back to 04:00, with a warning (doctor, logs): a typo
+    # must not keep the application from starting.
     backup_dir: Path | None = None
     backup_time: str = "04:00"
     backup_local_retention_days: int = 7
+    # Longest a database dump (or its read-back) may take, in minutes: a stuck pg_dump must
+    # not hold the backup lock forever.
+    backup_timeout_minutes: int = 120
 
     @field_validator("public_url")
     @classmethod
@@ -122,8 +128,14 @@ class Settings(BaseModel):
         value = value.strip().lower()
         if value in ("", "off"):
             return "off"
-        if parse_time(value) is None:
-            raise ValueError('a time as HH:MM (for example 04:00), or "off"')
+        found = parse_time(value)
+        return found.strftime("%H:%M") if found else value  # kept as written: warned about
+
+    @field_validator("backup_timeout_minutes")
+    @classmethod
+    def _timeout(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("a number of minutes of 1 or more is expected")
         return value
 
     @property
@@ -160,14 +172,21 @@ def check_remote(remote: str) -> None:
             raise ValueError("connection parameters not allowed: use rclone config")
 
 
+_TIME = re.compile(r"^(\d{1,2})(?:[:h](\d{2})?(?::(\d{2}))?)?$")
+
+
 def parse_time(value: str) -> time | None:
-    """`HH:MM` (24 hours), or None."""
-    hours, colon, minutes = value.strip().partition(":")
-    if not (colon and hours.isdigit() and minutes.isdigit() and len(minutes) == 2):
+    """A time of the day, as people write it: `04:00`, `4:00`, `04h00`, `4h`, `04:00:00`
+    (24 hours; seconds ignored). None if it is not one."""
+    found = _TIME.match(value.strip().lower())
+    if found is None or (found.group(3) and found.group(2) is None):
         return None
-    if int(hours) > 23 or int(minutes) > 59:
+    hours, minutes = int(found.group(1)), int(found.group(2) or 0)
+    if hours > 23 or minutes > 59 or int(found.group(3) or 0) > 59:
         return None
-    return time(int(hours), int(minutes))
+    if ":" not in value and "h" not in value.lower():
+        return None  # "4" alone: not a time
+    return time(hours, minutes)
 
 
 def load_settings(path: Path | None = None) -> Settings:

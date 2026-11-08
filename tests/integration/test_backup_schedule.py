@@ -6,8 +6,11 @@ page: super admins only, with CSRF, in the audit log."""
 import io
 import os
 import shutil
+import sys
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -130,24 +133,32 @@ def test_round_trip_of_an_automatic_backup(
     folder.mkdir()
     old = time.time() - 30 * 86400
     for day in range(1, 5):  # the archives of the last nights, too old
-        path = folder / f"synaptane-2026-10-0{day}-040000.tar.gz"
+        path = folder / f"synaptane-2026-10-0{day}-040000-auto.tar.gz"
         path.write_bytes(b"old")
         os.utime(path, (old, old))
-    (folder / ".synaptane-2026-10-05-040000.tar.gz.part").write_bytes(b"interrupted")
+    by_hand = folder / "synaptane-2026-09-01-120000.tar.gz"  # put there by hand: kept
+    by_hand.write_bytes(b"mine")
+    os.utime(by_hand, (old, old))
+    (folder / ".synaptane-2026-10-05-040000-auto.tar.gz.part").write_bytes(b"interrupted")
 
     result = backup_schedule.run(automatic, database, ctx.box)
     assert result.archive is not None and result.archive.parent == folder
     assert not result.skipped and result.offsite_ok and result.outcomes == []
     assert (result.archive.stat().st_mode & 0o777) == 0o600
+    assert result.archive.name.endswith("-auto.tar.gz")
     assert (automatic.data_dir / instance.BACKUP_DONE).exists()
+    assert (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()
     assert not list(folder.glob(".*.part"))  # what an interrupted backup left
-    # Retention: the 3 newest stay (the new one and two old ones).
+    # Retention, before writing: the 3 newest of the worker's stay, and the one made by hand.
     assert sorted(p.name for p in folder.glob("synaptane-*.tar.gz")) == [
-        "synaptane-2026-10-03-040000.tar.gz",
-        "synaptane-2026-10-04-040000.tar.gz",
+        "synaptane-2026-09-01-120000.tar.gz",
+        "synaptane-2026-10-02-040000-auto.tar.gz",
+        "synaptane-2026-10-03-040000-auto.tar.gz",
+        "synaptane-2026-10-04-040000-auto.tar.gz",
         result.archive.name,
     ]
-    assert len(result.pruned) == 2
+    assert len(result.pruned) == 1
+    assert (backup_schedule.last_status(automatic) or {})["outcome"] == "done"
     manifest = backup.verify(automatic, result.archive)
     assert manifest["counts"] == {"users": 1, "organizations": 1, "spaces": 0}
 
@@ -266,13 +277,11 @@ def test_the_host_cron_job_keeps_working_and_takes_precedence(
     ctx: Workspace,
     tmp_path: Path,
     capsysbinary: pytest.CaptureFixture[bytes],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`docker compose exec -T -e SYNAPTANE_HOST_BACKUP=1 app synaptane backup --output -`,
-    as deploy/host/backup.sh runs it from cron: the archive on standard output as before, and
-    the worker's automatic backup steps aside the following night."""
+    """`docker compose exec -T app synaptane backup --output -`, as deploy/host/backup.sh runs
+    it: the archive on standard output as before. Once it is in place on the host, the script
+    touches the host mark: the worker then waits, and takes over when that mark is too old."""
     config = write_config(automatic, tmp_path / "synaptane.toml", backup_dir=automatic.backup_dir)
-    monkeypatch.setenv(backup_schedule.HOST_ENV, "1")
     assert main(["--config", str(config), "backup", "--output", "-"]) == 0
     archive = capsysbinary.readouterr().out
     with backup.exclusive(automatic) as free:
@@ -280,17 +289,87 @@ def test_the_host_cron_job_keeps_working_and_takes_precedence(
     target = tmp_path / "from-cron.tar.gz"
     target.write_bytes(archive)
     assert backup.verify(automatic, target)["format"] == backup.FORMAT
-    assert (automatic.data_dir / backup_schedule.HOST_DONE).exists()
+    assert not (automatic.data_dir / backup_schedule.HOST_DONE).exists()  # the host's to say
+    assert (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()  # a full backup
     folder = automatic.backup_dir
     assert folder is not None and not folder.exists()  # --output -: nothing in /backups
+    early = automatic.model_copy(update={"backup_time": "00:00"})
+    # A full backup just made (a deployment's): it is the backup of the day.
+    assert not backup_schedule.schedule(database, early)
+    scheduled = automatic.data_dir / backup_schedule.SCHEDULED
+    assert scheduled.exists() and backup_jobs(database) == []
+    scheduled.unlink()  # the next day
+    instance.mark(automatic, backup_schedule.HOST_DONE)  # what backup.sh does after its `mv`
+    (automatic.data_dir / backup_schedule.COMPLETE_DONE).unlink()
+    assert not backup_schedule.schedule(database, early)  # the cron job is in charge
+    assert not (automatic.data_dir / backup_schedule.SCHEDULED).exists()  # looked at again
+    assert backup_jobs(database) == []
     tonight = backup_schedule.run(automatic, database, ctx.box)
     assert tonight.skipped == "host" and not folder.exists()
-    # A deployment (backup.sh with a label) or a manual run: no precedence.
-    (automatic.data_dir / backup_schedule.HOST_DONE).unlink()
-    monkeypatch.delenv(backup_schedule.HOST_ENV)
-    assert main(["--config", str(config), "backup", "--output", "-"]) == 0
-    capsysbinary.readouterr()
-    assert not (automatic.data_dir / backup_schedule.HOST_DONE).exists()
+    # The cron job failed last night: as soon as its backup is too old, the worker takes over,
+    # the same day, without waiting for the next one.
+    late = time.time() - backup_schedule.HOST_FRESH.total_seconds() - 60
+    os.utime(automatic.data_dir / backup_schedule.HOST_DONE, (late, late))
+    assert backup_schedule.schedule(database, early)
+    (job,) = backup_jobs(database)
+    assert job.payload == {"trigger": backup_schedule.SCHEDULE}
+
+
+@needs_pg
+def test_a_broken_stream_is_not_a_backup(
+    automatic: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The archive must reach the host: a closed pipe (disk full there) marks nothing."""
+    config = write_config(automatic, tmp_path / "synaptane.toml")
+
+    class Broken:
+        def write(self, _: bytes) -> int:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+    class Stdout:
+        buffer = Broken()
+
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    monkeypatch.setattr(sys, "stdout", Stdout())
+    assert main(["--config", str(config), "backup", "--output", "-"]) == 1
+    for mark in (instance.BACKUP_DONE, backup_schedule.COMPLETE_DONE):
+        assert not (automatic.data_dir / mark).exists()
+
+
+@needs_pg
+def test_a_kept_archive_appears_under_its_name_once_verified(
+    automatic: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`synaptane backup` into /backups: a `.part` until read back, like the worker's; a
+    partial backup (`--without-key`) is not a full one for the worker."""
+    config = write_config(automatic, tmp_path / "synaptane.toml", backup_dir=automatic.backup_dir)
+    folder = automatic.backup_dir
+    assert folder is not None
+    folder.mkdir()
+    seen: list[list[str]] = []
+    verify = backup.verify
+
+    def spying(settings: Settings, path: Path) -> dict[str, object]:
+        seen.append(sorted(p.name for p in folder.iterdir()))
+        return verify(settings, path)
+
+    monkeypatch.setattr(backup, "verify", spying)
+    assert main(["--config", str(config), "backup", "--without-key"]) == 0
+    (name,) = seen[0]
+    assert name.startswith(".synaptane-") and name.endswith(".tar.gz.part")
+    (kept,) = folder.iterdir()
+    assert kept.name == name[1:].removesuffix(".part")
+    assert (automatic.data_dir / instance.BACKUP_DONE).exists()
+    assert not (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()
+    assert main(["--config", str(config), "backup", "--output", str(kept)]) == 1  # no overwrite
+    assert main(["--config", str(config), "backup"]) == 0
+    assert (automatic.data_dir / backup_schedule.COMPLETE_DONE).exists()
 
 
 def test_a_cron_backup_waits_for_the_running_one(
@@ -300,13 +379,15 @@ def test_a_cron_backup_waits_for_the_running_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = write_config(automatic, tmp_path / "synaptane.toml")
-    monkeypatch.setattr(cli, "BACKUP_WAIT", 0.2)
+    assert cli.backup_wait(automatic) == 4 * 3600  # twice the dump timeout (120 minutes)
+    monkeypatch.setattr(cli, "backup_wait", lambda _: 0.2)
     output = tmp_path / "out"
     output.mkdir()
     with backup.exclusive(automatic):  # the worker's backup is running
         assert main(["--config", str(config), "backup", "--output", str(output)]) == 1
         err = capsys.readouterr().err
-        assert "Another backup is running: waiting" in err and "nothing was done" in err
+        assert "Another backup is running (the worker's nightly one" in err
+        assert "still running after 0 minutes: nothing was done" in err
         with pytest.raises(BackupError, match="A backup is running"):
             backup.restore(automatic, io.BytesIO(b"not read"))
     assert list(output.iterdir()) == []
@@ -398,3 +479,148 @@ def test_no_button_without_a_backup_folder(client: TestClient, db: Session) -> N
     page = client.get("/admin/health").text
     assert "Sauvegarder maintenant" not in page
     assert "SYNAPTANE_BACKUP_DIR" in page
+
+
+# --- Every failure alerts; one job only; what the health page says ----------------------------
+
+
+@pytest.mark.parametrize("where", ["lock", "offsite"])
+def test_any_failure_alerts_and_is_shown(
+    automatic: Settings,
+    database: Database,
+    ctx: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+    where: str,
+) -> None:
+    if where == "lock":
+
+        @contextmanager
+        def denied(*_: object, **__: object) -> Iterator[bool]:
+            if where == "lock":  # always: a generator that raises when entered
+                raise PermissionError(13, "Permission denied", "/data/.backup.lock")
+            yield True
+
+        monkeypatch.setattr(backup, "exclusive", denied)
+    else:
+        from tests.unit.test_backup_schedule import PUBLIC
+
+        automatic = automatic.model_copy(
+            update={"backup_remotes": ("nas:x",), "backup_age_recipients": (PUBLIC,)}
+        )
+        monkeypatch.setattr(offsite, "missing_tools", lambda: [])
+        monkeypatch.setattr(
+            backup_schedule, "write_archive", lambda s, f: (f / "synaptane-x-auto.tar.gz", [])
+        )
+
+        def bug(*_: object) -> list[offsite.Outcome]:
+            raise RuntimeError("unexpected")
+
+        monkeypatch.setattr(offsite, "copy", bug)
+    with pytest.raises((PermissionError, RuntimeError)):
+        backup_schedule.run(automatic, database, ctx.box, trigger=backup_schedule.MANUAL)
+    (alert,) = alerts_of(database)
+    assert ("Permission denied" if where == "lock" else "unexpected") in str(alert.details["error"])
+    status = backup_schedule.last_status(automatic) or {}
+    assert status["outcome"] == "failed" and status["trigger"] == backup_schedule.MANUAL
+
+
+def test_an_abandoned_backup_job_alerts(
+    automatic: Settings, database: Database, db: Session, ctx: Workspace
+) -> None:
+    """Killed five times (out of memory): `check_abandoned_jobs` only sees space jobs."""
+    assert not backup_schedule.check_abandoned(database, ctx.box)
+    jobs.enqueue(db, backup_schedule.BACKUP, None, {"trigger": backup_schedule.SCHEDULE})
+    db.commit()
+    job = db.scalars(select(Job)).one()
+    job.status, job.finished_at = "failed", datetime.now(UTC)
+    job.error = f"{jobs.ABANDONED}: interrupted 5 times."
+    db.commit()
+    Worker(automatic, database, ctx).maintenance()
+    (alert,) = alerts_of(database)
+    assert alert.details["error"] == f"{jobs.ABANDONED}: interrupted 5 times."
+    assert not backup_schedule.check_abandoned(database, ctx.box)  # not sent again
+
+
+def test_several_workers_queue_a_single_backup(automatic: Settings, database: Database) -> None:
+    early = automatic.model_copy(update={"backup_time": "00:00"})
+    first = database.session()
+    session = first.__enter__()
+    assert backup_schedule._enqueue(session, backup_schedule.SCHEDULE)  # not committed yet
+    other: list[bool] = []
+    thread = threading.Thread(
+        target=lambda: other.append(backup_schedule.schedule(database, early))
+    )
+    thread.start()
+    time.sleep(0.5)
+    assert thread.is_alive()  # waits for the first one's transaction
+    first.__exit__(None, None, None)  # commit
+    thread.join(10)
+    assert other == [False] and len(backup_jobs(database)) == 1
+
+
+def test_while_the_cron_job_is_in_charge_the_workers_old_archives_go(
+    automatic: Settings, database: Database
+) -> None:
+    """For example the one made at the upgrade, before the cron job's first new run."""
+    folder = automatic.backup_dir
+    assert folder is not None
+    folder.mkdir()
+    old = time.time() - 8 * 86400
+    upgrade = folder / "synaptane-2026-10-30-150000-auto.tar.gz"
+    by_hand = folder / "synaptane-2026-10-30-150000.tar.gz"
+    for path in (upgrade, by_hand):
+        path.write_bytes(b"x")
+        os.utime(path, (old, old))
+    instance.mark(automatic, backup_schedule.HOST_DONE)
+    early = automatic.model_copy(update={"backup_time": "00:00"})
+    assert not backup_schedule.schedule(database, early)
+    assert not upgrade.exists() and by_hand.exists()
+
+
+def test_the_health_page_shows_the_workers_last_run(
+    automatic: Settings, database: Database, db: Session, ctx: Workspace
+) -> None:
+    assert check_of(automatic, db, database, ctx).run is None
+    jobs.enqueue(db, backup_schedule.BACKUP, None, {"trigger": backup_schedule.MANUAL})
+    db.commit()
+    check = check_of(automatic, db, database, ctx)
+    assert check.run is not None and "waiting" in check.run.template and check.run_at
+    job = db.scalars(select(Job)).one()
+    job.status = "running"
+    db.commit()
+    check = check_of(automatic, db, database, ctx)
+    assert check.run is not None and "in progress" in check.run.template
+    job.status = "done"
+    db.commit()
+    backup_schedule.write_status(automatic, backup_schedule.MANUAL, "busy")
+    check = check_of(automatic, db, database, ctx)
+    assert check.run == backup_schedule.OUTCOMES["busy"] and check.run_at is not None
+    backup_schedule.write_status(automatic, backup_schedule.MANUAL, "failed", "disk full")
+    check = check_of(automatic, db, database, ctx)
+    assert check.run is not None and check.run.params == {"error": "disk full"}
+    (automatic.data_dir / backup_schedule.STATUS).write_text("not json")
+    assert check_of(automatic, db, database, ctx).run is None
+
+
+def test_a_time_that_is_not_one_still_backs_up_and_says_so(
+    automatic: Settings,
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    wrong = automatic.model_copy(update={"backup_time": "4h70"})
+    instance.mark(wrong, instance.BACKUP_DONE)
+    check = check_of(wrong, db, database, ctx)
+    assert check.state == instance.WARN
+    assert check.note is not None and check.note.params == {"value": "4h70"}
+    config = write_config(
+        automatic, tmp_path / "synaptane.toml", backup_dir=automatic.backup_dir, backup_time="4h70"
+    )
+    automatic.key_file.chmod(0o600)
+    automatic.repos_dir.mkdir(exist_ok=True)
+    main(["--config", str(config), "doctor"])
+    out = capsys.readouterr().out
+    assert '[warning] Automatic backup time — "4h70" is not a time: 04:00 is used' in out
+    assert "[ok] Automatic backup: every day at 04:00" in out

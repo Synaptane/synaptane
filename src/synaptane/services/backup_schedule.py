@@ -3,39 +3,50 @@
 Every day at `backup_time` (server time, `TZ`), the worker queues a `backup` job, which runs
 in its own lane (a copy to a slow destination can last hours without delaying the sync):
 
-1. a verified archive in `backup_dir` (`/backups` in the image), written to a hidden `.part`
-   file and renamed only once read back: an incomplete archive never looks like a good one;
-2. the encrypted off-site copy, when destinations are configured (`services.offsite`);
-3. local retention: archives older than `backup_local_retention_days` are deleted, never the
-   newest `KEEP_AT_LEAST` ones (a failing backup must not end with an empty folder).
+1. local retention first, so that a full disk can recover: the worker's archives older than
+   `backup_local_retention_days` are deleted, never the newest `KEEP_AT_LEAST` ones. Only its
+   own archives (`synaptane-YYYY-MM-DD-HHMMSS-auto.tar.gz`): a file put in the folder by hand
+   is never touched;
+2. a verified archive in `backup_dir` (`/backups` in the image), if the disk keeps
+   `reserve()` free afterwards, written to a hidden `.part` file and renamed only once read
+   back: an incomplete archive never looks like a good one;
+3. the encrypted off-site copy, when destinations are configured (`services.offsite`). The
+   lock is released before: a copy of several hours does not hold up other backups.
 
 Nothing to set up: the default settings make a backup every night. The settings of an
 existing installation keep working:
 - **one backup at a time**: the worker's, the host's cron job (`deploy/host/backup.sh`), a
   deployment or a manual run share the lock of `backup.exclusive`;
 - **the host's cron job has precedence**: when `deploy/host/backup.sh` (run without a label,
-  as in cron) has made a complete backup in the last `HOST_FRESH`, the automatic backup of
-  the day is skipped, and it starts again by itself if the cron job stops. Same when any
-  complete backup is less than `RECENT` old (for example the one of a deployment).
+  as in cron) has made a complete backup in the last `HOST_FRESH`, the worker makes none. It
+  looks again every minute: as soon as the cron job's last backup is older than `HOST_FRESH`
+  (the cron job stopped, or failed one night), the automatic backup is queued. While the cron
+  job is in charge, the worker's own archives older than the retention are deleted (the cron
+  job keeps its own in `~/synaptane-backups`). A complete backup less than `RECENT` old (a
+  deployment's, for example) counts as the backup of the day.
 
-A failure is an alert to the super admins (`alerts.notify_instance`), by email and on
-`/admin/health`: no cron email anymore to report it.
+A failure, whatever its cause, is an alert to the super admins (`alerts.notify_instance`), by
+email and on `/admin/health`, which also shows the last run: no cron email anymore to report
+it.
 """
 
+import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from synaptane.config import Settings, parse_time
 from synaptane.core.access import Action, require
-from synaptane.core.errors import BackupError, invalid
+from synaptane.core.errors import BackupError, Label, invalid
 from synaptane.core.security import SecretBox
 from synaptane.services import Actor, alerts, audit, backup, instance, jobs, offsite
 from synaptane.storage.db import Database
@@ -45,33 +56,68 @@ log = logging.getLogger("synaptane.backup")
 
 BACKUP = "backup"  # job kind
 SCHEDULE, MANUAL = "schedule", "manual"  # triggers
+DEFAULT_TIME = time(4, 0)  # when `backup_time` cannot be read
 SCHEDULED = ".backup-scheduled"  # mark: day of the last automatic run queued
-HOST_DONE = ".backup-host"  # mark: last complete backup of deploy/host/backup.sh (cron)
-HOST_ENV = "SYNAPTANE_HOST_BACKUP"  # set to 1 by deploy/host/backup.sh without a label
+HOST_DONE = ".backup-host"  # mark, touched by deploy/host/backup.sh once its archive is good
+# mark: last full backup kept (not --without-…, not /tmp); also touched by backup.sh, with or
+# without a label, so that a deployment made with an older image counts.
+COMPLETE_DONE = ".backup-complete"
+STATUS = ".backup-last.json"  # outcome of the worker's last run, for the health page
 HOST_FRESH = timedelta(hours=26)  # a daily cron job, give or take
 RECENT = timedelta(hours=6)
 KEEP_AT_LEAST = 3
-ARCHIVES = "synaptane-*.tar.gz"
+SUFFIX = "-auto.tar.gz"
+AUTO = re.compile(r"^synaptane-\d{4}-\d{2}-\d{2}-\d{6}-auto\.tar\.gz$")
 PART = ".synaptane-*.part"
-MIN_FREE = 200 * 1024**2  # bytes, on top of twice the last archive
+RESERVE = 2 * 1024**3  # bytes left free after a backup (at most 10 % of the disk)
+GROWTH = 1.2  # the next archive, compared with the last one
+# pg_advisory_xact_lock: several workers queue a single backup.
+QUEUE_LOCK = 0x5359_4E42_4B55_5000
+
+
+# --- Time of the day --------------------------------------------------------------------------
+
+
+def at(settings: Settings) -> time | None:
+    """Time of the automatic backup; None when off. A time that cannot be read gives 04:00
+    (see `time_invalid`): a typo must not leave an instance without backup."""
+    if settings.backup_time == "off":
+        return None
+    return parse_time(settings.backup_time) or DEFAULT_TIME
+
+
+def time_invalid(settings: Settings) -> bool:
+    return settings.backup_time != "off" and parse_time(settings.backup_time) is None
+
+
+def time_text(settings: Settings) -> str:
+    found = at(settings)
+    return found.strftime("%H:%M") if found else "off"
 
 
 def enabled(settings: Settings) -> bool:
-    return settings.backup_dir is not None and parse_time(settings.backup_time) is not None
+    return settings.backup_dir is not None and at(settings) is not None
 
 
 def due(settings: Settings, now: datetime | None = None) -> bool:
     """True if the automatic backup of the day is to be queued: its time has passed, and it
     was not queued today. A worker started after the time (new installation, restart)
     queues it right away."""
-    at = parse_time(settings.backup_time)
-    if settings.backup_dir is None or at is None:
+    moment = at(settings)
+    if settings.backup_dir is None or moment is None:
         return False
     local = (now or datetime.now(UTC)).astimezone()  # server time zone (TZ)
-    if local.time() < at:
+    if local.time() < moment:
         return False
     last = instance.marked(settings, SCHEDULED)
     return last is None or last.astimezone().date() != local.date()
+
+
+# --- Queue ------------------------------------------------------------------------------------
+
+
+def latest_job(session: Session) -> Job | None:
+    return session.scalar(select(Job).where(Job.kind == BACKUP).order_by(Job.created_at.desc()))
 
 
 def pending(session: Session) -> bool:
@@ -82,16 +128,39 @@ def pending(session: Session) -> bool:
     return found is not None
 
 
+def _enqueue(session: Session, trigger: str) -> bool:
+    """Queues a backup unless one waits or runs. Atomic: the jobs index does not deduplicate
+    instance jobs (no space), so the check and the insert are made under a lock."""
+    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": QUEUE_LOCK})
+    if pending(session):
+        return False
+    jobs.enqueue(session, BACKUP, None, {"trigger": trigger})
+    return True
+
+
 def schedule(database: Database, settings: Settings, now: datetime | None = None) -> bool:
-    """Queues the automatic backup when it is due (worker maintenance). True if queued."""
+    """Queues the automatic backup when it is due (worker maintenance, every minute). True if
+    queued. While the host's cron job is in charge, the day is not marked: it is looked at
+    again on the next run, and queued as soon as the cron job's backup is too old. A complete
+    backup less than `RECENT` old (a deployment's) is the backup of the day."""
     if not due(settings, now):
         return False
-    instance.mark(settings, SCHEDULED)
+    moment = now or datetime.now(UTC)
+    folder = settings.backup_dir
+    assert folder is not None
+    if host_in_charge(settings, moment):
+        # The cron job makes the backups: the worker's archives older than the retention go,
+        # the newest ones too (the cron job keeps its own).
+        prune_local(folder, settings.backup_local_retention_days, keep_at_least=0)
+        return False
+    if _complete_since(settings, COMPLETE_DONE, moment - RECENT):
+        # A deployment's backup, for example: it is the backup of the day.
+        instance.mark(settings, SCHEDULED)
+        return False
     with database.session() as session:
-        if pending(session):
-            return False
-        jobs.enqueue(session, BACKUP, None, {"trigger": SCHEDULE})
-    return True
+        queued = _enqueue(session, SCHEDULE)
+    instance.mark(settings, SCHEDULED)  # queued, or one already waits or runs
+    return queued
 
 
 def request(session: Session, actor: Actor, settings: Settings) -> bool:
@@ -100,9 +169,8 @@ def request(session: Session, actor: Actor, settings: Settings) -> bool:
     require(actor.access, Action.MANAGE_INSTANCE)
     if settings.backup_dir is None:
         raise invalid("No backup folder: set SYNAPTANE_BACKUP_DIR.")
-    if pending(session):
+    if not _enqueue(session, MANUAL):
         return False
-    jobs.enqueue(session, BACKUP, None, {"trigger": MANUAL})
     audit(session, actor, "instance.backup_requested")
     return True
 
@@ -121,6 +189,9 @@ def _complete_since(settings: Settings, mark: str, since: datetime) -> bool:
         return True
     copied = instance.marked(settings, instance.OFFSITE_DONE)
     return copied is not None and copied >= since
+
+
+# --- The backup -------------------------------------------------------------------------------
 
 
 @dataclass
@@ -144,8 +215,28 @@ def run(
     trigger: str = SCHEDULE,
     public_url: str = "",
 ) -> Result:
-    """Archive, off-site copy, local retention. Raises BackupError if no archive could be made
-    (an alert has gone out); an off-site failure only alerts: the archive is kept."""
+    """Retention, archive, off-site copy. Raises if no archive could be made; an off-site
+    failure keeps the archive. Every failure, whatever its cause, alerts the super admins,
+    and the outcome is kept for the health page."""
+    try:
+        result = _run(settings, database, box, trigger, public_url)
+    except Exception as error:
+        message = str(error) if isinstance(error, BackupError | OSError) else repr(error)
+        write_status(settings, trigger, "failed", message)
+        _alert(database, box, public_url, message)
+        raise
+    if result.skipped:
+        write_status(settings, trigger, "busy" if result.skipped == "busy" else "skipped")
+    elif offsite.remotes(settings) and not result.offsite_ok:
+        write_status(settings, trigger, "offsite")
+    else:
+        write_status(settings, trigger, "done")
+    return result
+
+
+def _run(
+    settings: Settings, database: Database, box: SecretBox, trigger: str, public_url: str
+) -> Result:
     folder = settings.backup_dir
     if folder is None:
         raise BackupError("No backup folder: set SYNAPTANE_BACKUP_DIR (or backup_dir).")
@@ -158,25 +249,24 @@ def run(
             if host_in_charge(settings, now):
                 log.info("Automatic backup skipped: the host's cron job made one.")
                 return Result(skipped="host")
-            if _complete_since(settings, instance.BACKUP_DONE, now - RECENT):
+            if _complete_since(settings, COMPLETE_DONE, now - RECENT):
                 log.info("Automatic backup skipped: a complete backup is less than 6 hours old.")
                 return Result(skipped="recent")
         try:
-            archive = write_archive(settings, folder)
+            archive, pruned = write_archive(settings, folder)
         except (BackupError, OSError) as error:  # OSError: folder not writable, disk full
-            _alert(database, box, public_url, f"Archive: {error}")
-            raise
-        result = Result(archive=archive)
-        if offsite.remotes(settings):
-            _offsite(settings, result)
-            failed = [o for o in result.outcomes if not o.ok]
-            if result.offsite_error or failed:
-                problems = [result.offsite_error] if result.offsite_error else []
-                problems += [f"{o.remote}: {o.error}" for o in failed]
-                _alert(database, box, public_url, "Off-site copy: " + "; ".join(problems))
-            else:
-                instance.mark(settings, instance.OFFSITE_DONE)
-        result.pruned = prune_local(folder, settings.backup_local_retention_days, keep=archive)
+            raise BackupError(f"Archive: {error}") from error
+    # Lock released: the archive is ours (only the newest ones, kept, are copied).
+    result = Result(archive=archive, pruned=pruned)
+    if offsite.remotes(settings):
+        _offsite(settings, result)
+        failed = [o for o in result.outcomes if not o.ok]
+        if result.offsite_error or failed:
+            problems = [result.offsite_error] if result.offsite_error else []
+            problems += [f"{o.remote}: {o.error}" for o in failed]
+            _alert(database, box, public_url, "Off-site copy: " + "; ".join(problems))
+        else:
+            instance.mark(settings, instance.OFFSITE_DONE)
     copied = ""
     if offsite.remotes(settings):
         copied = ", off-site copy done" if result.offsite_ok else ", off-site copy FAILED"
@@ -186,13 +276,20 @@ def run(
     return result
 
 
-def write_archive(settings: Settings, folder: Path) -> Path:
-    """A verified archive in `folder`, under its final name only once read back."""
+def auto_name() -> str:
+    return backup.default_name().removesuffix(".tar.gz") + SUFFIX
+
+
+def write_archive(settings: Settings, folder: Path) -> tuple[Path, list[Path]]:
+    """Retention, then a verified archive in `folder`, under its final name only once read
+    back. Returns the archive and the old archives deleted."""
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     for stale in folder.glob(PART):  # left by an interrupted backup (the lock is ours)
         stale.unlink(missing_ok=True)
+    # Before the space check: a full disk recovers once the retention is lowered.
+    pruned = prune_local(folder, settings.backup_local_retention_days)
     check_space(folder)
-    name = backup.default_name()
+    name = auto_name()
     part = folder / f".{name}.part"
     fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -205,35 +302,58 @@ def write_archive(settings: Settings, folder: Path) -> Path:
         part.unlink(missing_ok=True)
         raise
     instance.mark(settings, instance.BACKUP_DONE)
-    return archive
+    instance.mark(settings, COMPLETE_DONE)
+    return archive, pruned
 
 
-def latest(folder: Path) -> Path | None:
+def worker_archives(folder: Path) -> list[Path]:
+    """The worker's archives, oldest first (their names start with the date)."""
     try:
-        found = sorted(p for p in folder.glob(ARCHIVES) if p.is_file())
+        found = [p for p in folder.iterdir() if AUTO.match(p.name) and p.is_file()]
     except OSError:
-        return None
-    return found[-1] if found else None
+        return []
+    return sorted((p for p in found if not p.is_symlink()), key=lambda p: p.name)
 
 
-def space_needed(folder: Path) -> int:
-    """Free space to have before a backup: twice the last archive, and a margin."""
-    last = latest(folder)
+def _last_size(folder: Path) -> int:
+    """Size of the last archive: the worker's, otherwise the most recent one of the folder."""
+    candidates = worker_archives(folder)
+    if not candidates:
+        try:
+            candidates = sorted(
+                (p for p in folder.glob("synaptane-*.tar.gz") if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+            )
+        except OSError:
+            candidates = []
     try:
-        size = last.stat().st_size if last else 0
+        return candidates[-1].stat().st_size if candidates else 0
     except OSError:
-        size = 0
-    return 2 * size + MIN_FREE
+        return 0
+
+
+def reserve(total: int) -> int:
+    """Space left free after a backup, for PostgreSQL on the same disk: 2 GB, at most a tenth
+    of a small disk (enough for a day of writes; refusing on a large disk with plenty of room
+    would leave it without backup)."""
+    return min(RESERVE, total // 10)
+
+
+def space_needed(folder: Path, total: int) -> int:
+    """Free space to have before a backup: the next archive (the last one, plus 20 %) and the
+    reserve."""
+    return int(_last_size(folder) * GROWTH) + reserve(total)
 
 
 def check_space(folder: Path) -> None:
-    free = shutil.disk_usage(folder).free
-    needed = space_needed(folder)
-    if free < needed:
+    usage = shutil.disk_usage(folder)
+    needed = space_needed(folder, usage.total)
+    if usage.free < needed:
         raise BackupError(
-            f"Not enough free space in {folder}: {free // 1024**2} MB free, "
-            f"{needed // 1024**2} MB needed (twice the last archive). Free some space, or "
-            "lower SYNAPTANE_BACKUP_LOCAL_RETENTION_DAYS."
+            f"Not enough free space in {folder}: {usage.free // 1024**2} MB free, "
+            f"{needed // 1024**2} MB needed (the next archive, and "
+            f"{reserve(usage.total) // 1024**2} MB left for the database). Free some space, "
+            "or lower SYNAPTANE_BACKUP_LOCAL_RETENTION_DAYS."
         )
 
 
@@ -251,15 +371,23 @@ def _offsite(settings: Settings, result: Result) -> None:
             result.offsite_error = str(error)
 
 
-def prune_local(folder: Path, days: int, *, keep: Path | None = None) -> list[Path]:
-    """Deletes the archives of `folder` older than `days` days (0: none), except `keep` and
-    the newest KEEP_AT_LEAST. Only `synaptane-*.tar.gz` files at its root are concerned."""
+def prune_local(
+    folder: Path,
+    days: int,
+    *,
+    keep: Path | None = None,
+    keep_at_least: int = KEEP_AT_LEAST,
+) -> list[Path]:
+    """Deletes the worker's archives of `folder` older than `days` days (0: none), except
+    `keep` and the newest `keep_at_least`. Archives put there by hand or by `synaptane backup`
+    are never touched."""
     if not days:
         return []
-    archives = sorted(p for p in folder.glob(ARCHIVES) if p.is_file() and not p.is_symlink())
+    archives = worker_archives(folder)
+    candidates = archives[:-keep_at_least] if keep_at_least else archives
     limit = datetime.now(UTC).timestamp() - days * 86400
     removed = []
-    for path in archives[:-KEEP_AT_LEAST]:
+    for path in candidates:
         if path == keep:
             continue
         try:
@@ -269,6 +397,91 @@ def prune_local(folder: Path, days: int, *, keep: Path | None = None) -> list[Pa
         except OSError:
             continue
     return removed
+
+
+# --- What the health page shows ---------------------------------------------------------------
+
+
+def write_status(settings: Settings, trigger: str, outcome: str, error: str = "") -> None:
+    """Outcome of the worker's last run: done, offsite (archive made, copy failed), busy,
+    skipped or failed."""
+    record = {
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "trigger": trigger,
+        "outcome": outcome,
+        "error": error[:300],
+    }
+    try:
+        path = settings.data_dir / STATUS
+        path.with_suffix(".new").write_text(json.dumps(record), encoding="utf-8")
+        path.with_suffix(".new").replace(path)
+    except OSError:
+        log.warning("Outcome of the backup not recorded", exc_info=True)
+
+
+def last_status(settings: Settings) -> dict[str, Any] | None:
+    try:
+        found = json.loads((settings.data_dir / STATUS).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return found if isinstance(found, dict) else None
+
+
+OUTCOMES = {
+    "done": Label("Last run of the worker: archive verified."),
+    "offsite": Label("Last run of the worker: archive verified, off-site copy failed."),
+    "busy": Label("Last run of the worker: skipped, another backup was running."),
+    "skipped": Label("Last run of the worker: skipped, a backup had just been made."),
+    "failed": Label("Last run of the worker: failed."),
+}
+
+
+def run_state(session: Session, settings: Settings) -> tuple[Label, datetime | None] | None:
+    """The worker's backup: waiting, in progress, or the outcome of its last run."""
+    job = latest_job(session)
+    if job is not None and job.status == "queued":
+        return Label("Backup by the worker: waiting to start. Requested:"), job.created_at
+    if job is not None and job.status == "running":
+        return Label("Backup by the worker: in progress. Requested:"), job.created_at
+    status = last_status(settings)
+    if status is None or status.get("outcome") not in OUTCOMES:
+        return None
+    try:
+        moment: datetime | None = datetime.fromisoformat(str(status.get("at")))
+    except ValueError:
+        moment = None
+    label = OUTCOMES[str(status["outcome"])]
+    if status["outcome"] == "failed" and status.get("error"):
+        label = Label("Last run of the worker: failed ({error}).", error=str(status["error"]))
+    return label, moment
+
+
+# --- Alerts -----------------------------------------------------------------------------------
+
+
+def check_abandoned(database: Database, box: SecretBox, public_url: str = "") -> bool:
+    """A backup job given up after its attempts (worker killed each time, out of memory for
+    example) alerts like a failed backup: `alerts.check_abandoned_jobs` only sees the jobs of
+    a space."""
+    since = datetime.now(UTC) - alerts.ABANDON_WINDOW
+    with database.session() as session:
+        job = session.scalar(
+            select(Job).where(
+                Job.kind == BACKUP,
+                Job.status == "failed",
+                Job.finished_at >= since,
+                Job.error.startswith(jobs.ABANDONED),
+            )
+        )
+        if job is None:
+            return False
+        return alerts.notify_instance(
+            session,
+            box,
+            kind="backup_failed",
+            public_url=public_url,
+            error=(job.error or "?")[:500],
+        )
 
 
 def _alert(database: Database, box: SecretBox, public_url: str, error: str) -> None:

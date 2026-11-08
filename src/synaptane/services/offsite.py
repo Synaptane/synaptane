@@ -83,7 +83,10 @@ def _rclone(
 
 RECIPIENTS_FILE = "age-recipients.txt"
 REMOTES_FILE = "remotes.txt"
-PUBLIC_KEY = re.compile(r"^(age1[0-9a-z]{20,}|ssh-ed25519 \S+|ssh-rsa \S+)(?: .*)?$")
+# age refuses anything after an age1 key; an SSH key may end with its comment.
+PUBLIC_KEY = re.compile(
+    r"^(?:age1[0-9a-z]{20,}|(?:ssh-ed25519|ssh-rsa) [A-Za-z0-9+/=]+(?: \S.*)?)$"
+)
 
 
 def setup_dir(settings: Settings) -> Path:
@@ -96,7 +99,8 @@ def _saved(path: Path) -> list[str]:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
-    return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+    stripped = (line.strip() for line in lines)
+    return [line for line in stripped if line and not line.startswith("#")]
 
 
 def _write(path: Path, lines: list[str], header: str) -> None:
@@ -108,7 +112,9 @@ def _write(path: Path, lines: list[str], header: str) -> None:
 
 
 def saved_recipients(settings: Settings) -> list[str]:
-    return _saved(setup_dir(settings) / RECIPIENTS_FILE)
+    """Saved public keys; a line edited by hand that is not one is left out (age would refuse
+    the whole copy every night)."""
+    return [key for key in _saved(setup_dir(settings) / RECIPIENTS_FILE) if PUBLIC_KEY.match(key)]
 
 
 def recipients(settings: Settings) -> list[str]:

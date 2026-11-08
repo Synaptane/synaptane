@@ -9,11 +9,15 @@ import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from synaptane import backup_cli, version_label
 from synaptane.config import ConfigError, Settings, load_settings
 from synaptane.core.errors import BackupError, SynaptaneError
 from synaptane.core.security import SecretBox
+
+if TYPE_CHECKING:
+    from synaptane.services.backup import BackupInfo
 
 Command = Callable[[argparse.Namespace], int]
 
@@ -238,7 +242,13 @@ def cmd_reindex(args: argparse.Namespace) -> int:
 
 
 OFFSITE_INCOMPLETE = 3  # good (and written) archive, incomplete off-site copy
-BACKUP_WAIT = 5 * 3600  # seconds a backup waits for the one running (worker, cron)
+
+
+def backup_wait(settings: Settings) -> float:
+    """Seconds a backup waits for the one running: the longest a backup holds the lock (its
+    dump and its read-back, each bounded by `backup_timeout_minutes`; off-site copies are made
+    outside the lock)."""
+    return 2 * settings.backup_timeout_minutes * 60
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
@@ -248,7 +258,9 @@ def cmd_backup(args: argparse.Namespace) -> int:
     3 archive verified and written, but at least one off-site destination failed. A cron job
     can therefore keep the local archive on code 3, and alert.
     """
-    from synaptane.services import backup, offsite
+    import tempfile
+
+    from synaptane.services import backup, backup_schedule, instance, offsite
 
     settings = _settings(args)
     if args.offsite:
@@ -256,57 +268,30 @@ def cmd_backup(args: argparse.Namespace) -> int:
     if args.output == "-" and sys.stdout.isatty():
         print("Redirect the output to a file: … backup --output - > file", file=sys.stderr)
         return 2
-    with backup.exclusive(
-        settings,
-        BACKUP_WAIT,
-        lambda: print("Another backup is running: waiting for it to finish…", file=sys.stderr),
-    ) as acquired:
-        if not acquired:
-            print(
-                f"Another backup has been running for more than {BACKUP_WAIT // 3600} hours: "
-                "nothing was done.",
-                file=sys.stderr,
-            )
-            return 1
-        return _backup(settings, args)
-
-
-def _backup(settings: Settings, args: argparse.Namespace) -> int:
-    import tempfile
-
-    from synaptane.services import backup, backup_schedule, instance
-
-    options = {"with_repos": not args.without_repos, "with_key": not args.without_key}
-    name = backup.default_name()
-    keep: Path | None = None  # local archive kept (file or folder)
-    if args.output != "-" and (args.output or not args.offsite):
-        # Without --output, the archive goes to $SYNAPTANE_BACKUP_DIR, except with --offsite
-        # alone: the day's copy goes off-site.
-        keep = Path(args.output or settings.backup_dir or ".")
-        if keep.is_dir():
-            keep = keep / name
+    wait = backup_wait(settings)
+    minutes = round(wait / 60)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    # deploy/host/backup.sh run by cron: the worker's automatic backup steps aside.
-    by_host = os.environ.get(backup_schedule.HOST_ENV) == "1"
     # In the data folder (mode 700), not in /tmp: in a container, /tmp is in memory.
     with tempfile.TemporaryDirectory(prefix="backup-", dir=settings.data_dir) as scratch:
-        path = keep or Path(scratch) / name
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            with os.fdopen(fd, "wb") as out:
-                info = backup.backup(settings, out, **options)
-            backup.verify(settings, path)
-        except BaseException:
-            path.unlink(missing_ok=True)
-            raise
-        instance.mark(settings, instance.BACKUP_DONE)
-        if by_host:
-            instance.mark(settings, backup_schedule.HOST_DONE)
-        if args.output == "-":
-            with path.open("rb") as source:
-                shutil.copyfileobj(source, sys.stdout.buffer)
-            sys.stdout.buffer.flush()
-        target = "standard output" if args.output == "-" else str(keep or "no local copy")
+        with backup.exclusive(
+            settings,
+            wait,
+            lambda: print(
+                "Another backup is running (the worker's nightly one, a cron job or a "
+                f"deployment): waiting for it to finish, {minutes} minutes at most…",
+                file=sys.stderr,
+            ),
+        ) as acquired:
+            if not acquired:
+                print(
+                    f"Another backup is still running after {minutes} minutes: nothing was "
+                    "done. Try again later (synaptane backup check).",
+                    file=sys.stderr,
+                )
+                return 1
+            path, info, kept = _write_backup(settings, args, Path(scratch))
+        # Lock released: the off-site copy of this archive does not hold up other backups.
+        target = "standard output" if args.output == "-" else str(kept or "no local copy")
         print(
             f"Backup verified: {target} ({info.users} account(s), {info.spaces} space(s)).",
             file=sys.stderr,
@@ -319,7 +304,56 @@ def _backup(settings: Settings, args: argparse.Namespace) -> int:
             )
         if not args.offsite:
             return 0
-        return _send_offsite(settings, path, Path(scratch))
+        code = _send_offsite(settings, path, Path(scratch))
+        if code == 0 and info.repos and info.key:
+            instance.mark(settings, backup_schedule.COMPLETE_DONE)
+        return code
+
+
+def _write_backup(
+    settings: Settings, args: argparse.Namespace, scratch: Path
+) -> "tuple[Path, BackupInfo, Path | None]":
+    """The verified archive: in `scratch`, or kept (file or folder), always written to a
+    hidden `.part` file renamed once read back. Marked as done only once it has also reached
+    standard output."""
+    from synaptane.services import backup, backup_schedule, instance
+
+    options = {"with_repos": not args.without_repos, "with_key": not args.without_key}
+    name = backup.default_name()
+    kept: Path | None = None  # local archive kept (file or folder)
+    if args.output != "-" and (args.output or not args.offsite):
+        # Without --output, the archive goes to $SYNAPTANE_BACKUP_DIR, except with --offsite
+        # alone: the day's copy goes off-site.
+        kept = Path(args.output or settings.backup_dir or ".")
+        if kept.is_dir():
+            kept = kept / name
+        if kept.exists():
+            raise FileExistsError(f"Already exists: {kept}")
+    path = kept or scratch / name
+    part = path.with_name(f".{path.name}.part")
+    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            info = backup.backup(settings, out, **options)
+        backup.verify(settings, part)
+        part.rename(path)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    if args.output == "-":
+        with path.open("rb") as source:
+            shutil.copyfileobj(source, sys.stdout.buffer)
+        sys.stdout.buffer.flush()  # a broken stream raises here: nothing is marked
+    instance.mark(settings, instance.BACKUP_DONE)
+    in_folder = (
+        kept is not None
+        and settings.backup_dir is not None
+        and kept.parent.resolve() == settings.backup_dir.resolve()
+    )
+    if info.repos and info.key and (args.output == "-" or in_folder):
+        # A full backup kept: the backup of the day for the worker, if recent (deployment).
+        instance.mark(settings, backup_schedule.COMPLETE_DONE)
+    return path, info, kept
 
 
 def _send_offsite(settings: Settings, archive: Path, scratch: Path) -> int:
@@ -422,8 +456,16 @@ def _doctor_offsite(settings: Settings, check: Callable[..., None]) -> None:
     """Off-site backup: always a "warning", never a failure (optional)."""
     from synaptane.services import backup_schedule, offsite
 
+    if backup_schedule.time_invalid(settings):
+        check(
+            "Automatic backup time",
+            False,
+            f'"{settings.backup_time}" is not a time: 04:00 is used (SYNAPTANE_BACKUP_TIME, '
+            "HH:MM or off)",
+            optional=True,
+        )
     if backup_schedule.enabled(settings):
-        check(f"Automatic backup: every day at {settings.backup_time}", True)
+        check(f"Automatic backup: every day at {backup_schedule.time_text(settings)}", True)
     else:
         check(
             "Automatic backup",

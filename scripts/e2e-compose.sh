@@ -241,6 +241,21 @@ else
   populate
 fi
 
+# Right after the start, before any manual backup: a full backup less than 6 hours old would
+# count as the worker's backup of the day (as after a deployment).
+step "Automatic backup by the worker, without any setting (BACKUP_TIME=00:00: right away)"
+for _ in $(seq 1 60); do
+  if dc exec -T app sh -c 'ls /backups/synaptane-*-auto.tar.gz' > "$work/automatic" 2> /dev/null; then
+    break
+  fi
+  sleep 2
+done
+automatic="$(head -n 1 "$work/automatic")"
+[ -n "$automatic" ] || { echo "No automatic backup in /backups after 2 minutes." >&2; exit 1; }
+dc exec -T app tar -tzf "$automatic" > "$work/listing"
+grep -qx "master.key" "$work/listing"
+dc exec -T app synaptane backup check --no-test
+
 step "Git token in the container (/tmp mounted noexec)"
 dc exec -T app python - <<'PY'
 import os, subprocess
@@ -264,19 +279,6 @@ step "Backup"
 (umask 077 && dc exec -T app synaptane backup --output - > "$work/backup.tar.gz")
 tar -tzf "$work/backup.tar.gz" > "$work/listing"
 grep -qx "master.key" "$work/listing"
-
-step "Automatic backup by the worker, without any setting (BACKUP_TIME=00:00: right away)"
-for _ in $(seq 1 60); do
-  if dc exec -T app sh -c 'ls /backups/synaptane-*.tar.gz' > "$work/automatic" 2> /dev/null; then
-    break
-  fi
-  sleep 2
-done
-automatic="$(head -n 1 "$work/automatic")"
-[ -n "$automatic" ] || { echo "No automatic backup in /backups after 2 minutes." >&2; exit 1; }
-dc exec -T app tar -tzf "$automatic" > "$work/listing"
-grep -qx "master.key" "$work/listing"
-dc exec -T app synaptane backup check --no-test
 
 step "Off-site copy: refused without an age key, then encrypted to a folder"
 offsite=(-e SYNAPTANE_BACKUP_REMOTES=/data/offsite)

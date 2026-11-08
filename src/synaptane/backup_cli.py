@@ -66,7 +66,8 @@ def checklist(settings: Settings, *, probe: bool = True) -> list[Line]:
             )
         )
     elif backup_schedule.enabled(settings):
-        add(Line(OK, f"Automatic backup: every day at {settings.backup_time}, in {folder}"))
+        when = backup_schedule.time_text(settings)
+        add(Line(OK, f"Automatic backup: every day at {when}, in {folder}"))
     elif folder is None:
         add(Line(WARNING, "Automatic backup", "no folder: set SYNAPTANE_BACKUP_DIR (backup_dir)"))
     else:
@@ -76,6 +77,14 @@ def checklist(settings: Settings, *, probe: bool = True) -> list[Line]:
                 "Automatic backup",
                 "off (SYNAPTANE_BACKUP_TIME=off): a cron job must run deploy/host/backup.sh "
                 "every night",
+            )
+        )
+    if backup_schedule.time_invalid(settings):
+        add(
+            Line(
+                WARNING,
+                "Automatic backup time",
+                f'"{settings.backup_time}" is not a time: 04:00 is used (HH:MM, or off)',
             )
         )
     if folder is not None:
@@ -100,21 +109,30 @@ def _folder(path: Path, days: int) -> list[Line]:
     if not os.access(existing, os.W_OK):
         return [Line(FAILED, f"Backup folder {path}", "not writable")]
     lines = []
-    free = shutil.disk_usage(existing).free
-    needed = backup_schedule.space_needed(path) if path.exists() else backup_schedule.MIN_FREE
+    usage = shutil.disk_usage(existing)
+    free = usage.free
+    needed = backup_schedule.space_needed(path, usage.total)
     if free < needed:
+        reserve = _size(backup_schedule.reserve(usage.total))
         lines.append(
             Line(
                 WARNING,
                 "Free space",
-                f"{_size(free)} free, {_size(needed)} needed (twice the last archive)",
+                f"{_size(free)} free, {_size(needed)} needed (the next archive, and {reserve} "
+                "left for the database)",
             )
         )
     else:
         lines.append(Line(OK, f"Free space: {_size(free)} in {path}"))
     if days:
         keep = backup_schedule.KEEP_AT_LEAST
-        lines.append(Line(OK, f"Local retention: {days} days (the {keep} newest always kept)"))
+        lines.append(
+            Line(
+                OK,
+                f"Local retention: {days} days for the automatic backups (the {keep} newest "
+                "always kept)",
+            )
+        )
     else:
         lines.append(
             Line(
@@ -335,7 +353,8 @@ def _setup_schedule(settings: Settings) -> None:
         days = settings.backup_local_retention_days
         kept = f"kept {days} days" if days else "all kept"
         print(
-            f"   Automatic every day at {settings.backup_time}, in {settings.backup_dir} "
+            f"   Automatic every day at {backup_schedule.time_text(settings)}, in "
+            f"{settings.backup_dir} "
             f"({kept}): nothing to do."
         )
     elif settings.backup_dir is None:

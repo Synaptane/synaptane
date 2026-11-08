@@ -103,13 +103,26 @@ def _libpq(database_url: str) -> tuple[str, dict[str, str]]:
     return dsn, env
 
 
-def _run(command: list[str], env: dict[str, str]) -> None:
+def _run(command: list[str], env: dict[str, str], timeout: int | None = None) -> None:
+    """`timeout` in minutes: a stuck dump must not hold the backup lock forever."""
     if shutil.which(command[0]) is None:
         raise BackupError(
             f'"{command[0]}" not found: install the PostgreSQL client '
             "(same major version as the server, or newer)."
         )
-    result = subprocess.run(command, env=env, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            command,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout * 60 if timeout else None,
+        )
+    except subprocess.TimeoutExpired:
+        raise BackupError(
+            f"{command[0]} took more than {timeout} minutes: abandoned "
+            "(SYNAPTANE_BACKUP_TIMEOUT_MINUTES)."
+        ) from None
     if result.returncode != 0:
         raise BackupError(f"{command[0]} failed: {result.stderr.strip()[-800:]}")
 
@@ -188,6 +201,7 @@ def backup(
                 dsn,
             ],
             env,
+            settings.backup_timeout_minutes,
         )
         with tarfile.open(fileobj=output, mode="w|gz") as archive:
             data = json.dumps(manifest, indent=2).encode()
@@ -251,7 +265,11 @@ def verify(settings: Settings, archive: Path) -> dict[str, Any]:
             raise BackupError("Incomplete archive: database dump missing.")
         # Without a database connection. Stronger than `pg_restore --list`, which only reads the
         # table of contents: the whole dump is converted to SQL (discarded), as a restore starts.
-        _run(["pg_restore", f"--file={os.devnull}", str(dump)], dict(os.environ))
+        _run(
+            ["pg_restore", f"--file={os.devnull}", str(dump)],
+            dict(os.environ),
+            settings.backup_timeout_minutes,
+        )
     return manifest
 
 
