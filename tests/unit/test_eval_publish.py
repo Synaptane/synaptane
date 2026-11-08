@@ -2,22 +2,27 @@
 
 Every run below is a SYNTHETIC EXAMPLE built by `synthetic_run`: invented outcomes and costs,
 only to check the format, the aggregation, the sort order and the refusals. None of these
-numbers is a measurement, and none is written to `eval/results/`.
+numbers is a measurement, and none is written to `eval/results/`. Fake secrets are built from
+pieces, so that no scanner mistakes them for real ones.
 """
 
 import json
 import random
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from synaptane.ai import anthropic_provider
+from synaptane.ai.base import AIConfig
 from synaptane.services import tidy
 from synaptane.services.tidy_tools import INSTRUCTIONS
 from tests.eval import publish
 from tests.eval.scenarios import SCENARIOS
 
 SCENARIO_NAMES = ("alpha", "beta", "gamma")
+FAKE_KEY = "sk-" + "ant-api03-" + "SYNTHETIC" * 3
 
 
 def synthetic_run(
@@ -31,9 +36,10 @@ def synthetic_run(
     commit: str = "c" * 40,
     dirty: bool | None = False,
     bench_sha: str = "b" * 64,
-    complete: bool = True,
     day: str = "2026-11-01",
     failure: str = "faits",
+    provider: str = "anthropic",
+    price_input: float = 2.0,
 ) -> dict[str, Any]:
     """A SYNTHETIC run file (see the module docstring): never a measurement."""
     outcomes = outcomes or {name: [True, True, True] for name in SCENARIO_NAMES}
@@ -44,6 +50,10 @@ def synthetic_run(
             "trial": n,
             "passed": ok,
             "failures": {} if ok else {failure: "synthetic"},
+            "interrupted": None,
+            "provider_error": None,
+            "served_models": [model],
+            "model_mismatch": False,
             "duration_s": 10.0 + n,
             "tokens": {"input": 1000, "output": 100, "cached": 5000, "cache_write": 1000},
             "turns": 4,
@@ -66,15 +76,17 @@ def synthetic_run(
         "scenarios": [{"name": n, "summary": n, "sha256": n * 4} for n in outcomes],
         "config": {
             "label": label,
-            "provider": "anthropic",
+            "provider": provider,
             "model": model,
             "effort": effort,
+            "effort_requested": effort,
             "base_url": "default",
+            "fallbacks": False,
             "prompt": {"source": "default", "path": publish.DEFAULT_PROMPT, "sha256": prompt_sha},
             "tools_sha256": "t" * 64,
         },
         "price": {
-            "input": 2.0,
+            "input": price_input,
             "output": 10.0,
             "cache_read": 0.05,
             "cache_write": 1.25,
@@ -85,9 +97,10 @@ def synthetic_run(
         },
         "budget": 5.0,
         "trials_requested": trials_requested,
-        "complete": complete,
-        "stopped_by_budget": not complete,
+        "complete": True,
+        "stopped_by": None,
         "trials": trials,
+        "discarded": [],
     }
 
 
@@ -107,6 +120,14 @@ def test_wilson_interval() -> None:
     assert high == 1.0 and 0.43 < low < 0.44  # three out of three proves little
     low, high = publish.wilson(0, 39)
     assert low == 0.0 and 0.08 < high < 0.1
+
+
+def test_sign_test() -> None:
+    assert publish.sign_test(0, 0) == 1.0
+    assert publish.sign_test(13, 0) == pytest.approx(2 / 2**13, abs=1e-4)
+    assert publish.sign_test(5, 0) == 0.0625  # five scenarios out of five: not yet enough
+    assert publish.sign_test(3, 3) == 1.0
+    assert publish.sign_test(1, 9) == publish.sign_test(9, 1) == 0.0215
 
 
 def test_aggregation_counts_rates_spread_and_costs() -> None:
@@ -130,15 +151,13 @@ def test_aggregation_counts_rates_spread_and_costs() -> None:
         "pass_rate": 0.0,
         "failures": {"faits": 3},
     }
-    assert config["tokens_per_run"] == {
-        "input": 1000.0,
-        "output": 100.0,
-        "cached": 5000.0,
-        "cache_write": 1000.0,
-    }
+    assert config["tokens_per_run"]["cache_write"] == 1000.0
     assert config["duration_s"]["per_run"]["mean"] == 12.0
     assert config["label"] == "model-a · medium"
     assert report["method"]["min_trials"] == publish.MIN_TRIALS
+    assert report["comparisons"] == []
+    # Cache writes are already part of the input: counted once.
+    assert "| 6,100 |" in publish.markdown(report, "en")
 
 
 def test_unknown_cost_is_not_counted_as_zero() -> None:
@@ -169,7 +188,34 @@ def test_identical_runs_add_up_and_different_ones_stay_apart() -> None:
     assert labels == {"model-a · medium · prompt dddddddd"}
 
 
-def test_sort_is_by_pass_rate_then_cost_then_label_and_is_stable(tmp_path: Path) -> None:
+def test_two_rows_never_share_a_name() -> None:
+    same_label = [
+        ("a.json", synthetic_run(label="mine", effort="medium")),
+        ("b.json", synthetic_run(label="mine", effort="high")),
+        ("c.json", synthetic_run(provider="openai_compatible")),
+        ("d.json", synthetic_run(price_input=3.0)),
+    ]
+    labels = sorted(c["label"] for c in publish.aggregate(same_label)["configurations"])
+    assert labels == [
+        "mine · high",
+        "mine · medium",
+        "model-a · medium · anthropic",
+        "model-a · medium · openai_compatible",
+    ]
+    prices = [("a.json", synthetic_run()), ("b.json", synthetic_run(price_input=3.0))]
+    assert sorted(c["label"] for c in publish.aggregate(prices)["configurations"]) == [
+        "model-a · medium · 2/10",
+        "model-a · medium · 3/10",
+    ]
+    commits = [("a.json", synthetic_run()), ("b.json", synthetic_run(commit="e" * 40))]
+    shown = publish.aggregate(commits, allow_mixed_commits=True)["configurations"]
+    assert sorted(c["label"] for c in shown) == [
+        "model-a · medium · commit ccccccc",
+        "model-a · medium · commit eeeeeee",
+    ]
+
+
+def test_sort_is_by_lower_bound_then_rate_then_cost_and_is_stable(tmp_path: Path) -> None:
     worse = {"alpha": [True, False, False], "beta": [True] * 3, "gamma": [True] * 3}
     runs = [
         ("cheap.json", synthetic_run("model-c", cost=0.001)),
@@ -190,6 +236,35 @@ def test_sort_is_by_pass_rate_then_cost_then_label_and_is_stable(tmp_path: Path)
         assert (out_a / name).read_bytes() == (out_b / name).read_bytes(), name
 
 
+def test_three_out_of_three_does_not_beat_twenty_nine_out_of_thirty() -> None:
+    lucky = synthetic_run("lucky", outcomes={name: [True] for name in SCENARIO_NAMES})
+    steady = {name: [True] * 10 for name in SCENARIO_NAMES}
+    steady["alpha"][4] = False
+    solid = synthetic_run("solid", outcomes=steady)
+    report = publish.aggregate([("l.json", lucky), ("s.json", solid)], min_trials=1)
+    assert [c["model"] for c in report["configurations"]] == ["solid", "lucky"]
+
+
+def test_paired_comparison_by_scenario() -> None:
+    a = synthetic_run(
+        "model-a", outcomes={"alpha": [True] * 3, "beta": [True] * 3, "gamma": [True] * 3}
+    )
+    b = synthetic_run(
+        "model-b", outcomes={"alpha": [False] * 3, "beta": [True, False, True], "gamma": [True] * 3}
+    )
+    report = publish.aggregate([("a.json", a), ("b.json", b)])
+    (pair,) = report["comparisons"]
+    assert (pair["a_label"], pair["b_label"]) == ("model-a · medium", "model-b · medium")
+    assert (pair["a_better"], pair["b_better"], pair["ties"]) == (2, 0, 1)
+    assert pair["sign_test_p"] == 0.5
+    english = publish.markdown(report, "en")
+    assert "## Paired comparison by scenario" in english
+    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0.500 |" in english
+    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0,500 |" in publish.markdown(
+        report, "fr"
+    )
+
+
 def test_markdown_has_the_method_first_then_the_tables() -> None:
     run = synthetic_run(
         outcomes={"alpha": [True, False, True], "beta": [True] * 3, "gamma": [True] * 3},
@@ -201,24 +276,74 @@ def test_markdown_has_the_method_first_then_the_tables() -> None:
     assert english.index("## Method") < english.index("## Summary")
     assert "3 scenarios, 3 trials per scenario" in english and "Wilson" in english
     assert "### Limits" in english and "not an invoice" in english
+    assert "conditional on these 3 short scenarios" in english
+    assert "overlapping ones do not rule one out" in english
     assert "| Sonnet \\| test | 8/9 | 89 % (56 %–98 %) |" in english
+    assert "| 0 | `ccccccc` |" in english  # trials replayed, commit
     assert "| `alpha` | 2/3 |" in english
     assert "- Sonnet \\| test: `faits` (1)" in english
+    assert "A single configuration: nothing to compare." in english
     assert "`runs/a.json`" in english and "commit `cccccccccccc`" in english
     assert "2.00 / 10.00 USD per million tokens, input / output (public list price)" in english
     assert french.startswith("[English](results.md) | Français\n\n# Banc du rangement")
     assert "## Méthode" in french and "IC 95 %" in french
     assert "89 % (56 %–98 %)" in french and "0,0100 $" in french
     assert "- Sonnet \\| test : `faits` (1)" in french
+    assert "ne l'excluent pas" in french
+
+
+def test_an_unknown_commit_does_not_break_the_tables() -> None:
+    report = publish.aggregate([("a.json", synthetic_run(commit="unknown"))])
+    report["configurations"][0]["synaptane"]["commit"] = None
+    assert "`unknown`" in publish.markdown(report, "en")
 
 
 # --- Refusals -------------------------------------------------------------------------------
 
 
+def _cut(kind: str) -> dict[str, Any]:
+    run = synthetic_run()
+    run["trials"][-1]["interrupted"] = kind
+    run["trials"][-1]["passed"] = False
+    return run
+
+
+def _mismatch() -> dict[str, Any]:
+    run = synthetic_run("claude-sonnet-5-5")
+    run["trials"][0]["served_models"] = ["claude-opus-5-5-20261001"]
+    run["trials"][0]["model_mismatch"] = True
+    return run
+
+
+def _doubled() -> dict[str, Any]:
+    run = synthetic_run()
+    run["trials"].append(dict(run["trials"][0]))
+    return run
+
+
+def _missing() -> dict[str, Any]:
+    run = synthetic_run()
+    run["trials"].pop()
+    return run
+
+
+def _strangers() -> dict[str, Any]:
+    run = synthetic_run()
+    run["trials"][0] = run["trials"][0] | {"trial": 9}
+    return run
+
+
 @pytest.mark.parametrize(
     ("run", "message"),
     [
-        (synthetic_run(complete=False), r"incomplet \(budget atteint\)"),
+        (synthetic_run() | {"complete": False, "stopped_by": "budget"}, r"incomplet \(budget\)"),
+        (_cut("budget"), r"incomplet \(budget\)"),
+        (_cut("provider"), r"incomplet \(provider\)"),
+        (_cut("error"), r"incomplet \(error\)"),
+        (_mismatch(), "servis par un autre modèle"),
+        (_doubled(), "en double"),
+        (_missing(), "manquants"),
+        (_strangers(), "hors des scénarios"),
         (synthetic_run(outcomes={"alpha": [True]}), r"1 essai\(s\) par scénario"),
         (synthetic_run(dirty=True), "arbre modifié"),
         (synthetic_run(dirty=None), "arbre modifié"),
@@ -227,6 +352,12 @@ def test_markdown_has_the_method_first_then_the_tables() -> None:
 def test_runs_that_do_not_compare_honestly_are_refused(run: dict[str, Any], message: str) -> None:
     with pytest.raises(publish.ReportError, match=message):
         publish.aggregate([("x.json", run)])
+
+
+def test_the_model_stopping_itself_counts_as_its_own_failure() -> None:
+    run = _cut("step_cap")
+    (config,) = publish.aggregate([("x.json", run)])["configurations"]
+    assert config["interruptions"] == {"step_cap": 1} and config["passed"] == 8
 
 
 def test_refusal_switches() -> None:
@@ -240,6 +371,10 @@ def test_refusal_switches() -> None:
     fewer = synthetic_run(outcomes={"alpha": [True] * 3})
     with pytest.raises(publish.ReportError, match="même banc"):
         publish.aggregate([("a.json", synthetic_run()), ("b.json", fewer)])
+    mixed = [("a.json", synthetic_run()), ("b.json", synthetic_run("model-b", commit="e" * 40))]
+    with pytest.raises(publish.ReportError, match="commits différents"):
+        publish.aggregate(mixed)
+    assert len(publish.aggregate(mixed, allow_mixed_commits=True)["configurations"]) == 2
 
 
 def test_files_that_are_not_runs_are_refused(tmp_path: Path) -> None:
@@ -255,34 +390,91 @@ def test_files_that_are_not_runs_are_refused(tmp_path: Path) -> None:
         publish.load_runs([future])
 
 
+def test_completeness_is_counted_not_believed() -> None:
+    rows = synthetic_run()["trials"]
+    assert publish.complete(SCENARIO_NAMES, rows, 3)
+    assert not publish.complete(SCENARIO_NAMES, rows[:-1], 3)
+    assert not publish.complete(SCENARIO_NAMES, rows + rows[:1], 3)
+    assert not publish.complete(SCENARIO_NAMES, [r | {"interrupted": "provider"} for r in rows], 3)
+    assert publish.complete(SCENARIO_NAMES, [r | {"interrupted": "refusal"} for r in rows], 3)
+
+
 # --- Secrets and paths ----------------------------------------------------------------------
 
 
-def test_secrets_and_machine_paths_are_scrubbed() -> None:
-    key = "sk-ant-api03-SYNTHETICFAKEKEY0123456789"
-    text = (
-        f"refused {key} in /home/someone/x/y.json and /tmp/synaptane-eval-1/a, "
-        "Bearer abcdef1234567890"
+@pytest.mark.parametrize(
+    "text",
+    [
+        FAKE_KEY,
+        "sk-" + "abcdefgh12",
+        "ghp_" + "a" * 30,
+        "github_pat_" + "A1" * 12,
+        "glpat-" + "A" * 20,
+        "AIza" + "B" * 33,
+        "hf_" + "c" * 30,
+        "xoxb-" + "1234567890-abc",
+        "AKIA" + "ABCDEFGHIJKLMNOP",
+        "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12,
+        "Bearer " + "abcdef1234567890",
+        "x-api-key: " + "whatever",
+        "http://bench:" + "s3cretpass@127.0.0.1:9/v1",
+        "/home/someone/x/y.json",
+        "/tmp/synaptane-eval-1/a",
+        "/mnt/c/Users/rene/x",
+        "C:\\Users\\rene\\x",
+        "/Volumes/Data/x",
+        "/opt/bench/x",
+        "/srv/x",
+        "/workspace/x",
+        "~/bench/x",
+    ],
+)
+def test_what_looks_like_a_secret_or_a_machine_path_is_caught(text: str) -> None:
+    assert publish.leaks(f"refused: {text} (end)"), text
+    assert not publish.leaks(publish.scrub(f"refused: {text} (end)")), text
+
+
+def test_ordinary_bench_text_is_not_mistaken_for_a_secret() -> None:
+    ordinary = (
+        "infra/stockage.md → ../x.md, 16 To, procedures/risk-management-plan-2026.md, "
+        "tests/eval/__main__.py, src/synaptane/services/tidy_tools.py (INSTRUCTIONS), "
+        "passage interrompu (provider)"
     )
-    clean = publish.scrub(text, [key])
-    assert key not in clean and "/home/" not in clean and "/tmp/" not in clean
-    assert "Bearer abc" not in clean and publish.leaks(clean) == []
-    assert publish.scrub("custom-secret-value", ["custom-secret-value"]) == "[secret]"
-    assert publish.leaks("glpat-ABCDEFGHIJKLMNOPQRST ghp_" + "a" * 30) != []
-    # Ordinary bench text is left alone.
-    ordinary = "infra/stockage.md → ../x.md, 16 To, procedures/risk-management-plan-2026.md"
-    assert publish.scrub(ordinary) == ordinary
+    assert publish.leaks(ordinary) == [] and publish.scrub(ordinary) == ordinary
+
+
+def test_the_secrets_of_a_run_include_the_provider_address() -> None:
+    secrets = publish.run_secrets(FAKE_KEY, "http://bench:s3cret%21@llm.corp.internal:8000/v1/")
+    assert FAKE_KEY in secrets and "llm.corp.internal" in secrets
+    assert "s3cret!" in secrets and "bench" in secrets
+    assert publish.leaks("Cannot reach llm.corp.internal", secrets) == [
+        "valeur secrète du lancement"
+    ]
+    assert publish.run_secrets("", "") == []
+
+
+def test_a_run_with_a_secret_is_refused_and_kept_aside_masked(tmp_path: Path) -> None:
+    run = synthetic_run(outcomes={"alpha": [False] * 3})
+    run["trials"][0]["failures"] = {"échec": "Cannot reach http://llm.corp.internal:8000/v1"}
+    secrets = publish.run_secrets(FAKE_KEY, "http://llm.corp.internal:8000/v1")
+    with pytest.raises(publish.ReportError, match="valeur secrète du lancement") as error:
+        publish.write_run(tmp_path / "run.json", run, secrets)
+    assert not (tmp_path / "run.json").exists()
+    assert "llm.corp.internal" not in str(error.value)  # the message never repeats the value
+    aside = Path(tempfile.gettempdir()) / "synaptane-bench-refused-run.json"
+    try:
+        assert "llm.corp.internal" not in aside.read_text() and "[secret]" in aside.read_text()
+    finally:
+        aside.unlink()
 
 
 def test_a_report_never_publishes_a_secret(tmp_path: Path) -> None:
     run = synthetic_run(outcomes={"alpha": [False] * 3})
-    run["trials"][0]["failures"] = {"échec": "passage échoué : sk-ant-api03-LEAKEDLEAKEDLEAKED"}
-    with pytest.raises(publish.ReportError, match="secret"):
-        publish.write_run(tmp_path / "run.json", run)
+    run["trials"][0]["failures"] = {"échec": "synthetic explanation"}
     # The report only keeps grader names, never their explanations…
-    path = write(tmp_path, "leak.json", run)
+    path = write(tmp_path, "ok.json", run)
     publish.write_report([path], tmp_path / "ok")
-    assert "LEAKED" not in "".join(p.read_text() for p in (tmp_path / "ok").iterdir())
+    assert "explanation" not in "".join(p.read_text() for p in (tmp_path / "ok").iterdir())
     # …and refuses anything it would publish that looks like a secret or a machine path.
     run["config"]["label"] = "run from /home/someone/bench"
     path = write(tmp_path, "path.json", run)
@@ -291,7 +483,7 @@ def test_a_report_never_publishes_a_secret(tmp_path: Path) -> None:
     assert not (tmp_path / "out").exists()  # nothing written when a check fails
 
 
-# --- Prompt, fingerprints, file names -------------------------------------------------------
+# --- Prompt, model, fingerprints, file names ------------------------------------------------
 
 
 def test_default_and_custom_prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,23 +495,50 @@ def test_default_and_custom_prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         "sha256": publish.sha256(INSTRUCTIONS),
     }
     custom = tmp_path / "prompt.txt"
-    custom.write_text("Tidy {name} ({address}). {language}{vocation}{custom}", encoding="utf-8")
+    text = "Tidy {name} ({address}). {language}{vocation}{custom}"
+    custom.write_text(text, encoding="utf-8")
     loaded = publish.load_prompt(str(custom))
-    assert (loaded.source, loaded.path) == ("file", "prompt.txt")  # outside the repository
+    # Outside the repository, its commit does not reproduce it: the text goes with the run.
+    assert (loaded.source, loaded.path, loaded.inside) == ("file", "prompt.txt", False)
+    assert loaded.as_json()["text"] == text
     (tmp_path / "prompts").mkdir()
     custom.rename(tmp_path / "prompts" / "v2.txt")
     monkeypatch.setattr(publish, "ROOT", tmp_path)  # a prompt inside the repository
     inside = publish.load_prompt(str(tmp_path / "prompts" / "v2.txt"))
     assert inside.path == "prompts/v2.txt" and inside.sha256 == loaded.sha256
+    assert "text" not in inside.as_json()
     custom.write_text("Tidy {space}.", encoding="utf-8")
     with pytest.raises(ValueError, match="champs inconnus dans l.invite : space"):
         publish.load_prompt(str(custom))
     custom.write_text("A brace { alone", encoding="utf-8")
     with pytest.raises(ValueError, match="accolades"):
         publish.load_prompt(str(custom))
-    with publish.instructions(loaded):
-        assert getattr(tidy, "INSTRUCTIONS") == loaded.template  # noqa: B009
+
+
+def test_bench_settings_are_put_back() -> None:
+    prompt = publish.Prompt("Other {name}.", "file", "x.txt")
+    fallbacks = anthropic_provider.FALLBACK_MODELS
+    with publish.bench_settings(prompt):
+        assert getattr(tidy, "INSTRUCTIONS") == prompt.template  # noqa: B009
+        options = anthropic_provider.request_options(
+            AIConfig("anthropic", "claude-sonnet-5-5", "k")
+        )
+        assert "fallbacks" not in options  # the bench measures the model it asked for
     assert getattr(tidy, "INSTRUCTIONS") == INSTRUCTIONS  # noqa: B009
+    assert fallbacks == anthropic_provider.FALLBACK_MODELS
+    with pytest.raises(RuntimeError), publish.bench_settings(prompt):
+        raise RuntimeError
+    assert getattr(tidy, "INSTRUCTIONS") == INSTRUCTIONS  # noqa: B009
+
+
+def test_effective_effort_and_served_model() -> None:
+    assert publish.effective_effort("anthropic", "claude-sonnet-5-5", "high") == "high"
+    assert publish.effective_effort("anthropic", "claude-haiku-5-5", "high") == "n/a"
+    assert publish.effective_effort("openai", "gpt-6.1-sol", "high") == "n/a"
+    assert publish.same_model("claude-sonnet-5-5", "claude-sonnet-5-5-20261001")
+    assert publish.same_model("llama3", "llama3:latest")
+    assert publish.same_model("openai/gpt-5", "gpt-5-2025-08-07")
+    assert not publish.same_model("claude-sonnet-5-5", "claude-opus-5-5")
 
 
 def test_fingerprints_are_stable_and_follow_the_data() -> None:
@@ -328,9 +547,23 @@ def test_fingerprints_are_stable_and_follow_the_data() -> None:
     assert len(set(first.values())) == len(SCENARIOS)
     bench = publish.bench_fingerprint()
     assert set(bench["files"]) == set(publish.BENCH_FILES) and bench["wiki_pages"] == 50
+    assert {"tests/eval/env.py", "tests/integration/gitutil.py"} <= set(bench["files"])
     assert len(publish.tools_fingerprint()) == 64
     state = publish.source_state()
     assert set(state) == {"version", "commit", "dirty"}
+
+
+def test_source_state_reads_the_repository_not_the_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SYNAPTANE_GIT_SHA", "0" * 40)
+    assert publish.source_state()["commit"] != "0" * 40
+    monkeypatch.setattr(publish, "_git", lambda *args: None)  # no Git: unknown, never clean
+    assert publish.source_state() | {"version": ""} == {
+        "version": "",
+        "commit": "unknown",
+        "dirty": None,
+    }
 
 
 def test_run_file_names_never_overwrite(tmp_path: Path) -> None:

@@ -13,28 +13,36 @@ of the target version.
 ### Added
 - **Publishable results of the tidy-up bench**. A run with a real model
   (`./scripts/eval.sh tidy --model …`) now writes a versioned run file in `eval/results/runs/`
-  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, and whether tracked
-  files were modified, the dates and duration, the fingerprints of the bench, of each scenario,
-  of the prompt and of the agent's tools, the provider, model, effort and price applied, and
-  every trial with its graders, tokens, cost and duration; the API key is masked and the base
-  URL is never written. `./scripts/eval.sh report` aggregates one or more run files into
-  `eval/results/results.json` and two tables, `results.md` and `results.fr.md`, with the method
-  and its limits at the top: per configuration, the pass rate with its 95 % Wilson interval,
-  the score per sweep (mean and standard deviation), the cost per run and per passed run, the
-  tokens and the duration, and the passes per scenario. The report only depends on the run
-  files, so the same runs give the same bytes, and it refuses what does not compare honestly:
-  a run stopped by its budget, fewer than 3 trials per scenario, different scenarios, a
-  modified tree (unless `--allow-dirty`), and anything that looks like a secret or a path of the
-  machine. `--prompt FILE` tries other instructions for the agent in the bench only, and
-  `--label` names the configuration. `./scripts/eval.sh tidy --estimate --model M --trials N`
-  gives the order of magnitude of a run's cost without calling any model. See
-  `docs/dev/eval.md` ("Publish the results") and `eval/results/README.md`. No migration.
+  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, read from the
+  repository, and whether files changed since, the dates and duration, the fingerprints of the
+  bench, of each scenario, of the prompt and of the agent's tools, the provider, model, effort
+  actually sent and price applied, and every trial with its graders, tokens, cost, duration,
+  interruption and the model that served it. `./scripts/eval.sh report` aggregates one or more
+  run files into `eval/results/results.json` and two tables, `results.md` and `results.fr.md`,
+  with the method and its limits at the top: per configuration, the pass rate with its 95 %
+  Wilson interval (rows sorted by its lower bound), the score per sweep (mean and standard
+  deviation), the cost per run and per passed run, the tokens and the duration, the passes per
+  scenario, and between every two configurations a paired comparison by scenario (exact sign
+  test). The report only depends on the run files, so the same runs give the same bytes, and it
+  refuses what does not compare honestly: a run stopped by its budget or by the provider, a
+  trial cut, trials missing or doubled, fewer than 3 trials per scenario, a trial served by
+  another model, different scenarios, different commits (unless `--allow-mixed-commits`), a
+  modified tree (unless `--allow-dirty`). Nothing is masked silently: a run file or a report
+  that would contain the key, the provider's address or credentials, anything that looks like a
+  secret or a path of the machine is not written, and the provider's errors are recorded by
+  class and HTTP status, never by their text. A trial hit by a passing provider error (429,
+  529) is played again, twice at most, and its cost kept. Claude's fallback to another model is
+  turned off in the bench. `--trials` is 3 by default for a real model, fewer needs `--draft`;
+  `--prompt FILE` tries other instructions for the agent in the bench only, and `--label` names
+  the configuration. `./scripts/eval.sh tidy --estimate --model M` gives the order of magnitude
+  of a run's cost without calling any model. Each turn of a provider now carries the name of the
+  model that served it (`Turn.model`). See `docs/dev/eval.md` ("Publish the results") and
+  `eval/results/README.md`. No migration.
 
 ### Changed
 - **Tidy-up bench with a real model**: the trials now run as sweeps, trial 1 of every
-  scenario, then trial 2, so a run stopped by its budget leaves whole sweeps behind it, and
-  `--json` gives the path of the run file in its new format (a JSON object, no longer a list of
-  results).
+  scenario, then trial 2, and `--json` gives the path of the run file in its new format (a JSON
+  object, no longer a list of results).
 
 ## [1.13.0] - 2026-11-08
 

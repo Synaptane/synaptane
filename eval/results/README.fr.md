@@ -30,10 +30,12 @@ lui-même et n'écrit jamais ici.
    ```
 
    Une commande par configuration (modèle, effort, `--prompt FICHIER`, `--label NOM`), sur le
-   même commit et avec le même nombre d'essais. Chacune écrit son fichier dans `runs/`.
-2. `./scripts/eval.sh report`, qui refuse les lancements incomplets, moins de 3 essais, un
-   arbre modifié, des scénarios différents, et tout ce qui ressemble à un secret ou à un chemin
-   de la machine.
+   même commit et avec le même nombre d'essais. Chacune écrit son fichier dans `runs/`, sauf
+   s'il contient ce qui ressemble à un secret : rien n'est alors écrit ici.
+2. `./scripts/eval.sh report`, qui refuse les lancements incomplets (coupés par le budget ou
+   le fournisseur, essais manquants ou en double), moins de 3 essais, un essai servi par un
+   autre modèle, un arbre modifié, des scénarios ou des commits différents, et tout ce qui
+   ressemble à un secret ou à un chemin de la machine.
 3. Validez `runs/` et le rapport ensemble.
 
 ## Comment les reproduire

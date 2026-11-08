@@ -39,7 +39,8 @@ Estimate the cost first, **without any call** (the database is used, not the mod
 It plays the ideal path of every scenario (its good script) and counts what the provider
 would bill for it: the whole conversation as input on every turn (instructions, tools,
 messages, tool results), read back from the cache but for the new part, as the Anthropic
-provider does, and the tool calls as output, with tokens taken as characters / 3.5. A real
+provider does (for another provider, the whole input at full price), and the tool calls as
+output, with tokens taken as characters / 3.5. A real
 model searches and reads more, and its reasoning (effort) is not counted: the range goes from
 the ideal path to five times it, and the advised `--budget` covers the top of the range.
 Estimated on November 9, 2026 (29 model calls per sweep of the 13 scenarios), for 5 trials, in
@@ -60,23 +61,39 @@ export ANTHROPIC_API_KEY=sk-ant-…        # read from the environment, never as
 ```
 
 - `--budget` (in €) is **required**: the bench stops the model as soon as the cumulative cost
-  would reach it (the last turn may go slightly over) and skips the remaining scenarios. Cost
-  follows the public prices in `ai/pricing.py` (cache writes at 1.25 times the input price;
-  public dollar amounts counted one for one); for another model, use `--price-input` and
-  `--price-output` (per million tokens). A run stopped by the budget is not publishable.
-- `--trials 5`: five **sweeps** of every scenario, one after the other (trial 1 of every
-  scenario, then trial 2…), to see a model's variance. Publishing needs at least 3.
+  would reach it (the last turn may go slightly over). Cost follows the public prices in
+  `ai/pricing.py` (cache writes at 1.25 times the input price; public dollar amounts counted
+  one for one); for another model, use `--price-input` and `--price-output` (per million
+  tokens). A run stopped by the budget, even in its last trial, is incomplete and not
+  publishable.
+- `--trials` (3 by default): **sweeps** of every scenario, one after the other (trial 1 of
+  every scenario, then trial 2…), to see a model's variance. Publishing needs at least 3:
+  fewer is refused before any call, unless `--draft` (the run then cannot be published).
+- A trial cut by the provider measures nothing about the model. After a passing error (429,
+  529, time-out, `transient`), the trial is discarded, kept in the run file under `discarded`
+  with its cost, and played again after 30 seconds, twice at most. A lasting error (key
+  refused, model not found, address unreachable after the retries) stops the run, which is
+  then incomplete. A trial the model ends by itself (step cap, refusal) counts as its failure.
+  The provider's error is recorded as its class, message template, HTTP status and whether it
+  is passing, never its free text (which may quote the address).
+- Claude's fallback to another model (`fallbacks`) is turned off in the bench, and each turn
+  records the model that served it: a trial served by another model is refused by the report.
+  The effort is only sent to Claude, and not to the models that refuse it (Haiku): the run file
+  then records `n/a`.
 - `--provider`: any API key provider (`anthropic`, `openai`, `mistral`, `ollama`,
   `openai_compatible`, with `--base-url` and `--api-key-env`). Subscriptions (Claude Code,
-  Codex) are not offered: the bench never touches their credentials.
+  Codex) are not offered: the bench never touches their credentials. The address is recorded
+  as `default` or `custom`, never itself.
 - `--prompt FILE`: tries other instructions in place of `INSTRUCTIONS`
   (`services/tidy_tools.py`), for the bench only, never the instance. The file has the same
   `{…}` fields (`name`, `address`, `description`, `language`, `vocation`, `custom`,
-  `max_deletions`; literal braces doubled), no other. `--label NAME` names the configuration in
-  the report (otherwise model · effort, and the prompt's fingerprint).
+  `max_deletions`; literal braces doubled), no other. A file outside the repository is copied
+  into the run file, whose commit would not reproduce it. `--label NAME` names the
+  configuration in the report (otherwise model · effort, and the prompt's fingerprint).
 - Every real run writes its **run file** in `eval/results/runs/`
   (`<date>-<model>-<effort>[-<label>].json`, never overwritten; `--json PATH` to put it
-  elsewhere): see [Publish the results](#publish-the-results).
+  elsewhere): see [Publish the results](#publish-the-results). The command ends with code 1
+  when the run is incomplete.
 
 **To do: rerun in real mode after the translation of the instructions.** The agent's
 instructions are now in English while the bench's wiki and notes stay in French: the bench
@@ -102,29 +119,53 @@ bytes, whatever their order. Commit the run files and the report together; the
 [README of the folder](../../eval/results/README.md) says how they were produced.
 
 It refuses, with the reason, what does not compare honestly:
-- a run stopped by the budget, or with missing trials;
+- an incomplete run: stopped by the budget or the provider, a trial cut, or trials missing,
+  doubled or outside those requested (completeness is counted again, not taken from the file);
+- a trial served by another model than the one asked for;
 - fewer than 3 trials per scenario (`--min-trials` to change the floor);
 - runs of different scenarios or graders (the bench's fingerprint differs);
-- a run on a modified tree, which its commit alone does not reproduce (`--allow-dirty` to
-  accept it, and it is then flagged);
-- anything that looks like a secret or a path of the machine, in a run file or in what it
-  would publish. The key of a run is masked as soon as the run file is written.
+- runs on different commits (`--allow-mixed-commits` to accept them; the commit is shown on
+  every row anyway);
+- a run on a modified tree, tracked files changed or files not tracked outside
+  `eval/results/`, which its commit alone does not reproduce (`--allow-dirty` to accept it, and
+  it is then flagged).
+
+Nothing is masked silently. Before writing a run file, the bench looks for its secrets (the
+key, the provider's address, its host and its credentials) and for anything that looks like a
+secret (API keys and tokens of the usual services, JWT, `Bearer` or `x-api-key` headers,
+credentials in an address) or a path of the machine (`/home`, `/Users`, `/tmp`, `/opt`,
+`C:\Users`, `~/`…): if it finds any, nothing is written in the repository, a masked copy for
+you alone goes to the temporary folder (so as not to lose a paid run), and the command says
+what was found, never the value. The report checks what it would publish the same way.
 
 Format (`format_version` 1, changed if the meaning of a field changes):
-- **Run file** (`synaptane-tidy-bench-run`): Synaptane's version and commit (`dirty`: tracked
-  files modified), start and end dates, duration; the bench's fingerprint (its files and the
-  wiki) and each scenario's (its notes, human changes, expectations); provider, model, effort,
-  base URL (`default` or `custom`, never the address), prompt (`source`, `path`, `sha256`),
-  tools' fingerprint, price applied, budget, trials requested, `complete`; then each trial:
-  scenario, number, `passed`, failing graders with their explanation, tokens (input, output,
-  cached, cache writes), turns, cost, duration, items filed and the run's metrics.
+- **Run file** (`synaptane-tidy-bench-run`): Synaptane's version and commit (read from the
+  repository; `dirty`: files changed since), start and end dates, duration; the bench's
+  fingerprint (its files, from the graders to the preparation of the space, and the wiki) and
+  each scenario's (its notes, human changes, expectations); provider, model, effort actually
+  sent and requested, base URL (`default` or `custom`), `fallbacks: false`, prompt (`source`,
+  `path`, `sha256`, and `text` outside the repository), tools' fingerprint, price applied,
+  budget, trials requested, `complete`, `stopped_by` (`budget`, `provider` or `null`); then
+  each trial: scenario, number, `passed`, failing graders with their explanation,
+  `interrupted` (`budget`, `provider`, `error`, `step_cap`, `refusal` or `null`),
+  `provider_error`, `served_models`, `model_mismatch`, tokens (input with cache writes,
+  output, cached, cache writes), turns, cost, duration, items filed and the run's metrics; and
+  `discarded`, the trials played again after a passing error.
 - **Report** (`synaptane-tidy-bench-results`): the method, the bench, then one configuration
   per row (same commit, provider, model, effort, prompt, tools and price: two such runs add
-  up), sorted by pass rate, then cost per run, then name: pass rate with its 95 % Wilson
-  interval, sweep score (share of scenarios passed in one sweep: mean, sample standard
-  deviation, minimum, maximum), cost (total, per run with its spread, per passed run), tokens
-  and turns per run, duration, and per scenario the passes and the graders that failed (their
-  names only, not their explanations).
+  up; two rows never share a name, what tells them apart is added), sorted by the **lower
+  bound** of the interval (three passes out of three do not come before 29 out of 30), then
+  pass rate, then cost per run: pass rate with its 95 % Wilson interval, sweep score (share
+  of scenarios passed in one sweep: mean, sample standard deviation, minimum, maximum), cost
+  (total, per run with its spread, per passed run, of the discarded trials), tokens and turns
+  per run, duration, trials replayed, stops by the model itself, and per scenario the passes
+  and the graders that failed (their names only, not their explanations). Then, for each pair
+  of rows, the **paired comparison by scenario**: on how many scenarios each has the higher
+  pass rate, and the exact two-sided sign test.
+
+The intervals are conditional on the bench's scenarios: they say how a configuration does again
+on them, not on a real inbox. Separate intervals suggest a real difference, overlapping ones
+do not rule one out: the paired comparison is the better test between two rows.
 
 Everything published comes from the fictional wiki of the bench (`tests/eval/wikidata.py`,
 public like the scenarios): no data from an instance is read or sent.

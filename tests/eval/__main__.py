@@ -33,6 +33,7 @@ from tests.eval import mcp_bench, publish, search_bench
 from tests.eval.env import Env, temporary
 from tests.eval.scenarios import SCENARIOS
 from tests.eval.tidy_bench import (
+    BUDGET_REACHED,
     CHARS_PER_TOKEN,
     Result,
     Scenario,
@@ -88,6 +89,10 @@ def _prompt(args: argparse.Namespace) -> publish.Prompt | None:
         return None
 
 
+RETRIES = 2  # essais rejoués au plus après une erreur passagère du fournisseur (429, 529…)
+RETRY_PAUSE = 30.0  # secondes avant de rejouer
+
+
 def _real(
     env: Env,
     chosen: list[Scenario],
@@ -97,46 +102,77 @@ def _real(
     ),
 ) -> int:
     """Un vrai modèle : `--trials` balayages de tous les scénarios, puis le fichier du
-    lancement (format publiable, `publish.py`). Les balayages passent l'un après l'autre :
-    un budget atteint laisse des balayages entiers derrière lui."""
+    lancement (format publiable, `publish.py`). Les balayages passent l'un après l'autre.
+
+    Un essai coupé ne mesure pas le modèle : une erreur passagère du fournisseur fait écarter
+    l'essai (gardé dans `discarded`, son coût compté) et le rejouer, `RETRIES` fois au plus ;
+    une erreur durable du fournisseur ou le budget arrêtent le lancement, qui est alors
+    incomplet (et refusé par le rapport)."""
+    args.trials = args.trials or publish.MIN_TRIALS  # défaut : de quoi publier
     key = os.environ.get(args.api_key_env, "")
     if not key and args.provider not in ("ollama", "openai_compatible"):
         print(f"Clé absente : définissez {args.api_key_env}.", file=sys.stderr)
+        return 2
+    if args.trials < publish.MIN_TRIALS and not args.draft:
+        print(
+            f"{args.trials} essai(s) par scénario : moins de {publish.MIN_TRIALS}, le lancement "
+            "ne sera pas publiable. Ajoutez --draft pour le lancer quand même.",
+            file=sys.stderr,
+        )
         return 2
     price, prompt = _price(args), _prompt(args)
     if price is None or prompt is None:
         return 2
     config = AIConfig(args.provider, args.model, key, args.base_url, args.effort)
+    secrets = publish.run_secrets(key, args.base_url)
     budget = Decimal(str(args.budget))
     spent = Decimal(0)
     trials: list[publish.Trial] = []
-    stopped = False
+    discarded: list[publish.Discarded] = []
+    stopped_by: str | None = None
     started = datetime.now(UTC)
-    with publish.instructions(prompt):
+    with publish.bench_settings(prompt):
         for trial in range(1, args.trials + 1):
             for scenario in chosen:
-                if spent >= budget:
-                    stopped = True
+                for attempt in range(RETRIES + 1):
+                    if spent >= budget:
+                        stopped_by = "budget"
+                        break
+
+                    def limit(usage: Usage, already: Decimal = spent) -> str | None:
+                        cost = pricing.cost(usage, price) or Decimal(0)
+                        return BUDGET_REACHED if already + cost >= budget else None
+
+                    clock = time.monotonic()
+                    result = run_scenario(
+                        env,
+                        scenario,
+                        mode=args.model,
+                        config=config,
+                        factory=conversation(scenario),
+                        price=price,
+                        limit=limit,
+                    )
+                    duration = time.monotonic() - clock
+                    spent += result.cost or Decimal(0)
+                    print(_line(result, f" #{trial}"), flush=True)
+                    passing = result.error is not None and result.error["transient"]
+                    if result.interrupted == "provider" and passing and attempt < RETRIES:
+                        discarded.append(publish.Discarded(trial, result, duration))
+                        why = result.detail
+                        print(f"        erreur passagère du fournisseur, essai rejoué : {why}")
+                        time.sleep(RETRY_PAUSE)
+                        continue
+                    trials.append(publish.Trial(trial, result, duration))
+                    if result.interrupted == "budget":
+                        stopped_by = "budget"
+                    elif result.interrupted == "provider":
+                        stopped_by = "provider"
+                        print(f"        erreur du fournisseur : {result.detail}", file=sys.stderr)
                     break
-
-                def limit(usage: Usage, already: Decimal = spent) -> str | None:
-                    cost = pricing.cost(usage, price) or Decimal(0)
-                    return "Budget du banc atteint." if already + cost >= budget else None
-
-                clock = time.monotonic()
-                result = run_scenario(
-                    env,
-                    scenario,
-                    mode=args.model,
-                    config=config,
-                    factory=conversation(scenario),
-                    price=price,
-                    limit=limit,
-                )
-                trials.append(publish.Trial(trial, result, time.monotonic() - clock))
-                spent += result.cost or Decimal(0)
-                print(_line(result, f" #{trial}"), flush=True)
-            if stopped:
+                if stopped_by:
+                    break
+            if stopped_by:
                 break
     results = [t.result for t in trials]
     passed = [r for r in results if r.passed]
@@ -148,11 +184,14 @@ def _real(
             f"Coût par passage réussi ≈ {(spent / len(passed)).quantize(unit)} € ; par élément "
             f"rangé dans un passage réussi ≈ {(spent / items).quantize(unit)} €."
         )
-    if stopped:
-        print("Budget atteint : scénarios suivants non joués (lancement incomplet, non publiable).")
+    if stopped_by == "budget":
+        print("Budget atteint : lancement incomplet, non publiable (relancez avec plus de budget).")
+    elif stopped_by == "provider":
+        print("Le fournisseur a échoué : lancement incomplet, non publiable.")
     record = publish.run_record(
         scenarios=chosen,
         trials=trials,
+        discarded=discarded,
         trials_requested=args.trials,
         provider=args.provider,
         model=args.model,
@@ -164,16 +203,19 @@ def _real(
         label=args.label,
         started=started,
         finished=datetime.now(UTC),
-        stopped=stopped,
-        secrets=[key],
+        stopped_by=stopped_by,
     )
     day = started.date().isoformat()
     path = publish.run_path(args.model, args.effort, args.label, day)
     if args.json:
         path = Path(args.json)
-    publish.write_run(path, record)
+    try:
+        publish.write_run(path, record, secrets)
+    except publish.ReportError as error:
+        print(f"Lancement refusé : {error}", file=sys.stderr)
+        return 1
     print(f"Lancement écrit dans {path} ; pour publier : ./scripts/eval.sh report")
-    return 0
+    return 0 if record["complete"] else 1
 
 
 HIGH_FACTOR = 5  # haut de la fourchette : un vrai modèle cherche, relit et raisonne davantage
@@ -181,14 +223,18 @@ HIGH_FACTOR = 5  # haut de la fourchette : un vrai modèle cherche, relit et rai
 
 def _estimate(env: Env, chosen: list[Scenario], args: argparse.Namespace) -> int:
     """Ordre de grandeur du coût d'un lancement, sans aucun appel : le chemin idéal de chaque
-    scénario (son bon script), compté comme le facturerait le fournisseur."""
+    scénario (son bon script), compté comme le facturerait le fournisseur. Le cache relu à
+    chaque tour n'est compté que pour Anthropic, dont le fournisseur le demande ; ailleurs,
+    toute l'entrée au plein tarif (haut de fourchette)."""
+    args.trials = args.trials or publish.MIN_TRIALS
     price, prompt = _price(args), _prompt(args)
     if price is None or prompt is None:
         return 2
+    cache = args.provider == "anthropic"
     total, calls = Decimal(0), 0
-    with publish.instructions(prompt):
+    with publish.bench_settings(prompt):
         for scenario in chosen:
-            result = measured(env, scenario, price)
+            result = measured(env, scenario, price, cache)
             usage = result.usage
             print(
                 f"{scenario.name:<15} {usage.turns:>3} appels · "
@@ -204,7 +250,9 @@ def _estimate(env: Env, chosen: list[Scenario], args: argparse.Namespace) -> int
     print(
         f"\nPar balayage, chemin idéal : {calls} appels au modèle, ≈ {total.quantize(cent)} € "
         f"({args.model} : {price.input} / {price.output} par million de jetons, tarif public en "
-        "dollars compté un pour un comme pour --budget)."
+        "dollars compté un pour un comme pour --budget"
+        + ("" if cache else " ; sans cache : toute l'entrée au plein tarif")
+        + ")."
         f"\n{args.trials} essai(s) par scénario : {args.trials * calls} appels, de {low} € "
         f"(chemin idéal) à ≈ {high} € ({HIGH_FACTOR} fois : un vrai modèle cherche et relit "
         "davantage, et son raisonnement n'est pas compté ici)."
@@ -219,7 +267,11 @@ def _report(args: argparse.Namespace) -> int:
     paths = [Path(p) for p in args.runs] or sorted(publish.RUNS_DIR.glob("*.json"))
     try:
         written = publish.write_report(
-            paths, Path(args.out), min_trials=args.min_trials, allow_dirty=args.allow_dirty
+            paths,
+            Path(args.out),
+            min_trials=args.min_trials,
+            allow_dirty=args.allow_dirty,
+            allow_mixed_commits=args.allow_mixed_commits,
         )
     except publish.ReportError as error:
         print(f"Rapport refusé :\n{error}", file=sys.stderr)
@@ -298,7 +350,12 @@ def parser() -> argparse.ArgumentParser:
     tidy.add_argument(
         "--budget", type=float, default=0.0, help="€ au plus, obligatoire avec --model"
     )
-    tidy.add_argument("--trials", type=int, default=1, help="essais par scénario (variance)")
+    tidy.add_argument(
+        "--trials", type=int, default=0, help="essais par scénario, vrai modèle ; défaut : 3"
+    )
+    tidy.add_argument(
+        "--draft", action="store_true", help="vrai modèle avec moins de 3 essais (non publiable)"
+    )
     tidy.add_argument("--api-key-env", default="ANTHROPIC_API_KEY")
     tidy.add_argument("--price-input", type=Decimal, default=None)
     tidy.add_argument("--price-output", type=Decimal, default=None)
@@ -321,6 +378,9 @@ def parser() -> argparse.ArgumentParser:
     )
     report.add_argument(
         "--allow-dirty", action="store_true", help="accepter un lancement sur un arbre modifié"
+    )
+    report.add_argument(
+        "--allow-mixed-commits", action="store_true", help="accepter des commits différents"
     )
     mcp = sub.add_parser("mcp", help="outils MCP, vus par un assistant")
     mcp.add_argument("--case", action="append", default=[], help="cas (répétable) ; défaut : tous")
@@ -354,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
         if unknown := [n for n in args.scenario if n not in known]:
             cli.error(f"scénario inconnu : {', '.join(unknown)} (connus : {', '.join(known)})")
         chosen = [known[n] for n in args.scenario] or SCENARIOS
-        if args.trials < 1:
+        if args.trials < 0:
             cli.error("--trials : au moins 1")
         if args.estimate:
             if not args.model:

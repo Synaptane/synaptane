@@ -1,14 +1,11 @@
-# Fake secrets used on purpose to test Synaptane's own secret detector, and the masking of the
-# evaluation bench's results.
+# Fake secrets used on purpose to test Synaptane's own secret detector.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Test fixtures of the secret detector and of the bench's masking"
+description = "Test fixtures of the secret detector"
 paths = [
   '''tests/unit/test_secret_scan\.py''',
   '''tests/integration/test_inbox\.py''',
   '''tests/integration/test_ssh_credentials_storage\.py''',
-  '''tests/unit/test_eval_publish\.py''',
-  '''tests/integration/test_eval_bench\.py''',
 ]

@@ -26,6 +26,7 @@ from synaptane.git.repo import GitError
 from synaptane.services import content, deposits, tidy
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.search import fold
+from synaptane.services.tidy import REFUSED, STEP_CAP
 from tests.eval.env import Env, new_space
 
 PREFIX = CONTENT_DIR + "/"
@@ -73,8 +74,9 @@ class Measured(Scripted):
     d'outils en sortie. Les jetons sont estimés à `CHARS_PER_TOKEN` caractères ; le
     raisonnement du modèle (effort) n'est pas compté."""
 
-    def __init__(self, turns: Turns) -> None:
+    def __init__(self, turns: Turns, cache: bool = True) -> None:
         super().__init__(turns)
+        self.cache = cache  # False : tout est facturé en entrée, au plein tarif
         self.context = 0  # caractères de la conversation envoyée au prochain tour
         self.previous = 0  # jetons de la requête précédente (en cache)
         self.seen = 0  # résultats déjà comptés
@@ -92,17 +94,59 @@ class Measured(Scripted):
         self.context += sum(len(r.content) for r in self.results[self.seen :])
         self.seen = len(self.results)
         prompt = self.tokens(self.context)
-        written = max(0, prompt - self.previous)
+        written = max(0, prompt - self.previous) if self.cache else prompt
         turn = super().step()
         out = len(turn.text) + sum(len(repr(c.input)) + len(c.name) for c in turn.tool_calls)
         self.context += out
         self.previous = prompt
-        turn.input_tokens, turn.cache_write_tokens = written, written
+        turn.input_tokens, turn.cache_write_tokens = written, written if self.cache else 0
         turn.cached_tokens, turn.output_tokens = prompt - written, self.tokens(out + 40)
         return turn
 
     def nudge(self, text: str) -> None:
         self.context += len(text)
+
+
+BUDGET_REACHED = "Budget du banc atteint."  # raison donnée par la limite du banc
+
+
+class Watched:
+    """Conversation d'un fournisseur, observée par le banc : modèles qui ont servi chaque tour,
+    et erreur du fournisseur s'il y en a une (le passage, lui, la transforme en interruption
+    sans la lever)."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.models: list[str] = []
+        self.error: AIError | None = None
+
+    def step(self) -> Turn:
+        try:
+            turn: Turn = self.inner.step()
+        except AIError as error:
+            self.error = error
+            raise
+        if turn.model:
+            self.models.append(turn.model)
+        return turn
+
+    def reply(self, results: list[ToolResult]) -> None:
+        self.inner.reply(results)
+
+    def nudge(self, text: str) -> None:
+        self.inner.nudge(text)
+
+
+def provider_error(error: AIError) -> dict[str, Any]:
+    """L'erreur du fournisseur, sans son texte libre (adresse, message de l'API) : sa classe,
+    son modèle de message, son statut HTTP, transitoire ou non."""
+    status = error.label.params.get("status")
+    return {
+        "type": type(error).__name__,
+        "message": error.label.template,
+        "status": status if isinstance(status, int) else None,
+        "transient": error.transient,
+    }
 
 
 @dataclass(frozen=True)
@@ -154,6 +198,12 @@ class Result:
     usage: Usage = field(default_factory=Usage)
     cost: Decimal | None = None
     items_done: int = 0
+    # Passage coupé : "budget", "provider" (erreur du fournisseur), "error" (du banc ou de Git),
+    # ou par le modèle lui-même : "step_cap" (plafond de tours), "refusal". None : allé au bout.
+    interrupted: str | None = None
+    error: dict[str, Any] | None = None  # erreur du fournisseur (`provider_error`)
+    served_models: list[str] = field(default_factory=list)
+    detail: str = ""  # texte complet de l'erreur : pour la console seulement, jamais écrit
 
     @property
     def passed(self) -> bool:
@@ -303,24 +353,60 @@ def run_scenario(
     base = repo.head()
     assert base is not None
     result = Result(scenario.name, mode)
+    inner = factory(names)
+    watched: list[Watched] = []
+
+    def observed(config: AIConfig, system: str, first: str, tools: list[ToolSpec]) -> Any:
+        try:
+            conversation = Watched(inner(config, system, first, tools))
+        except AIError as error:  # le fournisseur refuse dès l'ouverture
+            result.error, result.interrupted = provider_error(error), "provider"
+            raise
+        watched.append(conversation)
+        return conversation
+
     try:
         outcome = tidy.tidy_space(
             env.database,
             env.ws,
             space,
             config,
-            factory=factory(names),
+            factory=observed,
             spent=result.usage,
             limit=limit,
         )
     except (tidy.TidyFailure, AIError, SynaptaneError, GitError) as error:
-        result.failures["échec"] = f"passage échoué : {error}"
+        _interruption(result, watched)
+        result.interrupted = result.interrupted or "error"
+        # Le texte libre d'une erreur peut citer l'adresse du fournisseur : la classe seule.
+        result.failures["échec"] = f"passage interrompu ({result.interrupted})"
+        result.detail = str(error)
         result.cost = pricing.cost(result.usage, price)
         return result
+    _interruption(result, watched)
     result.metrics, result.items_done = outcome.metrics, outcome.items_done
     result.cost = pricing.cost(result.usage, price)
     result.failures = grade(env, space, scenario, base, outcome, titles)
+    if result.interrupted in ("budget", "provider"):
+        result.failures["échec"] = f"passage interrompu ({result.interrupted})"
+        result.detail = outcome.interruption or ""
     return result
+
+
+def _interruption(result: Result, watched: list[Watched]) -> None:
+    """Pourquoi le passage s'est arrêté avant la fin, d'après la conversation et le journal."""
+    result.served_models = sorted({m for w in watched for m in w.models})
+    errors = [w.error for w in watched if w.error is not None]
+    if errors:
+        result.error, result.interrupted = provider_error(errors[-1]), "provider"
+    elif result.interrupted:
+        return
+    elif BUDGET_REACHED in result.usage.notes:
+        result.interrupted = "budget"
+    elif STEP_CAP in result.usage.notes:
+        result.interrupted = "step_cap"
+    elif REFUSED in result.usage.notes:
+        result.interrupted = "refusal"
 
 
 def scripted(env: Env, scenario: Scenario, which: str) -> Result:
@@ -336,15 +422,17 @@ def scripted(env: Env, scenario: Scenario, which: str) -> Result:
     )
 
 
-def measured(env: Env, scenario: Scenario, price: pricing.Price | None) -> Result:
+def measured(
+    env: Env, scenario: Scenario, price: pricing.Price | None, cache: bool = True
+) -> Result:
     """Le bon script, compté comme le facturerait un vrai fournisseur (`Measured`) : le coût
-    du chemin idéal, sans aucun appel."""
+    du chemin idéal, sans aucun appel. `cache` : historique relu depuis le cache (Anthropic)."""
     config = AIConfig(provider="anthropic", model="banc-estime", api_key="k")
     return run_scenario(
         env,
         scenario,
         mode="estimé",
         config=config,
-        factory=lambda names: Measured(scenario.good(names)).factory,
+        factory=lambda names: Measured(scenario.good(names), cache).factory,
         price=price,
     )

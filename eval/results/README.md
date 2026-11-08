@@ -30,10 +30,12 @@ writes here.
    ```
 
    One command per configuration (model, effort, `--prompt FILE`, `--label NAME`), on the same
-   commit and with the same number of trials. Each writes its file in `runs/`.
-2. `./scripts/eval.sh report`, which refuses incomplete runs, fewer than 3 trials, runs on a
-   modified tree, different scenarios, and anything that looks like a secret or a path of the
-   machine.
+   commit and with the same number of trials. Each writes its file in `runs/`, unless it
+   contains something that looks like a secret: then nothing is written here.
+2. `./scripts/eval.sh report`, which refuses incomplete runs (cut by the budget or the
+   provider, trials missing or doubled), fewer than 3 trials, a trial served by another model,
+   runs on a modified tree, different scenarios or commits, and anything that looks like a
+   secret or a path of the machine.
 3. Commit `runs/` and the report together.
 
 ## How to reproduce them

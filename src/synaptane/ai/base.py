@@ -80,6 +80,7 @@ class Turn:
     output_tokens: int = 0
     cached_tokens: int = 0  # input read back from the cache
     cache_write_tokens: int = 0  # share of `input_tokens` written to the cache (higher price)
+    model: str = ""  # model that served the turn, as the provider names it ("": not given)
 
 
 @dataclass
