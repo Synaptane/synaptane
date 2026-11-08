@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Full run of the Compose stack, as on a server, with real data: start, doctor, super-admin
 # account, login, token, organization, space linked to a Git repository synced by the worker,
-# page written through the API and pushed by the worker, encrypted AI key, backup, encrypted
-# off-site copy (local folder, throwaway age key), `down -v` (everything erased), restore from
-# that copy, new login, page read back, decryptable secret, new sync by the worker.
+# page written through the API and pushed by the worker, encrypted AI key, backup, automatic
+# backup by the worker, encrypted off-site copy (local folder, throwaway age key), `down -v`
+# (everything erased), restore from that copy, new login, page read back, decryptable secret,
+# new sync by the worker.
 #
 #   SYNAPTANE_IMAGE=synaptane:ci ./scripts/e2e-compose.sh
 #
@@ -49,6 +50,7 @@ POSTGRES_PASSWORD=${postgres_password}
 APP_PORT=${port}
 SYNAPTANE_IMAGE=$1
 COMPOSE_PROFILES=
+BACKUP_TIME=00:00
 EOF
 }
 write_env "$image"
@@ -238,6 +240,21 @@ else
   dc exec -T app synaptane doctor
   populate
 fi
+
+# Right after the start, before any manual backup: a full backup less than 6 hours old would
+# count as the worker's backup of the day (as after a deployment).
+step "Automatic backup by the worker, without any setting (BACKUP_TIME=00:00: right away)"
+for _ in $(seq 1 60); do
+  if dc exec -T app sh -c 'ls /backups/synaptane-*-auto.tar.gz' > "$work/automatic" 2> /dev/null; then
+    break
+  fi
+  sleep 2
+done
+automatic="$(head -n 1 "$work/automatic")"
+[ -n "$automatic" ] || { echo "No automatic backup in /backups after 2 minutes." >&2; exit 1; }
+dc exec -T app tar -tzf "$automatic" > "$work/listing"
+grep -qx "master.key" "$work/listing"
+dc exec -T app synaptane backup check --no-test
 
 step "Git token in the container (/tmp mounted noexec)"
 dc exec -T app python - <<'PY'

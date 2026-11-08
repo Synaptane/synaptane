@@ -11,6 +11,37 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Nightly backup with nothing to set up**. The worker makes a verified backup every night at
+  04:00 (server time) in the `synaptane-backups` volume (`/backups`), and keeps its archives of
+  the last 7 days, always the 3 newest, deleted before the space check so that a full disk
+  recovers. No cron job is needed anymore. Each archive is written to a hidden `.part` file,
+  read back like those of `synaptane backup`, and only then named; the encrypted off-site copy
+  leaves with it when it is set up, once the backup lock is released. A worker started after
+  the time makes the backup of the day right away. Settings: `BACKUP_TIME` (`off`: none;
+  `4:00` and `04h00` are read too, and a value that is not a time gives 04:00 with a warning
+  instead of keeping Synaptane from starting), `BACKUP_LOCAL_RETENTION_DAYS` and
+  `BACKUP_TIMEOUT_MINUTES` (longest dump, 120) in `.env`; from source, `backup_dir` (required
+  for an automatic backup), `backup_time`, `backup_local_retention_days` and
+  `backup_timeout_minutes`. Any failure (full disk, stuck dump, unreachable destination, worker
+  killed until the task is given up) alerts the super admins, by email and in
+  **Administration > Health**. One backup at a time: the worker's, a cron job's, a
+  deployment's and a manual one wait for each other (saying so, for twice the dump timeout at
+  most), and a restore refuses to start while a backup runs. Several workers queue a single
+  backup.
+- **`synaptane backup setup`**: the encrypted off-site copy in one command, question by
+  question (`docker compose exec -it app synaptane backup setup`): encryption key (a new pair
+  whose private key is shown once and saved nowhere, or your own public key), storage (rclone's
+  wizard), destination tested before it is saved, first backup. Keys and destinations are saved
+  in the data volume (`/data/backup/`), without editing `.env` or restarting;
+  `BACKUP_AGE_RECIPIENTS` and `BACKUP_REMOTES` still work and add to them. The same steps
+  without questions: `synaptane offsite key [PUBLIC_KEY]`, `synaptane offsite add NAME:PATH`,
+  `synaptane offsite remove NAME:PATH`.
+- **`synaptane backup check`**: the state of every piece of the backups (automatic backup,
+  folder, free space, retention, last archive, encryption key, each destination tested with a
+  probe file unless `--no-test`, last off-site copy) and, for what is missing, the exact
+  command to run. Exit code 1 if something fails.
+- **Back up now** in **Administration > Health**: a backup by the worker, right away, with its
+  off-site copy. Written to the audit log (`instance.backup_requested`).
 - **Create the space's repository from Synaptane**. In **New space**, "Create the repository
   for me on GitHub or GitLab" creates a private, empty repository on github.com, gitlab.com or a
   self-hosted GitLab (HTTPS), for the token's account or an organization, group or subgroup,
@@ -67,6 +98,24 @@ of the target version.
   migration.
 
 ### Changed
+- **Administration > Health** says how backups are made (automatically, by the server's cron
+  job, or not at all), shows the worker's last run (waiting, in progress, done, skipped because
+  another backup was running, failed and why) and, when the backup or the off-site copy is
+  missing or late, the command to run and a link to the documentation. Destinations without an
+  encryption key are reported. `synaptane doctor` reports the automatic backup too.
+- **`deploy/host/backup.sh`**: existing cron jobs keep working unchanged. Once its archive is
+  checked and in place, the script marks it as verified (and, for the health page, as the last
+  archive) instead of `synaptane backup`. Run without a label (the cron job), it also says
+  while it runs that it is running, and that it made the backup of the day: the worker's
+  automatic backup then steps aside, and takes over by itself, the same day, once the last good
+  backup of the cron job ended more than 26 hours ago and no run is in progress (a run marked
+  for more than 12 hours counts as killed). A night the cron job is only slow, the worker waits
+  for it; if another backup holds the lock, it waits for it too, without giving up the day.
+- **`synaptane backup`** writes its archive to a hidden `.part` file renamed once read back,
+  also in a folder. A backup sent to standard output is marked as verified only once it has
+  gone through, and never as the backup of the day (with `deploy/host/backup.sh`, the script
+  marks it once in place).
+- The backup documentation starts with the simplest path, then the options.
 - **New space** without JavaScript: the repository address is now required by the server when
   the repository is not created by Synaptane (the browser already required it).
 - REST: a malformed request body (422) no longer quotes the values received in `detail`

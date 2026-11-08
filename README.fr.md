@@ -84,8 +84,9 @@ IA la tient en ordre chaque nuit.
 - **Des API ouvertes.** Une API REST complète et des webhooks signés par HMAC. Son schéma
   OpenAPI et sa documentation interactive sont désactivés par défaut (réglage `api_docs`).
 - **Simple à exploiter.** Docker Compose, derrière votre propre proxy ou avec un nginx et
-  Let's Encrypt fournis. `synaptane doctor` vérifie l'installation. Les sauvegardes sont
-  vérifiées, et peuvent être chiffrées et copiées hors du serveur (age et rclone). Les admins
+  Let's Encrypt fournis. `synaptane doctor` vérifie l'installation. Une sauvegarde vérifiée
+  chaque nuit sans rien régler, et une commande (`synaptane backup setup`) pour la chiffrer et
+  la copier hors du serveur (age et rclone). Les admins
   reçoivent des alertes par e-mail, et `/metrics` alimente Prometheus.
 - **Une interface sobre et bilingue.** Thèmes clair et sombre, anglais et français, recherche
   par Ctrl+K.

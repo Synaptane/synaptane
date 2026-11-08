@@ -92,8 +92,8 @@ def test_heartbeat_extends_the_lease(database: Database, wiki: Wiki) -> None:
 
 
 def test_each_lane_only_takes_its_own_jobs(database: Database, wiki: Wiki) -> None:
-    """Tidying, indexing and webhooks each have their own lane; the fast lane only takes the
-    rest (syncs…)."""
+    """Tidying, indexing, webhooks and the backup each have their own lane; the fast lane only
+    takes the rest (syncs…)."""
     from synaptane.worker.runner import DEDICATED, LANES
 
     with database.session() as session:
@@ -101,8 +101,9 @@ def test_each_lane_only_takes_its_own_jobs(database: Database, wiki: Wiki) -> No
         jobs.enqueue(session, "index", wiki.infra.id)
         jobs.enqueue(session, "sync", wiki.infra.id)
         jobs.enqueue(session, "webhook", None, {})
+        jobs.enqueue(session, "backup", None, {"trigger": "schedule"})
     with database.session() as session:
-        fast = [jobs.claim(session, exclude=DEDICATED) for _ in range(4)]
+        fast = [jobs.claim(session, exclude=DEDICATED) for _ in range(5)]
         taken = {
             lane: [jobs.claim(session, kinds=k) for _ in range(2)] for lane, k in LANES.items()
         }
@@ -111,6 +112,7 @@ def test_each_lane_only_takes_its_own_jobs(database: Database, wiki: Wiki) -> No
         "index": ["index"],
         "tidy": ["tidy"],
         "webhook": ["webhook"],
+        "backup": ["backup"],
     }
 
 

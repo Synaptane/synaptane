@@ -11,7 +11,7 @@ import pytest
 
 from synaptane.cli import main
 from synaptane.config import Settings
-from synaptane.services import instance
+from synaptane.services import backup, instance
 from synaptane.storage.db import Database
 from tests.integration.conftest import make_user
 
@@ -87,7 +87,7 @@ def test_offsite_copies_reach_every_working_destination(
         assert "master.key" in tar.getnames()
     # Nothing is left lying in the data directory (plain archive, encrypted copy).
     left = sorted(p.name for p in settings.data_dir.iterdir())
-    assert left == [instance.BACKUP_DONE, "master.key"]
+    assert left == [instance.BACKUP_DONE, backup.LOCK, "master.key"]
 
     assert main(["--config", str(config), "offsite", "list"]) == 1
     assert f"{archive.name}.age" in capsys.readouterr().out

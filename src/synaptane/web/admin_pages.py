@@ -9,6 +9,7 @@ from synaptane.core.access import Action, require
 from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
     accounts,
+    backup_schedule,
     instance,
     organizations,
     sso,
@@ -62,7 +63,23 @@ def admin_health_page(page: WebPage) -> Response:
         section="health",
         report=report,
         metrics_on=bool(page.settings.metrics_token),
+        # "Back up now": the worker writes to the backup folder.
+        can_back_up=page.settings.backup_dir is not None,
+        backup_pending=backup_schedule.pending(page.db),
     )
+
+
+@router.post("/admin/health/backup")
+def admin_backup_now(page: WebPage, csrf: Csrf) -> Response:
+    """A backup by the worker, now: archive, off-site copy if set up, local retention."""
+    actor = page.check_csrf(csrf)
+    try:
+        queued = backup_schedule.request(page.db, actor, page.settings)
+    except SynaptaneError as error:
+        return failure("/admin/health", page, error)
+    if not queued:
+        return redirect("/admin/health", page, "A backup is already waiting or running.")
+    return redirect("/admin/health", page, "Backup requested: the worker makes it in a moment.")
 
 
 @router.get("/admin/sso", response_class=HTMLResponse)

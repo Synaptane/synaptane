@@ -131,6 +131,11 @@ CALLERS: dict[str, dict[str, object]] = {
         "failures": "10",
         "status": "HTTP 502",
     },
+    # services/alerts.py, notify_instance: link, plus the caller's values
+    "alert_backup_failed": {
+        "link": "https://brain.example.com/admin/health",
+        "error": "Archive: pg_dump failed",  # services/backup_schedule.py
+    },
     # services/tidy_notices.py, send: notice to the submitter, and paragraph of notes left
     "tidy_notice": {
         "space": "Infra",
@@ -162,7 +167,8 @@ def test_every_template_is_in_the_callers_table() -> None:
 def test_every_alert_kind_has_a_template() -> None:
     """`alerts.notify` composes `alert_{kind}`: each declared kind must have its template."""
     templates = {kind for kind in mail._TEXTS if kind.startswith("alert_")}
-    assert templates == {f"alert_{kind}" for kind in (*alerts.KINDS, *alerts.ORG_KINDS)}
+    kinds = (*alerts.KINDS, *alerts.ORG_KINDS, *alerts.INSTANCE_KINDS)
+    assert templates == {f"alert_{kind}" for kind in kinds}
 
 
 @pytest.mark.parametrize("locale", LOCALES)
@@ -205,8 +211,9 @@ def _is_call_to(call: ast.Call, module: str, name: str, local: bool) -> bool:
 def real_calls() -> dict[str, set[frozenset[str]]]:
     """Template → argument sets found in the calls of `src/`.
 
-    `alerts.notify` composes `f"alert_{kind}"` with space, org and link, and `alerts.notify_org`
-    with org and link; the keyword arguments of each call are added (except `public_url`)."""
+    `alerts.notify` composes `f"alert_{kind}"` with space, org and link, `alerts.notify_org`
+    with org and link, `alerts.notify_instance` with the link; the keyword arguments of each
+    call are added (except `public_url`)."""
     found: dict[str, set[frozenset[str]]] = {}
     bases: dict[str, frozenset[str]] = {}  # alert function → arguments of its compose
     calls: list[tuple[str, str, frozenset[str]]] = []  # (function, alert kind, arguments)
@@ -229,14 +236,14 @@ def real_calls() -> dict[str, set[frozenset[str]]]:
                 assert ast.unparse(kind) == "f'alert_{kind}'"
                 bases[owner[id(node)]] = frozenset(k.arg for k in node.keywords if k.arg)
                 continue
-            for function in ("notify", "notify_org"):
+            for function in ("notify", "notify_org", "notify_instance"):
                 if _is_call_to(node, "alerts", function, relative == "services/alerts.py"):
                     named = {k.arg: k.value for k in node.keywords}
                     alert = node.args[3] if len(node.args) > 3 else named["kind"]
                     assert isinstance(alert, ast.Constant) and isinstance(alert.value, str)
                     ignore = frozenset({"public_url", "kind"})
                     calls.append((function, alert.value, _keywords(node, ignore)))
-    assert {"notify", "notify_org"} <= set(bases), "compose introuvable dans les alertes"
+    assert {"notify", "notify_org", "notify_instance"} <= set(bases), "compose introuvable"
     for function, alert_kind, values in calls:
         found.setdefault(f"alert_{alert_kind}", set()).add(bases[function] | values)
     return found

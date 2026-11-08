@@ -26,6 +26,15 @@ def states(settings: Settings, db: Session, database: Database, ctx: Workspace) 
     return {check.title: check.state for check in found.checks}
 
 
+PUBLIC = "age1t7t44ul2630hhamyl7k5r6thy9exnjx3p8282727ntnpkjrc6s4q0an2jm"
+
+
+def checks(
+    settings: Settings, db: Session, database: Database, ctx: Workspace
+) -> dict[str, instance.Check]:
+    return {c.title: c for c in instance.report(db, database, ctx, settings).checks}
+
+
 def age(path: Path, delta: timedelta) -> None:
     moment = time.time() - delta.total_seconds()
     os.utime(path, (moment, moment))
@@ -114,10 +123,16 @@ def test_offsite_needs_a_destination_then_a_complete_copy(
 ) -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     assert states(settings, db, database, ctx)["Off-site copy"] == instance.WARN
-    configured = settings.model_copy(update={"backup_remotes": ["s3:bucket"]})
-    assert states(configured, db, database, ctx)["Off-site copy"] == instance.WARN
+    without_key = settings.model_copy(update={"backup_remotes": ["s3:bucket"]})
+    check = checks(without_key, db, database, ctx)["Off-site copy"]
+    assert check.state == instance.WARN and "No encryption key" in check.message.template
+    assert check.command == instance.SETUP_COMMAND
+    configured = without_key.model_copy(update={"backup_age_recipients": [PUBLIC]})
+    assert checks(configured, db, database, ctx)["Off-site copy"].command == instance.CHECK_COMMAND
     instance.mark(configured, instance.OFFSITE_DONE)
-    assert states(configured, db, database, ctx)["Off-site copy"] == instance.OK
+    check = checks(configured, db, database, ctx)["Off-site copy"]
+    assert check.state == instance.OK and check.command == ""
+    assert check.note is not None and check.note.params == {"remotes": "s3:bucket"}
 
 
 def test_a_late_queue_and_a_given_up_task_are_reported(
@@ -160,7 +175,8 @@ def test_a_given_up_sync_says_nothing(
 
 
 def test_every_alert_has_a_title() -> None:
-    assert set(instance.ALERT_TITLES) == set(alerts.KINDS) | set(alerts.ORG_KINDS)
+    kinds = set(alerts.KINDS) | set(alerts.ORG_KINDS) | set(alerts.INSTANCE_KINDS)
+    assert set(instance.ALERT_TITLES) == kinds
 
 
 def test_system_alerts_are_listed_with_their_space(

@@ -41,9 +41,10 @@ if [ "$1" = compose ]; then
     "port app 8000") echo 127.0.0.1:8000 ;;
     "exec -T app synaptane --version") r=$(cat "$f/running"); echo "synaptane 1.0 (${r:0:7})" ;;
     "exec -T app synaptane doctor") echo "[ok] Configuration" ;;
-    "exec -T app synaptane backup --output -")
+    "exec -T -e SYNAPTANE_BACKUP_HOST_MARKS=1 app synaptane backup --output -")
       cp "$f/revision" "$f/revision.saved"; cat "$f/archive.tar.gz" ;;
     "exec -T postgres psql"*) cat "$f/revision" ;;
+    "exec -T app sh -c"*) ;;  # marks of backup.sh in the data volume
     "build --pull") echo "$GIT_SHA" > "$f/tags/synaptane:local" ;;
     "up -d --no-build")
       r=$(cat "$f/tags/synaptane:local"); echo "$r" > "$f/running"

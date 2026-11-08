@@ -4,6 +4,13 @@
 #   deploy/host/backup.sh                 # daily backup (cron, see README.md)
 #   deploy/host/backup.sh avant-abc1234   # label added to the name (deploy.sh)
 #
+# Optional: the worker already makes a backup every night in the synaptane-backups
+# volume. Once its archive is checked and in place, this script marks it in the data volume
+# (verified, complete). Without a label (the cron job), it also says it is running, then that
+# it made the backup of the day: the worker's automatic backup steps aside while it runs, and
+# takes over by itself as soon as its last good backup is more than 26 hours old
+# (docs/admin/backup.md).
+#
 # Settings through environment variables:
 #   BACKUP_DIR      archive folder (default ~/synaptane-backups)
 #   RETENTION_DAYS  older archives are deleted (default 14 days)
@@ -33,15 +40,34 @@ label="${1:-}"
 mkdir -p "$dir"
 chmod 700 "$dir"
 out="$dir/synaptane-$(date +%F)${label:+-$label}.tar.gz"
-trap 'rm -f "$out.part"' EXIT
 log() { echo "$(date -Is) $*" >> "$dir/journal.log"; }
 
 cd "$repo"
+# Marks of the data volume, set in the app container: a plain `touch` or `rm`, harmless with
+# an older image (a checkout not deployed yet). A failure here only means one backup more.
+in_data() {
+  # shellcheck disable=SC2016  # expanded in the container
+  docker compose exec -T app sh -c 'cd "${SYNAPTANE_DATA_DIR:-/data}" && "$@"' sh "$@" \
+    > /dev/null 2>&1 || true
+}
+running=0
+finish() {
+  rm -f "$out.part"
+  if [ "$running" = 1 ]; then in_data rm -f .backup-host-running; fi
+}
+trap finish EXIT
+if [ -z "$label" ]; then
+  in_data touch .backup-host-running
+  running=1
+fi
 command=(synaptane backup --output -)
 [ "${OFFSITE:-0}" = 1 ] && command=(synaptane backup --offsite --output -)
 # Code 3: archive checked and written, but an off-site destination failed.
 status=0
-docker compose exec -T app "${command[@]}" > "$out.part" || status=$?
+# SYNAPTANE_BACKUP_HOST_MARKS: the marks are this script's, once the archive is in place (a
+# variable, not an option: an older image ignores it).
+docker compose exec -T -e SYNAPTANE_BACKUP_HOST_MARKS=1 app "${command[@]}" > "$out.part" \
+  || status=$?
 if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
   log "FAILED backup ${out##*/}"
   echo "Backup impossible (is the application running? docker compose ps)." >&2
@@ -56,6 +82,11 @@ if ! listing="$(tar -tzf "$out.part")" || ! grep -qx "database.dump" <<<"$listin
 fi
 chmod 600 "$out.part"
 mv "$out.part" "$out"
+# The backup is in place: the health page sees it, the worker counts it as the backup of the
+# day (a deployment's) and, for the cron job, steps aside.
+marks=(.backup-done .backup-complete)
+[ -z "$label" ] && marks+=(.backup-host)
+in_data touch "${marks[@]}"
 find "$dir" -maxdepth 1 -name 'synaptane-*.tar.gz' -mtime +"$retention" -delete
 log "$out $(du -h "$out" | cut -f1)"
 

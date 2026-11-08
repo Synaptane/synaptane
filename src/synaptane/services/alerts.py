@@ -126,6 +126,43 @@ def notify_org(
             log.warning("Alert %s not sent to %s: %s", kind, admin.email, error)
 
 
+# Instance alerts, for the super admins: what concerns the whole server (its backups).
+INSTANCE_KINDS = ("backup_failed",)
+
+
+def notify_instance(
+    session: Session, box: SecretBox, *, kind: str, public_url: str = "", **values: object
+) -> bool:
+    """Notifies the super admins: audit log (shown on `/admin/health`) and email. The same
+    alert is not sent again before `QUIET`. False if notified recently."""
+    assert kind in INSTANCE_KINDS
+    action = f"alert.{kind}"
+    recent = session.scalar(
+        select(AuditEvent.id).where(
+            AuditEvent.action == action, AuditEvent.at > datetime.now(UTC) - QUIET
+        )
+    )
+    if recent is not None:
+        return False
+    details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
+    audit(session, None, action, org_id=None, space=None, **details)
+    if not mail.configured(session):
+        return True
+    admins = session.scalars(
+        select(User).where(
+            User.is_superadmin.is_(True), User.is_active.is_(True), User.email.is_not(None)
+        )
+    )
+    link = f"{public_url}/admin/health"
+    for admin in admins:
+        subject, body = mail.compose(f"alert_{kind}", admin.locale, link=link, **values)
+        try:
+            mail.send(session, box, admin.email or "", subject, body)
+        except mail.MailError as error:
+            log.warning("Alert %s not sent to %s: %s", kind, admin.email, error)
+    return True
+
+
 BACKLOG_DAYS = 3
 
 
