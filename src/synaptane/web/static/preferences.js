@@ -190,7 +190,9 @@
       const button = event.submitter;
       if (button) {
         setTimeout(() => { button.disabled = true; button.setAttribute("aria-busy", "true"); }, 0);
-        setTimeout(() => { button.disabled = false; button.removeAttribute("aria-busy"); }, 15000);
+        // A long operation (a repository created on GitHub) says how long it may take.
+        const busy = 1000 * (Number(form.dataset.busySeconds) || 15);
+        setTimeout(() => { button.disabled = false; button.removeAttribute("aria-busy"); }, busy);
       }
     });
   };
@@ -609,6 +611,36 @@
     update();
   };
 
+  // --- New space: existing repository, or created by Synaptane (without JS, everything stays
+  // visible). The repository name proposed is the identifier, or the name made into one.
+  const setupRepoMode = () => {
+    const box = document.querySelector("[data-repo-mode]");
+    if (!box) return;
+    const form = box.closest("form");
+    const provider = box.querySelector("#repo-provider");
+    const repoName = box.querySelector("[data-repo-name]");
+    const slug = form.querySelector("#space-slug");
+    const name = form.querySelector("#space-name");
+    const update = () => {
+      const mode = box.querySelector("input[name=repo_mode]:checked")?.value || "existing";
+      form.querySelectorAll("[data-repo-when]").forEach(part => {
+        part.hidden = part.dataset.repoWhen !== mode;
+        part.querySelectorAll("[data-required]").forEach(input => { input.required = !part.hidden; });
+      });
+      box.querySelectorAll("[data-repo-provider]").forEach(field => { field.hidden = field.dataset.repoProvider !== provider.value; });
+    };
+    const propose = () => {
+      const fromName = (name?.value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      repoName.placeholder = slug?.value || fromName || "infra";
+    };
+    box.addEventListener("change", update);
+    slug?.addEventListener("input", propose);
+    name?.addEventListener("input", propose);
+    update();
+    propose();
+  };
+
   // --- File fields: names of the chosen files, in the page language ----------------------------
   // Several files: each selection adds to the list (instead of replacing it), and each file
   // can be removed; the submitted field stays the same (DataTransfer).
@@ -988,6 +1020,7 @@
     setupTidyJournal();
     setupAccessLimits();
     setupProviderFields();
+    setupRepoMode();
     setupFilePickers();
     setupToc();
     setupCrumbs();

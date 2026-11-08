@@ -11,6 +11,29 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Create the space's repository from Synaptane**. In **New space**, "Create the repository
+  for me on GitHub or GitLab" creates a private, empty repository on github.com, gitlab.com or a
+  self-hosted GitLab (HTTPS), for the token's account or an organization, group or subgroup,
+  named after the space's identifier unless another name is given; the first sync then prepares
+  it as for any space. The admin's token, which must be able to create repositories (GitHub:
+  fine-grained token with the Administration permission; GitLab: the `api` scope), serves this
+  creation only and is never saved, logged or returned. Synaptane keeps an access limited to the
+  new repository: an SSH deploy key with write access on GitHub (github.com's SSH keys read from
+  its API, and read again from it if GitHub changes them), a project access token
+  (`read_repository`, `write_repository`, Maintainer) on GitLab, whose expiry date is shown in
+  **Settings → Git repository**. Every refusal is explained (token refused, missing rights,
+  owner not found, name taken, provider unreachable, too slow or limiting requests, GitLab.com
+  namespace on the free plan, where project access tokens do not exist) and creates nothing; a
+  repository created whose access cannot be set up is still connected to the space, with a
+  message giving its address, and is never deleted. Each call to the provider is abandoned
+  after 20 seconds (name resolution included) and the whole creation after 60, without holding
+  a database connection; an account creates one repository at a time; a refused TLS
+  certificate is reported as such. A
+  self-hosted GitLab must be at a public address, checked as for webhooks, except for the super
+  admin. Audit log: "Git repository created by Synaptane" (`space.repository_created`) and
+  "GitHub SSH host keys updated" (`space.git_host_keys_refreshed`). REST: `create_repository`
+  in `POST /organizations/{org}/spaces`, with a `repository` block in the answer. No migration.
+  See `docs/admin/git.md`.
 - **Groups of members**. In the organization's new **Groups** tab, an administrator creates
   groups (a name unique in the organization, an optional description), adds members of the
   organization to them, and gives each group a role, reader or contributor, on one or several
@@ -44,6 +67,11 @@ of the target version.
   migration.
 
 ### Changed
+- **New space** without JavaScript: the repository address is now required by the server when
+  the repository is not created by Synaptane (the browser already required it).
+- REST: a malformed request body (422) no longer quotes the values received in `detail`
+  (`input`, `ctx`), only `loc`, `msg` and `type`: they could hold a token or a key sent in the
+  same body.
 - **Members of a space**. A **By a group** section lists the groups with a role on the space
   and their members; an administrator gives a group access, or removes it, from there. The list
   of who accesses the space through the organization says which group gives each person their

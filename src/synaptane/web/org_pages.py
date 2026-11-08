@@ -1,6 +1,8 @@
 """An organization's pages: settings, members, AI, embeddings, webhooks."""
 
 from typing import Annotated
+from urllib.parse import urlsplit
+from uuid import UUID
 
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
@@ -9,12 +11,13 @@ from synaptane.ai import cli_agents, pricing
 from synaptane.ai.base import DEFAULT_MODELS, EFFORTS
 from synaptane.ai.embeddings import DEFAULT_EMBEDDING_MODELS, EMBEDDING_PROVIDERS
 from synaptane.core.access import Action, OrgRole, can
-from synaptane.core.errors import Label, SynaptaneError, not_found
+from synaptane.core.errors import Label, SynaptaneError, invalid, not_found
 from synaptane.services import (
     Actor,
     accounts,
     ai_settings,
     budget,
+    forges,
     git_sync,
     groups,
     invitations,
@@ -26,7 +29,8 @@ from synaptane.services import (
     vocation,
     webhooks,
 )
-from synaptane.storage.models import Organization
+from synaptane.storage.models import Organization, Space
+from synaptane.web.i18n import format_day
 from synaptane.web.pages import (
     Csrf,
     Page,
@@ -262,32 +266,103 @@ def space_create(
     branch: Annotated[str, Form()] = "main",
     vocation_template: Annotated[str, Form()] = "",
     restricted: Annotated[bool, Form()] = False,
+    repo_mode: Annotated[str, Form()] = "existing",
+    provider: Annotated[str, Form()] = "github",
+    gitlab_url: Annotated[str, Form()] = "",
+    repo_owner: Annotated[str, Form()] = "",
+    repo_name: Annotated[str, Form()] = "",
+    repo_token: Annotated[str, Form()] = "",
 ) -> Response:
+    """`repo_mode`: "existing" (address entered) or "create" (repository created by Synaptane
+    on GitHub or GitLab with `repo_token`, which is never saved)."""
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
+    created = None
+    started: list[UUID] = []  # spaces whose purpose waits on disk for the first sync
     try:
         chosen = vocation.template(vocation_template) if vocation_template else None
-        space = spaces.create_space(
-            page.db,
-            actor,
-            org,
-            slug=slug,
-            name=name,
-            description=description,
-            repo_url=repo_url,
-            branch=branch,
-            restricted=restricted,
-        )
-        if chosen is not None:
-            vocation.start_with(page.db, actor, page.workspace, space, chosen)
+
+        def start_with(space: Space) -> None:
+            if chosen is not None:
+                started.append(space.id)  # before: a failure may come after the writing
+                vocation.start_with(page.db, actor, page.workspace, space, chosen)
+
+        if repo_mode == "create":
+            space, created = forges.create_space_with_repository(
+                page.db,
+                actor,
+                page.box,
+                org,
+                forges.NewRepository(provider, repo_token, repo_owner, repo_name, gitlab_url),
+                slug=slug,
+                name=name,
+                description=description,
+                branch=branch,
+                restricted=restricted,
+                allow_private=page.settings.allow_private_webhooks,
+                public_host=urlsplit(page.settings.public_url).netloc,
+                then=start_with,
+            )
+        else:
+            # Required in the form too; checked here for a browser without JavaScript.
+            if not repo_url.strip():
+                raise invalid(
+                    "Enter the address of the Git repository, or choose to have it created."
+                )
+            space = spaces.create_space(
+                page.db,
+                actor,
+                org,
+                slug=slug,
+                name=name,
+                description=description,
+                repo_url=repo_url,
+                branch=branch,
+                restricted=restricted,
+            )
+            start_with(space)
     except SynaptaneError as error:
+        # The space was not created after all: its pending purpose goes too.
+        for space_id in started:
+            vocation.pending_file(page.workspace.clone_path(space_id)).unlink(missing_ok=True)
         return failure(f"{org_url(org)}/-/new-space", page, error)
     if space.repo_url:
         jobs.enqueue(page.db, git_sync.SYNC, space.id)
+    if created is None:
+        return redirect(
+            space_settings_url(space, "git"),
+            page,
+            "Space created. Next step: give Synaptane access to the Git repository.",
+        )
+    if created.access_error is not None:
+        return redirect(
+            space_settings_url(space, "git"),
+            page,
+            "Space created, and its repository {address} created on {provider}, but Synaptane "
+            "could not set up its access: {reason} The repository was not deleted: enter its "
+            "credentials below.",
+            kind="warning",
+            address=created.web_url,
+            provider=created.provider_name,
+            reason=Label(created.access_error.template, **created.access_error.params),
+        )
+    if created.token_expires is not None:
+        return redirect(
+            space_settings_url(space, "git"),
+            page,
+            "Space created, and its private repository {address} created on {provider}: Synaptane "
+            "is preparing it. Its access token expires on {date}: renew it before then.",
+            address=created.web_url,
+            provider=created.provider_name,
+            date=format_day(created.token_expires, page.locale),
+        )
     return redirect(
         space_settings_url(space, "git"),
         page,
-        "Space created. Next step: give Synaptane access to the Git repository.",
+        "Space created, and its private repository {address} created on {provider}: Synaptane is "
+        "preparing it.",
+        address=created.web_url,
+        provider=created.provider_name,
     )
 
 

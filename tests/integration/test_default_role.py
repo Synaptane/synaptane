@@ -591,10 +591,25 @@ def test_a_space_can_be_created_restricted(
     assert form.get("name") == "restricted"
     assert_done(
         post(
-            client, "/o/acme/-/spaces", token, slug="direction", name="Direction", restricted="true"
+            client,
+            "/o/acme/-/spaces",
+            token,
+            slug="direction",
+            name="Direction",
+            restricted="true",
+            repo_url="https://forge.example.com/acme/direction.git",
         )
     )
-    assert_done(post(client, "/o/acme/-/spaces", token, slug="ouvert", name="Ouvert"))
+    assert_done(
+        post(
+            client,
+            "/o/acme/-/spaces",
+            token,
+            slug="ouvert",
+            name="Ouvert",
+            repo_url="https://forge.example.com/acme/ouvert.git",
+        )
+    )
     db.expire_all()
     acme = team.wiki.infra.organization
     rh, direction, opened = (

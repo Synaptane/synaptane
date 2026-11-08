@@ -54,8 +54,9 @@ The code never changes; the message is in English, or in French with
 | `unavailable` | 503 (database, repository or server temporarily unavailable; `Retry-After` header) |
 
 A malformed request body (missing field, wrong type) returns 422 in FastAPI's format:
-`{"detail": [{"loc": […], "msg": …, "type": …}]}`. Too many sign-in attempts, or OAuth
-registrations, return 429 as well.
+`{"detail": [{"loc": […], "msg": …, "type": …}]}`, without the values received (they may hold
+a secret sent in the same body). Too many sign-in attempts, or OAuth registrations, return 429
+as well.
 
 `too_many_requests` limits, over a sliding window:
 - inbox drops: 120 notes per hour per account, across all spaces and interfaces (web, REST,
@@ -111,7 +112,7 @@ the space). An organization admin has all rights on its spaces.
 | Method and path | Right | Purpose |
 |---|---|---|
 | `GET /organizations/{org}/spaces` | member | Visible spaces of the organization |
-| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true`: closed to the organization's default role from its creation |
+| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true`: closed to the organization's default role from its creation. With `create_repository` instead of `repo_url`, Synaptane creates the repository on GitHub or GitLab (see below) |
 | `GET …/spaces/{space}` | reader | Details, with the caller's effective `role`, `review_every` (default review interval of the pages, `""`: never) and `restricted` (the organization's default role does not apply) |
 | `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable), `restricted` (`true`: only the members added to the space, the members of the groups given a role on it, and the organization's admins, access it). Changing `repo_url` removes the Git credentials |
 | `DELETE …/spaces/{space}` | admin | Deletes the space in Synaptane; the remote repository is not touched (204) |
@@ -125,6 +126,28 @@ the space). An organization admin has all rights on its spaces.
 
 `…` stands for `/organizations/{org}`. To create a space with a purpose, create it, then send
 `PUT …/vocation` (the text waits for the first sync).
+
+**Creating the repository** (see [Git repositories](../admin/git.md#or-let-synaptane-create-the-repository)):
+`POST /organizations/{org}/spaces` with, instead of `repo_url`:
+
+```json
+{"slug": "infra", "name": "Infra",
+ "create_repository": {"provider": "github", "owner": "acme", "name": "", "token": "github_pat_…"}}
+```
+
+- `provider`: `github` or `gitlab`; `gitlab_url`: address of a self-hosted GitLab, in `https://`
+  (empty: gitlab.com);
+- `owner`: GitHub organization, or GitLab group path (`acme/team`); empty: the token's own
+  account. `name`: empty, the space's `slug`;
+- `token`: used for this request only, never stored nor returned.
+
+The answer (201) adds `repository`: `provider`, `host`, `path` (`acme/infra`), `url` (page on
+the provider), `access` (`ssh`: deploy key, `https`: GitLab project access token, `null`: not
+set up), `access_error` (why, in the caller's language: the repository exists, send its
+credentials with `PUT …/git/credentials`) and `token_expires` (expiry of the GitLab token).
+Nothing is created on a refused token or right, an unknown owner or, on GitLab.com, a free
+plan (400), a name already taken (409), a provider limiting requests (429), unreachable or too
+slow (503). Giving both `repo_url` and `create_repository` is refused (400).
 
 ## Groups
 

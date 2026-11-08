@@ -62,7 +62,13 @@ def test_superadmin_creates_org_space_and_member(client: TestClient, db: Session
     client.post("/admin/organizations", data={"csrf": token, "slug": "acme", "name": "Acme"})
     response = client.post(
         "/o/acme/-/spaces",
-        data={"csrf": token, "slug": "infra", "name": "Infra", "branch": "main"},
+        data={
+            "csrf": token,
+            "slug": "infra",
+            "name": "Infra",
+            "branch": "main",
+            "repo_url": "https://forge.example.com/acme/infra.git",
+        },
         follow_redirects=False,
     )
     assert response.headers["location"] == "/o/acme/infra/-/git"  # next step: the repository

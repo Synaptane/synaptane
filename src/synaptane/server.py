@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     HTMLResponse,
@@ -328,7 +328,13 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
         """Missing or malformed parameter or form field: the application's page (the API
         keeps FastAPI's detailed 422 response)."""
         if request.url.path.startswith("/api/"):
-            return await request_validation_exception_handler(request, error)
+            # FastAPI's detailed answer, without the values received (`input`, `ctx`, `url`):
+            # they may hold a secret sent in the same body (token, key).
+            errors = [
+                {key: item[key] for key in ("type", "loc", "msg") if key in item}
+                for item in error.errors()
+            ]
+            return JSONResponse({"detail": jsonable_encoder(errors)}, 422)
         return error_page(request, 400, "Invalid request: a field is missing or malformed.")
 
     @app.exception_handler(Exception)

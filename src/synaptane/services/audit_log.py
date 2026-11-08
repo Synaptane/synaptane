@@ -75,6 +75,12 @@ def _host(details: Details) -> list[Label]:
     return [Label("{value}", value=host)] if host else []
 
 
+def _hosted(details: Details) -> list[Label]:
+    """A repository created by Synaptane: host and path (github.com/acme/brain)."""
+    host, path = _text(details, "host"), _text(details, "repository")
+    return [Label("{value}", value=f"{host}/{path}")] if host and path else []
+
+
 CHANGED = {
     "display_name": Label("Display name"),
     "email": Label("Email"),
@@ -182,6 +188,18 @@ FIELDS = {
     "superadmin": Field(_flag("superadmin", Label("Super admin"))),
     "credentials": Field(_choice("kind", {"https": Label("HTTPS token"), "ssh": Label("SSH key")})),
     "changed": Field(_changed),
+    "forge": Field(_choice("provider", {"github": Label("GitHub"), "gitlab": Label("GitLab")})),
+    "hosted_repository": Field(_hosted),
+    "repository_access": Field(
+        _choice(
+            "access",
+            {
+                "ssh": Label("SSH deploy key"),
+                "https": Label("Project access token"),
+                "none": Label("Access to enter by hand"),
+            },
+        )
+    ),
     "auto_create": Field(_flag("auto_create", Label("Creates accounts"))),
     "domains": Field(_value("domains", "Allowed domains: {value}")),
     "vocation_template": Field(_template({k: t.label for k, t in vocation.TEMPLATES.items()})),
@@ -265,8 +283,14 @@ ACTIONS: dict[str, Kind] = {
     "space.updated": Kind("settings", Label("Space settings changed"), ("changed",)),
     "space.restricted": Kind("settings", Label("Space restriction changed"), ("restricted",)),
     "space.deleted": Kind("settings", Label("Space deleted"), ("slug",)),
+    "space.repository_created": Kind(
+        "settings",
+        Label("Git repository created by Synaptane"),
+        ("forge", "hosted_repository", "repository_access"),
+    ),
     "space.git_credentials_set": Kind("settings", Label("Git access set"), ("credentials",)),
     "space.git_credentials_cleared": Kind("settings", Label("Git access removed")),
+    "space.git_host_keys_refreshed": Kind("settings", Label("GitHub SSH host keys updated")),
     "space.webhook_secret_rotated": Kind("settings", Label("Git webhook secret renewed")),
     "space.tidy_settings": Kind("settings", Label("Tidy-up settings changed"), ("changed",)),
     "space.embeddings": Kind("settings", Label("Semantic search of the space"), ("enabled",)),
