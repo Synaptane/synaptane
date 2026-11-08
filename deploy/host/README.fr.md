@@ -9,7 +9,7 @@ n'importe quel serveur.
 | Script | Rôle | Lancé par |
 |---|---|---|
 | `deploy.sh [<ref>]` | Mise à jour : sauvegarde, construction, contrôles, retour arrière automatique | vous, à chaque mise à jour |
-| `backup.sh [<étiquette>]` | Sauvegarde dans `~/synaptane-backups`, 14 jours gardés | cron, chaque nuit ; `deploy.sh` |
+| `backup.sh [<étiquette>]` | Sauvegarde dans `~/synaptane-backups`, 14 jours gardés | `deploy.sh` ; cron, si vous voulez la vôtre (facultatif) |
 | `install-nginx.sh <domaine>` | Site nginx (HTTP → HTTPS, HSTS) et certificat Let's Encrypt | `sudo`, une fois (puis à chaque changement de `deploy/nginx/host-site.conf`) |
 
 On suppose le dépôt cloné dans `~/synaptane`, avec son `.env` (voir
@@ -131,9 +131,13 @@ Revenir à une version antérieure, c'est déployer son commit :
 la base a été migrée entre-temps, restaurez la sauvegarde faite avant (procédure à la main
 dans [l'installation](../../docs/admin/installation.fr.md#revenir-en-arrière)).
 
-## Sauvegarde chaque nuit : `backup.sh`
+## Sauvegarde : `backup.sh`
 
-`crontab -e`, sous le compte qui fait tourner Docker :
+Le worker fait déjà une sauvegarde vérifiée chaque nuit, dans le volume `synaptane-backups`
+([Sauvegarde](../../docs/admin/backup.fr.md)) : une tâche cron est facultative. `deploy.sh`
+lance ce script avant chaque mise à jour. Pour garder votre propre copie de la nuit hors des
+volumes Docker, `crontab -e`, sous le compte qui fait tourner Docker (créez d'abord
+`~/synaptane-backups` : cron y écrit ses erreurs) :
 
 ```cron
 0 3 * * * $HOME/synaptane/deploy/host/backup.sh > /dev/null 2>> $HOME/synaptane-backups/cron.err
@@ -146,7 +150,10 @@ dans [l'installation](../../docs/admin/installation.fr.md#revenir-en-arrière)).
 - archives de plus de `RETENTION_DAYS` jours (14) effacées ; une ligne par sauvegarde dans
   `~/synaptane-backups/journal.log` ;
 - `OFFSITE=1` ajoute la copie hors serveur (`synaptane backup --offsite`, voir
-  [Sauvegarde](../../docs/admin/backup.fr.md)) : `0 3 * * * OFFSITE=1 $HOME/synaptane/…`.
+  [Sauvegarde](../../docs/admin/backup.fr.md)) : `0 3 * * * OFFSITE=1 $HOME/synaptane/…` ;
+- sans étiquette (la tâche cron), il signale à Synaptane qu'il a fait la sauvegarde du jour :
+  la sauvegarde automatique du worker s'efface, et reprend d'elle-même si la tâche cron
+  s'arrête.
 
 Ces sauvegardes sont sur le même disque que le serveur : elles protègent d'une erreur,
 pas de la perte du serveur.

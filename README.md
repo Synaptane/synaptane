@@ -82,8 +82,9 @@ don't just read it, they feed it, and an AI agent keeps it organized every night
 - **Open APIs.** A full REST API and HMAC-signed webhooks. Its OpenAPI schema and interactive
   documentation are off by default (`api_docs` setting).
 - **Easy to run.** Docker Compose, behind your own reverse proxy or with a bundled nginx and
-  Let's Encrypt. `synaptane doctor` checks the installation. Backups are verified, and can be
-  encrypted and copied off-site (age and rclone). Admins get alerts by email, and `/metrics`
+  Let's Encrypt. `synaptane doctor` checks the installation. A verified backup every night with
+  nothing to set up, and one command (`synaptane backup setup`) to encrypt it and copy it
+  off-site (age and rclone). Admins get alerts by email, and `/metrics`
   feeds Prometheus.
 - **A calm, bilingual UI.** Light and dark themes, English and French, Ctrl+K search.
 

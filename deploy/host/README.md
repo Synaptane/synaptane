@@ -8,7 +8,7 @@ nginx (the default mode of `compose.yaml`). They are written to work on any serv
 | Script | Role | Run by |
 |---|---|---|
 | `deploy.sh [<ref>]` | Upgrade: backup, build, checks, automatic rollback | you, at each upgrade |
-| `backup.sh [<label>]` | Backup to `~/synaptane-backups`, 14 days kept | cron, every night; `deploy.sh` |
+| `backup.sh [<label>]` | Backup to `~/synaptane-backups`, 14 days kept | `deploy.sh`; cron, if you want your own (optional) |
 | `install-nginx.sh <domain>` | nginx site (HTTP → HTTPS, HSTS) and Let's Encrypt certificate | `sudo`, once (then at each change of `deploy/nginx/host-site.conf`) |
 
 The repository is assumed to be cloned in `~/synaptane`, with its `.env` (see
@@ -129,9 +129,13 @@ commit of each deployment is in the log). If the database was migrated in betwee
 backup taken before (manual procedure in
 [installation](../../docs/admin/installation.md#roll-back)).
 
-## Nightly backup: `backup.sh`
+## Backup: `backup.sh`
 
-`crontab -e`, as the account that runs Docker:
+The worker already makes a verified backup every night, in the `synaptane-backups` volume
+([Backup](../../docs/admin/backup.md)): a cron job is optional. `deploy.sh` runs this script
+before each upgrade. To keep your own nightly copy outside the Docker volumes, `crontab -e`, as
+the account that runs Docker (create `~/synaptane-backups` first: cron writes its errors
+there):
 
 ```cron
 0 3 * * * $HOME/synaptane/deploy/host/backup.sh > /dev/null 2>> $HOME/synaptane-backups/cron.err
@@ -144,7 +148,9 @@ backup taken before (manual procedure in
 - archives older than `RETENTION_DAYS` days (14) are deleted; one line per backup in
   `~/synaptane-backups/journal.log`;
 - `OFFSITE=1` adds the offsite copy (`synaptane backup --offsite`, see
-  [Backup](../../docs/admin/backup.md)): `0 3 * * * OFFSITE=1 $HOME/synaptane/…`.
+  [Backup](../../docs/admin/backup.md)): `0 3 * * * OFFSITE=1 $HOME/synaptane/…`;
+- without a label (the cron job), it tells Synaptane it made the backup of the day: the
+  worker's automatic backup steps aside, and takes over again by itself if the cron job stops.
 
 These backups are on the same disk as the server: they protect against a mistake, not against
 losing the server.

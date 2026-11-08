@@ -2,20 +2,31 @@
 
 # Sauvegarde et restauration
 
-Trois niveaux, à mettre en place dans l'ordre :
+Avec Docker, deux étapes, puis une habitude :
 
-1. **Une archive locale vérifiée chaque nuit** (`synaptane backup`) : elle protège d'une
-   erreur de manipulation ou d'une mise à jour ratée.
-2. **Une copie chiffrée hors du serveur** (`synaptane backup --offsite`), vers une ou
-   plusieurs destinations au choix : S3 et compatibles, SFTP, WebDAV/Nextcloud, NAS SMB,
-   Google Drive, OneDrive, Dropbox… Elle protège d'une panne du disque, d'un vol ou d'un
-   serveur perdu.
+1. **Rien à faire : une sauvegarde vérifiée chaque nuit.** Le worker fait une archive à 4 h,
+   la relit, et garde celles des 7 derniers jours dans le volume `synaptane-backups`. Elle
+   protège d'une erreur de manipulation ou d'une mise à jour ratée.
+   **Administration → Santé** montre la dernière.
+2. **Une commande pour la copie chiffrée hors du serveur**, qui protège d'une panne du disque,
+   d'un vol ou d'un serveur perdu :
+
+   ```sh
+   docker compose exec -it app synaptane backup setup
+   ```
+
+   Elle fabrique la clé de chiffrement (ou prend la vôtre), déclare le stockage (S3 et
+   compatibles, SFTP, WebDAV/Nextcloud, NAS SMB, Google Drive, OneDrive, Dropbox…), le teste,
+   et fait la première copie. Les suivantes partent chaque nuit avec la sauvegarde.
 3. **Un exercice de restauration chaque mois** (`scripts/restore-drill.sh`), sur votre poste.
    Une sauvegarde qu'on n'a jamais restaurée n'est qu'un espoir.
 
+À tout moment, `docker compose exec app synaptane backup check` dit ce qui fonctionne et, pour
+ce qui manque, la commande exacte à lancer.
+
 ## Ce qui est sauvegardé
 
-`synaptane backup` produit une archive `.tar.gz` qui contient :
+Chaque sauvegarde est une archive `.tar.gz` qui contient :
 
 | Élément | Pourquoi |
 |---|---|
@@ -27,51 +38,69 @@ Trois niveaux, à mettre en place dans l'ordre :
 Ne sont **pas** sauvegardés :
 - le texte extrait des PDF et des images, qui se reconstruit depuis Git ;
 - les connexions des CLI Claude Code et Codex, à refaire après une restauration ;
-- la configuration rclone des destinations (`/data/rclone/rclone.conf`) : gardez une copie
-  de ses identifiants dans votre gestionnaire de mots de passe.
+- les réglages de la copie hors serveur gardés dans le volume de données : la configuration
+  rclone des stockages (`/data/rclone/rclone.conf`), et les clés publiques et destinations
+  enregistrées par `backup setup` (`/data/backup/`). Gardez les identifiants des stockages
+  dans votre gestionnaire de mots de passe, et relancez `backup setup` après une restauration
+  sur un nouveau serveur.
 
 L'archive contient la clé maître en clair : **elle donne accès à tous les secrets**. C'est
 pourquoi la copie hors serveur est toujours chiffrée, et refusée sans clé de chiffrement.
 Avec `--without-key`, la clé reste hors de l'archive ; il faut alors la sauvegarder à part,
 une fois pour toutes, car elle ne change pas.
 
-## Sauvegarde locale
+## La sauvegarde de la nuit, sur le serveur
 
-Chaque archive est **relue avant d'être annoncée** : compression intègre (comme `gzip -t`),
-tar complet, manifeste et clé présents, et dump entièrement lisible par `pg_restore`. Une
-archive tronquée (disque plein, interruption) fait échouer la commande le jour même.
+Chaque jour à `BACKUP_TIME` (4 h, heure du serveur `TZ`), le worker :
 
-```sh
-umask 077
-docker compose exec -T app synaptane backup --output - > synaptane-$(date +%F).tar.gz
-```
+1. écrit l'archive dans un fichier caché `.part` de `/backups`, **la relit** (compression
+   intègre comme avec `gzip -t`, tar complet, manifeste et clé présents, dump entièrement
+   lisible par `pg_restore`), et seulement alors lui donne son nom,
+   `synaptane-AAAA-MM-JJ-HHMMSS.tar.gz` (droits 600) : une archive tronquée (disque plein,
+   interruption) ne ressemble jamais à une bonne ;
+2. envoie la copie chiffrée hors serveur, si elle est en place (plus bas) ;
+3. efface les archives de `/backups` plus anciennes que `BACKUP_LOCAL_RETENTION_DAYS`
+   (7 jours), en gardant toujours les 3 plus récentes : une sauvegarde qui échoue jour après
+   jour ne finit pas avec un dossier vide.
 
-Avec `--output -`, rien n'est écrit sur la sortie standard si l'archive est mauvaise.
+Elle n'a besoin de rien : ni tâche cron, ni réglage. Un worker démarré après l'heure
+(installation neuve, redémarrage) fait aussitôt la sauvegarde du jour. Avant d'écrire, il
+vérifie que le disque a deux fois la taille de la dernière archive de libre.
 
-Options :
-- `--output` : un fichier, un dossier, ou `-` pour la sortie standard. Sans `--output`,
-  l'archive va dans `$SYNAPTANE_BACKUP_DIR` (`/backups` avec Docker), sinon dans le dossier
-  courant ;
-- `--without-repos` : sans les copies des dépôts ;
-- `--without-key` : sans la clé maître ;
-- `--offsite` : copie chiffrée hors serveur, voir plus bas.
+**Un échec alerte les super-administrateurs** : par e-mail (si l'envoi est configuré) et dans
+les alertes système d'**Administration → Santé**, avec la cause ; la même alerte n'est pas
+renvoyée avant 20 heures. Les archives précédentes sont gardées.
 
-Le volume `synaptane-backups` (`/backups`) n'a pas de rotation, il est sur le même disque
-que les données, et **`docker compose down -v` l'efface** avec tous les autres volumes : ce
-n'est pas un lieu de conservation. Préférez la sortie standard vers un dossier du serveur.
-Pour en sortir une archive :
+**Administration → Santé** montre la dernière archive vérifiée, comment les sauvegardes sont
+faites et, quand quelque chose manque, la commande à lancer. **Sauvegarder maintenant**
+demande au worker une sauvegarde tout de suite (inscrite au journal d'audit).
+
+Réglages, dans `.env` (puis `docker compose up -d`) :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `BACKUP_TIME` | `04:00` | Heure de la sauvegarde de la nuit, heure du serveur (`TZ`). `off` : pas de sauvegarde automatique (une tâche cron à vous s'en charge, voir plus bas). |
+| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Jours de conservation des archives de `/backups` ; `0` : toutes. |
+
+Une sauvegarde à la fois : celle du worker, celle d'une tâche cron, d'un déploiement ou à la
+main s'attendent l'une l'autre (un verrou dans le volume de données). Une restauration refuse
+de démarrer pendant une sauvegarde.
+
+Le volume `synaptane-backups` est sur le même disque que les données, et **`docker compose
+down -v` l'efface** avec tous les autres volumes : la copie hors serveur protège de cela. Pour
+en sortir une archive :
 
 ```sh
 docker compose exec app ls -l /backups
-docker compose cp app:/backups/synaptane-2026-10-03-030000.tar.gz .
+docker compose cp app:/backups/synaptane-2026-10-03-040000.tar.gz .
 ```
 
-## Copie hors serveur
+## Copie chiffrée hors du serveur
 
 ### Principe
 
 ```text
-serveur : synaptane backup --offsite
+serveur : sauvegarde de la nuit (ou synaptane backup --offsite)
   archive vérifiée ──age──▶ synaptane-AAAA-MM-JJ-HHMMSS.tar.gz.age ──rclone──▶ destination 1
                     (clé publique)                                       ├──▶ destination 2
                                                                          └──▶ …
@@ -82,10 +111,10 @@ votre poste : clé privée age ──▶ déchiffre ──▶ restaure
   publiques. Le serveur chiffre mais **ne peut pas déchiffrer** : un vol du serveur ou de la
   destination ne donne rien. La clé privée reste chez vous.
 - **Copie par [rclone](https://rclone.org/overview/)**, qui connaît plus de 70 types de
-  stockage. Les identifiants des destinations restent dans la configuration rclone, jamais
-  dans la base ni en ligne de commande.
+  stockage. Les identifiants des stockages restent dans la configuration rclone, jamais dans
+  la base ni en ligne de commande.
 - **Plusieurs destinations** : chacune reçoit la copie. Une destination en panne n'empêche
-  pas les autres ; le message dit laquelle a échoué, et le code de sortie le signale.
+  pas les autres ; l'alerte dit laquelle a échoué.
 - **Rétention** : après une copie réussie, les archives `synaptane-*.age` plus anciennes
   que `BACKUP_RETENTION_DAYS` (30 jours par défaut) sont effacées de **cette** destination,
   et seulement à sa racine. Rien d'autre n'est touché, même dans un dossier partagé. Une
@@ -94,58 +123,83 @@ votre poste : clé privée age ──▶ déchiffre ──▶ restaure
 `age` et `rclone` sont dans l'image Docker. Depuis les sources, installez les paquets `age`
 et `rclone`.
 
-### 1. Créer la paire de clés age, sur votre poste
-
-Pas sur le serveur : la clé privée ne doit jamais s'y trouver.
+### La mettre en place : `backup setup`
 
 ```sh
-age-keygen -o synaptane-backup.key
-# Public key: age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+docker compose exec -it app synaptane backup setup
 ```
 
-Rangez `synaptane-backup.key` **avec la clé maître**, une fois pour toutes, à deux endroits :
-votre gestionnaire de mots de passe et une copie papier ou une clé USB dans un tiroir. Sans
-elle, les copies hors serveur sont illisibles, y compris pour vous.
+La commande dit ce qui est déjà fait et ne demande que ce qui manque. Relancée, elle ne change
+rien à ce qui fonctionne.
 
-Plusieurs personnes peuvent restaurer : chacune crée sa paire, et toutes les clés publiques
-sont indiquées (n'importe laquelle des clés privées ouvre l'archive). Une clé SSH publique
-(`ssh-ed25519 …`) convient aussi.
+**1. Sauvegarde sur ce serveur** : elle rappelle l'heure et le dossier ; rien à répondre.
 
-### 2. Déclarer la clé publique
+**2. Clé de chiffrement.** Deux choix :
+- **appuyer sur Entrée** : une paire de clés est fabriquée dans le conteneur. La clé privée
+  est **affichée une seule fois et enregistrée nulle part** ; la commande attend que vous
+  tapiez `saved`, puis ne garde que la clé publique (dans `/data/backup/age-recipients.txt`) ;
+- **coller la clé publique** (`age1…`) d'une paire faite sur votre poste, pour qui ne veut pas
+  que la clé privée passe jamais par le serveur :
 
-Dans `.env`, sur le serveur :
+  ```sh
+  age-keygen -o synaptane-backup.key
+  # Public key: age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+  ```
 
-```sh
-BACKUP_AGE_RECIPIENTS=age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
-```
+Rangez la clé privée **avec la clé maître**, une fois pour toutes, à deux endroits : votre
+gestionnaire de mots de passe et une copie papier ou une clé USB dans un tiroir. **Jamais sur
+le serveur** : qui détient le serveur et cette clé lit les copies. Sans elle, les copies sont
+illisibles, y compris pour vous.
 
-Plusieurs clés : séparées par des virgules. Sans clé, `backup --offsite` **refuse** de
-copier, avec un message clair.
+Plusieurs personnes peuvent restaurer : chacune ajoute sa clé publique
+(`synaptane offsite key age1…`), et n'importe laquelle des clés privées ouvre l'archive. Une
+clé SSH publique (`ssh-ed25519 …`) convient aussi.
 
-### 3. Déclarer les destinations
-
-L'assistant de rclone liste tous les types de stockage et pose les questions une à une :
-
-```sh
-docker compose exec -it app rclone config
-```
-
-La configuration est écrite dans `/data/rclone/rclone.conf` (volume `synaptane-data`,
-droits 600). Ensuite, dans `.env`, la liste des destinations, sous la forme
-`nom:chemin`, séparées par des virgules :
-
-```sh
-BACKUP_REMOTES=b2:synaptane-sauvegardes,nas:sauvegardes/synaptane
-BACKUP_RETENTION_DAYS=30
-```
-
-Puis `docker compose up -d` pour que l'application lise ces réglages.
+**3. Destination.** Le stockage et son accès se déclarent une fois dans rclone : la commande
+propose de lancer l'assistant de rclone (`rclone config`), qui liste tous les types de
+stockage et pose les questions une à une (exemples plus bas). La configuration est écrite dans
+`/data/rclone/rclone.conf` (volume `synaptane-data`, droits 600). Donnez ensuite la
+destination, sous la forme `nom:dossier` (par exemple `b2:synaptane-sauvegardes`) : un petit
+fichier témoin est écrit, relu puis effacé (droits d'écriture, de lecture et d'effacement,
+dont la rétention a besoin), et la destination n'est enregistrée que si tout fonctionne (dans
+`/data/backup/remotes.txt`).
 
 Pour chaque destination, créez un accès **réservé à cet usage** : un seau ou un dossier
 dédié, un compte ou une clé d'API limités à ce seau. Ainsi, une fuite de la configuration
 rclone n'expose rien d'autre.
 
-Exemples de ce que l'assistant produit dans `rclone.conf` (valeurs à remplacer) :
+**4. Première sauvegarde** : faite tout de suite si vous le voulez, avec sa copie hors
+serveur. Les suivantes partent chaque nuit.
+
+Rien à redémarrer, rien à écrire dans `.env` : le worker lit les clés et destinations
+enregistrées à chaque sauvegarde.
+
+### Sans questions
+
+Pour un script ou une gestion de configuration, les mêmes étapes une à une :
+
+```sh
+docker compose exec app synaptane offsite key            # nouvelle paire : clé privée affichée une fois
+docker compose exec app synaptane offsite key age1…      # ou votre clé publique
+docker compose exec -it app rclone config                # le stockage
+docker compose exec app synaptane offsite add b2:synaptane-sauvegardes   # testée, puis enregistrée
+docker compose exec app synaptane offsite remove b2:synaptane-sauvegardes
+```
+
+Ou dans `.env`, puis `docker compose up -d` ; ces variables s'ajoutent à ce que `setup` a
+enregistré :
+
+```sh
+BACKUP_AGE_RECIPIENTS=age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+BACKUP_REMOTES=b2:synaptane-sauvegardes,nas:sauvegardes/synaptane
+BACKUP_RETENTION_DAYS=30
+```
+
+Plusieurs clés ou destinations : séparées par des virgules.
+
+### Exemples de stockages
+
+Ce que l'assistant de rclone écrit dans `rclone.conf` (valeurs à remplacer) :
 
 **S3 et compatibles** (AWS, Scaleway, OVHcloud, Wasabi, MinIO…) :
 
@@ -244,61 +298,94 @@ si le service le propose, le verrouillage des objets (*object lock*) sur le seau
 alors le stockage faire la rétention (règle de cycle de vie) et mettez
 `BACKUP_RETENTION_DAYS=0`, ou donnez au serveur une clé sans droit d'effacement.
 
-### 4. Tester
+### Vérifier
 
 ```sh
-docker compose exec app synaptane offsite test
-# [ok] b2:synaptane-sauvegardes
-# [FAILED] nas:sauvegardes/synaptane — write: … connection refused
+docker compose exec app synaptane backup check
+# [ok] Automatic backup: every day at 04:00, in /backups
+# [ok] Free space: 41.2 GB in /backups
+# [ok] Local retention: 7 days (the 3 newest always kept)
+# [ok] PostgreSQL client
+# [ok] Last verified backup: 2026-11-08 04:00
+# [ok] Encryption: 1 public key(s)
+# [ok] Destination b2:synaptane-sauvegardes: writable
+# [FAILED] Destination nas:sauvegardes/synaptane — write: … connection refused
+# [ok] Off-site retention: 30 days
+# [ok] Last off-site copy: 2026-11-08 04:02
 ```
 
-Pour chaque destination, un petit fichier témoin est écrit, relu puis effacé : les droits
-d'écriture, de lecture et d'effacement (dont la rétention a besoin) sont vérifiés d'un
-coup. Une destination en échec est marquée `[FAILED]`, avec l'étape en cause (`write`,
-`read back` ou `delete`) et la fin du message de rclone. La commande signale aussi une clé
-age manquante, ou un programme `age` absent. `synaptane doctor` résume l'état de la copie
-hors serveur, toujours en avertissement (`warning`), jamais en échec.
+Chaque ligne qui n'est pas `[ok]` dit quoi lancer. Chaque destination reçoit un fichier
+témoin (écrit, relu, effacé) ; `--no-test` s'en passe. Code de sortie 1 si quelque chose
+échoue. Les messages de la ligne de commande sont en anglais.
 
-Première copie à la main, puis vérification :
+Autres commandes :
+- `synaptane offsite test` : le fichier témoin seul, sur chaque destination ;
+- `synaptane offsite list` : les archives chiffrées présentes sur chaque destination ;
+- `synaptane doctor` : résume la sauvegarde automatique et la copie hors serveur, toujours en
+  avertissement (`warning`), jamais en échec.
+
+## Votre propre tâche cron (facultatif)
+
+Avant la sauvegarde automatique, les sauvegardes étaient faites par une tâche cron du serveur,
+avec le script versionné `deploy/host/backup.sh`. **Une installation qui en a une ne change
+rien** : le script garde ses archives (14 jours par défaut dans `~/synaptane-backups`), envoie
+la copie hors serveur avec `OFFSITE=1`, et signale à Synaptane qu'il a fait la sauvegarde du
+jour. La sauvegarde automatique du worker s'efface alors (**Administration → Santé** le dit),
+et **reprend d'elle-même** si la tâche cron s'arrête plus d'un jour.
+
+- Avec `OFFSITE=1`, la tâche cron fait tout ; sans, tant que des destinations hors serveur
+  sont en place, le worker fait quand même sa sauvegarde chaque nuit pour envoyer la copie.
+  Ajoutez `OFFSITE=1`, ou retirez la tâche cron.
+- `BACKUP_TIME=off` dans `.env` laisse les sauvegardes à la seule tâche cron.
+
+Pour en mettre une en place malgré tout (un dossier hors des volumes Docker, par exemple) :
 
 ```sh
-docker compose exec app synaptane backup --offsite
-docker compose exec app synaptane offsite list
-```
-
-Sans `--output`, `--offsite` ne garde **aucune** copie locale : l'archive en clair est
-effacée du serveur une fois chiffrée.
-
-### 5. Tous les jours, avec cron
-
-Le script versionné `deploy/host/backup.sh` garde les archives locales vérifiées (14 jours
-par défaut) et, avec `OFFSITE=1`, envoie la copie chiffrée hors serveur dans la même
-sauvegarde. Il écrit d'abord dans un fichier `.part`, renommé seulement si l'archive est
-bonne : une archive incomplète ne remplace jamais une bonne. Une destination hors serveur en
-échec garde l'archive locale, se note au journal (`~/synaptane-backups/journal.log`) et rend
-le code 3.
-
-```sh
+mkdir -m 700 -p ~/synaptane-backups   # avant le premier passage : cron y écrit ses erreurs
 # crontab -e
 0 3 * * * OFFSITE=1 $HOME/synaptane/deploy/host/backup.sh > /dev/null 2>> $HOME/synaptane-backups/cron.err
 ```
 
-Réglages : `BACKUP_DIR`, `RETENTION_DAYS` (voir l'en-tête du script, et les
-[scripts du serveur](../../deploy/host/README.fr.md)). Cron envoie par e-mail
-ce que le script écrit sur l'erreur standard, si l'envoi de courrier est configuré sur le
-serveur.
+Le script écrit d'abord dans un fichier `.part`, renommé seulement si l'archive est bonne.
+Une destination hors serveur en échec garde l'archive locale, se note au journal
+(`~/synaptane-backups/journal.log`) et rend le code 3. Réglages : `BACKUP_DIR`,
+`RETENTION_DAYS` (voir l'en-tête du script, et les
+[scripts du serveur](../../deploy/host/README.fr.md)). Cron envoie par e-mail ce que le script
+écrit sur l'erreur standard, si l'envoi de courrier est configuré sur le serveur.
 
-Codes de sortie de `synaptane backup` :
+Pour être prévenu quand plus aucune sauvegarde ne tourne (serveur éteint), ajoutez un moniteur
+de type « dead man's switch » (Healthchecks.io, Uptime Kuma…), ou l'alerte Prometheus sur
+`synaptane_backup_last_timestamp_seconds` (voir [Supervision](installation.fr.md#supervision)).
+
+## Sauvegarde à la main : `synaptane backup`
+
+```sh
+umask 077
+docker compose exec -T app synaptane backup --output - > synaptane-$(date +%F).tar.gz
+```
+
+L'archive est relue comme celle de la nuit avant d'être annoncée. Avec `--output -`, rien
+n'est écrit sur la sortie standard si l'archive est mauvaise.
+
+Options :
+- `--output` : un fichier, un dossier, ou `-` pour la sortie standard. Sans `--output`,
+  l'archive va dans `$SYNAPTANE_BACKUP_DIR` (`/backups` avec Docker), sinon dans le dossier
+  courant ;
+- `--without-repos` : sans les copies des dépôts ;
+- `--without-key` : sans la clé maître ;
+- `--offsite` : copie chiffrée hors serveur, vers les destinations en place. Sans `--output`,
+  elle ne garde **aucune** copie locale : l'archive en clair est effacée du serveur une fois
+  chiffrée.
+
+Si une autre sauvegarde est en cours, la commande attend qu'elle se termine.
+
+Codes de sortie :
 
 | Code | Signification |
 |---|---|
 | 0 | Archive vérifiée, et copiée vers toutes les destinations (avec `--offsite`). |
 | 1 | Pas de sauvegarde utilisable, ou copie hors serveur refusée (réglage manquant) : rien n'a été écrit. |
 | 3 | Archive vérifiée (et écrite si `--output`), mais une destination au moins a échoué (copie ou rétention). Le message dit laquelle. |
-
-Pour être prévenu quand la sauvegarde ne tourne plus du tout (cron arrêté, serveur
-éteint), ajoutez à la fin du script un appel à un moniteur de type « dead man's switch »
-(Healthchecks.io, Uptime Kuma…) quand le code vaut 0.
 
 ## Restaurer
 
@@ -321,15 +408,17 @@ restauration : la clé privée ne touche jamais le serveur.
 ```sh
 # Sur votre poste, avec rclone configuré pour lire la destination :
 rclone lsf b2:synaptane-sauvegardes                     # choisir l'archive
-rclone copyto b2:synaptane-sauvegardes/synaptane-2026-10-06-030000.tar.gz.age .
+rclone copyto b2:synaptane-sauvegardes/synaptane-2026-10-06-040000.tar.gz.age .
 # Sur le serveur : docker compose up -d && docker compose stop app worker
-age -d -i synaptane-backup.key synaptane-2026-10-06-030000.tar.gz.age \
+age -d -i synaptane-backup.key synaptane-2026-10-06-040000.tar.gz.age \
   | ssh serveur 'cd ~/synaptane && docker compose run --rm --no-deps -T app synaptane restore -'
 # Sur le serveur : docker compose start app worker
 ```
 
 Sans rclone sur votre poste, téléchargez le fichier depuis l'interface du stockage (console
-S3, Nextcloud, Google Drive…).
+S3, Nextcloud, Google Drive…). Si la paire de clés a été faite par `backup setup`, mettez la
+clé privée qu'elle a affichée dans un fichier de votre poste (`synaptane-backup.key`), pour
+`age -d -i`.
 
 ### Ce que fait la restauration
 
@@ -342,6 +431,7 @@ S3, Nextcloud, Google Drive…).
 
 Elle s'arrête sans rien toucher dans ces cas :
 - **l'application ou le worker sont encore connectés** à la base ;
+- **une sauvegarde est en cours** : attendez qu'elle se termine ;
 - **la sauvegarde vient d'une version plus récente** de Synaptane : installez d'abord cette
   version ;
 - **l'instance a déjà des comptes** : ajoutez `--force` pour les remplacer ;
@@ -356,7 +446,8 @@ d'erreur, la base reste telle qu'elle était. Par prudence, faites quand même u
 `synaptane backup` juste avant un `restore --force`.
 
 `synaptane doctor` vérifie ensuite que les secrets enregistrés se déchiffrent avec la clé en
-place.
+place. Sur un nouveau serveur, relancez `backup setup` : les clés et destinations de la copie
+hors serveur ne sont pas dans l'archive.
 
 Une sauvegarde d'une version **antérieure** se restaure normalement : la base est vidée,
 restaurée, puis mise à niveau. Revenir à la version précédente après une mise à jour
@@ -398,17 +489,24 @@ la clé maître sont toujours là où vous les avez rangées.
 
 ## Depuis les sources
 
+Sans `backup_dir`, le worker ne fait pas de sauvegarde automatique : renseignez-le pour en
+avoir une.
+
 ```sh
 uv run synaptane backup --output /var/backups/synaptane/
-uv run synaptane backup --offsite        # avec backup_age_recipients et backup_remotes
+uv run synaptane backup setup            # clé, destination, première copie
+uv run synaptane backup --offsite        # copie vers les destinations en place
 # Arrêtez synaptane serve et synaptane worker, puis :
-uv run synaptane restore /var/backups/synaptane/synaptane-2026-10-03-030000.tar.gz
+uv run synaptane restore /var/backups/synaptane/synaptane-2026-10-03-040000.tar.gz
 ```
 
 Il faut `pg_dump` et `pg_restore` de la même version majeure que le serveur PostgreSQL, ou
 d'une version plus récente. Dans `synaptane.toml` :
 
 ```toml
+backup_dir = "/var/backups/synaptane"   # sauvegarde automatique chaque nuit (aucune sans lui)
+backup_time = "04:00"                   # heure du serveur ; "off" : aucune
+backup_local_retention_days = 7         # 0 : toutes gardées
 backup_age_recipients = ["age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq"]
 backup_remotes = ["b2:synaptane-sauvegardes", "nas:sauvegardes/synaptane"]
 backup_retention_days = 30

@@ -44,6 +44,14 @@ docker compose exec app synaptane doctor
 Git indique que la copie est en « detached HEAD » : c'est normal après le clone d'une
 étiquette, et vous n'avez rien à y committer.
 
+**Sauvegardes.** Le worker fait déjà une sauvegarde vérifiée chaque nuit, dans le volume
+`synaptane-backups`. Pour la copie chiffrée hors du serveur, une commande, qui pose ses
+questions une à une (voir [Sauvegarde](backup.fr.md)) :
+
+```sh
+docker compose exec -it app synaptane backup setup
+```
+
 `admin create` demande le mot de passe, de 12 caractères au moins.
 
 `SYNAPTANE_VERSION` choisit l'étiquette de l'image. `.env.example` la règle sur la version
@@ -58,15 +66,16 @@ Les services :
 - `postgres` : PostgreSQL 17 avec pgvector ;
 - `migrate` : applique les migrations, puis s'arrête ;
 - `app` : web, API REST et MCP ;
-- `worker` : synchronisation Git, indexation, rangement, routines et webhooks.
+- `worker` : synchronisation Git, indexation, rangement, routines, webhooks et sauvegarde de
+  la nuit.
 
 Les données sont dans des volumes Docker :
 - `postgres-data` ;
 - `synaptane-data` : clé maître, copies des dépôts, texte extrait ;
 - `synaptane-agents` : connexions des CLI pour les abonnements, monté dans le seul worker ;
-- `synaptane-backups` : là où `synaptane backup` écrit sans `--output`. Il est sur le même
-  disque et **`docker compose down -v` l'efface** avec les autres : copiez les sauvegardes
-  hors du serveur (voir [Sauvegarde](backup.fr.md)).
+- `synaptane-backups` : les sauvegardes de la nuit (7 jours gardés), et `synaptane backup`
+  sans `--output`. Il est sur le même disque et **`docker compose down -v` l'efface** avec
+  les autres : la copie chiffrée hors serveur protège de cela (voir [Sauvegarde](backup.fr.md)).
 
 ### Construire l'image vous-même
 
@@ -317,9 +326,12 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `allow_private_webhooks` | Autorise les webhooks en HTTP et vers le réseau local. **Développement uniquement.** |
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
 | `metrics_token` | Jeton porteur de `/metrics` pour Prometheus, 32 caractères au moins (voir [Supervision](#supervision)). Vide par défaut : `/metrics` n'existe pas. Avec Docker : `METRICS_TOKEN` dans `.env`. |
-| `backup_age_recipients` | Clés publiques age (`age1…`) pour lesquelles `backup --offsite` chiffre. En variable d'environnement : séparées par des virgules. Voir [Sauvegarde](backup.fr.md). |
+| `backup_dir` | Dossier de la sauvegarde de la nuit faite par le worker (`/backups` dans l'image, `SYNAPTANE_BACKUP_DIR`). Absent : pas de sauvegarde automatique. Voir [Sauvegarde](backup.fr.md). |
+| `backup_time` | Heure de la sauvegarde de la nuit, heure du serveur : `04:00` par défaut ; `off` : aucune. |
+| `backup_local_retention_days` | Jours de conservation des archives de `backup_dir`, 7 par défaut (les 3 plus récentes toujours) ; `0` : toutes. |
+| `backup_age_recipients` | Clés publiques age (`age1…`) pour lesquelles la copie hors serveur est chiffrée, en plus de celles enregistrées par `backup setup`. En variable d'environnement : séparées par des virgules. |
 | `backup_age_recipients_file` | Ou un fichier de destinataires age. |
-| `backup_remotes` | Destinations rclone de la copie hors serveur (`nom:chemin`, ou un dossier). |
+| `backup_remotes` | Destinations rclone de la copie hors serveur (`nom:chemin`, ou un dossier), en plus de celles enregistrées par `backup setup`. |
 | `backup_retention_days` | Archives distantes plus anciennes effacées, 30 jours par défaut ; `0` : jamais. |
 | `backup_rclone_config` | Configuration rclone. Par défaut `$RCLONE_CONFIG` (`/data/rclone/rclone.conf` avec Docker), sinon `<data_dir>/rclone/rclone.conf`. |
 
@@ -336,7 +348,8 @@ Avec Docker Compose, ces variables se règlent dans `.env` (voir les commentaire
 | `GIT_SHA`, `AGENT_CLIS` | Construction seulement (`compose.build.yaml`) : commit inscrit dans l'image, CLI d'abonnement (`true` par défaut). |
 | `APP_PORT`, `APP_BIND`, `FORWARDED_ALLOW_IPS` | Mode par défaut : port local (8000), son adresse (`127.0.0.1`), réseaux des proxys de confiance. |
 | `DOMAIN`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`, `HTTP_PORT`, `HTTPS_PORT` | Mode proxy : domaine, compte Let's Encrypt et certificats de test, ports publiés (80 et 443). |
-| `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Copie hors serveur (voir [Sauvegarde](backup.fr.md)). |
+| `BACKUP_TIME`, `BACKUP_LOCAL_RETENTION_DAYS` | Sauvegarde de la nuit : heure (`04:00`, `off` : aucune), jours gardés (7). Voir [Sauvegarde](backup.fr.md). |
+| `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Copie hors serveur, sans `backup setup` (voir [Sauvegarde](backup.fr.md)). |
 | `SYNAPTANE_DEFAULT_LOCALE`, `OCR_LANGUAGES`, `TZ` | Langue de l'interface, langues de l'OCR, fuseau horaire. |
 | `SYNAPTANE_WORKER_MEMORY`, `SYNAPTANE_LOG_LEVEL` | Mémoire maximale du worker (`2g`), niveau des journaux. |
 
@@ -424,6 +437,10 @@ par le webhook `space.alert`, de ce qui demande leur attention, par exemple quan
 La liste complète des types d'alerte est dans [Webhooks](webhooks.fr.md). Une même alerte
 (type et espace) ne repart pas avant 20 heures. Le budget d'IA a ses propres alertes (voir
 [Intelligence artificielle](ai.fr.md)).
+
+Les super-administrateurs sont prévenus, par e-mail si l'envoi est configuré, quand la
+sauvegarde de la nuit ou sa copie hors serveur échoue (voir [Sauvegarde](backup.fr.md)) ;
+l'alerte s'affiche aussi dans **Administration > Santé**.
 
 ## Supervision
 

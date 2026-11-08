@@ -2,19 +2,31 @@ English | [Français](backup.fr.md)
 
 # Backup and restore
 
-Three levels, to set up in this order:
+With Docker, two steps, then a habit:
 
-1. **A verified local archive every night** (`synaptane backup`): it protects against a
-   handling mistake or a failed upgrade.
-2. **An encrypted copy off the server** (`synaptane backup --offsite`), to one or more
-   destinations of your choice: S3 and compatibles, SFTP, WebDAV/Nextcloud, SMB NAS, Google
-   Drive, OneDrive, Dropbox… It protects against a disk failure, a theft or a lost server.
-3. **A restore drill every month** (`scripts/restore-drill.sh`), on your own computer. A
-   backup that has never been restored is only a hope.
+1. **Nothing to do: a verified backup every night.** The worker makes an archive at 04:00,
+   reads it back, and keeps those of the last 7 days in the `synaptane-backups` volume. It
+   protects against a handling mistake or a failed upgrade. **Administration → Health** shows
+   the last one.
+2. **One command for the encrypted copy off the server**, which protects against a disk
+   failure, a theft or a lost server:
+
+   ```sh
+   docker compose exec -it app synaptane backup setup
+   ```
+
+   It makes the encryption key (or takes yours), declares the storage (S3 and compatibles,
+   SFTP, WebDAV/Nextcloud, SMB NAS, Google Drive, OneDrive, Dropbox…), tests it, and makes the
+   first copy. The following ones leave every night with the backup.
+3. **A restore drill every month** (`scripts/restore-drill.sh`), on your own computer. A backup
+   that has never been restored is only a hope.
+
+At any time, `docker compose exec app synaptane backup check` says what works and, for what is
+missing, the exact command to run.
 
 ## What is backed up
 
-`synaptane backup` produces a `.tar.gz` archive that contains:
+Each backup is a `.tar.gz` archive that contains:
 
 | Item | Why |
 |---|---|
@@ -26,51 +38,65 @@ Three levels, to set up in this order:
 **Not** backed up:
 - text extracted from PDFs and images, which is rebuilt from Git;
 - the Claude Code and Codex CLI sign-ins, to redo after a restore;
-- the rclone configuration of the destinations (`/data/rclone/rclone.conf`): keep a copy of
-  its credentials in your password manager.
+- the settings of the off-site copy kept in the data volume: the rclone configuration of the
+  storages (`/data/rclone/rclone.conf`), and the public keys and destinations saved by
+  `backup setup` (`/data/backup/`). Keep the storages' credentials in your password manager,
+  and run `backup setup` again after a restore on a new server.
 
 The archive contains the master key in clear: **it gives access to every secret**. That is
-why the offsite copy is always encrypted, and refused without an encryption key. With
+why the off-site copy is always encrypted, and refused without an encryption key. With
 `--without-key`, the key stays out of the archive; you must then back it up separately, once
 and for all, since it does not change.
 
-## Local backup
+## The nightly backup, on the server
 
-Each archive is **read back before it is reported**: compression intact (like `gzip -t`),
-complete tar, manifest and key present, and a dump fully readable by `pg_restore`. A
-truncated archive (full disk, interruption) makes the command fail the same day.
+Every day at `BACKUP_TIME` (04:00, server time `TZ`), the worker:
 
-```sh
-umask 077
-docker compose exec -T app synaptane backup --output - > synaptane-$(date +%F).tar.gz
-```
+1. writes the archive to a hidden `.part` file of `/backups`, **reads it back** (compression
+   intact like `gzip -t`, complete tar, manifest and key present, dump fully readable by
+   `pg_restore`), and only then gives it its name, `synaptane-YYYY-MM-DD-HHMMSS.tar.gz`
+   (mode 600): a truncated archive (full disk, interruption) never looks like a good one;
+2. sends the encrypted off-site copy, if it is set up (below);
+3. deletes the archives of `/backups` older than `BACKUP_LOCAL_RETENTION_DAYS` (7 days),
+   always keeping the 3 newest: a backup that keeps failing does not end with an empty folder.
 
-With `--output -`, nothing is written to standard output if the archive is bad.
+It needs nothing: no cron job, no setting. A worker started after its time (new installation,
+restart) makes the backup of the day right away. Before writing, it checks that the disk has
+twice the size of the last archive free.
 
-Options:
-- `--output`: a file, a directory, or `-` for standard output. Without `--output`, the
-  archive goes to `$SYNAPTANE_BACKUP_DIR` (`/backups` with Docker), otherwise to the current
-  directory;
-- `--without-repos`: without the repository copies;
-- `--without-key`: without the master key;
-- `--offsite`: encrypted copy off the server, see below.
+**A failure alerts the super admins**: by email (if sending is configured) and in the system
+alerts of **Administration → Health**, with the cause; the same alert is not sent again within
+20 hours. The previous archives are kept.
 
-The `synaptane-backups` volume (`/backups`) has no rotation, sits on the same disk as the
-data, and **`docker compose down -v` erases it** along with every other volume: it is not a
-place to keep backups. Prefer standard output to a directory on the server. To get an archive
-out of it:
+**Administration → Health** shows the last verified archive, how backups are made, and, when
+something is missing, the command to run. **Back up now** asks the worker for a backup right
+away (written to the audit log).
+
+Settings, in `.env` (then `docker compose up -d`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BACKUP_TIME` | `04:00` | Time of the nightly backup, server time (`TZ`). `off`: no automatic backup (a cron job of yours does it, see below). |
+| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Days the archives of `/backups` are kept; `0`: all. |
+
+One backup at a time: the worker's, a cron job's, a deployment's or a manual one wait for each
+other (a lock in the data volume). A restore refuses to start while a backup runs.
+
+The `synaptane-backups` volume sits on the same disk as the data, and **`docker compose down
+-v` erases it** along with every other volume: the off-site copy protects against that. To get
+an archive out of it:
 
 ```sh
 docker compose exec app ls -l /backups
-docker compose cp app:/backups/synaptane-2026-10-03-030000.tar.gz .
+docker compose cp app:/backups/synaptane-2026-10-03-040000.tar.gz .
 ```
 
-## Offsite copy
+## Encrypted copy off the server
 
 ### How it works
 
 ```text
-server: synaptane backup --offsite
+server: nightly backup (or synaptane backup --offsite)
   verified archive ──age──▶ synaptane-YYYY-MM-DD-HHMMSS.tar.gz.age ──rclone──▶ destination 1
                     (public key)                                         ├──▶ destination 2
                                                                          └──▶ …
@@ -81,10 +107,10 @@ your computer: age private key ──▶ decrypt ──▶ restore
   server encrypts but **cannot decrypt**: stealing the server or the destination yields
   nothing. The private key stays with you.
 - **Copy with [rclone](https://rclone.org/overview/)**, which supports more than 70 storage
-  types. The destinations' credentials stay in the rclone configuration, never in the
-  database or on the command line.
+  types. The storages' credentials stay in the rclone configuration, never in the database or
+  on the command line.
 - **Several destinations**: each one receives the copy. A failing destination does not stop
-  the others; the message says which one failed, and the exit code reports it.
+  the others; the alert says which one failed.
 - **Retention**: after a successful copy, `synaptane-*.age` archives older than
   `BACKUP_RETENTION_DAYS` (30 days by default) are deleted from **that** destination, and
   only at its root. Nothing else is touched, even in a shared folder. A destination that did
@@ -93,57 +119,81 @@ your computer: age private key ──▶ decrypt ──▶ restore
 `age` and `rclone` are in the Docker image. From source, install the `age` and `rclone`
 packages.
 
-### 1. Create the age key pair, on your computer
-
-Not on the server: the private key must never be there.
+### Set it up: `backup setup`
 
 ```sh
-age-keygen -o synaptane-backup.key
-# Public key: age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+docker compose exec -it app synaptane backup setup
 ```
 
-Store `synaptane-backup.key` **with the master key**, once and for all, in two places: your
-password manager, and a paper copy or a USB stick in a drawer. Without it, the offsite copies
-are unreadable, including for you.
+The command says what is already done and asks only for what is missing. Run again, it changes
+nothing that works.
 
-Several people can restore: each one creates their own pair, and all the public keys are
-listed (any one of the private keys opens the archive). A public SSH key (`ssh-ed25519 …`)
-works too.
+**1. Backup on this server**: it reminds you of the time and of the folder; nothing to answer.
 
-### 2. Declare the public key
+**2. Encryption key.** Two choices:
+- **press Enter**: a key pair is made in the container. The private key is **shown once and
+  saved nowhere**; the command waits until you type `saved`, then keeps only the public key
+  (in `/data/backup/age-recipients.txt`);
+- **paste the public key** (`age1…`) of a pair made on your computer, for those who do not
+  want the private key to ever go through the server:
 
-In `.env`, on the server:
+  ```sh
+  age-keygen -o synaptane-backup.key
+  # Public key: age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+  ```
 
-```sh
-BACKUP_AGE_RECIPIENTS=age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
-```
+Store the private key **with the master key**, once and for all, in two places: your password
+manager, and a paper copy or a USB stick in a drawer. **Never on the server**: whoever holds
+the server and this key reads the copies. Without it, the copies are unreadable, including for
+you.
 
-Several keys: separated by commas. Without a key, `backup --offsite` **refuses** to copy,
-with a clear message.
+Several people can restore: each one adds their own public key (`synaptane offsite key age1…`),
+and any one of the private keys opens the archive. A public SSH key (`ssh-ed25519 …`) works
+too.
 
-### 3. Declare the destinations
-
-The rclone wizard lists every storage type and asks the questions one by one:
-
-```sh
-docker compose exec -it app rclone config
-```
-
-The configuration is written to `/data/rclone/rclone.conf` (`synaptane-data` volume, mode
-600). Then, in `.env`, the list of destinations, as `name:path`, separated by commas:
-
-```sh
-BACKUP_REMOTES=b2:synaptane-backups,nas:backups/synaptane
-BACKUP_RETENTION_DAYS=30
-```
-
-Then `docker compose up -d` so that the application reads these settings.
+**3. Destination.** The storage and its access are declared once in rclone: the command offers
+to start rclone's wizard (`rclone config`), which lists every storage type and asks the
+questions one by one (examples below). The configuration is written to
+`/data/rclone/rclone.conf` (`synaptane-data` volume, mode 600). Then give the destination, as
+`name:folder` (for example `b2:synaptane-backups`): a small probe file is written, read back
+and deleted (write, read and delete rights, retention needs the last one), and the destination
+is saved only if all of it works (in `/data/backup/remotes.txt`).
 
 For each destination, create access **dedicated to this purpose**: a dedicated bucket or
 folder, an account or API key limited to that bucket. That way, a leak of the rclone
 configuration exposes nothing else.
 
-Examples of what the wizard writes to `rclone.conf` (values to replace):
+**4. First backup**: made right away if you agree, with its off-site copy. The next ones leave
+every night.
+
+Nothing to restart, nothing to write in `.env`: the worker reads the saved keys and
+destinations at each backup.
+
+### Without questions
+
+For a script or configuration management, the same steps one by one:
+
+```sh
+docker compose exec app synaptane offsite key            # new pair: private key printed once
+docker compose exec app synaptane offsite key age1…      # or your public key
+docker compose exec -it app rclone config                # the storage
+docker compose exec app synaptane offsite add b2:synaptane-backups   # tested, then saved
+docker compose exec app synaptane offsite remove b2:synaptane-backups
+```
+
+Or in `.env`, then `docker compose up -d`; these variables add to what `setup` saved:
+
+```sh
+BACKUP_AGE_RECIPIENTS=age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq
+BACKUP_REMOTES=b2:synaptane-backups,nas:backups/synaptane
+BACKUP_RETENTION_DAYS=30
+```
+
+Several keys or destinations: separated by commas.
+
+### Storage examples
+
+What rclone's wizard writes to `rclone.conf` (values to replace):
 
 **S3 and compatibles** (AWS, Scaleway, OVHcloud, Wasabi, MinIO…):
 
@@ -242,59 +292,92 @@ service offers it, *object lock* on the bucket. Then let the storage handle rete
 (lifecycle rule) and set `BACKUP_RETENTION_DAYS=0`, or give the server a key without delete
 rights.
 
-### 4. Test
+### Check
 
 ```sh
-docker compose exec app synaptane offsite test
-# [ok] b2:synaptane-backups
-# [FAILED] nas:backups/synaptane — write: … connection refused
+docker compose exec app synaptane backup check
+# [ok] Automatic backup: every day at 04:00, in /backups
+# [ok] Free space: 41.2 GB in /backups
+# [ok] Local retention: 7 days (the 3 newest always kept)
+# [ok] PostgreSQL client
+# [ok] Last verified backup: 2026-11-08 04:00
+# [ok] Encryption: 1 public key(s)
+# [ok] Destination b2:synaptane-backups: writable
+# [FAILED] Destination nas:backups/synaptane — write: … connection refused
+# [ok] Off-site retention: 30 days
+# [ok] Last off-site copy: 2026-11-08 04:02
 ```
 
-For each destination, a small probe file is written, read back, then deleted: write, read and
-delete rights (retention needs the last one) are checked in one go. A failing destination is
-marked `[FAILED]`, with the step that failed (`write`, `read back` or `delete`) and the end of
-rclone's message. The command also reports a missing age key or a missing `age` program.
-`synaptane doctor` summarizes the state of the offsite copy, always as a warning, never as a
-failure.
+Each line that is not `[ok]` says what to run. Each destination receives a probe file
+(written, read back, deleted); `--no-test` skips it. Exit code 1 if something fails.
 
-First copy by hand, then check:
+Other commands:
+- `synaptane offsite test`: the probe file alone, on each destination;
+- `synaptane offsite list`: the encrypted archives present on each destination;
+- `synaptane doctor`: summarizes the automatic backup and the off-site copy, always as a
+  warning, never as a failure.
+
+## Your own cron job (optional)
+
+Before the automatic backup, the backups were made by a cron job on the server, with the
+versioned script `deploy/host/backup.sh`. **An installation that has one changes nothing**:
+the script keeps its archives (14 days by default in `~/synaptane-backups`), sends the off-site
+copy with `OFFSITE=1`, and tells Synaptane it made the backup of the day. The worker's
+automatic backup then steps aside (**Administration → Health** says so), and **takes over by
+itself** if the cron job stops for more than a day.
+
+- With `OFFSITE=1`, the cron job does everything; without it, while off-site destinations are
+  set up, the worker still makes its own backup every night to send the copy. Add `OFFSITE=1`,
+  or remove the cron job.
+- `BACKUP_TIME=off` in `.env` leaves backups to the cron job alone.
+
+To set one up anyway (a folder outside the Docker volumes, for example):
 
 ```sh
-docker compose exec app synaptane backup --offsite
-docker compose exec app synaptane offsite list
-```
-
-Without `--output`, `--offsite` keeps **no** local copy: the clear archive is deleted from
-the server once encrypted.
-
-### 5. Every day, with cron
-
-The versioned script `deploy/host/backup.sh` keeps verified local archives (14 days by
-default) and, with `OFFSITE=1`, sends the encrypted offsite copy in the same backup run. It
-first writes to a `.part` file, renamed only if the archive is good: an incomplete archive
-never replaces a good one. A failing offsite destination keeps the local archive, is noted in
-the log (`~/synaptane-backups/journal.log`) and returns code 3.
-
-```sh
+mkdir -m 700 -p ~/synaptane-backups   # before the first run: cron writes its errors there
 # crontab -e
 0 3 * * * OFFSITE=1 $HOME/synaptane/deploy/host/backup.sh > /dev/null 2>> $HOME/synaptane-backups/cron.err
 ```
 
-Settings: `BACKUP_DIR`, `RETENTION_DAYS` (see the script header, and the
-[server scripts](../../deploy/host/README.md)). Cron emails what the script writes to
-standard error, if mail delivery is configured on the server.
+The script first writes to a `.part` file, renamed only if the archive is good. A failing
+off-site destination keeps the local archive, is noted in the log
+(`~/synaptane-backups/journal.log`) and returns code 3. Settings: `BACKUP_DIR`,
+`RETENTION_DAYS` (see the script header, and the [server scripts](../../deploy/host/README.md)).
+Cron emails what the script writes to standard error, if mail delivery is configured on the
+server.
 
-Exit codes of `synaptane backup`:
+To be warned when no backup runs at all anymore (server down), add a "dead man's switch"
+monitor (Healthchecks.io, Uptime Kuma…), or the Prometheus alert on
+`synaptane_backup_last_timestamp_seconds` (see [Monitoring](installation.md#monitoring)).
+
+## Backup by hand: `synaptane backup`
+
+```sh
+umask 077
+docker compose exec -T app synaptane backup --output - > synaptane-$(date +%F).tar.gz
+```
+
+The archive is read back like the nightly one before it is reported. With `--output -`,
+nothing is written to standard output if the archive is bad.
+
+Options:
+- `--output`: a file, a directory, or `-` for standard output. Without `--output`, the
+  archive goes to `$SYNAPTANE_BACKUP_DIR` (`/backups` with Docker), otherwise to the current
+  directory;
+- `--without-repos`: without the repository copies;
+- `--without-key`: without the master key;
+- `--offsite`: encrypted copy off the server, to the destinations set up. Without `--output`,
+  it keeps **no** local copy: the clear archive is deleted from the server once encrypted.
+
+If another backup is running, the command waits for it to finish.
+
+Exit codes:
 
 | Code | Meaning |
 |---|---|
 | 0 | Archive verified, and copied to every destination (with `--offsite`). |
-| 1 | No usable backup, or offsite copy refused (missing setting): nothing was written. |
+| 1 | No usable backup, or off-site copy refused (missing setting): nothing was written. |
 | 3 | Archive verified (and written if `--output`), but at least one destination failed (copy or retention). The message says which one. |
-
-To be warned when the backup stops running altogether (cron stopped, server down), add at the
-end of the script a call to a "dead man's switch" monitor (Healthchecks.io, Uptime Kuma…)
-when the code is 0.
 
 ## Restore
 
@@ -309,7 +392,7 @@ docker compose run --rm --no-deps -T app synaptane restore - < synaptane-2026-10
 docker compose start app worker
 ```
 
-### From an offsite copy
+### From an off-site copy
 
 Decrypt **on your computer**, and pipe the decrypted archive straight into the restore: the
 private key never touches the server.
@@ -317,15 +400,16 @@ private key never touches the server.
 ```sh
 # On your computer, with rclone configured to read the destination:
 rclone lsf b2:synaptane-backups                         # pick the archive
-rclone copyto b2:synaptane-backups/synaptane-2026-10-06-030000.tar.gz.age .
+rclone copyto b2:synaptane-backups/synaptane-2026-10-06-040000.tar.gz.age .
 # On the server: docker compose up -d && docker compose stop app worker
-age -d -i synaptane-backup.key synaptane-2026-10-06-030000.tar.gz.age \
+age -d -i synaptane-backup.key synaptane-2026-10-06-040000.tar.gz.age \
   | ssh server 'cd ~/synaptane && docker compose run --rm --no-deps -T app synaptane restore -'
 # On the server: docker compose start app worker
 ```
 
 Without rclone on your computer, download the file from the storage's interface (S3 console,
-Nextcloud, Google Drive…).
+Nextcloud, Google Drive…). If the key pair was made by `backup setup`, put the private key it
+showed into a file on your computer (`synaptane-backup.key`), for `age -d -i`.
 
 ### What the restore does
 
@@ -338,6 +422,7 @@ Nextcloud, Google Drive…).
 
 It stops without touching anything in these cases:
 - **the application or the worker is still connected** to the database;
+- **a backup is running**: wait for it to finish;
 - **the backup comes from a newer version** of Synaptane: install that version first;
 - **the instance already has accounts**: add `--force` to replace them;
 - **the archive is damaged** (interrupted copy, full disk): the dump is read in full before
@@ -349,7 +434,9 @@ It stops without touching anything in these cases:
 Resetting and restoring the database happen in a single transaction: on error, the database
 stays as it was. To be safe, still run `synaptane backup` just before a `restore --force`.
 
-`synaptane doctor` then checks that the stored secrets decrypt with the key in place.
+`synaptane doctor` then checks that the stored secrets decrypt with the key in place. On a new
+server, run `backup setup` again: the off-site copy's keys and destinations are not in the
+archive.
 
 A backup from an **earlier** version restores normally: the database is emptied, restored,
 then upgraded. Going back to the previous version after a failed upgrade therefore means:
@@ -389,17 +476,23 @@ the master key are still where you stored them.
 
 ## From source
 
+Without `backup_dir`, the worker makes no automatic backup: set it to have one.
+
 ```sh
 uv run synaptane backup --output /var/backups/synaptane/
-uv run synaptane backup --offsite        # with backup_age_recipients and backup_remotes
+uv run synaptane backup setup            # key, destination, first copy
+uv run synaptane backup --offsite        # copy to the destinations set up
 # Stop synaptane serve and synaptane worker, then:
-uv run synaptane restore /var/backups/synaptane/synaptane-2026-10-03-030000.tar.gz
+uv run synaptane restore /var/backups/synaptane/synaptane-2026-10-03-040000.tar.gz
 ```
 
 You need `pg_dump` and `pg_restore` of the same major version as the PostgreSQL server, or a
 newer one. In `synaptane.toml`:
 
 ```toml
+backup_dir = "/var/backups/synaptane"   # automatic backup every night (none without it)
+backup_time = "04:00"                   # server time; "off": none
+backup_local_retention_days = 7         # 0: all kept
 backup_age_recipients = ["age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq"]
 backup_remotes = ["b2:synaptane-backups", "nas:backups/synaptane"]
 backup_retention_days = 30

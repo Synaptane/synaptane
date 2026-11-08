@@ -10,6 +10,44 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Nightly backup with nothing to set up**. The worker makes a verified backup every night at
+  04:00 (server time) in the `synaptane-backups` volume (`/backups`), and keeps the archives
+  of the last 7 days, always the 3 newest: no cron job is needed anymore. Each archive is
+  written to a hidden `.part` file, read back like those of `synaptane backup`, and only then
+  named; the encrypted off-site copy leaves with it when it is set up. A worker started after
+  the time makes the backup of the day right away. Settings: `BACKUP_TIME` (`off`: none) and
+  `BACKUP_LOCAL_RETENTION_DAYS` in `.env`; from source, `backup_dir` (required for an
+  automatic backup), `backup_time` and `backup_local_retention_days`. A failed backup or
+  off-site copy alerts the super admins, by email and in **Administration > Health**. One
+  backup at a time: the worker's, a cron job's, a deployment's and a manual one wait for each
+  other, and a restore refuses to start while a backup runs.
+- **`synaptane backup setup`**: the encrypted off-site copy in one command, question by
+  question (`docker compose exec -it app synaptane backup setup`): encryption key (a new pair
+  whose private key is shown once and saved nowhere, or your own public key), storage (rclone's
+  wizard), destination tested before it is saved, first backup. Keys and destinations are saved
+  in the data volume (`/data/backup/`), without editing `.env` or restarting;
+  `BACKUP_AGE_RECIPIENTS` and `BACKUP_REMOTES` still work and add to them. The same steps
+  without questions: `synaptane offsite key [PUBLIC_KEY]`, `synaptane offsite add NAME:PATH`,
+  `synaptane offsite remove NAME:PATH`.
+- **`synaptane backup check`**: the state of every piece of the backups (automatic backup,
+  folder, free space, retention, last archive, encryption key, each destination tested with a
+  probe file unless `--no-test`, last off-site copy) and, for what is missing, the exact
+  command to run. Exit code 1 if something fails.
+- **Back up now** in **Administration > Health**: a backup by the worker, right away, with its
+  off-site copy. Written to the audit log (`instance.backup_requested`).
+
+### Changed
+- **Administration > Health** says how backups are made (automatically, by the server's cron
+  job, or not at all) and, when the backup or the off-site copy is missing or late, the command
+  to run and a link to the documentation. Destinations without an encryption key are reported.
+  `synaptane doctor` reports the automatic backup too.
+- **`deploy/host/backup.sh`**: existing cron jobs keep working unchanged. Run without a label
+  (the cron job), the script tells Synaptane it made the backup of the day: the worker's
+  automatic backup then steps aside, and takes over again by itself if the cron job stops for
+  more than a day. `synaptane backup` waits for a backup already running. No migration.
+- The backup documentation starts with the simplest path, then the options.
+
 ## [1.12.0] - 2026-11-08
 
 Give the whole team access to every space at once, keep a few spaces apart, see who changed what
