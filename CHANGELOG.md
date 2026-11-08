@@ -31,6 +31,17 @@ of the target version.
   `group.deleted`, `group.member_added`, `group.member_removed`, `group.space_role_set`,
   `group.space_role_removed`), shown in the **Members and roles** family. One migration
   (`0031`), applied at startup: it creates the group tables, empty, so nobody's access changes.
+- **Preview while editing**. Above the text of a Markdown page, when editing it or creating it
+  (**Edit**, **New page**), **Preview** shows the page as it will read, without saving
+  anything: the server renders it exactly as the reading view does (Obsidian syntax, links and
+  `[[wiki links]]` resolved in the space, images, highlighted code, sanitized HTML), and Mermaid
+  diagrams are drawn in the same sandboxed frame as when reading. **Write** goes back to the
+  text, kept as it is; on a large screen, **Side by side** shows both, the preview following the
+  typing after a short pause (remembered in the browser). Links in the preview open in a new
+  tab. Contributors only, with the form's token, Markdown pages only; nothing is committed, indexed or
+  dropped in the inbox, a text above 262,144 characters is not previewed, and each account
+  gets one preview at a time (the database connection is given back before rendering). No
+  migration.
 
 ### Changed
 - **Members of a space**. A **By a group** section lists the groups with a role on the space
