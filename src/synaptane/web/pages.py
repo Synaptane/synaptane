@@ -50,7 +50,7 @@ from synaptane.services import (
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import Organization, Space, User, WebSession
-from synaptane.web.i18n import LOCALES, format_day, negotiate, plural, translator
+from synaptane.web.i18n import LOCALES, format_day, negotiate, plural, quoted_names, translator
 
 SESSION_COOKIE = "synaptane_session"
 
@@ -253,6 +253,11 @@ templates.env.filters["euros"] = _euros
 
 
 templates.env.filters["amount"] = _amount
+
+
+templates.env.filters["quoted"] = pass_context(
+    lambda c, names: quoted_names(translator(c["locale"]), names)
+)
 
 
 templates.env.globals["pl"] = pass_context(

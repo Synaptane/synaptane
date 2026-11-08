@@ -582,16 +582,19 @@ every change is written to the audit log.
 **Inviting someone straight into groups.** The invitation form of the **Members** tab lists
 the organization's groups, each with what it gives ("Contributor on HR"): check those the
 person joins. When they accept, they become a member of the organization, then of the checked
-groups, in one go; an existing account joins them at once. Before creating their account, the
-person sees their real access on the invitation page, groups included ("HR: contributor,
-through the group Management"), and the **Pending invitations** list shows the groups of each
+groups, in one go; an existing account joins them at once, and its notice email lists the roles
+given in spaces and the groups joined. Before creating their account, the person sees their
+real access on the invitation page, groups included ("HR: contributor, through the group
+“Management”"), and the **Pending invitations** list shows the groups of each
 invitation. A group deleted before the acceptance is simply not joined, and a renamed group is
 joined under its new name. Canceling an invitation drops its groups; inviting the same address
 again replaces them with the new choice. Only groups of the organization can be chosen: the
-database refuses any other. The audit log keeps the groups in the **Invitation sent** event
-(their names at the time), and the acceptance writes one **Added to a group** event per group,
-by the system, like the other accesses it grants. Through the REST API: `"groups": [<id>, …]`
-in `POST /organizations/{org}/invitations`.
+database refuses any other, and so is a group deleted while the invitation is being sent. The
+audit log keeps the groups, by their names at the time, in the **Invitation sent** event and
+in the **Existing account added by invitation** event (there, only the groups actually
+joined, not those the account was already in); the acceptance writes one **Added to a group**
+event per group, by the system, like the other accesses it grants. Through the REST API:
+`"groups": [<id>, …]` (200 at most) in `POST /organizations/{org}/invitations`.
 
 ## First steps
 

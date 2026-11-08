@@ -199,6 +199,7 @@ class InvitationIn(BaseModel):
     )
     groups: list[UUID] = Field(
         default_factory=list,
+        max_length=invitations.MAX_GROUPS,
         description="Groups of the organization to join (`id`, from GET "
         "/organizations/{org}/groups): right away for an existing account, on acceptance "
         "otherwise",

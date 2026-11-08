@@ -604,16 +604,20 @@ les rôles des groupes sur lui. Les groupes se gèrent aussi par l'API REST
 **Membres** liste les groupes de l'organisation, chacun avec ce qu'il donne (« Contributeur sur
 RH ») : cochez ceux que la personne rejoint. Quand elle accepte, elle devient membre de
 l'organisation, puis des groupes cochés, d'un seul coup ; un compte existant les rejoint
-aussitôt. Avant de créer son compte, la personne voit son accès réel sur la page
-d'invitation, groupes compris (« RH : contributeur, par le groupe Direction »), et la liste des
+aussitôt, et l'e-mail qui le prévient liste les rôles donnés dans les espaces et les groupes
+rejoints. Avant de créer son compte, la personne voit son accès réel sur la page
+d'invitation, groupes compris (par exemple RH : contributeur, par le groupe « Direction »), et la liste des
 **Invitations en attente** montre les groupes de chaque invitation. Un groupe supprimé avant
 l'acceptation n'est tout simplement pas rejoint, et un groupe renommé est rejoint sous son
 nouveau nom. Annuler une invitation abandonne ses groupes ; inviter de nouveau la même adresse
 les remplace par le nouveau choix. Seuls les groupes de l'organisation peuvent être choisis :
-la base de données refuse tout autre. Le journal d'audit garde les groupes dans l'événement
-**Invitation envoyée** (leurs noms d'alors), et l'acceptation inscrit un événement **Ajout à
-un groupe** par groupe, par le système, comme les autres accès qu'elle donne. Par l'API REST :
-`"groups": [<id>, …]` dans `POST /organizations/{org}/invitations`.
+la base de données refuse tout autre, de même qu'un groupe supprimé pendant l'envoi de
+l'invitation. Le journal d'audit garde les groupes, sous leurs noms d'alors, dans l'événement
+**Invitation envoyée** et dans l'événement **Compte existant ajouté par invitation** (là,
+seulement les groupes réellement rejoints, pas ceux dont le compte était déjà membre) ;
+l'acceptation inscrit un événement **Ajout à un groupe** par groupe, par le système, comme les
+autres accès qu'elle donne. Par l'API REST : `"groups": [<id>, …]` (200 au plus) dans
+`POST /organizations/{org}/invitations`.
 
 ## Premiers pas
 

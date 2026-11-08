@@ -180,7 +180,9 @@ def event(action: str, actor: User | None = None, /, **details: object) -> Audit
         at=datetime(2026, 11, 8, 9, 30, tzinfo=UTC),
         actor_id=actor.id if actor else None,
         action=action,
-        details={k: str(v) for k, v in details.items()},
+        details={
+            k: [str(i) for i in v] if isinstance(v, list) else str(v) for k, v in details.items()
+        },
     )
 
 
@@ -215,7 +217,7 @@ EVERYTHING = {
     "reason": "interrupted",
     "status": "500",
     "group": "RH",
-    "groups": "RH, Direction",
+    "groups": ["RH", "Direction"],
     "previous": "Ressources humaines",
     "token": SECRET,
     "password": SECRET,
@@ -331,20 +333,29 @@ def test_group_events_in_french() -> None:
 
 
 def test_invitation_events_say_their_groups() -> None:
-    """The groups an invitation makes the person join, by their names at the time; none
-    before groups (or without any): nothing more is shown."""
+    """The groups an invitation makes the person join, by their names at the time, stored as a
+    list (a name may hold a comma) and shown one by one; none without groups."""
     assert labels(
         audit_log.describe(
-            event("org.invitation_created", email="z@x.fr", role="member", groups="Direction, RH"),
+            event(
+                "org.invitation_created",
+                email="z@x.fr",
+                role="member",
+                groups=["Direction", "RH, paie"],
+            ),
             None,
         )
-    )[:4] == ["Invitation envoyée", "z@x.fr", "Membre", "Groupes\xa0: Direction, RH"]
+    )[:5] == ["Invitation envoyée", "z@x.fr", "Membre", "Groupe Direction", "Groupe RH, paie"]
     assert labels(
         audit_log.describe(event("org.member_invited", username="zoe", role="admin"), None)
     )[:3] == ["Compte existant ajouté par invitation", "@zoe", "Administrateur"]
+    # Stored as one text (never released, but read all the same).
     assert labels(
         audit_log.describe(event("org.member_invited", username="zoe", groups="RH"), None)
     ) == ["Compte existant ajouté par invitation", "@zoe", "Groupes\xa0: RH", "Système"]
+    long = ["x" * 400]
+    [shown] = audit_log.describe(event("org.member_invited", groups=long), None).details
+    assert len(translator("fr")(shown)) < 320
 
 
 def test_the_author_of_an_event_without_an_account() -> None:

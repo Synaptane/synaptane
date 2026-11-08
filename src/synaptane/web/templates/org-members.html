@@ -57,7 +57,7 @@
     <article class="card token-card">
       <div class="token-head"><h3>{{ invitation.email }}</h3><span class="badge badge-quiet">{{ _("Administrator") if invitation.org_role == 'admin' else _("Member") }}</span></div>
       {% set joining = invitation_groups.get(invitation.id, []) %}
-      {% if joining %}<p class="muted" data-test="invitation-groups">{{ _(pl(joining|length, "Group: {names}", "Groups: {names}"), names=joining|map(attribute="name")|join(", ")) }}</p>{% endif %}
+      {% if joining %}<p class="muted" data-test="invitation-groups">{{ _(pl(joining|length, "Group: {names}", "Groups: {names}"), names=joining|map(attribute="name")|quoted) }}</p>{% endif %}
       <div class="token-foot"><span>{{ _("Expires") }} {{ when(invitation.expires_at, "date") }}</span>
         {{ action("/o/" ~ org.slug ~ "/-/invitations/" ~ invitation.id ~ "/revoke", _("Cancel"), confirm=_("Cancel the invitation for {email}?", email=invitation.email), kind="danger") }}</div>
     </article>

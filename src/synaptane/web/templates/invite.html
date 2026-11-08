@@ -12,9 +12,9 @@
   <p>{% if offer and offer.inviter %}{{ _("{name} invites you as {role} of the organization.", name=offer.inviter, role=role_names.get(invitation.org_role, invitation.org_role)) }}{% else %}{{ _("You are invited as {role} of the organization.", role=role_names.get(invitation.org_role, invitation.org_role)) }}{% endif %}</p>
   {% if offer and offer.granted %}<ul data-test="invitation-access">{% for item in offer.granted %}{% set word = role_names.get(item.role, item.role) %}
     {%- if item.source == "default" %}{% set access = _("{role}, by default", role=word) %}
-    {%- elif item.source == "group" %}{% set access = _(pl(item.groups|length, "{role}, through the group {names}", "{role}, through the groups {names}"), role=word, names=item.groups|join(", ")) %}
+    {%- elif item.source == "group" %}{% set access = _(pl(item.groups|length, "{role}, through the group {names}", "{role}, through the groups {names}"), role=word, names=item.groups|quoted) %}
     {%- else %}{% set access = word %}{% endif %}<li>{{ _("{space}: {access}", space=item.space, access=access) }}</li>{% endfor %}</ul>{% endif %}
-  {% if offer and offer.groups %}<p data-test="invitation-groups">{{ _(pl(offer.groups|length, "You also join the group {names}.", "You also join the groups {names}."), names=offer.groups|join(", ")) }}</p>{% endif %}
+  {% if offer and offer.groups %}<p data-test="invitation-groups">{{ _(pl(offer.groups|length, "You also join the group {names}.", "You also join the groups {names}."), names=offer.groups|quoted) }}</p>{% endif %}
   <p class="muted">{{ _("Create your account for {email}.", email=invitation.email) }}</p>
   {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
   <form method="post" action="/invite/{{ token }}">

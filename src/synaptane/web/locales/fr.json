@@ -2077,5 +2077,10 @@
  "You also join the groups {names}.": "Vous rejoignez aussi les groupes {names}.",
  "Group not found in this organization.": "Groupe introuvable dans cette organisation.",
  "Groups: {value}": "Groupes : {value}",
- "{space}: {access}": "{space} : {access}"
+ "{space}: {access}": "{space} : {access}",
+ "“{name}”": "« {name} »",
+ "Role in {space}: {role}": "Rôle dans {space} : {role}",
+ "Group joined: {names}": "Groupe rejoint : {names}",
+ "Groups joined: {names}": "Groupes rejoints : {names}",
+ "Too many groups chosen ({limit} at most).": "Trop de groupes choisis ({limit} au plus)."
 }

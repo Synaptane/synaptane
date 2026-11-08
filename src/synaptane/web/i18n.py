@@ -14,7 +14,7 @@ A catalog maps an English text to its translation, with two refinements:
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date
 from functools import cache
 from pathlib import Path
@@ -115,6 +115,12 @@ def format_day(value: date, locale: str) -> str:
     if locale == "fr":
         return f"{'1er' if value.day == 1 else value.day} {month} {value.year}"
     return f"{month} {value.day}, {value.year}"
+
+
+def quoted_names(translate: Translate, names: Iterable[str]) -> str:
+    """Names in quotation marks, separated by commas: “Direction”, “HR, payroll” (a name may
+    hold a comma)."""
+    return ", ".join(translate("“{name}”", name=name) for name in names)
 
 
 def plural(locale: str, count: int, one: str, many: str) -> str:

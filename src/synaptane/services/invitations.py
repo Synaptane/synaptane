@@ -17,6 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import (
@@ -43,6 +44,7 @@ from synaptane.storage.models import (
 
 TTL = timedelta(days=14)
 PER_HOUR = 30
+MAX_GROUPS = 200  # groups chosen for one invitation, at most
 # Counted in the audit log, not in the invitations: re-inviting or revoking deletes the
 # invitation row, not the email already sent.
 SENT = ("org.invitation_created", "org.member_invited")
@@ -57,7 +59,11 @@ class Created:
     invitation: Invitation | None  # None: existing account, access granted directly
     token: str | None
     existing: User | None
-    groups: list[Group] = field(default_factory=list)  # to join, by name
+    # The groups to join on acceptance, by name; for an existing account, those it actually
+    # joined (not those it was already in).
+    groups: list[Group] = field(default_factory=list)
+    # Existing account: the roles given in the invitation's spaces, by space name.
+    spaces: list[tuple[Space, SpaceRole]] = field(default_factory=list)
 
 
 def _apply(
@@ -68,18 +74,24 @@ def _apply(
     org_role: OrgRole,
     space_roles: dict[str, str],
     joined: Iterable[Group] = (),
-) -> None:
+) -> tuple[list[tuple[Space, SpaceRole]], list[Group]]:
     """Member of the organization first (only its members join its groups), then the roles in
-    its spaces and the groups. Already in a group: nothing changes, nothing is logged."""
+    its spaces and the groups. Already in a group: nothing changes, nothing is logged.
+    Returns the roles given in the spaces (by name) and the groups actually joined."""
     organizations.set_member(session, actor, org, user, org_role)
+    given: list[tuple[Space, SpaceRole]] = []
     for space_id, role in space_roles.items():
         space = session.get(Space, UUID(space_id))
         if space is not None and space.org_id == org.id:
             spaces.set_member(session, actor, space, user, SpaceRole(role))
+            given.append((space, SpaceRole(role)))
     session.flush()  # the membership, which the groups' foreign key refers to
-    for group in joined:
-        if group.org_id == org.id:
-            groups.add_member(session, actor, group, user)
+    added = [
+        group
+        for group in joined
+        if group.org_id == org.id and groups.add_member(session, actor, group, user)
+    ]
+    return sorted(given, key=lambda item: item[0].name.lower()), added
 
 
 def _chosen_groups(
@@ -95,6 +107,8 @@ def _chosen_groups(
             raise not_found("Group not found in this organization.") from None
     if not wanted:
         return []
+    if len(wanted) > MAX_GROUPS:
+        raise invalid("Too many groups chosen ({limit} at most).", limit=MAX_GROUPS)
     found = list(
         session.scalars(
             select(Group)
@@ -108,9 +122,9 @@ def _chosen_groups(
 
 
 def _names(joined: Iterable[Group]) -> dict[str, Any]:
-    """The audit detail of the groups, their names at the time: none without groups (as
-    before groups existed)."""
-    names = ", ".join(group.name for group in joined)
+    """The audit detail of the groups: the list of their names at the time (a name may hold a
+    comma), none without groups (as before groups existed)."""
+    names = [group.name for group in joined]
     return {"groups": names} if names else {}
 
 
@@ -183,7 +197,7 @@ def invite(
     if existing is not None:
         if not existing.is_active:
             raise conflict("This account is disabled: a super admin must reactivate it.")
-        _apply(session, actor, org, existing, org_role, space_roles, joined)
+        given, added = _apply(session, actor, org, existing, org_role, space_roles, joined)
         audit(
             session,
             actor,
@@ -191,9 +205,9 @@ def invite(
             org_id=org.id,
             username=existing.username,
             role=org_role,
-            **_names(joined),
+            **_names(added),
         )
-        return Created(None, None, existing, joined)
+        return Created(None, None, existing, added, given)
     # A single pending invitation per address and organization: re-inviting renews it.
     for previous in session.scalars(
         select(Invitation).where(
@@ -215,11 +229,17 @@ def invite(
     )
     session.add(invitation)
     session.flush()
-    session.add_all(
-        InvitationGroup(invitation_id=invitation.id, group_id=group.id, org_id=org.id)
-        for group in joined
-    )
-    session.flush()
+    try:
+        # A savepoint: a group deleted since it was checked (another request at the same
+        # time) is refused like an unknown one, instead of an error.
+        with session.begin_nested():
+            session.add_all(
+                InvitationGroup(invitation_id=invitation.id, group_id=group.id, org_id=org.id)
+                for group in joined
+            )
+            session.flush()
+    except IntegrityError:
+        raise not_found("Group not found in this organization.") from None
     audit(
         session,
         actor,

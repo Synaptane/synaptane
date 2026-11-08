@@ -9,6 +9,8 @@ API, the audit log, in French and in English.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +36,7 @@ from tests.htmlutil import select as select_html
 from tests.integration.conftest import PASSWORD, make_user, token_for
 from tests.integration.teamdata import Team, configure, role
 from tests.integration.test_groups import make_group
+from tests.integration.test_invitations import Inbox, smtp  # noqa: F401 — fixture
 from tests.integration.test_rights_html import (
     as_user,
     assert_done,
@@ -144,18 +147,18 @@ def test_an_admin_invites_into_groups_and_the_guest_joins_them(
     revealed = client.get(response.headers["location"]).text
     path = link_of(revealed)
     [pending] = select_html(revealed, data_test("invitation-groups"))
-    assert pending.text == "Groupes : Direction, RH"
+    assert pending.text == "Groupes : « Direction », « RH »"
     assert groups_of(db, "carol") == []  # nobody joined anything yet
 
     client.cookies.clear()
     page = client.get(path).text
     access = [li.text for li in select_html(select_one(page, data_test("invitation-access")), "li")]
     assert access == [
-        "Autre : contributeur, par le groupe RH",
-        "Infra : contributeur, par le groupe Direction",
+        "Autre : contributeur, par le groupe « RH »",
+        "Infra : contributeur, par le groupe « Direction »",
     ]
     assert select_one(page, data_test("invitation-groups")).text == (
-        "Vous rejoignez aussi les groupes Direction, RH."
+        "Vous rejoignez aussi les groupes « Direction », « RH »."
     )
     joined = client.post(
         path,
@@ -243,16 +246,18 @@ def test_the_invitation_page_in_english(db: Session, client: TestClient, team: T
     created = invite(db, team, "zoe@example.com", rh, direction)
     page = client.get(f"/invite/{created.token}", headers={"Accept-Language": "en"}).text
     access = select_one(page, data_test("invitation-access")).text
-    assert access == "Autre: reader, through the groups Direction, RH"
+    assert access == "Autre: reader, through the groups “Direction”, “RH”"
     assert select_one(page, data_test("invitation-groups")).text == (
-        "You also join the groups Direction, RH."
+        "You also join the groups “Direction”, “RH”."
     )
     one = invite(db, team, "ada@example.com", rh)
     page = client.get(f"/invite/{one.token}", headers={"Accept-Language": "en"}).text
     assert select_one(page, data_test("invitation-access")).text == (
-        "Autre: reader, through the group RH"
+        "Autre: reader, through the group “RH”"
     )
-    assert select_one(page, data_test("invitation-groups")).text == "You also join the group RH."
+    assert select_one(page, data_test("invitation-groups")).text == (
+        "You also join the group “RH”."
+    )
 
 
 # --- Edge cases -----------------------------------------------------------------------------------
@@ -271,7 +276,7 @@ def test_a_group_deleted_before_the_acceptance_is_not_joined(
 
     page = client.get(f"/invite/{created.token}").text
     assert select_one(page, data_test("invitation-access")).text == (
-        "Infra : lecteur, par le groupe Direction"
+        "Infra : lecteur, par le groupe « Direction »"
     )
     assert "RH" not in page
     accept(db, created.token)
@@ -298,13 +303,13 @@ def test_a_renamed_group_shows_its_new_name_and_is_joined(
     db.commit()
     page = client.get(f"/invite/{created.token}").text
     assert select_one(page, data_test("invitation-groups")).text == (
-        "Vous rejoignez aussi le groupe Ressources humaines."
+        "Vous rejoignez aussi le groupe « Ressources humaines »."
     )
     accept(db, created.token)
     assert groups_of(db, "zoe") == ["Ressources humaines"]
     # The log keeps the name at the time of the invitation.
     [event] = db.scalars(select(AuditEvent).where(AuditEvent.action == "org.invitation_created"))
-    assert event.details["groups"] == "RH"
+    assert event.details["groups"] == ["RH"]
 
 
 def test_a_group_of_another_organization_is_refused(
@@ -406,8 +411,22 @@ def test_an_existing_account_joins_the_groups_at_once(db: Session, team: Team) -
     dora = accounts.get_user(db, "dora")
     dora.email, dora.email_verified_at = "dora@example.com", datetime.now(UTC)
     db.commit()
-    invite(db, team, "dora@example.com", rh, direction)
+    again = invite(db, team, "dora@example.com", rh, direction)
+    assert [g.name for g in again.groups] == ["Direction"]  # only the one actually joined
     assert groups_of(db, "dora") == ["Direction", "RH"]
+    invited = db.scalars(
+        select(AuditEvent.details)
+        .where(AuditEvent.action == "org.member_invited")
+        .order_by(AuditEvent.at)
+    ).all()
+    assert [d.get("groups") for d in invited] == [["Direction", "RH"], ["Direction"]]
+    invite(db, team, "dora@example.com", rh)  # nothing new: no group in the log
+    last = db.scalars(
+        select(AuditEvent.details)
+        .where(AuditEvent.action == "org.member_invited")
+        .order_by(AuditEvent.at.desc())
+    ).first()
+    assert last is not None and "groups" not in last
     added = db.scalars(
         select(AuditEvent.details).where(AuditEvent.action == "group.member_added")
     ).all()
@@ -417,6 +436,110 @@ def test_an_existing_account_joins_the_groups_at_once(db: Session, team: Team) -
         ("RH", "dora"),  # by make_group
         ("RH", "frank"),
     ]
+
+
+def test_an_existing_account_is_told_what_it_was_given(
+    db: Session,
+    client: TestClient,
+    team: Team,
+    smtp: Inbox,  # noqa: F811
+) -> None:
+    """The notice e-mail to an existing account lists its roles in spaces and the groups it
+    joined, names quoted (a name may hold a comma), in its language."""
+    paie = make_group(db, team, "RH, paie", members=(), roles={"autre": "reader"})
+    direction = make_group(db, team, "Direction", members=())
+    verified(db, "frank", "frank@example.com")
+    token = as_user(client, "carol")
+    response = client.post(
+        "/o/acme/-/invitations",
+        data={
+            "csrf": token,
+            "email": "frank@example.com",
+            "space_role": [f"{team.wiki.infra.id}:contributor"],
+            "group": [str(paie.id), str(direction.id)],
+        },
+        follow_redirects=False,
+    )
+    assert_done(response)
+    message = smtp.messages[-1]
+    assert message["To"] == "frank@example.com"
+    body = message.get_payload(decode=True)
+    assert isinstance(body, bytes)
+    text_body = " ".join(body.decode().split())
+    assert "- Rôle dans Infra : contributeur" in text_body
+    assert "- Groupes rejoints : « Direction », « RH, paie »" in text_body
+    db.expire_all()
+    assert groups_of(db, "frank") == ["Direction", "RH, paie"]
+    # The log keeps the names as a list, shown one by one.
+    [event] = db.scalars(select(AuditEvent).where(AuditEvent.action == "org.member_invited"))
+    assert event.details["groups"] == ["Direction", "RH, paie"]
+    journal = client.get("/o/acme/-/journal").text
+    [line] = select_html(journal, '[data-action="org.member_invited"] .audit-details')
+    assert line.text == "Membre · Groupe Direction · Groupe RH, paie"
+
+    # Nothing beyond the organization: no paragraph.
+    verified(db, "gus", "gus@example.com")
+    assert_done(post(client, "/o/acme/-/invitations", token, email="gus@example.com"))
+    body = smtp.messages[-1].get_payload(decode=True)
+    assert isinstance(body, bytes) and "- " not in body.decode()
+
+
+def test_a_group_deleted_while_inviting_is_refused_cleanly(
+    db: Session, database: Database, client: TestClient, team: Team, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deleted by another request between its check and the writing of the invitation: the
+    database refuses the link, the invitation is refused like for an unknown group (404, or a
+    message), not with an error, and nothing is written."""
+    rh = make_group(db, team, "RH", members=())
+    chosen = invitations._chosen_groups
+
+    def deleted_meanwhile(*args: Any) -> list[Group]:
+        found = chosen(*args)
+        with database.session() as other:
+            other.execute(text("DELETE FROM groups WHERE id = :id"), {"id": rh.id})
+            other.commit()
+        return found
+
+    monkeypatch.setattr(invitations, "_chosen_groups", deleted_meanwhile)
+    headers = {"Authorization": f"Bearer {token_for(database, 'carol')}"}
+    answer = client.post(
+        "/api/v1/organizations/acme/invitations",
+        json={"email": "zoe@example.com", "groups": [str(rh.id)]},
+        headers=headers,
+    )
+    assert answer.status_code == 404, answer.text
+    assert answer.json()["error"] == "not_found"
+
+    rh = make_group(db, team, "RH", members=())
+    before = snapshot(database)
+    token = as_user(client, "carol")
+    refused = post(
+        client, "/o/acme/-/invitations", token, email="zoe@example.com", group=str(rh.id)
+    )
+    assert_refused(client, refused, NOT_FOUND)
+    after = snapshot(database)
+    assert after["invitations"] == [] and after["groups"] == []
+    assert {k: v for k, v in after.items() if k != "groups"} == {
+        k: v for k, v in before.items() if k != "groups"
+    }
+
+
+def test_the_number_of_groups_is_bounded(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    headers = {"Authorization": f"Bearer {token_for(database, 'carol')}"}
+    too_many = [str(uuid4()) for _ in range(invitations.MAX_GROUPS + 1)]
+    answer = client.post(
+        "/api/v1/organizations/acme/invitations",
+        json={"email": "zoe@example.com", "groups": too_many},
+        headers=headers,
+    )
+    assert answer.status_code == 422
+    with pytest.raises(SynaptaneError) as error:
+        invite(db, team, "zoe@example.com", *[Group(id=uuid4()) for _ in too_many])
+    assert error.value.code == "invalid"
+    db.rollback()
+    assert db.scalar(select(func.count()).select_from(Invitation)) == 0
 
 
 def test_invitations_of_several_organizations_each_bring_their_groups(
@@ -598,10 +721,10 @@ def test_the_log_keeps_the_groups_of_the_invitation(
         ]
 
     assert details("org.invitation_created") == [
-        {"email": "zoe@example.com", "role": "member", "groups": "Direction, RH"}
+        {"email": "zoe@example.com", "role": "member", "groups": ["Direction", "RH"]}
     ]
     assert details("org.member_invited") == [
-        {"username": "frank", "role": "member", "groups": "RH"}
+        {"username": "frank", "role": "member", "groups": ["RH"]}
     ]
     # The acceptance adds to the groups like an addition by hand, by the system (the
     # invitation signed by an admin), in the same transaction as the rest.
@@ -621,4 +744,5 @@ def test_the_log_keeps_the_groups_of_the_invitation(
 
     as_user(client, "carol")
     journal = client.get("/o/acme/-/journal", params={"family": "members"}).text
-    assert "Groupes : Direction, RH" in " ".join(journal.split()).replace(" ", " ")
+    [line] = select_html(journal, '[data-action="org.invitation_created"] .audit-details')
+    assert line.text == "Membre · Groupe Direction · Groupe RH"
