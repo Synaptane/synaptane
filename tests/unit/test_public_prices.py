@@ -95,16 +95,31 @@ def test_the_tables_are_consistent() -> None:
 # --- Which tables for which provider --------------------------------------------------------------
 
 
-def test_each_provider_looks_up_its_own_models() -> None:
-    assert pricing.price_for("anthropic", "gpt-5", None, None, DAY) is None
-    assert pricing.price_for("openai", "claude-sonnet-5-5", None, None, DAY) is None
-    assert pricing.price_for("mistral", "gemini-3.8-flash", None, None, DAY) is None
-    # Ollama runs locally: an open model with the name of a paid one costs nothing.
-    assert pricing.price_for("ollama", "mistral-small-latest", None, None, DAY) is None
-    assert pricing.price_for("codex", "gpt-5", None, None, DAY) is None  # subscription
-    # A compatible API may be a gateway to any of them.
+def test_a_model_is_found_whatever_the_provider_that_calls_it() -> None:
+    # The OpenAI provider pointed at Anthropic's OpenAI-compatible endpoint, or at a gateway:
+    # the Claude model keeps its price (it had it before the per-provider tables).
+    sonnet = pricing.price_for("openai", "claude-sonnet-5-5", None, None, DAY)
+    assert sonnet is not None and (sonnet.input, sonnet.output) == (Decimal(2), Decimal(10))
+    assert sonnet.cache_read == Decimal("0.05") and sonnet.cache_write == Decimal("1.25")
+    assert pricing.tariff("anthropic", "gpt-5", DAY) == pricing.tariff("openai", "gpt-5", DAY)
+    assert pricing.price_for("mistral", "gemini-3.8-flash", None, None, DAY) is not None
+    assert pricing.price_for("mistral", "openai/gpt-5.4-mini", None, None, DAY) is not None
     for model in ("claude-sonnet-5-5", "gpt-5", "mistral-large-latest", "deepseek-flash"):
         assert pricing.price_for("openai_compatible", model, None, None, DAY) is not None
+    # Exact names only, in every table: no prefix borrowed through the fallback either.
+    assert pricing.price_for("openai", "claude-opus-5-7", None, None, DAY) is None
+    assert pricing.price_for("mistral", "gpt-5-pro", None, None, DAY) is None
+    # The provider's own table comes first (the names never overlap anyway).
+    assert pricing.PROVIDER_TABLES["mistral"][0] == "mistral"
+    assert set(pricing.PROVIDER_TABLES["openai"]) == set(pricing.PUBLIC_PRICES)
+
+
+def test_local_models_and_subscriptions_have_no_public_price() -> None:
+    # Ollama runs locally: an open model with the name of a paid one costs nothing.
+    assert pricing.price_for("ollama", "mistral-small-latest", None, None, DAY) is None
+    assert pricing.price_for("ollama", "claude-sonnet-5-5", None, None, DAY) is None
+    assert pricing.price_for("codex", "gpt-5", None, None, DAY) is None  # subscription
+    assert pricing.price_for("claude_code", "claude-sonnet-5-5", None, None, DAY) is None
     assert pricing.price_for("unknown_provider", "gpt-5", None, None, DAY) is None
 
 
@@ -124,6 +139,8 @@ def test_each_provider_looks_up_its_own_models() -> None:
         ("openai_compatible", "mistralai/mistral-large-latest", "mistral-large-latest"),
         ("anthropic", "claude-haiku-4-5-20251001", "claude-haiku-4-5"),
         ("anthropic", "claude-opus-4-5@20251101", "claude-opus-4-5"),
+        # Used to take the price of claude-opus-5 ($5 / $25) by prefix: now its own ($4 / $20).
+        ("anthropic", "claude-opus-5-5@20260901", "claude-opus-5-5"),
         ("openai_compatible", "anthropic/claude-sonnet-5.5", "claude-sonnet-5-5"),
         ("openai_compatible", "anthropic/claude-sonnet-4.5-20250929", "claude-sonnet-4-5"),
     ],
@@ -276,8 +293,20 @@ def test_the_prudent_price_stays_at_the_level_of_the_most_expensive_usable_model
     # Claude Fable 5.1 and GPT-6 Astra: $10 / $50. Not GPT-6 Astra's long-prompt price ($20 /
     # $75), nor OpenAI's "pro" models ($30 / $180, not in the table).
     assert (price.input, price.output) == (Decimal(10), Decimal(50))
+    # Unchanged for existing instances: the same as before the per-provider tables.
+    assert (price.cache_read, price.cache_write) == (Decimal("0.1"), Decimal("1.25"))
     assert price.public and price.cache_read == pricing.CACHE_READ and price.long is None
     assert pricing.prudent_price(date(2027, 6, 1)).output == Decimal(50)
+
+
+def test_the_prudent_price_is_not_a_ceiling_for_restricted_models() -> None:
+    # gpt-6-cyber ($20 / $100, Chat Completions) needs "Daybreak Red access and approval": not in
+    # the table, so as not to double the cost counted for every unknown model. Its price is to
+    # be entered; until then, it is counted at the prudent price, lower than its own.
+    assert pricing.price_for("openai", "gpt-6-cyber", None, None, DAY) is None
+    assert pricing.prudent_price(DAY).output < Decimal(100)
+    own = pricing.price_for("openai", "gpt-6-cyber", Decimal(20), Decimal(100), DAY)
+    assert own is not None and (own.input, own.output) == (Decimal(20), Decimal(100))
 
 
 # --- Usage reported by OpenAI-compatible APIs -----------------------------------------------------
@@ -350,6 +379,12 @@ def test_embedding_prices_and_names() -> None:
     assert pricing.embedding_cost("openai", "text-embedding-ada-002", million) == Decimal("0.1")
     assert pricing.embedding_cost("mistral", "codestral-embed-2505", million) == Decimal("0.15")
     assert pricing.embedding_cost("voyage", "voyage-code-4", million) == Decimal("0.12")
+    assert pricing.embedding_cost("voyage", "voyage-3", million) == Decimal("0.06")
+    assert pricing.embedding_cost("voyage", "voyage-3-lite", million) == Decimal("0.02")
+    assert pricing.embedding_cost("voyage", "voyage-context-4", million) == Decimal("0.12")
+    assert pricing.embedding_cost("voyage", "voyage-law-2", million) == Decimal("0.12")
+    assert pricing.embedding_cost("voyage", "voyage-context-3", million) == Decimal("0.18")
+    assert pricing.embedding_cost("voyage", "voyage-lite-02-instruct", million) == Decimal("0.1")
     # Unknown model: the highest price of its own provider, never zero.
     assert pricing.embedding_cost("openai", "text-embedding-4", million) == Decimal("0.13")
     assert pricing.embedding_cost("mistral", "mistral-embed-2", million) == Decimal("0.15")

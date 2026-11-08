@@ -46,7 +46,7 @@ of the target version.
   OpenAI-compatible API; a model is recognized behind a router (`openai/gpt-5`,
   `models/gemini-2.5-pro`) or as a dated snapshot. The price you enter still comes first. More
   embedding models are priced too (`gemini-embedding-2`, `text-embedding-ada-002`,
-  `codestral-embed`, `voyage-code-4`, `voyage-3-large`…), and more Claude models
+  `codestral-embed`, `voyage-3`, `voyage-context-4`…), and more Claude models
   (`claude-haiku-5-5`, `claude-opus-4-8`, `claude-sonnet-4-6`…).
 
 ### Changed
@@ -80,7 +80,13 @@ of the target version.
 - **A model with no known public price no longer borrows one**: `claude-opus-5-7`, say, used to
   take the price of `claude-opus-5`. With a monthly budget, such a model now needs its prices
   entered, as any unknown model; a run already set up with one is counted at the highest known
-  price, and its log says so.
+  price, and its log says so. A known model keeps its price whatever the provider that calls it
+  (a Claude model through the OpenAI provider at a custom address, for instance), by its exact
+  name.
+- **Ollama has no public price any more**: a local model named like a Claude model used to be
+  counted at Claude's price; it now costs nothing, unless you enter a price. The prudent price
+  (highest known price, $10 / $50) is unchanged: models with restricted access, priced higher,
+  are not in the table, so their price must be entered.
 - **Embeddings of an unknown model** are counted at the highest price of their provider, no
   longer at the highest price of all providers.
 

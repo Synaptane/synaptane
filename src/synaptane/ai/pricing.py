@@ -7,8 +7,10 @@ euros, hence "estimated". Subscriptions (Claude Code, Codex) have no pay-per-use
 Public prices are kept per provider (`PUBLIC_PRICES`), each block with the page it was read
 from and the date. They are the standard, pay-as-you-go prices of the provider's own API: no
 batch, priority or regional surcharge, no free allowance, no volume discount. A model is looked
-up in the tables of its provider only (Anthropic, OpenAI, Mistral); through an
-OpenAI-compatible API (gateway, Gemini, DeepSeek…), in all of them; never for Ollama (local).
+up in the table of its provider first, then in the others, by its exact name (a Claude model
+called through the OpenAI provider at a custom address, a gateway, Gemini or DeepSeek behind an
+OpenAI-compatible API); never for Ollama (local) or a subscription. Models with restricted
+access (approval by the provider) are not in the tables: their price is to be entered.
 
 Prompt cache, as each provider bills it (`Rate`):
 - input read back from the cache is billed at the model's cached-input price (a tenth of the
@@ -28,7 +30,9 @@ promotional price whose end is announced without the following price stops being
 that date.
 
 A model with no known price is never counted as zero when a budget is set: it is counted at
-the highest base price of the tables (`prudent_price`, see `budget.run_price`).
+the highest base price of the tables (`prudent_price`, see `budget.run_price`), that is of the
+models open to every customer. It is not a ceiling: a restricted model may cost more
+(`gpt-6-cyber`, $20 / $100), and its price must then be entered.
 
 Model names: case and spaces are ignored, and so is a router or namespace prefix
 (`openai/gpt-5`, `models/gemini-2.5-pro`); a dated snapshot is billed like its model
@@ -238,8 +242,14 @@ GEMINI: dict[str, tuple[Tariff, ...]] = {
 # from each model's page (https://docs.mistral.ai/models/…), cache:
 # https://docs.mistral.ai/inference/conversations/advanced/prompt-caching (cached tokens at
 # 10 % of the input price), read on 2026-11-08. Columns: input, output, cached input.
-# `mistral-large-latest`: a "-latest" alias "points to the latest version, across generations"
-# (https://docs.mistral.ai/inference/model-lifecycle), here Mistral Large 4.
+# `mistral-large-latest`: undetermined. A "-latest" alias "points to the latest version, across
+# generations" (https://docs.mistral.ai/inference/model-lifecycle), Mistral Large 4; but the page
+# of Mistral Large 3 (https://docs.mistral.ai/models/mistral-large-3-25-12, deprecated on
+# 2026-10-31, no price shown any more) still lists it among its names, and Large 4's page does
+# not. Counted at the higher of the two: Large 4 ($0.7 / $2.1); Large 3 was $0.5 / $1.5 ("Mistral
+# Large costs $0.5 /M tokens in and $1.5 /M tokens out", https://mistral.ai/pricing, FAQ).
+# Mistral Medium 3.5 (`mistral-medium-latest`) and Large 3 (`mistral-large-2512`), deprecated,
+# have no published price: left out.
 _MISTRAL_LARGE_4 = _p("0.7", "2.1", "0.07")
 _MISTRAL_SMALL_4 = _p("0.15", "0.6", "0.015")
 _MINISTRAL_14B = _p("0.2", "0.2", "0.02")
@@ -282,14 +292,16 @@ PUBLIC_PRICES: dict[str, dict[str, tuple[Tariff, ...]]] = {
     "mistral": MISTRAL,
     "deepseek": DEEPSEEK,
 }
-# Tables looked up for each chat provider. An OpenAI-compatible API may be a gateway to any of
-# them (OpenRouter, LiteLLM), Gemini or DeepSeek; Ollama runs locally: no public price.
+# Table looked up first for each chat provider; then, by exact name, all the others: any of
+# them may sit behind a custom address (the OpenAI provider pointed at Anthropic's
+# OpenAI-compatible endpoint, a gateway: OpenRouter, LiteLLM), and Gemini and DeepSeek behind an
+# OpenAI-compatible API. The names never overlap between tables. Ollama runs locally and
+# subscriptions are paid apart: no public price (providers missing here).
 PROVIDER_TABLES: dict[str, tuple[str, ...]] = {
-    "anthropic": ("anthropic",),
-    "openai": ("openai",),
-    "mistral": ("mistral",),
-    "openai_compatible": tuple(PUBLIC_PRICES),
+    provider: (own, *(t for t in PUBLIC_PRICES if t != own))
+    for provider, own in (("anthropic", "anthropic"), ("openai", "openai"), ("mistral", "mistral"))
 }
+PROVIDER_TABLES["openai_compatible"] = tuple(PUBLIC_PRICES)
 
 # Embeddings: public prices per million input tokens, in dollars.
 EMBEDDING_PRICES: dict[str, dict[str, Decimal]] = {
@@ -314,7 +326,8 @@ EMBEDDING_PRICES: dict[str, dict[str, Decimal]] = {
         "codestral-embed": Decimal("0.15"),
         "codestral-embed-2505": Decimal("0.15"),
     },
-    # https://docs.voyageai.com/docs/pricing (text embeddings, beyond the free tokens), read on
+    # https://docs.voyageai.com/docs/pricing (text embeddings, beyond the free tokens; "Older
+    # models" included; multimodal models, outside `/v1/embeddings`, left out), read on
     # 2026-11-08.
     "voyage": {
         "voyage-4-large": Decimal("0.12"),
@@ -325,6 +338,22 @@ EMBEDDING_PRICES: dict[str, dict[str, Decimal]] = {
         "voyage-code-3": Decimal("0.18"),
         "voyage-3.5": Decimal("0.06"),
         "voyage-3.5-lite": Decimal("0.02"),
+        "voyage-context-4": Decimal("0.12"),  # contextualized embeddings endpoint
+        "voyage-finance-2": Decimal("0.12"),
+        "voyage-law-2": Decimal("0.12"),
+        "voyage-code-2": Decimal("0.12"),
+        "voyage-context-3": Decimal("0.18"),
+        "voyage-multilingual-2": Decimal("0.12"),
+        "voyage-large-2-instruct": Decimal("0.12"),
+        "voyage-large-2": Decimal("0.12"),
+        "voyage-3": Decimal("0.06"),
+        "voyage-3-lite": Decimal("0.02"),
+        "voyage-2": Decimal("0.1"),
+        "voyage-02": Decimal("0.1"),
+        "voyage-01": Decimal("0.1"),
+        "voyage-lite-01": Decimal("0.1"),
+        "voyage-lite-01-instruct": Decimal("0.1"),
+        "voyage-lite-02-instruct": Decimal("0.1"),
     },
 }
 # Embedding providers billed per use (Ollama and compatible APIs: unknown).
@@ -370,8 +399,8 @@ def tariff(provider: str, model: str, on: date | None = None) -> Tariff | None:
     None: unknown."""
     day = on or datetime.now(UTC).date()
     tables = [PUBLIC_PRICES[t] for t in PROVIDER_TABLES.get(provider, ())]
-    for name in _names(model):
-        for table in tables:
+    for table in tables:
+        for name in _names(model):
             if name in table:
                 return _in_force(table[name], day)
     return None
@@ -426,10 +455,12 @@ def price_for(
 
 def prudent_price(on: date | None = None) -> Price:
     """Highest base price of the public tables (and the cache at the ordinary price): to count a
-    run whose model has no known price while a budget is set. Long-prompt prices are left out,
-    and so are the models priced far above the others that Synaptane cannot use (OpenAI's "pro"
-    models, Responses API only): the most expensive models of the tables are then at the same
-    level ($10 / $50 per million tokens on 2026-11-08)."""
+    run whose model has no known price while a budget is set. The tables only hold models open
+    to every customer that Synaptane can use: not OpenAI's "pro" models (Responses API only), nor
+    models with restricted access (`gpt-6-cyber`, $20 / $100, on approval). Long-prompt prices are
+    left out. The most expensive models are then at the same level ($10 / $50 per million tokens
+    on 2026-11-08: Claude Fable 5.1, GPT-6 Astra). Not a ceiling: a restricted model priced
+    higher needs its price entered."""
     day = on or datetime.now(UTC).date()
     rates = [
         found.rate

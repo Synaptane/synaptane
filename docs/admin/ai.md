@@ -410,25 +410,29 @@ Organization page → **Artificial intelligence**, "Cost and budget" section (or
   estimate. With no price and no known model, no cost is computed. Prices entered apply to
   every model of the organization, including those chosen by its spaces. The page shows the
   public price applied to the organization's model.
-- **Known public prices**: the main models of Anthropic (Claude), OpenAI, Google Gemini,
-  Mistral and DeepSeek, at the standard pay-as-you-go price of the provider's own API (no
-  batch, priority or regional surcharge, no free allowance). They are looked up for the
-  provider's own models: Anthropic models with the Anthropic provider, OpenAI models with
-  OpenAI, Mistral models with Mistral; through an OpenAI-compatible API (Gemini, DeepSeek,
-  OpenRouter, LiteLLM…), in all the tables. Ollama has no public price. The model's name is
-  recognized with a router prefix (`openai/gpt-5`, `models/gemini-2.5-pro`), as a dated
-  snapshot (`gpt-5-2025-08-07`, `claude-haiku-4-5-20251001`) or with OpenRouter's dots
-  (`anthropic/claude-sonnet-5.5`); any other model is unknown, even if its name starts like a
-  known one (`gpt-5-pro` does not take the price of `gpt-5`). A gateway that bills its own
-  price (Azure, OpenRouter fees): enter it.
+- **Known public prices**: the main models of Anthropic (Claude), OpenAI, Google Gemini, Mistral
+  and DeepSeek, at the standard pay-as-you-go price of the provider's own API (no batch,
+  priority or regional surcharge, no free allowance). A model is looked up among its provider's
+  models first, then among the others by its exact name: a Claude model called through the
+  OpenAI provider at a custom address (Anthropic's OpenAI-compatible endpoint, a gateway) keeps
+  its price, and so do Gemini and DeepSeek behind an OpenAI-compatible API (or OpenRouter,
+  LiteLLM…). Ollama (local) and subscriptions have no public price. Models with restricted
+  access, open on the provider's approval (`gpt-6-cyber`…), are not in the table: enter their
+  price. `mistral-large-latest`, the default Mistral model, is counted at the price of Mistral
+  Large 4, the higher of the two models the alias may point to. The model's name is recognized with a router prefix (`openai/gpt-5`,
+  `models/gemini-2.5-pro`), as a dated snapshot (`gpt-5-2025-08-07`,
+  `claude-haiku-4-5-20251001`) or with OpenRouter's dots (`anthropic/claude-sonnet-5.5`); any
+  other model is unknown, even if its name starts like a known one (`gpt-5-pro` does not take
+  the price of `gpt-5`). A gateway that bills its own price (Azure, OpenRouter fees): enter it.
 - **Cache**, as each provider bills it: input read from the cache counts at the model's
-  cached-input price (usually a tenth of the input price; a twentieth for `claude-opus-5-5`
-  and `claude-sonnet-5-5`, a fortieth for `claude-fable-5-1`). Input written to the cache
-  costs 1.25 times the input price with Anthropic (5-minute cache, the only one Synaptane
-  requests) and with OpenAI's GPT-5.6 and later models (30-minute default), with no surcharge
-  elsewhere. With Anthropic, Synaptane turns caching on: each turn rereads the previous one at
-  a lower cost; with the other providers, Synaptane counts the cache reads and writes they
-  report. With a price you entered, the cache shares of the model's public price apply to it.
+  cached-input price (usually a tenth of the input price; a twentieth for `claude-opus-5-5` and
+  `claude-sonnet-5-5`, a fortieth for `claude-fable-5-1` and `claude-mythos-5-1`). Input written
+  to the cache costs 1.25 times the input price with Anthropic (5-minute cache, the only one
+  Synaptane requests) and with OpenAI's GPT-5.6 and later models (30-minute default), with no
+  surcharge elsewhere. With Anthropic, Synaptane turns caching on: each turn rereads the
+  previous one at a lower cost; with the other providers, Synaptane counts the cache reads and
+  writes they report. With a price you entered, the cache shares of the model's public price
+  apply to it.
 - **Long prompts**: some models cost more for a request whose prompt is long (cache included):
   OpenAI's models from GPT-5.4 on (not the mini and nano ones) over 272,000 tokens, Gemini Pro
   over 200,000, `claude-haiku-5-5` over 100,000. Synaptane counts such requests one by one at
@@ -449,14 +453,16 @@ Organization page → **Artificial intelligence**, "Cost and budget" section (or
   a key): the form suggests a budget of €20 a month when the provider is first set up, and
   as long as no budget is set, the AI page shows a warning: spending has no limit. This does
   not apply to subscriptions, Ollama or an OpenAI-compatible API without a key.
-- **A budget requires a known price** for the organization's model **and** for the model
-  chosen by each space (known public price, or prices entered by the admin).
-  Otherwise the budget is refused, and once a budget is set, a space cannot pick a model
-  without a known price. If a model loses its price later (for example after an update), each
-  run with it is counted at the highest known public price ($10 / $50 per million tokens in
-  November 2026), never zero, and the run's log says so. Models that Synaptane cannot use
-  (OpenAI's "pro" models, available through the Responses API only) are not in the table, so
-  that they do not raise this price.
+- **A budget requires a known price** for the organization's model **and** for the model chosen
+  by each space (known public price, or prices entered by the admin). Otherwise the budget is
+  refused, and once a budget is set, a space cannot pick a model without a known price. If a
+  model loses its price later (for example after an update), each run with it is counted at the
+  highest known public price ($10 / $50 per million tokens in November 2026), never zero, and
+  the run's log says so. This is the highest price of the models open to every customer in the
+  table: models that Synaptane cannot use (OpenAI's "pro" models, Responses API only) and models
+  with restricted access are left out, so that they do not raise this price for every unknown
+  model. It is therefore not a ceiling: a restricted model priced higher (`gpt-6-cyber`, $20 /
+  $100) must have its price entered.
 - **Semantic indexing** counts toward the month's spending: tokens reported by the provider, or
   overestimated (one token per three characters) when it does not report them, at the public
   prices of the OpenAI, Gemini, Mistral and Voyage AI models (for a model it does not know, the

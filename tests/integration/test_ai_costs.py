@@ -223,6 +223,31 @@ def test_other_providers_have_their_public_price(
     assert "pas de coût calculé pour ce modèle" in client.get("/o/acme/-/ai").text
 
 
+def test_claude_through_the_openai_provider_keeps_its_public_price(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    # The OpenAI provider pointed at Anthropic's OpenAI-compatible endpoint (or a gateway), with
+    # a budget and no price entered: accepted, and counted at Claude's price, not the prudent
+    # one: (1,000 × 2 + 200 × 10) per million.
+    ai_settings.configure(
+        db,
+        wiki.root,
+        ctx.box,
+        wiki.infra.organization,
+        provider="openai",
+        model="claude-sonnet-5-5",
+        base_url="https://api.anthropic.com/v1",
+        api_key="sk-ant-test",
+        monthly_budget=Decimal(10),
+    )
+    db.commit()
+    deposit_note(db, database, ctx, wiki)
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="manual", factory=CloseAll().factory)
+    assert record is not None and record.status == "done"
+    assert record.cost == Decimal("0.0040")
+    assert not [op for op in record.operations if op["op"] == "attention"]
+
+
 # --- 2. Suggested budget and warning -------------------------------------------------------------
 
 
