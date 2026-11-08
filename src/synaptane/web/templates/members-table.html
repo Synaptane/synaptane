@@ -20,7 +20,7 @@
             {% set note = (member_notes|default({})).get(member.username) %}
             {% if note %}<br><span class="muted" data-test="member-note">{{ _("Organization administrator") if note == 'admin' else _("Contributor, by default") }}</span>{% endif %}
           </td>
-          {% if manage %}<td class="cell-actions">{{ action(members_url ~ "/" ~ member.username ~ "/remove", _("Remove"), confirm=_("Remove {name}?", name=member.display_name), kind="danger") }}</td>{% endif %}
+          {% if manage %}<td class="cell-actions">{{ action(members_url ~ "/" ~ member.username ~ "/remove", _("Remove"), confirm=_("Remove {name}?", name=member.display_name) ~ ((" " ~ remove_note) if remove_note|default("") else ""), kind="danger") }}</td>{% endif %}
         </tr>
         {% else %}
         <tr><td colspan="3" class="muted">{{ empty_text }}</td></tr>
@@ -38,6 +38,6 @@
     <div class="field"><label for="new-role">{{ _("Role") }}</label><select id="new-role" name="role">{% for value, label in role_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
   </div>
   <button class="button button-primary" type="submit">{{ _("Add") }}</button>
-  {% if add_help %}<p class="muted">{{ add_help }}</p>{% endif %}
+  {% if add_help %}<p class="muted" data-test="member-add-help">{{ add_help }}</p>{% endif %}
 </form>
 {% endif %}

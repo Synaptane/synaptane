@@ -25,7 +25,13 @@
         {% for item in org_spaces %}
         <li>
           <label for="space-role-{{ item.id }}">{{ item.name }}</label>
-          <select class="select-compact" id="space-role-{{ item.id }}" name="space_role"><option value="">{{ _("No access") }}</option><option value="{{ item.id }}:reader">{{ _("Reader") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option></select>
+          {# The default role is a floor: only higher roles are offered. #}
+          {% set floor = org.default_space_role if not item.restricted else "none" %}
+          <select class="select-compact" id="space-role-{{ item.id }}" name="space_role">
+            {%- if floor == "contributor" %}<option value="">{{ _("Contributor (by default)") }}</option>
+            {%- elif floor == "reader" %}<option value="">{{ _("Reader (by default)") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option>
+            {%- else %}<option value="">{{ _("No access") }}</option><option value="{{ item.id }}:reader">{{ _("Reader") }}</option><option value="{{ item.id }}:contributor">{{ _("Contributor") }}</option>{% endif -%}
+          </select>
         </li>
         {% endfor %}
       </ul>

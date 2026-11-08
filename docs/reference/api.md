@@ -111,12 +111,12 @@ the space). An organization admin has all rights on its spaces.
 | Method and path | Right | Purpose |
 |---|---|---|
 | `GET /organizations/{org}/spaces` | member | Visible spaces of the organization |
-| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main"}` (201) |
+| `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true`: closed to the organization's default role from its creation |
 | `GET …/spaces/{space}` | reader | Details, with the caller's effective `role`, `review_every` (default review interval of the pages, `""`: never) and `restricted` (the organization's default role does not apply) |
 | `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""`; 400 if unreadable), `restricted` (`true`: only the members added to the space, and the organization's admins, access it). Changing `repo_url` removes the Git credentials |
 | `DELETE …/spaces/{space}` | admin | Deletes the space in Synaptane; the remote repository is not touched (204) |
 | `GET …/spaces/{space}/members` | reader | Members added to the space: `username`, `display_name`, `role` (`reader` or `contributor`, the role given there). Those who access it only through the default role are not listed (`GET /organizations/{org}/members` lists them) |
-| `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}` |
+| `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}`. An account that is not a member of the organization becomes one: with a default role (`default_space_role`), it then also gets that role on every space of the organization that is not restricted |
 | `DELETE …/spaces/{space}/members/{username}` | admin | Removes (204) |
 | `GET …/spaces/{space}/vocation` | reader | Purpose of the space (`.synaptane/vocation.md`): `path`, `text` (`""` if it does not exist), `sha`, `pending` (waiting for the first sync), `history` (last 5 changes: `commit`, `author`, `date`, `subject`) |
 | `PUT …/spaces/{space}/vocation` | admin | `{"text": …, "base_sha": …, "allow_secrets": false}`: a commit in the caller's name, then a sync. `text`: 20,000 characters at most, `""` removes the file. `base_sha`: hash read before editing (`""`: the file must not exist); 409 if it changed in the meantime. 422 if a likely secret is detected. Returns `commit` (`null` if nothing changed) and `pending`: before the first sync, the text is held and written by that sync |

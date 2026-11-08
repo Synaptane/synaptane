@@ -16,7 +16,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from synaptane.core.access import Action, OrgRole, SpaceRole, require
+from synaptane.core.access import Action, OrgRole, SpaceRole, effective_role, require
 from synaptane.core.errors import conflict, invalid, not_found, too_many
 from synaptane.core.security import new_token, token_hash
 from synaptane.services import Actor, accounts, audit, organizations, spaces
@@ -219,12 +219,21 @@ def _system_actor(org: Organization) -> Actor:
     )
 
 
-def describe(session: Session, invitation: Invitation) -> tuple[str, list[tuple[str, str]]]:
-    """Who invites, and which spaces with which role (for the invitation page)."""
+def describe(session: Session, invitation: Invitation) -> tuple[str, list[tuple[str, str, bool]]]:
+    """Who invites, and the access the invitation actually gives (for the invitation page):
+    (space, effective role, through the default role), the spaces opened by the
+    organization's default role included; an administrator contributes everywhere."""
     inviter = session.get(User, invitation.invited_by) if invitation.invited_by else None
-    granted = []
-    for space_id, role in invitation.space_roles.items():
-        space = session.get(Space, UUID(space_id))
-        if space is not None:
-            granted.append((space.name, role))
+    org = session.get(Organization, invitation.org_id)
+    granted: list[tuple[str, str, bool]] = []
+    if org is not None:
+        given = invitation.space_roles
+        for space in session.scalars(
+            select(Space).where(Space.org_id == org.id).order_by(Space.name)
+        ):
+            explicit = SpaceRole(given[str(space.id)]) if str(space.id) in given else None
+            if invitation.org_role == OrgRole.ADMIN.value:
+                granted.append((space.name, SpaceRole.CONTRIBUTOR.value, False))
+            elif role := effective_role(explicit, org.default_space_role, space.restricted):
+                granted.append((space.name, role.value, role != explicit))
     return (inviter.display_name if inviter else ""), granted

@@ -10,7 +10,7 @@
   <h1 class="card-title">{{ _("Join “{org}”", org=org.name) }}</h1>
   {% set role_names = {"admin": _("administrator"), "member": _("member"), "contributor": _("contributor"), "reader": _("reader")} %}
   <p>{% if inviter %}{{ _("{name} invites you as {role} of the organization.", name=inviter, role=role_names.get(invitation.org_role, invitation.org_role)) }}{% else %}{{ _("You are invited as {role} of the organization.", role=role_names.get(invitation.org_role, invitation.org_role)) }}{% endif %}</p>
-  {% if granted %}<ul>{% for space, role in granted %}<li>{{ space }} : {{ role_names.get(role, role) }}</li>{% endfor %}</ul>{% endif %}
+  {% if granted %}<ul data-test="invitation-access">{% for space, role, by_default in granted %}<li>{{ space }} : {{ _("{role}, by default", role=role_names.get(role, role)) if by_default else role_names.get(role, role) }}</li>{% endfor %}</ul>{% endif %}
   <p class="muted">{{ _("Create your account for {email}.", email=invitation.email) }}</p>
   {% if error %}<div class="notice notice-error" role="alert">{{ _(error.template, **error.params) }}</div>{% endif %}
   <form method="post" action="/invite/{{ token }}">

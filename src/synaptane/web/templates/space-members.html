@@ -28,7 +28,10 @@
 {% set members_url = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/members" %}
 {% set role_labels = [("reader", _("Reader")), ("contributor", _("Contributor"))] %}
 {% set empty_text = _("No direct member.") %}
-{% set add_help = "" %}
+{% if default_setting != "none" %}
+{% set add_help = _("Someone who is not a member of the organization yet becomes one, and then accesses every space of the organization that is not restricted as {role} (its default role).", role=role_names[default_setting]|lower) %}
+{% else %}{% set add_help = "" %}{% endif %}
+{% set remove_note = _("They keep access to this space as {role}, through the organization's default role.", role=role_names[org_default]|lower) if org_default else "" %}
 {% include "members-table.html" %}
 
 <section class="section-gap" data-test="through-org">

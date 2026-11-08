@@ -24,8 +24,10 @@ of the target version.
   space is restricted, so nobody's access changes.
 - **Restricted spaces**. In a space's **Settings → Members**, "Restricted space" keeps it to
   the members added to it (and the organization admins), whatever the default role: for human
-  resources or management. REST: `restricted` in `GET` and `PATCH …/spaces/{space}`, and in
-  `GET /spaces`. A restricted space shows a badge in the organization's list of spaces.
+  resources or management. A space can also be created restricted (**New space**, or
+  `"restricted": true` in `POST /organizations/{org}/spaces`), so it is never open to everyone,
+  not even right after its creation. REST: `restricted` in `GET` and `PATCH …/spaces/{space}`,
+  and in `GET /spaces`. A restricted space shows a badge in the organization's list of spaces.
   Changes of the default role (`org.default_space_role`) and of the restriction
   (`space.restricted`) are written to the audit log.
 
@@ -34,6 +36,13 @@ of the target version.
   then lists the members added to the space (with a note when they have more through the
   organization), then those who access it through the organization: by default, or as its
   administrators. `GET …/spaces/{space}/members` still lists only the members added to it.
+  With a default role, the add form warns that someone who is not a member of the
+  organization yet becomes one, and so gets the default role on every space that is not
+  restricted; the confirmation says so again. Removing someone from a space that is not
+  restricted says that they keep the default role.
+- **Invitations**. With a default role, the form offers it as a floor in each space that is
+  not restricted ("Reader (by default)") and only the roles above; the invitation page lists
+  the access actually given, the spaces opened by the default role included.
 - **Routine emails "to the members"** also reach those who access the space through the
   default role.
 

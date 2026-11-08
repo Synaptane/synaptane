@@ -176,6 +176,7 @@ class SpaceCreate(BaseModel):
     description: str = ""
     repo_url: str | None = None
     branch: str = "main"
+    restricted: bool = Field(default=False, description="Ignore the organization's default role")
 
 
 class SpaceUpdate(BaseModel):

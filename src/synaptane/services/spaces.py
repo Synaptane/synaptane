@@ -75,7 +75,10 @@ def create_space(
     description: str = "",
     repo_url: str | None = None,
     branch: str = "main",
+    restricted: bool = False,
 ) -> Space:
+    """`restricted`: closed to the organization's default role from the start (human
+    resources, management)."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     slug = names.slug(slug)
     if session.scalar(select(Space).where(Space.org_id == org.id, Space.slug == slug)):
@@ -87,10 +90,13 @@ def create_space(
         description=description.strip(),
         repo_url=_validate_repo_url(repo_url),
         branch=_validate_branch(branch),
+        restricted=restricted,
     )
     session.add(space)
     session.flush()
     audit(session, actor, "space.created", space=space, slug=slug)
+    if restricted:
+        audit(session, actor, "space.restricted", space=space, restricted=True)
     return space
 
 
@@ -113,8 +119,6 @@ def update_space(
     if restricted is not None and restricted != space.restricted:
         space.restricted = restricted
         audit(session, actor, "space.restricted", space=space, restricted=restricted)
-    if (name, description, repo_url, branch, review_every) == (None,) * 5:
-        return space
     if review_every is not None:
         space.review_every = clean_period(review_every)
     if name is not None:
@@ -191,15 +195,19 @@ def list_access(
     return found
 
 
-def set_member(session: Session, actor: Actor, space: Space, user: User, role: SpaceRole) -> None:
+def set_member(session: Session, actor: Actor, space: Space, user: User, role: SpaceRole) -> bool:
+    """Adds to the space, or changes the role. True if the account was not a member of the
+    organization: it becomes one, and so gets the default role on every space that is not
+    restricted."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
-    ensure_member(session, space.organization, user)
+    joined = ensure_member(session, space.organization, user)
     member = session.get(SpaceMember, (space.id, user.id))
     if member is None:
         session.add(SpaceMember(space_id=space.id, user_id=user.id, role=role.value))
     else:
         member.role = role.value
     audit(session, actor, "space.member_set", space=space, username=user.username, role=role)
+    return joined
 
 
 def remove_member(session: Session, actor: Actor, space: Space, user: User) -> None:

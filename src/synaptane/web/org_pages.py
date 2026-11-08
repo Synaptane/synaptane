@@ -242,6 +242,7 @@ def space_create(
     repo_url: Annotated[str, Form()] = "",
     branch: Annotated[str, Form()] = "main",
     vocation_template: Annotated[str, Form()] = "",
+    restricted: Annotated[bool, Form()] = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
@@ -256,6 +257,7 @@ def space_create(
             description=description,
             repo_url=repo_url,
             branch=branch,
+            restricted=restricted,
         )
         if chosen is not None:
             vocation.start_with(page.db, actor, page.workspace, space, chosen)

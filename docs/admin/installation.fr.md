@@ -515,9 +515,21 @@ Par défaut, un membre n'accède qu'aux espaces où il est ajouté. Pour donner 
 chaque membre un rôle sur tous les espaces de l'organisation, choisissez un **rôle par défaut
 dans les espaces** (lecteur ou contributeur) dans les **Paramètres** de l'organisation :
 chaque membre a alors le plus élevé entre ce rôle et celui donné dans un espace. Marquez un
-espace **restreint** (**Paramètres → Membres** de l'espace) pour le réserver à ses propres
-membres, pour les ressources humaines ou la direction ; la page des membres d'un espace
-montre qui y accède par défaut et qui y a été ajouté.
+espace **restreint** (**Paramètres → Membres** de l'espace, ou dès sa création dans **Nouvel
+espace**) pour le réserver à ses propres membres, pour les ressources humaines ou la
+direction ; la page des membres d'un espace montre qui y accède par défaut et qui y a été
+ajouté.
+
+**Avec un rôle par défaut, ajouter quelqu'un à un espace lui ouvre les autres.** Une personne
+qui n'est pas encore membre de l'organisation le devient quand vous l'ajoutez à un espace (ou
+l'invitez) : elle reçoit alors aussi le rôle par défaut sur chaque espace non restreint de
+l'organisation, et pas seulement sur l'espace choisi. Le formulaire d'ajout d'un espace et sa
+confirmation le disent. Pour ne donner accès qu'à un espace, gardez les autres restreints, ou
+laissez le rôle par défaut à « aucun accès ». Retirer quelqu'un d'un espace non restreint lui
+laisse le rôle par défaut : la confirmation le dit aussi. Dans le formulaire d'invitation, un
+espace non restreint propose le rôle par défaut comme plancher (« Lecteur (par défaut) ») et
+seulement les rôles au-dessus ; la page d'invitation liste l'accès réellement donné, rôle par
+défaut compris.
 
 ## Premiers pas
 

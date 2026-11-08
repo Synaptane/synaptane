@@ -67,8 +67,6 @@ def update_organization(
         if default_space_role != org.default_space_role:
             org.default_space_role = default_space_role
             audit(session, actor, "org.default_space_role", org_id=org.id, role=default_space_role)
-    if name is None and description is None:
-        return org
     if name is not None:
         org.name = names.display_name(name)
     if description is not None:
@@ -108,10 +106,13 @@ def set_member(
     audit(session, actor, "org.member_set", org_id=org.id, username=user.username, role=role)
 
 
-def ensure_member(session: Session, org: Organization, user: User) -> None:
-    """A space member is always a member of that space's organization."""
-    if session.get(OrgMember, (org.id, user.id)) is None:
-        session.add(OrgMember(org_id=org.id, user_id=user.id, role=OrgRole.MEMBER.value))
+def ensure_member(session: Session, org: Organization, user: User) -> bool:
+    """A space member is always a member of that space's organization. True if they just
+    became one: with a default role, they then access every space that is not restricted."""
+    if session.get(OrgMember, (org.id, user.id)) is not None:
+        return False
+    session.add(OrgMember(org_id=org.id, user_id=user.id, role=OrgRole.MEMBER.value))
+    return True
 
 
 def remove_member(session: Session, actor: Actor, org: Organization, user: User) -> None:

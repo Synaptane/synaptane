@@ -500,8 +500,19 @@ By default, a member only accesses the spaces they are added to. To give every m
 on all the spaces of the organization at once, choose a **default role in the spaces**
 (reader or contributor) in the organization's **Settings**: each member then has the higher
 of that role and the one given in a space. Mark a space **restricted** (space **Settings →
-Members**) to keep it to its own members, for human resources or management; the members
-page of a space shows who accesses it by default and who was added to it.
+Members**, or from its creation in **New space**) to keep it to its own members, for human
+resources or management; the members page of a space shows who accesses it by default and
+who was added to it.
+
+**With a default role, adding someone to one space opens the others.** A person who is not a
+member of the organization yet becomes one when you add them to a space (or invite them):
+they then also get the default role on every space of the organization that is not
+restricted, not only on the space you chose. The add form of a space and its confirmation say
+so. To give someone access to one space only, keep the others restricted, or leave the
+default role at "no access". Removing someone from a space that is not restricted leaves
+them its default role: the confirmation says so too. In the invitation form, a space that is
+not restricted offers the default role as a floor ("Reader (by default)") and only the roles
+above it; the invitation page lists the access actually given, default role included.
 
 ## First steps
 

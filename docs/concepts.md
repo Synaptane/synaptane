@@ -62,7 +62,10 @@ The next morning, the page shows in the wiki and the assistant finds it through 
   downloads, search (semantic too), REST API, MCP, emails. Nobody ever reaches the spaces of an
   organization they do not belong to, and a token limited to some spaces, to reading or to
   the inbox stays limited. Changes of the default role and of the restriction are written to
-  the audit log.
+  the audit log. A space can be created restricted.
+- Adding someone to a space (or inviting them) makes them a member of its organization: with
+  a default role, they then also get it on every space of the organization that is not
+  restricted. Removing them from a space that is not restricted leaves them the default role.
 - A personal token or an OAuth connection never has more rights than its owner. It can be
   limited to reading and to some spaces; a limited token administers nothing.
 - Through MCP, a super admin only reaches the spaces they are actually a member of (or whose

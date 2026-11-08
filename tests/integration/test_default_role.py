@@ -16,9 +16,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synaptane.core.access import Action, OrgRole, can
+from synaptane.core.access import Action, Limits, OrgRole, SpaceRole, can
 from synaptane.core.errors import SynaptaneError
-from synaptane.services import accounts, git_sync, load_actor, organizations, spaces
+from synaptane.services import (
+    accounts,
+    git_sync,
+    invitations,
+    load_actor,
+    organizations,
+    spaces,
+)
 from synaptane.services.extraction import update_index
 from synaptane.services.routine_agent import recipients
 from synaptane.services.workspace import Workspace
@@ -361,10 +368,26 @@ def test_changes_are_logged(db: Session, team: Team) -> None:
     assert ("space.restricted", acme.id, team.wiki.infra.id, {"restricted": "True"}) in logged
     assert ("space.restricted", acme.id, team.wiki.other.id, {"restricted": "True"}) in logged
     assert len(logged) == 4
-    # Changing only these settings logs nothing else.
-    assert not db.scalars(
-        select(AuditEvent).where(AuditEvent.action.in_(["org.updated", "space.updated"]))
+    # As before, every change of settings is also logged as such, even an empty one: three
+    # organization updates (Globex in the fixture, Acme twice), four space updates.
+    updates = db.scalars(
+        select(AuditEvent.action).where(AuditEvent.action.in_(["org.updated", "space.updated"]))
     ).all()
+    assert sorted(updates) == ["org.updated"] * 3 + ["space.updated"] * 4
+
+
+def test_empty_updates_are_logged_as_before(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    carol = {"Authorization": f"Bearer {token_for(database, 'carol')}"}
+    assert client.patch("/api/v1/organizations/acme", json={}, headers=carol).status_code == 200
+    space = client.patch("/api/v1/organizations/acme/spaces/infra", json={}, headers=carol)
+    assert space.status_code == 200
+    by_carol = AuditEvent.actor_id == accounts.get_user(db, "carol").id
+    actions = sorted(
+        db.scalars(select(AuditEvent.action).where(by_carol, AuditEvent.action != "token.created"))
+    )
+    assert actions == ["org.updated", "space.updated"]  # nothing changed: no other event
 
 
 def test_routine_emails_reach_members_by_default(db: Session, team: Team) -> None:
@@ -436,3 +459,312 @@ def test_mcp_follows_the_default_role(db: Session, live: Live) -> None:  # noqa:
     assert results[0][1].startswith("No space")
     assert "acme/infra" not in results[1][1]
     assert results[2][0]
+
+
+# --- Adding someone who is not a member of the organization -------------------------------------
+
+
+def test_adding_an_outsider_to_one_space_opens_the_others_and_says_so(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    """Adding an account to a space makes it a member of the organization: with a default
+    role, it then reaches every space that is not restricted. The model stays so (no guest
+    yet); the web form and the confirmation say it."""
+    configure(db, team, "reader")
+    spaces.update_space(db, team.wiki.root, team.wiki.other, restricted=True)
+    db.commit()
+    carol = {"Authorization": f"Bearer {token_for(database, 'carol')}"}
+    put = client.put(
+        "/api/v1/organizations/acme/spaces/autre/members/eve",
+        json={"role": "reader"},
+        headers=carol,
+    )
+    assert put.status_code == 200, put.text
+    db.expire_all()
+    # Eve (Globex) now belongs to Acme: added to "autre", reader of "infra" by default.
+    assert role(db, "eve", team.wiki.other) == "reader"
+    assert role(db, "eve", team.wiki.infra) == "reader"
+    assert role(db, "eve", team.ventes) == "contributor"  # her own organization, unchanged
+
+    token = as_user(client, "carol")
+    html = client.get("/o/acme/infra/-/members").text
+    warning = select_one(html, data_test("member-add-help")).text
+    assert "n&#39;est pas encore membre" in html and "en tant que lecteur" in warning
+    make_user(db, "zack")  # an account in no organization
+    db.commit()
+    added = post(client, "/o/acme/infra/-/members", token, username="zack", role="contributor")
+    assert_done(added)
+    flash = client.get(added.headers["location"]).text
+    assert "Zack n&#39;était pas membre de l&#39;organisation" in flash
+    assert "lit désormais chaque espace non restreint" in flash
+    assert role(db, "zack", team.wiki.infra) == "contributor"
+    assert role(db, "zack", team.wiki.other) is None  # restricted
+    # Already a member: the usual message.
+    again = post(client, "/o/acme/infra/-/members", token, username="dora", role="reader")
+    shown = client.get(again.headers["location"]).text
+    assert "Membre enregistré." in shown and "n&#39;était pas membre" not in shown
+
+
+def test_no_warning_without_default_role(db: Session, client: TestClient, team: Team) -> None:
+    token = as_user(client, "carol")
+    assert (
+        select_html(client.get("/o/acme/infra/-/members").text, data_test("member-add-help")) == []
+    )
+    make_user(db, "zack")
+    db.commit()
+    added = post(client, "/o/acme/infra/-/members", token, username="zack", role="reader")
+    shown = client.get(added.headers["location"]).text
+    assert "Membre enregistré." in shown and "n&#39;était pas membre" not in shown
+    assert role(db, "zack", team.wiki.other) is None
+
+
+def test_removing_a_member_says_the_default_access_remains(
+    db: Session, client: TestClient, team: Team
+) -> None:
+    configure(db, team, "contributor")
+    as_user(client, "carol")
+    html = client.get("/o/acme/infra/-/members").text
+    removals = select_html(html, 'form[action="/o/acme/infra/-/members/bob/remove"]')
+    assert len(removals) == 1
+    confirm = removals[0].get("data-confirm") or ""
+    assert confirm.startswith("Retirer Bob\u202f?") and "en tant que contributeur" in confirm
+    spaces.remove_member(db, team.wiki.root, team.wiki.infra, accounts.get_user(db, "bob"))
+    db.commit()
+    assert role(db, "bob", team.wiki.infra) == "contributor"  # as announced
+    # Restricted: nothing is kept, nothing is announced.
+    spaces.update_space(db, team.wiki.root, team.wiki.infra, restricted=True)
+    db.commit()
+    html = client.get("/o/acme/infra/-/members").text
+    [removal] = select_html(html, 'form[action="/o/acme/infra/-/members/alice/remove"]')
+    assert removal.get("data-confirm") == "Retirer Alice\u202f?"
+
+
+# --- Invitations --------------------------------------------------------------------------------
+
+
+def test_invitation_form_offers_the_default_role_as_a_floor(
+    db: Session, client: TestClient, team: Team
+) -> None:
+    configure(db, team, "reader")
+    spaces.update_space(db, team.wiki.root, team.wiki.other, restricted=True)
+    db.commit()
+    as_user(client, "carol")
+    form = select_one(client.get("/o/acme/-/members").text, data_test("invite-form"))
+
+    def options(space: Space) -> list[tuple[str, str]]:
+        menu = select_one(form, f"#space-role-{space.id}")
+        return [(o.get("value") or "", o.text) for o in select_html(menu, "option")]
+
+    infra, other = team.wiki.infra, team.wiki.other
+    assert options(infra) == [
+        ("", "Lecteur (par défaut)"),
+        (f"{infra.id}:contributor", "Contributeur"),
+    ]
+    assert options(other) == [  # restricted: as before
+        ("", "Pas d'accès"),
+        (f"{other.id}:reader", "Lecteur"),
+        (f"{other.id}:contributor", "Contributeur"),
+    ]
+    configure(db, team, "contributor")
+    form = select_one(client.get("/o/acme/-/members").text, data_test("invite-form"))
+    assert options(infra) == [("", "Contributeur (par défaut)")]
+
+
+def test_invitation_page_shows_the_real_access(db: Session, client: TestClient, team: Team) -> None:
+    """No role asked in a space that is not restricted: no error, the default role applies,
+    and the invitation page says so before the account is created."""
+    configure(db, team, "reader")
+    spaces.update_space(db, team.wiki.root, team.wiki.other, restricted=True)
+    db.commit()
+    token = as_user(client, "carol")
+    response = post(
+        client,
+        "/o/acme/-/invitations",
+        token,
+        email="zoe@example.com",
+        org_role="member",
+        space_role="",  # "Reader (by default)" left as is
+    )
+    assert_done(response)
+    revealed = client.get(response.headers["location"]).text
+    link = revealed.split("/invite/", 1)[1].split("<", 1)[0].split('"', 1)[0]
+    client.cookies.clear()
+    page = client.get(f"/invite/{link}")
+    access = select_one(page.text, data_test("invitation-access")).text
+    assert "Infra : lecteur, par défaut" in access and "Autre" not in access
+    created = client.post(
+        f"/invite/{link}",
+        data={"display_name": "Zoé", "username": "zoe", "password": "mot-de-passe-solide-42"},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303, created.text[:300]
+    db.expire_all()
+    assert role(db, "zoe", team.wiki.infra) == "reader"
+    assert role(db, "zoe", team.wiki.other) is None
+
+
+def test_invitation_with_a_role_below_the_default_keeps_the_default(
+    db: Session, team: Team
+) -> None:
+    """Through the service (REST): a reader role asked where the default role is
+    "contributor" is kept as given, the effective role stays the higher one."""
+    configure(db, team, "contributor")
+    user = make_user(db, "zoe")
+    user.email, user.email_verified_at = "zoe@example.com", datetime.now(UTC)
+    db.commit()
+    carol = load_actor(db, accounts.get_user(db, "carol"))
+    invitations.invite(
+        db,
+        carol,
+        team.wiki.infra.organization,
+        email="zoe@example.com",
+        space_roles={str(team.wiki.infra.id): "reader"},
+    )
+    db.commit()
+    assert role(db, "zoe", team.wiki.infra) == "contributor"
+    assert role(db, "zoe", team.wiki.other) == "contributor"
+
+
+# --- Spaces created restricted ------------------------------------------------------------------
+
+
+def test_a_space_can_be_created_restricted(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    """An HR space is never open to everyone, not even between its creation and the first
+    change of its settings."""
+    configure(db, team, "reader")
+    carol = {"Authorization": f"Bearer {token_for(database, 'carol')}"}
+    created = client.post(
+        "/api/v1/organizations/acme/spaces",
+        json={"slug": "rh", "name": "RH", "restricted": True},
+        headers=carol,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["restricted"] is True
+    token = as_user(client, "carol")
+    form = select_one(client.get("/o/acme/-/new-space").text, data_test("new-space-restricted"))
+    assert form.get("name") == "restricted"
+    assert_done(
+        post(
+            client, "/o/acme/-/spaces", token, slug="direction", name="Direction", restricted="true"
+        )
+    )
+    assert_done(post(client, "/o/acme/-/spaces", token, slug="ouvert", name="Ouvert"))
+    db.expire_all()
+    acme = team.wiki.infra.organization
+    rh, direction, opened = (
+        spaces.get_space(db, team.wiki.root, acme, slug) for slug in ("rh", "direction", "ouvert")
+    )
+    assert (rh.restricted, direction.restricted, opened.restricted) == (True, True, False)
+    assert role(db, "dora", rh) is None and role(db, "dora", direction) is None
+    assert role(db, "dora", opened) == "reader"  # a space created afterwards follows the default
+    logged = db.scalars(
+        select(AuditEvent.space_id).where(AuditEvent.action == "space.restricted")
+    ).all()
+    assert sorted(map(str, logged)) == sorted([str(rh.id), str(direction.id)])
+    # By default, as before.
+    plain = client.post(
+        "/api/v1/organizations/acme/spaces", json={"slug": "s", "name": "S"}, headers=carol
+    )
+    assert plain.status_code == 201 and plain.json()["restricted"] is False
+
+
+# --- Other checks (independent verification) ----------------------------------------------------
+
+
+def test_restricted_tokens_of_an_admin_change_no_setting(
+    db: Session, client: TestClient, team: Team
+) -> None:
+    carol = load_actor(db, accounts.get_user(db, "carol"))
+    tokens = [
+        accounts.create_api_token(db, carol, "infra", space_ids=[team.wiki.infra.id])[0],
+        accounts.create_api_token(db, carol, "lecture", read_only=True)[0],
+        accounts.create_api_token(db, carol, "inbox", inbox_only=True)[0],
+    ]
+    db.commit()
+    for token in tokens:
+        headers = {"Authorization": f"Bearer {token}"}
+        org = client.patch(
+            "/api/v1/organizations/acme", json={"default_space_role": "reader"}, headers=headers
+        )
+        assert org.status_code == 403, org.text
+        space = client.patch(
+            "/api/v1/organizations/acme/spaces/infra", json={"restricted": True}, headers=headers
+        )
+        assert space.status_code == 403, space.text
+    db.expire_all()
+    assert team.wiki.infra.organization.default_space_role == "none"
+    assert not team.wiki.infra.restricted
+
+
+def test_forged_requests_and_other_organizations_change_nothing(
+    db: Session, client: TestClient, team: Team
+) -> None:
+    as_user(client, "carol")
+    for url, data in (
+        ("/o/acme/-/default-role", {"default_space_role": "contributor"}),
+        ("/o/acme/infra/-/access", {"restricted": "true"}),
+    ):
+        forged = client.post(url, data={"csrf": "faux", **data}, follow_redirects=False)
+        assert forged.status_code in (303, 400, 403)
+    token = as_user(client, "carol")  # Acme admin, invisible Globex
+    assert (
+        post(client, "/o/globex/-/default-role", token, default_space_role="none").status_code
+        == 404
+    )
+    assert post(client, "/o/globex/ventes/-/access", token, restricted="true").status_code == 404
+    db.expire_all()
+    assert team.wiki.infra.organization.default_space_role == "none"
+    assert team.ventes.organization.default_space_role == "contributor"
+    assert not team.ventes.restricted and not team.wiki.infra.restricted
+
+
+def test_open_sessions_and_old_tokens_follow_changes(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    """Permissions are loaded on every request: a signed-in session and a token created
+    before the change follow it at once, both ways."""
+    full = {"Authorization": f"Bearer {token_for(database, 'dora')}"}
+    as_user(client, "dora")
+    assert client.get("/o/acme/autre/p/secret.md").status_code == 404
+    assert client.get("/api/v1/spaces", headers=full).json() == []
+    configure(db, team, "reader")
+    assert client.get("/o/acme/autre/p/secret.md").status_code == 200
+    assert {s["slug"] for s in client.get("/api/v1/spaces", headers=full).json()} == {
+        "infra",
+        "autre",
+    }
+    spaces.update_space(db, team.wiki.root, team.wiki.other, restricted=True)
+    db.commit()
+    assert client.get("/o/acme/autre/p/secret.md").status_code == 404
+
+
+def test_each_organization_keeps_its_own_default_role(db: Session, team: Team) -> None:
+    configure(db, team, "reader")
+    root, acme = team.wiki.root, team.wiki.infra.organization
+    new = spaces.create_space(db, root, acme, slug="neuf", name="Neuf")
+    dora = accounts.get_user(db, "dora")
+    organizations.set_member(db, root, team.ventes.organization, dora, OrgRole.MEMBER)
+    db.commit()
+    assert role(db, "dora", new) == "reader"
+    assert role(db, "dora", team.wiki.infra) == "reader"
+    assert role(db, "dora", team.ventes) == "contributor"
+    limited = load_actor(db, dora, limits=Limits(read_only=True))
+    assert set(limited.access.space_roles.values()) == {SpaceRole.READER}
+    assert not limited.access.is_org_admin(acme.id)
+
+
+def test_members_read_the_setting_of_their_organization_only(
+    db: Session, database: Database, client: TestClient, team: Team
+) -> None:
+    configure(db, team, "reader")
+    dora = {"Authorization": f"Bearer {token_for(database, 'dora')}"}
+    acme = client.get("/api/v1/organizations/acme", headers=dora).json()
+    assert acme["default_space_role"] == "reader"
+    assert client.get("/api/v1/organizations/globex", headers=dora).status_code == 404
+    root = {"Authorization": f"Bearer {token_for(database, 'root')}"}
+    created = client.post(
+        "/api/v1/organizations", json={"slug": "initech", "name": "Initech"}, headers=root
+    )
+    assert created.status_code == 201 and created.json()["default_space_role"] == "none"

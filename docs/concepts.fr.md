@@ -65,7 +65,10 @@ la recherche.
   recherche (y compris sémantique), API REST, MCP, e-mails. Personne n'atteint jamais les espaces
   d'une organisation dont il n'est pas membre, et un jeton limité à certains espaces, à la
   lecture ou à l'inbox reste limité. Les changements du rôle par défaut et de la restriction
-  sont inscrits au journal d'audit.
+  sont inscrits au journal d'audit. Un espace peut être créé restreint.
+- Ajouter quelqu'un à un espace (ou l'inviter) en fait un membre de son organisation : avec un
+  rôle par défaut, il le reçoit alors aussi sur chaque espace non restreint de l'organisation.
+  Le retirer d'un espace non restreint lui laisse le rôle par défaut.
 - Un jeton personnel ou une connexion OAuth n'a jamais plus de droits que son propriétaire.
   Il peut être limité à la lecture et à certains espaces ; un jeton limité n'administre rien.
 - Par le MCP, un super-admin n'atteint que les espaces dont il est réellement membre (ou dont
