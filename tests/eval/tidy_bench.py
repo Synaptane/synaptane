@@ -62,6 +62,49 @@ class Scripted:
         return None
 
 
+CHARS_PER_TOKEN = 3.5  # ordre de grandeur pour du français, du Markdown et du JSON
+
+
+class Measured(Scripted):
+    """Modèle simulé qui compte, sans rien appeler, ce qu'un vrai fournisseur facturerait pour
+    le même chemin : à chaque tour, toute la conversation (consignes, outils, messages,
+    résultats) en entrée, relue depuis le cache sauf ce qui est nouveau depuis le tour
+    précédent (historique en ajout seul, comme le fournisseur Anthropic), et les appels
+    d'outils en sortie. Les jetons sont estimés à `CHARS_PER_TOKEN` caractères ; le
+    raisonnement du modèle (effort) n'est pas compté."""
+
+    def __init__(self, turns: Turns) -> None:
+        super().__init__(turns)
+        self.context = 0  # caractères de la conversation envoyée au prochain tour
+        self.previous = 0  # jetons de la requête précédente (en cache)
+        self.seen = 0  # résultats déjà comptés
+
+    @staticmethod
+    def tokens(chars: int) -> int:
+        return max(1, round(chars / CHARS_PER_TOKEN))
+
+    def factory(self, config: AIConfig, system: str, first: str, tools: list[ToolSpec]) -> Any:
+        schemas = [(t.name, t.description, t.input_schema) for t in tools]
+        self.context = len(system) + len(first) + len(repr(schemas))
+        return self
+
+    def step(self) -> Turn:
+        self.context += sum(len(r.content) for r in self.results[self.seen :])
+        self.seen = len(self.results)
+        prompt = self.tokens(self.context)
+        written = max(0, prompt - self.previous)
+        turn = super().step()
+        out = len(turn.text) + sum(len(repr(c.input)) + len(c.name) for c in turn.tool_calls)
+        self.context += out
+        self.previous = prompt
+        turn.input_tokens, turn.cache_write_tokens = written, written
+        turn.cached_tokens, turn.output_tokens = prompt - written, self.tokens(out + 40)
+        return turn
+
+    def nudge(self, text: str) -> None:
+        self.context += len(text)
+
+
 @dataclass(frozen=True)
 class Note:
     """Note déposée dans l'inbox avant le passage."""
@@ -290,4 +333,18 @@ def scripted(env: Env, scenario: Scenario, which: str) -> Result:
         mode=which,
         config=config,
         factory=lambda names: Scripted(script(names)).factory,
+    )
+
+
+def measured(env: Env, scenario: Scenario, price: pricing.Price | None) -> Result:
+    """Le bon script, compté comme le facturerait un vrai fournisseur (`Measured`) : le coût
+    du chemin idéal, sans aucun appel."""
+    config = AIConfig(provider="anthropic", model="banc-estime", api_key="k")
+    return run_scenario(
+        env,
+        scenario,
+        mode="estimé",
+        config=config,
+        factory=lambda names: Measured(scenario.good(names)).factory,
+        price=price,
     )

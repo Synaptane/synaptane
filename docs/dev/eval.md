@@ -21,6 +21,7 @@ creates a throwaway database, then drops it.
 ./scripts/eval.sh                       # simulated model, then search: free, ~15 s
 ./scripts/eval.sh tidy --scenario deplacement --scenario doublon
 ./scripts/eval.sh search
+./scripts/eval.sh report                # publishable results from the real runs (free)
 uv run python -m tests.eval --help      # all options
 ```
 
@@ -29,35 +30,104 @@ search, never a real model.
 
 ### With a real model (paid, never in CI)
 
+Estimate the cost first, **without any call** (the database is used, not the model):
+
+```sh
+./scripts/eval.sh tidy --estimate --model claude-sonnet-5-5 --trials 5
+```
+
+It plays the ideal path of every scenario (its good script) and counts what the provider
+would bill for it: the whole conversation as input on every turn (instructions, tools,
+messages, tool results), read back from the cache but for the new part, as the Anthropic
+provider does, and the tool calls as output, with tokens taken as characters / 3.5. A real
+model searches and reads more, and its reasoning (effort) is not counted: the range goes from
+the ideal path to five times it, and the advised `--budget` covers the top of the range.
+Estimated on November 9, 2026 (29 model calls per sweep of the 13 scenarios), for 5 trials, in
+dollars:
+
+| Model (public price, $ per million tokens) | Ideal path | Top of the range | Advised `--budget` |
+|---|---:|---:|---:|
+| `claude-haiku-5-5` (0.10 / 0.50) | 0.03 | 0.17 | 1 |
+| `claude-sonnet-5-5` (2 / 10) | 0.66 | 3.31 | 4 |
+| `claude-opus-5-5` (4 / 20) | 1.32 | 6.62 | 7 |
+
+These are estimates, not quotes: the run file of the first real run gives the actual cost
+and tokens of each trial, to calibrate the next ones.
+
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-…        # read from the environment, never as an argument
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 3 --trials 3 \
-  --json results-sonnet-medium.json
+./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 4 --trials 5
 ```
 
 - `--budget` (in €) is **required**: the bench stops the model as soon as the cumulative cost
   would reach it (the last turn may go slightly over) and skips the remaining scenarios. Cost
-  follows the public prices in `ai/pricing.py` (cache writes at 1.25 times the input price);
-  for another model, use `--price-input` and `--price-output` (€ per million tokens).
-- `--trials 3`: three trials per scenario, to see a model's variance.
+  follows the public prices in `ai/pricing.py` (cache writes at 1.25 times the input price;
+  public dollar amounts counted one for one); for another model, use `--price-input` and
+  `--price-output` (per million tokens). A run stopped by the budget is not publishable.
+- `--trials 5`: five **sweeps** of every scenario, one after the other (trial 1 of every
+  scenario, then trial 2…), to see a model's variance. Publishing needs at least 3.
 - `--provider`: any API key provider (`anthropic`, `openai`, `mistral`, `ollama`,
   `openai_compatible`, with `--base-url` and `--api-key-env`). Subscriptions (Claude Code,
   Codex) are not offered: the bench never touches their credentials.
-- Order of magnitude: 13 scenarios of one or two items, from a few cents to a few tens of
-  cents each depending on the model; start with `--budget 1`.
+- `--prompt FILE`: tries other instructions in place of `INSTRUCTIONS`
+  (`services/tidy_tools.py`), for the bench only, never the instance. The file has the same
+  `{…}` fields (`name`, `address`, `description`, `language`, `vocation`, `custom`,
+  `max_deletions`; literal braces doubled), no other. `--label NAME` names the configuration in
+  the report (otherwise model · effort, and the prompt's fingerprint).
+- Every real run writes its **run file** in `eval/results/runs/`
+  (`<date>-<model>-<effort>[-<label>].json`, never overwritten; `--json PATH` to put it
+  elsewhere): see [Publish the results](#publish-the-results).
 
 **To do: rerun in real mode after the translation of the instructions.** The agent's
 instructions are now in English while the bench's wiki and notes stay in French: the bench
 must be run again with a real model to check that the agent still files correctly and
-writes in French (the language of the wiki's pages):
+writes in French (the language of the wiki's pages).
+
+To compare two settings (Sonnet 5.5 at `medium` and at `high`, Opus 5.5 at `medium`, another
+prompt…), run them with the same `--trials` on the same commit, then publish them together:
+the report compares the pass rate with its interval, and the **cost per successful run**: a
+cheaper request that fails its scenario saves nothing.
+
+## Publish the results
 
 ```sh
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 1 --trials 1
+./scripts/eval.sh report                 # every run in eval/results/runs/
+./scripts/eval.sh report eval/results/runs/2026-11-09-claude-sonnet-5-5-medium.json …
 ```
 
-To compare two settings (Sonnet 5.5 at `medium` and at `high`, Opus 5.5 at `medium`…), run
-them with the same `--trials` and compare the **cost per successful run** and per filed item,
-shown at the end: a cheaper request that fails its scenario saves nothing.
+The report aggregates one or more run files into `eval/results/results.json` and two tables,
+`results.md` (English) and `results.fr.md` (French), with the method and its limits at the top.
+It uses nothing but the run files (no date of the day): the same runs always give the same
+bytes, whatever their order. Commit the run files and the report together; the
+[README of the folder](../../eval/results/README.md) says how they were produced.
+
+It refuses, with the reason, what does not compare honestly:
+- a run stopped by the budget, or with missing trials;
+- fewer than 3 trials per scenario (`--min-trials` to change the floor);
+- runs of different scenarios or graders (the bench's fingerprint differs);
+- a run on a modified tree, which its commit alone does not reproduce (`--allow-dirty` to
+  accept it, and it is then flagged);
+- anything that looks like a secret or a path of the machine, in a run file or in what it
+  would publish. The key of a run is masked as soon as the run file is written.
+
+Format (`format_version` 1, changed if the meaning of a field changes):
+- **Run file** (`synaptane-tidy-bench-run`): Synaptane's version and commit (`dirty`: tracked
+  files modified), start and end dates, duration; the bench's fingerprint (its files and the
+  wiki) and each scenario's (its notes, human changes, expectations); provider, model, effort,
+  base URL (`default` or `custom`, never the address), prompt (`source`, `path`, `sha256`),
+  tools' fingerprint, price applied, budget, trials requested, `complete`; then each trial:
+  scenario, number, `passed`, failing graders with their explanation, tokens (input, output,
+  cached, cache writes), turns, cost, duration, items filed and the run's metrics.
+- **Report** (`synaptane-tidy-bench-results`): the method, the bench, then one configuration
+  per row (same commit, provider, model, effort, prompt, tools and price: two such runs add
+  up), sorted by pass rate, then cost per run, then name: pass rate with its 95 % Wilson
+  interval, sweep score (share of scenarios passed in one sweep: mean, sample standard
+  deviation, minimum, maximum), cost (total, per run with its spread, per passed run), tokens
+  and turns per run, duration, and per scenario the passes and the graders that failed (their
+  names only, not their explanations).
+
+Everything published comes from the fictional wiki of the bench (`tests/eval/wikidata.py`,
+public like the scenarios): no data from an instance is read or sent.
 
 ## Read the results
 

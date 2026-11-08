@@ -21,6 +21,7 @@ lancement crée une base jetable, puis la supprime.
 ./scripts/eval.sh                       # modèle simulé, puis recherche : gratuit, ~15 s
 ./scripts/eval.sh tidy --scenario deplacement --scenario doublon
 ./scripts/eval.sh search
+./scripts/eval.sh report                # résultats publiables des vrais lancements (gratuit)
 uv run python -m tests.eval --help      # toutes les options
 ```
 
@@ -29,36 +30,110 @@ et recherche, jamais de vrai modèle.
 
 ### Avec un vrai modèle (payant, jamais en CI)
 
+Estimez d'abord le coût, **sans aucun appel** (la base sert, pas le modèle) :
+
+```sh
+./scripts/eval.sh tidy --estimate --model claude-sonnet-5-5 --trials 5
+```
+
+Le banc joue le chemin idéal de chaque scénario (son bon script) et compte ce que le
+fournisseur facturerait : toute la conversation en entrée à chaque tour (consignes, outils,
+messages, résultats des outils), relue depuis le cache sauf la partie nouvelle, comme le fait
+le fournisseur Anthropic, et les appels d'outils en sortie, à raison d'un jeton pour
+3,5 caractères. Un vrai modèle cherche et lit davantage, et son raisonnement (l'effort) n'est
+pas compté : la fourchette va du chemin idéal à cinq fois celui-ci, et le `--budget` conseillé
+couvre le haut de la fourchette. Estimé le 9 novembre 2026 (29 appels au modèle par balayage
+des 13 scénarios), pour 5 essais, en dollars :
+
+| Modèle (tarif public, $ par million de jetons) | Chemin idéal | Haut de la fourchette | `--budget` conseillé |
+|---|---:|---:|---:|
+| `claude-haiku-5-5` (0,10 / 0,50) | 0,03 | 0,17 | 1 |
+| `claude-sonnet-5-5` (2 / 10) | 0,66 | 3,31 | 4 |
+| `claude-opus-5-5` (4 / 20) | 1,32 | 6,62 | 7 |
+
+Ce sont des estimations, pas des devis : le fichier du premier vrai lancement donne le coût et
+les jetons réels de chaque essai, pour caler les suivants.
+
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-…        # lue dans l'environnement, jamais en argument
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 3 --trials 3 \
-  --json resultats-sonnet-medium.json
+./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 4 --trials 5
 ```
 
 - `--budget` (en €) est **obligatoire** : le banc arrête le modèle dès que le coût cumulé
   l'atteindrait (le dernier tour peut le dépasser un peu) et ne joue plus les scénarios
   suivants. Le coût suit les tarifs publics de `ai/pricing.py` (écritures en cache à 1,25 fois
-  l'entrée) ; pour un autre modèle, `--price-input` et `--price-output` (€ par million).
-- `--trials 3` : trois essais par scénario, pour voir la variance d'un modèle.
+  l'entrée ; montants publics en dollars comptés un pour un) ; pour un autre modèle,
+  `--price-input` et `--price-output` (par million de jetons). Un lancement arrêté par le
+  budget n'est pas publiable.
+- `--trials 5` : cinq **balayages** de tous les scénarios, l'un après l'autre (essai 1 de
+  chaque scénario, puis essai 2…), pour voir la variance d'un modèle. Publier en demande au
+  moins 3.
 - `--provider` : tout fournisseur par clé d'API (`anthropic`, `openai`, `mistral`, `ollama`,
   `openai_compatible`, avec `--base-url` et `--api-key-env`). Les abonnements (Claude Code,
   Codex) ne sont pas proposés : le banc ne touche jamais à leurs identifiants.
-- Ordre de grandeur : 13 scénarios d'un ou deux éléments, de quelques centimes à quelques
-  dizaines de centimes chacun selon le modèle ; commencez par `--budget 1`.
+- `--prompt FICHIER` : essaie d'autres consignes à la place de `INSTRUCTIONS`
+  (`services/tidy_tools.py`), pour le banc seulement, jamais pour l'instance. Le fichier a les
+  mêmes champs `{…}` (`name`, `address`, `description`, `language`, `vocation`, `custom`,
+  `max_deletions` ; accolades littérales doublées), et aucun autre. `--label NOM` nomme la
+  configuration dans le rapport (sinon modèle · effort, et l'empreinte de l'invite).
+- Chaque vrai lancement écrit son **fichier de lancement** dans `eval/results/runs/`
+  (`<date>-<modèle>-<effort>[-<label>].json`, jamais écrasé ; `--json CHEMIN` pour le mettre
+  ailleurs) : voir [Publier les résultats](#publier-les-résultats).
 
 **À faire : relancer en mode réel après la traduction des consignes.** Les consignes de
 l'agent sont désormais en anglais, alors que le wiki et les notes du banc restent en
 français : le banc doit être relancé avec un vrai modèle pour vérifier que l'agent range
-toujours correctement et écrit en français (la langue des pages du wiki) :
+toujours correctement et écrit en français (la langue des pages du wiki).
+
+Pour comparer deux réglages (Sonnet 5.5 en `medium` et en `high`, Opus 5.5 en `medium`, une
+autre invite…), lancez-les avec le même `--trials` sur le même commit, puis publiez-les
+ensemble : le rapport compare le taux de réussite avec son intervalle, et le **coût par
+passage réussi** : une requête moins chère qui rate son scénario ne fait pas d'économie.
+
+## Publier les résultats
 
 ```sh
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 1 --trials 1
+./scripts/eval.sh report                 # tous les lancements de eval/results/runs/
+./scripts/eval.sh report eval/results/runs/2026-11-09-claude-sonnet-5-5-medium.json …
 ```
 
-Pour comparer deux réglages (Sonnet 5.5 en `medium` et en `high`, Opus 5.5 en `medium`…),
-lancez-les avec le même `--trials` et comparez le **coût par passage réussi** et par élément
-rangé, affichés à la fin : une requête moins chère qui rate son scénario ne fait pas
-d'économie.
+Le rapport agrège un ou plusieurs fichiers de lancement en `eval/results/results.json` et deux
+tableaux, `results.md` (anglais) et `results.fr.md` (français), avec la méthode et ses limites
+en tête. Il ne dépend que des lancements (aucune date du jour) : les mêmes lancements donnent
+toujours les mêmes octets, dans n'importe quel ordre. Validez les lancements et le rapport
+ensemble ; le [README du dossier](../../eval/results/README.fr.md) dit comment ils ont été
+produits.
+
+Il refuse, avec la raison, ce qui ne se compare pas honnêtement :
+- un lancement arrêté par le budget, ou auquel il manque des essais ;
+- moins de 3 essais par scénario (`--min-trials` pour changer le plancher) ;
+- des lancements sur des scénarios ou des correcteurs différents (l'empreinte du banc
+  diffère) ;
+- un lancement sur un arbre modifié, que son commit seul ne reproduit pas (`--allow-dirty`
+  pour l'accepter, il est alors signalé) ;
+- tout ce qui ressemble à un secret ou à un chemin de la machine, dans un lancement ou dans ce
+  qu'il publierait. La clé d'un lancement est masquée dès l'écriture de son fichier.
+
+Format (`format_version` 1, changé si le sens d'un champ change) :
+- **Lancement** (`synaptane-tidy-bench-run`) : version et commit de Synaptane (`dirty` :
+  fichiers suivis modifiés), dates de début et de fin, durée ; empreinte du banc (ses fichiers
+  et le wiki) et de chaque scénario (ses notes, modifications humaines, attentes) ;
+  fournisseur, modèle, effort, adresse (`default` ou `custom`, jamais l'adresse elle-même),
+  invite (`source`, `path`, `sha256`), empreinte des outils, tarif appliqué, budget, essais
+  demandés, `complete` ; puis chaque essai : scénario, numéro, `passed`, correcteurs en échec
+  avec leur explication, jetons (entrée, sortie, cache lu, cache écrit), tours, coût, durée,
+  éléments rangés et métriques du passage.
+- **Rapport** (`synaptane-tidy-bench-results`) : la méthode, le banc, puis une configuration
+  par ligne (même commit, fournisseur, modèle, effort, invite, outils et tarif : deux tels
+  lancements s'additionnent), triées par taux de réussite, puis coût par passage, puis nom :
+  taux de réussite avec son intervalle de Wilson à 95 %, score par balayage (part des
+  scénarios réussis en un balayage : moyenne, écart-type d'échantillon, minimum, maximum), coût
+  (total, par passage avec sa dispersion, par passage réussi), jetons et tours par passage,
+  durée, et par scénario les réussites et les correcteurs en échec (leur nom seulement, pas
+  leur explication).
+
+Tout ce qui est publié vient du wiki fictif du banc (`tests/eval/wikidata.py`, public comme
+les scénarios) : aucune donnée d'une instance n'est lue ni envoyée.
 
 ## Lire les résultats
 

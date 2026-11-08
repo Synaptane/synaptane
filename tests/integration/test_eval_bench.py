@@ -8,18 +8,24 @@ model never runs in CI (`python -m tests.eval`, docs/dev/eval.md).
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from synaptane.ai import pricing
+from synaptane.ai.base import AIConfig, AIError
 from synaptane.config import Settings
 from synaptane.services import content
+from synaptane.services import tidy as tidy_module
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
-from tests.eval import mcp_bench, search_bench
+from tests.eval import __main__ as eval_main
+from tests.eval import mcp_bench, publish, search_bench
 from tests.eval.env import Env, prepare
 from tests.eval.scenarios import SCENARIOS
-from tests.eval.tidy_bench import Scenario, scripted
+from tests.eval.tidy_bench import Scenario, Scripted, measured, scripted
 
 
 @pytest.fixture
@@ -160,3 +166,159 @@ def test_mcp_stream_is_read() -> None:
     command = mcp_bench.claude_command("claude-sonnet-5-5", 0.5, Path("/tmp/x.json"))
     assert "--bare" in command and command[command.index("--tools") + 1] == ""
     assert command[command.index("--max-budget-usd") + 1] == "0.50"
+
+
+# --- Publishable results (fake provider: no model is ever called) ---------------------------
+
+FAKE_KEY = "sk-ant-api03-FAKE-KEY-FOR-THE-BENCH-TEST-0000"
+
+
+def _real_args(tmp_path: Path, *extra: str) -> Any:
+    return eval_main.parser().parse_args(
+        [
+            "tidy",
+            "--model",
+            "claude-sonnet-5-5",
+            "--api-key-env",
+            "SYNAPTANE_BENCH_TEST_KEY",
+            "--json",
+            str(tmp_path / "run.json"),
+            *extra,
+        ]
+    )
+
+
+def _fake(
+    plan: dict[str, list[str]], systems: list[str] | None = None
+) -> Callable[[Scenario], Callable[[dict[str, str]], Any]]:
+    """Fake provider: for each scenario, the good or bad script, trial after trial ("panne":
+    the provider fails and quotes the key). Records the system prompt it was given."""
+    played: dict[str, int] = {}
+
+    def conversation(scenario: Scenario) -> Callable[[dict[str, str]], Any]:
+        n = played.get(scenario.name, 0)
+        played[scenario.name] = n + 1
+        which = plan[scenario.name][n]
+
+        def factory(names: dict[str, str]) -> Any:
+            if which == "panne":
+
+                def broken(*_args: Any) -> Any:
+                    raise AIError("Anthropic key refused: {detail}", detail=f"bad key {FAKE_KEY}")
+
+                return broken
+            fake = Scripted((scenario.good if which == "bon" else scenario.bad)(names))
+
+            def record(config: AIConfig, system: str, first: str, tools: list[Any]) -> Any:
+                if systems is not None:
+                    systems.append(system)
+                return fake.factory(config, system, first, tools)
+
+            return record
+
+        return factory
+
+    return conversation
+
+
+def test_real_mode_writes_a_publishable_run_and_report(
+    env: Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYNAPTANE_BENCH_TEST_KEY", FAKE_KEY)
+    chosen = [s for s in SCENARIOS if s.name in ("completer", "ambigue")]
+    plan = {"completer": ["bon", "mauvais", "bon"], "ambigue": ["bon", "bon", "panne"]}
+    args = _real_args(tmp_path, "--budget", "5", "--trials", "3", "--label", "fake")
+    assert eval_main._real(env, chosen, args, _fake(plan)) == 0
+
+    text = (tmp_path / "run.json").read_text()
+    assert FAKE_KEY not in text and "/tmp/" not in text and "/home/" not in text
+    run = json.loads(text)
+    assert (run["format"], run["format_version"]) == (publish.RUN_FORMAT, 1)
+    assert run["complete"] and not run["stopped_by_budget"] and run["trials_requested"] == 3
+    assert [s["name"] for s in run["scenarios"]] == ["completer", "ambigue"]
+    assert run["config"] | {"tools_sha256": ""} == {
+        "label": "fake",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
+        "effort": "medium",
+        "base_url": "default",
+        "prompt": publish.load_prompt().as_json(),
+        "tools_sha256": "",
+    }
+    assert run["price"]["public"] and run["price"]["currency"] == "USD"
+    assert run["synaptane"]["commit"] and run["bench"]["wiki_pages"] == 50
+    # Sweeps one after the other: trial 1 of every scenario, then trial 2…
+    order = [(t["trial"], t["scenario"]) for t in run["trials"]]
+    assert order == [(n, s) for n in (1, 2, 3) for s in ("completer", "ambigue")]
+    assert [t["passed"] for t in run["trials"]] == [True, True, False, True, True, False]
+    assert chosen[0].bad_fails in run["trials"][2]["failures"]  # the bad script, caught
+    assert "[secret]" in run["trials"][5]["failures"]["échec"]
+    assert all(t["cost"] > 0 and t["duration_s"] > 0 for t in run["trials"][:5])
+
+    out = tmp_path / "results"
+    written = publish.write_report([tmp_path / "run.json"], out, allow_dirty=True)
+    assert [p.name for p in written] == ["results.json", "results.md", "results.fr.md"]
+    report = json.loads((out / "results.json").read_text())
+    (config,) = report["configurations"]
+    assert (config["label"], config["passed"], config["total"]) == ("fake", 4, 6)
+    assert config["scenarios"]["ambigue"]["failures"] == {"échec": 1}
+    assert "| fake | 4/6 |" in (out / "results.md").read_text()
+    assert "| `completer` | 2/3 |" in (out / "results.fr.md").read_text()
+
+
+def test_a_run_stopped_by_the_budget_is_not_published(
+    env: Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYNAPTANE_BENCH_TEST_KEY", FAKE_KEY)
+    chosen = [s for s in SCENARIOS if s.name in ("completer", "ambigue")]
+    plan = {"completer": ["bon"] * 3, "ambigue": ["bon"] * 3}
+    args = _real_args(tmp_path, "--budget", "0.001", "--trials", "3")
+    assert eval_main._real(env, chosen, args, _fake(plan)) == 0
+    run = json.loads((tmp_path / "run.json").read_text())
+    assert run["stopped_by_budget"] and not run["complete"] and len(run["trials"]) < 6
+    with pytest.raises(publish.ReportError, match="incomplet"):
+        publish.write_report([tmp_path / "run.json"], tmp_path / "results", allow_dirty=True)
+
+
+def test_another_prompt_is_used_and_recorded(
+    env: Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYNAPTANE_BENCH_TEST_KEY", FAKE_KEY)
+    prompt = tmp_path / "prompt-v2.txt"
+    prompt.write_text("PROMPT-V2 for {name} ({address}).\n{language}{custom}", encoding="utf-8")
+    systems: list[str] = []
+    chosen = [s for s in SCENARIOS if s.name == "completer"]
+    args = _real_args(tmp_path, "--budget", "5", "--prompt", str(prompt))
+    assert eval_main._real(env, chosen, args, _fake({"completer": ["bon"]}, systems)) == 0
+    assert systems and systems[0].startswith("PROMPT-V2 for completer")
+    run = json.loads((tmp_path / "run.json").read_text())
+    assert run["config"]["prompt"] == {
+        "source": "file",
+        "path": "prompt-v2.txt",
+        "sha256": publish.sha256(prompt.read_text(encoding="utf-8")),
+    }
+    # Put back afterwards.
+    assert getattr(tidy_module, "INSTRUCTIONS") == publish.load_prompt().template  # noqa: B009
+    # A prompt with an unknown field is refused before anything runs.
+    prompt.write_text("Tidy {space}.", encoding="utf-8")
+    assert eval_main._real(env, chosen, args, _fake({"completer": ["bon"]})) == 2
+
+
+def test_estimate_counts_the_ideal_path_without_calling_anything(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    chosen = [s for s in SCENARIOS if s.name in ("completer", "doublon")]
+    args = eval_main.parser().parse_args(
+        ["tidy", "--estimate", "--model", "claude-sonnet-5-5", "--trials", "3"]
+    )
+    assert eval_main._estimate(env, chosen, args) == 0
+    shown = capsys.readouterr().out
+    assert "completer" in shown and "doublon" in shown and "--budget" in shown
+    price = pricing.price_for("anthropic", "claude-sonnet-5-5", None, None)
+    result = measured(env, chosen[0], price)
+    usage = result.usage
+    # The whole conversation is input, read back from the cache but for the new part.
+    assert usage.turns >= 2 and usage.cached_tokens > 0 and usage.input_tokens > 1000
+    assert usage.cache_write_tokens == usage.input_tokens and result.cost and result.cost > 0
+    unknown = eval_main.parser().parse_args(["tidy", "--estimate", "--model", "mystery-model"])
+    assert eval_main._estimate(env, chosen, unknown) == 2

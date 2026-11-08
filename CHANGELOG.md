@@ -10,6 +10,32 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Publishable results of the tidy-up bench**. A run with a real model
+  (`./scripts/eval.sh tidy --model …`) now writes a versioned run file in `eval/results/runs/`
+  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, and whether tracked
+  files were modified, the dates and duration, the fingerprints of the bench, of each scenario,
+  of the prompt and of the agent's tools, the provider, model, effort and price applied, and
+  every trial with its graders, tokens, cost and duration; the API key is masked and the base
+  URL is never written. `./scripts/eval.sh report` aggregates one or more run files into
+  `eval/results/results.json` and two tables, `results.md` and `results.fr.md`, with the method
+  and its limits at the top: per configuration, the pass rate with its 95 % Wilson interval,
+  the score per sweep (mean and standard deviation), the cost per run and per passed run, the
+  tokens and the duration, and the passes per scenario. The report only depends on the run
+  files, so the same runs give the same bytes, and it refuses what does not compare honestly:
+  a run stopped by its budget, fewer than 3 trials per scenario, different scenarios, a
+  modified tree (unless `--allow-dirty`), and anything that looks like a secret or a path of the
+  machine. `--prompt FILE` tries other instructions for the agent in the bench only, and
+  `--label` names the configuration. `./scripts/eval.sh tidy --estimate --model M --trials N`
+  gives the order of magnitude of a run's cost without calling any model. See
+  `docs/dev/eval.md` ("Publish the results") and `eval/results/README.md`. No migration.
+
+### Changed
+- **Tidy-up bench with a real model**: the trials now run as sweeps, trial 1 of every
+  scenario, then trial 2, so a run stopped by its budget leaves whole sweeps behind it, and
+  `--json` gives the path of the run file in its new format (a JSON object, no longer a list of
+  results).
+
 ## [1.13.0] - 2026-11-08
 
 Give a team several spaces at once with groups, have a new space's repository created on GitHub or
