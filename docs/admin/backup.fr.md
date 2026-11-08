@@ -2,13 +2,13 @@
 
 # Sauvegarde et restauration
 
-Avec Docker, deux étapes, puis une habitude :
+Avec Docker :
 
 1. **Rien à faire : une sauvegarde vérifiée chaque nuit.** Le worker fait une archive à 4 h,
    la relit, et garde celles des 7 derniers jours dans le volume `synaptane-backups`. Elle
    protège d'une erreur de manipulation ou d'une mise à jour ratée.
    **Administration → Santé** montre la dernière.
-2. **Une commande pour la copie chiffrée hors du serveur**, qui protège d'une panne du disque,
+2. **Une commande, une fois, pour la copie chiffrée hors du serveur**, qui protège d'une panne du disque,
    d'un vol ou d'un serveur perdu :
 
    ```sh
@@ -18,7 +18,8 @@ Avec Docker, deux étapes, puis une habitude :
    Elle fabrique la clé de chiffrement (ou prend la vôtre), déclare le stockage (S3 et
    compatibles, SFTP, WebDAV/Nextcloud, NAS SMB, Google Drive, OneDrive, Dropbox…), le teste,
    et fait la première copie. Les suivantes partent chaque nuit avec la sauvegarde.
-3. **Un exercice de restauration chaque mois** (`scripts/restore-drill.sh`), sur votre poste.
+3. **Puis une habitude : un exercice de restauration chaque mois**
+   (`scripts/restore-drill.sh`), sur votre poste.
    Une sauvegarde qu'on n'a jamais restaurée n'est qu'un espoir.
 
 À tout moment, `docker compose exec app synaptane backup check` dit ce qui fonctionne et, pour
@@ -53,38 +54,53 @@ une fois pour toutes, car elle ne change pas.
 
 Chaque jour à `BACKUP_TIME` (4 h, heure du serveur `TZ`), le worker :
 
-1. écrit l'archive dans un fichier caché `.part` de `/backups`, **la relit** (compression
+1. efface ses propres archives plus anciennes que `BACKUP_LOCAL_RETENTION_DAYS` (7 jours), en
+   gardant toujours les 3 plus récentes : une sauvegarde qui échoue jour après jour ne finit
+   pas avec un dossier vide. Seules les archives du worker,
+   `synaptane-AAAA-MM-JJ-HHMMSS-auto.tar.gz`, sont concernées : un fichier déposé dans
+   `/backups` à la main ou par `synaptane backup` n'est jamais effacé ;
+2. vérifie l'espace libre : la nouvelle archive (la dernière plus 20 %) doit laisser 2 Go
+   libres sur le disque, ou un dixième d'un disque de moins de 20 Go, pour PostgreSQL qui le
+   partage. Sinon la sauvegarde échoue avec une alerte, et rien n'est écrit ;
+3. écrit l'archive dans un fichier caché `.part` de `/backups`, **la relit** (compression
    intègre comme avec `gzip -t`, tar complet, manifeste et clé présents, dump entièrement
-   lisible par `pg_restore`), et seulement alors lui donne son nom,
-   `synaptane-AAAA-MM-JJ-HHMMSS.tar.gz` (droits 600) : une archive tronquée (disque plein,
-   interruption) ne ressemble jamais à une bonne ;
-2. envoie la copie chiffrée hors serveur, si elle est en place (plus bas) ;
-3. efface les archives de `/backups` plus anciennes que `BACKUP_LOCAL_RETENTION_DAYS`
-   (7 jours), en gardant toujours les 3 plus récentes : une sauvegarde qui échoue jour après
-   jour ne finit pas avec un dossier vide.
+   lisible par `pg_restore`), et seulement alors lui donne son nom (droits 600) : une archive
+   tronquée (disque plein, interruption) ne ressemble jamais à une bonne ;
+4. envoie la copie chiffrée hors serveur, si elle est en place (plus bas).
 
 Elle n'a besoin de rien : ni tâche cron, ni réglage. Un worker démarré après l'heure
-(installation neuve, redémarrage) fait aussitôt la sauvegarde du jour. Avant d'écrire, il
-vérifie que le disque a deux fois la taille de la dernière archive de libre.
+(installation neuve, redémarrage, mise à jour) fait aussitôt la sauvegarde du jour. Avec
+7 jours gardés, comptez jusqu'à 10 archives de la taille de votre base et de vos dépôts dans
+le volume `synaptane-backups`, sur le disque du serveur.
 
-**Un échec alerte les super-administrateurs** : par e-mail (si l'envoi est configuré) et dans
-les alertes système d'**Administration → Santé**, avec la cause ; la même alerte n'est pas
-renvoyée avant 20 heures. Les archives précédentes sont gardées.
+**Un échec alerte les super-administrateurs**, quelle qu'en soit la cause (disque plein, dump
+bloqué plus de `BACKUP_TIMEOUT_MINUTES`, destination injoignable, worker tué plusieurs fois) :
+par e-mail (si l'envoi est configuré) et dans les alertes système d'**Administration →
+Santé** ; la même alerte n'est pas renvoyée avant 20 heures. Les archives précédentes sont
+gardées.
 
 **Administration → Santé** montre la dernière archive vérifiée, comment les sauvegardes sont
-faites et, quand quelque chose manque, la commande à lancer. **Sauvegarder maintenant**
-demande au worker une sauvegarde tout de suite (inscrite au journal d'audit).
+faites, le dernier passage du worker (en attente, en cours, fait, sauté parce qu'une autre
+sauvegarde tournait, en échec et pourquoi) et, quand quelque chose manque, la commande à
+lancer. **Sauvegarder maintenant** demande au worker une sauvegarde tout de suite (inscrite au
+journal d'audit).
 
 Réglages, dans `.env` (puis `docker compose up -d`) :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `BACKUP_TIME` | `04:00` | Heure de la sauvegarde de la nuit, heure du serveur (`TZ`). `off` : pas de sauvegarde automatique (une tâche cron à vous s'en charge, voir plus bas). |
-| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Jours de conservation des archives de `/backups` ; `0` : toutes. |
+| `BACKUP_TIME` | `04:00` | Heure de la sauvegarde de la nuit, heure du serveur (`TZ`) : `04:00`, `4:00` ou `04h00`. `off` : pas de sauvegarde automatique (une tâche cron à vous s'en charge, voir plus bas). Une valeur qui n'est pas une heure n'empêche pas Synaptane de démarrer : 04:00 est utilisé, et `doctor`, `backup check` et la page de santé le signalent. |
+| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Jours de conservation des archives du worker dans `/backups` (les 3 plus récentes toujours) ; `0` : toutes. |
+| `BACKUP_TIMEOUT_MINUTES` | `120` | Durée maximale d'un dump de la base, ou de sa relecture : un dump bloqué est abandonné, avec une alerte. |
+
+Pour désactiver la sauvegarde automatique : `BACKUP_TIME=off` dans `.env`, puis
+`docker compose up -d`.
 
 Une sauvegarde à la fois : celle du worker, celle d'une tâche cron, d'un déploiement ou à la
-main s'attendent l'une l'autre (un verrou dans le volume de données). Une restauration refuse
-de démarrer pendant une sauvegarde.
+main s'attendent l'une l'autre (un verrou dans le volume de données), au plus deux fois
+`BACKUP_TIMEOUT_MINUTES`, en le disant. La copie hors serveur part une fois le verrou libéré :
+des heures de copie ne retiennent aucune autre sauvegarde. Une restauration refuse de démarrer
+pendant une sauvegarde.
 
 Le volume `synaptane-backups` est sur le même disque que les données, et **`docker compose
 down -v` l'efface** avec tous les autres volumes : la copie hors serveur protège de cela. Pour
@@ -92,7 +108,7 @@ en sortir une archive :
 
 ```sh
 docker compose exec app ls -l /backups
-docker compose cp app:/backups/synaptane-2026-10-03-040000.tar.gz .
+docker compose cp app:/backups/synaptane-2026-10-03-040000-auto.tar.gz .
 ```
 
 ## Copie chiffrée hors du serveur
@@ -304,7 +320,7 @@ alors le stockage faire la rétention (règle de cycle de vie) et mettez
 docker compose exec app synaptane backup check
 # [ok] Automatic backup: every day at 04:00, in /backups
 # [ok] Free space: 41.2 GB in /backups
-# [ok] Local retention: 7 days (the 3 newest always kept)
+# [ok] Local retention: 7 days for the automatic backups (the 3 newest always kept)
 # [ok] PostgreSQL client
 # [ok] Last verified backup: 2026-11-08 04:00
 # [ok] Encryption: 1 public key(s)
@@ -329,9 +345,13 @@ Autres commandes :
 Avant la sauvegarde automatique, les sauvegardes étaient faites par une tâche cron du serveur,
 avec le script versionné `deploy/host/backup.sh`. **Une installation qui en a une ne change
 rien** : le script garde ses archives (14 jours par défaut dans `~/synaptane-backups`), envoie
-la copie hors serveur avec `OFFSITE=1`, et signale à Synaptane qu'il a fait la sauvegarde du
-jour. La sauvegarde automatique du worker s'efface alors (**Administration → Santé** le dit),
-et **reprend d'elle-même** si la tâche cron s'arrête plus d'un jour.
+la copie hors serveur avec `OFFSITE=1` et, une fois son archive vérifiée et en place, signale
+à Synaptane qu'il a fait la sauvegarde du jour. La sauvegarde automatique du worker s'efface
+alors (**Administration → Santé** le dit), et efface ses propres archives plus anciennes que la
+rétention (la tâche cron garde les siennes). Elle regarde de nouveau chaque minute et
+**reprend d'elle-même** dès que la dernière bonne sauvegarde de la tâche cron (avec sa copie
+hors serveur, si des destinations sont en place) a plus de 26 heures : une nuit où la tâche
+cron échoue, le worker fait la sauvegarde environ 26 heures après la précédente, le jour même.
 
 - Avec `OFFSITE=1`, la tâche cron fait tout ; sans, tant que des destinations hors serveur
   sont en place, le worker fait quand même sa sauvegarde chaque nuit pour envoyer la copie.
@@ -377,7 +397,11 @@ Options :
   elle ne garde **aucune** copie locale : l'archive en clair est effacée du serveur une fois
   chiffrée.
 
-Si une autre sauvegarde est en cours, la commande attend qu'elle se termine.
+L'archive est écrite dans un fichier caché `.part`, renommé une fois relu. Si une autre
+sauvegarde est en cours, la commande attend qu'elle se termine (au plus deux fois
+`BACKUP_TIMEOUT_MINUTES`), et le dit. Une sauvegarde complète (avec les dépôts et la clé)
+gardée dans `/backups` ou envoyée sur la sortie standard, comme celle d'un déploiement, compte
+comme la sauvegarde du jour si elle a moins de 6 heures quand vient l'heure du worker.
 
 Codes de sortie :
 

@@ -10,18 +10,34 @@ of the target version.
 
 ## [Unreleased]
 
+Upgrading: **automatic backups are now on by default**. After the upgrade, the worker makes a
+verified backup right away, then every night at 04:00 (server time), in the
+`synaptane-backups` Docker volume (`/backups`), on the server's disk: up to about ten archives
+of the size of your database and repositories (7 days kept, always the 3 newest). Only its own
+archives (`synaptane-…-auto.tar.gz`) are ever deleted. It writes nothing if the disk would keep
+less than 2 GB free (a tenth of a disk under 20 GB). To turn it off: `BACKUP_TIME=off` in
+`.env`, then `docker compose up -d`. An existing cron job on `deploy/host/backup.sh` keeps
+working unchanged and takes precedence: once it has run with this version's script, the worker
+makes no backup of its own while that cron job does. No migration.
+
 ### Added
 - **Nightly backup with nothing to set up**. The worker makes a verified backup every night at
-  04:00 (server time) in the `synaptane-backups` volume (`/backups`), and keeps the archives
-  of the last 7 days, always the 3 newest: no cron job is needed anymore. Each archive is
-  written to a hidden `.part` file, read back like those of `synaptane backup`, and only then
-  named; the encrypted off-site copy leaves with it when it is set up. A worker started after
-  the time makes the backup of the day right away. Settings: `BACKUP_TIME` (`off`: none) and
-  `BACKUP_LOCAL_RETENTION_DAYS` in `.env`; from source, `backup_dir` (required for an
-  automatic backup), `backup_time` and `backup_local_retention_days`. A failed backup or
-  off-site copy alerts the super admins, by email and in **Administration > Health**. One
-  backup at a time: the worker's, a cron job's, a deployment's and a manual one wait for each
-  other, and a restore refuses to start while a backup runs.
+  04:00 (server time) in the `synaptane-backups` volume (`/backups`), and keeps its archives of
+  the last 7 days, always the 3 newest, deleted before the space check so that a full disk
+  recovers. No cron job is needed anymore. Each archive is written to a hidden `.part` file,
+  read back like those of `synaptane backup`, and only then named; the encrypted off-site copy
+  leaves with it when it is set up, once the backup lock is released. A worker started after
+  the time makes the backup of the day right away. Settings: `BACKUP_TIME` (`off`: none;
+  `4:00` and `04h00` are read too, and a value that is not a time gives 04:00 with a warning
+  instead of keeping Synaptane from starting), `BACKUP_LOCAL_RETENTION_DAYS` and
+  `BACKUP_TIMEOUT_MINUTES` (longest dump, 120) in `.env`; from source, `backup_dir` (required
+  for an automatic backup), `backup_time`, `backup_local_retention_days` and
+  `backup_timeout_minutes`. Any failure (full disk, stuck dump, unreachable destination, worker
+  killed until the task is given up) alerts the super admins, by email and in
+  **Administration > Health**. One backup at a time: the worker's, a cron job's, a
+  deployment's and a manual one wait for each other (saying so, for twice the dump timeout at
+  most), and a restore refuses to start while a backup runs. Several workers queue a single
+  backup.
 - **`synaptane backup setup`**: the encrypted off-site copy in one command, question by
   question (`docker compose exec -it app synaptane backup setup`): encryption key (a new pair
   whose private key is shown once and saved nowhere, or your own public key), storage (rclone's
@@ -39,13 +55,16 @@ of the target version.
 
 ### Changed
 - **Administration > Health** says how backups are made (automatically, by the server's cron
-  job, or not at all) and, when the backup or the off-site copy is missing or late, the command
-  to run and a link to the documentation. Destinations without an encryption key are reported.
-  `synaptane doctor` reports the automatic backup too.
+  job, or not at all), shows the worker's last run (waiting, in progress, done, skipped because
+  another backup was running, failed and why) and, when the backup or the off-site copy is
+  missing or late, the command to run and a link to the documentation. Destinations without an
+  encryption key are reported. `synaptane doctor` reports the automatic backup too.
 - **`deploy/host/backup.sh`**: existing cron jobs keep working unchanged. Run without a label
-  (the cron job), the script tells Synaptane it made the backup of the day: the worker's
-  automatic backup then steps aside, and takes over again by itself if the cron job stops for
-  more than a day. `synaptane backup` waits for a backup already running. No migration.
+  (the cron job), once its archive is checked and in place, the script tells Synaptane it made
+  the backup of the day: the worker's automatic backup then steps aside, and takes over by
+  itself, the same day, as soon as that backup is more than 26 hours old.
+- **`synaptane backup`** writes its archive to a hidden `.part` file renamed once read back,
+  also in a folder, and counts a backup sent to standard output only once it has gone through.
 - The backup documentation starts with the simplest path, then the options.
 
 ## [1.12.0] - 2026-11-08

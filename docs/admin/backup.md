@@ -2,13 +2,13 @@ English | [Français](backup.fr.md)
 
 # Backup and restore
 
-With Docker, two steps, then a habit:
+With Docker:
 
 1. **Nothing to do: a verified backup every night.** The worker makes an archive at 04:00,
    reads it back, and keeps those of the last 7 days in the `synaptane-backups` volume. It
    protects against a handling mistake or a failed upgrade. **Administration → Health** shows
    the last one.
-2. **One command for the encrypted copy off the server**, which protects against a disk
+2. **One command, once, for the encrypted copy off the server**, which protects against a disk
    failure, a theft or a lost server:
 
    ```sh
@@ -18,7 +18,8 @@ With Docker, two steps, then a habit:
    It makes the encryption key (or takes yours), declares the storage (S3 and compatibles,
    SFTP, WebDAV/Nextcloud, SMB NAS, Google Drive, OneDrive, Dropbox…), tests it, and makes the
    first copy. The following ones leave every night with the backup.
-3. **A restore drill every month** (`scripts/restore-drill.sh`), on your own computer. A backup
+3. **Then a habit: a restore drill every month** (`scripts/restore-drill.sh`), on your own
+   computer. A backup
    that has never been restored is only a hope.
 
 At any time, `docker compose exec app synaptane backup check` says what works and, for what is
@@ -52,35 +53,48 @@ and for all, since it does not change.
 
 Every day at `BACKUP_TIME` (04:00, server time `TZ`), the worker:
 
-1. writes the archive to a hidden `.part` file of `/backups`, **reads it back** (compression
+1. deletes its own archives older than `BACKUP_LOCAL_RETENTION_DAYS` (7 days), always keeping
+   the 3 newest: a backup that keeps failing does not end with an empty folder. Only the
+   worker's archives, `synaptane-YYYY-MM-DD-HHMMSS-auto.tar.gz`, are concerned: a file put
+   in `/backups` by hand or by `synaptane backup` is never deleted;
+2. checks the free space: the new archive (the last one plus 20 %) must leave 2 GB free on
+   the disk, or a tenth of a disk smaller than 20 GB, for PostgreSQL, which shares it.
+   Otherwise the backup fails with an alert, and nothing is written;
+3. writes the archive to a hidden `.part` file of `/backups`, **reads it back** (compression
    intact like `gzip -t`, complete tar, manifest and key present, dump fully readable by
-   `pg_restore`), and only then gives it its name, `synaptane-YYYY-MM-DD-HHMMSS.tar.gz`
-   (mode 600): a truncated archive (full disk, interruption) never looks like a good one;
-2. sends the encrypted off-site copy, if it is set up (below);
-3. deletes the archives of `/backups` older than `BACKUP_LOCAL_RETENTION_DAYS` (7 days),
-   always keeping the 3 newest: a backup that keeps failing does not end with an empty folder.
+   `pg_restore`), and only then gives it its name (mode 600): a truncated archive (full disk,
+   interruption) never looks like a good one;
+4. sends the encrypted off-site copy, if it is set up (below).
 
 It needs nothing: no cron job, no setting. A worker started after its time (new installation,
-restart) makes the backup of the day right away. Before writing, it checks that the disk has
-twice the size of the last archive free.
+restart, upgrade) makes the backup of the day right away. With the 7 days kept, expect up to
+10 archives of the size of your database plus repositories in the `synaptane-backups` volume,
+on the disk of the server.
 
-**A failure alerts the super admins**: by email (if sending is configured) and in the system
-alerts of **Administration → Health**, with the cause; the same alert is not sent again within
-20 hours. The previous archives are kept.
+**A failure alerts the super admins**, whatever its cause (full disk, dump stuck for more than
+`BACKUP_TIMEOUT_MINUTES`, unreachable destination, worker killed several times): by email (if
+sending is configured) and in the system alerts of **Administration → Health**; the same alert
+is not sent again within 20 hours. The previous archives are kept.
 
-**Administration → Health** shows the last verified archive, how backups are made, and, when
-something is missing, the command to run. **Back up now** asks the worker for a backup right
-away (written to the audit log).
+**Administration → Health** shows the last verified archive, how backups are made, the
+worker's last run (waiting, in progress, done, skipped because another backup was running,
+failed and why), and, when something is missing, the command to run. **Back up now** asks the
+worker for a backup right away (written to the audit log).
 
 Settings, in `.env` (then `docker compose up -d`):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BACKUP_TIME` | `04:00` | Time of the nightly backup, server time (`TZ`). `off`: no automatic backup (a cron job of yours does it, see below). |
-| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Days the archives of `/backups` are kept; `0`: all. |
+| `BACKUP_TIME` | `04:00` | Time of the nightly backup, server time (`TZ`): `04:00`, `4:00` or `04h00`. `off`: no automatic backup (a cron job of yours does it, see below). A value that is not a time does not keep Synaptane from starting: 04:00 is used, and `doctor`, `backup check` and the health page say so. |
+| `BACKUP_LOCAL_RETENTION_DAYS` | `7` | Days the worker's archives of `/backups` are kept (the 3 newest always); `0`: all. |
+| `BACKUP_TIMEOUT_MINUTES` | `120` | Longest a database dump, or its read-back, may take: a stuck one is abandoned, with an alert. |
+
+To turn the automatic backup off: `BACKUP_TIME=off` in `.env`, then `docker compose up -d`.
 
 One backup at a time: the worker's, a cron job's, a deployment's or a manual one wait for each
-other (a lock in the data volume). A restore refuses to start while a backup runs.
+other (a lock in the data volume), for twice `BACKUP_TIMEOUT_MINUTES` at most, saying so. The
+off-site copy is sent once the lock is released: hours of copy hold up no other backup. A
+restore refuses to start while a backup runs.
 
 The `synaptane-backups` volume sits on the same disk as the data, and **`docker compose down
 -v` erases it** along with every other volume: the off-site copy protects against that. To get
@@ -88,7 +102,7 @@ an archive out of it:
 
 ```sh
 docker compose exec app ls -l /backups
-docker compose cp app:/backups/synaptane-2026-10-03-040000.tar.gz .
+docker compose cp app:/backups/synaptane-2026-10-03-040000-auto.tar.gz .
 ```
 
 ## Encrypted copy off the server
@@ -298,7 +312,7 @@ rights.
 docker compose exec app synaptane backup check
 # [ok] Automatic backup: every day at 04:00, in /backups
 # [ok] Free space: 41.2 GB in /backups
-# [ok] Local retention: 7 days (the 3 newest always kept)
+# [ok] Local retention: 7 days for the automatic backups (the 3 newest always kept)
 # [ok] PostgreSQL client
 # [ok] Last verified backup: 2026-11-08 04:00
 # [ok] Encryption: 1 public key(s)
@@ -322,9 +336,13 @@ Other commands:
 Before the automatic backup, the backups were made by a cron job on the server, with the
 versioned script `deploy/host/backup.sh`. **An installation that has one changes nothing**:
 the script keeps its archives (14 days by default in `~/synaptane-backups`), sends the off-site
-copy with `OFFSITE=1`, and tells Synaptane it made the backup of the day. The worker's
-automatic backup then steps aside (**Administration → Health** says so), and **takes over by
-itself** if the cron job stops for more than a day.
+copy with `OFFSITE=1` and, once its archive is checked and in place, tells Synaptane it made
+the backup of the day. The worker's automatic backup then steps aside (**Administration →
+Health** says so), and deletes its own archives older than the retention (the cron job keeps
+its own). It looks again every minute and **takes over by itself** as soon as the cron job's
+last good backup (with its off-site copy, if destinations are set up) is more than 26 hours
+old: a night the cron job fails, the worker makes the backup about 26 hours after the
+previous one, the same day.
 
 - With `OFFSITE=1`, the cron job does everything; without it, while off-site destinations are
   set up, the worker still makes its own backup every night to send the copy. Add `OFFSITE=1`,
@@ -369,7 +387,11 @@ Options:
 - `--offsite`: encrypted copy off the server, to the destinations set up. Without `--output`,
   it keeps **no** local copy: the clear archive is deleted from the server once encrypted.
 
-If another backup is running, the command waits for it to finish.
+The archive is written to a hidden `.part` file, renamed once read back. If another backup is
+running, the command waits for it to finish (twice `BACKUP_TIMEOUT_MINUTES` at most), and says
+so. A full backup (with the repositories and the key) kept in `/backups` or sent to standard
+output, like a deployment's, counts as the backup of the day if it is less than 6 hours old
+when the worker's time comes.
 
 Exit codes:
 

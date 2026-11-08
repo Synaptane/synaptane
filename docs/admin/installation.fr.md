@@ -327,8 +327,9 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
 | `metrics_token` | Jeton porteur de `/metrics` pour Prometheus, 32 caractères au moins (voir [Supervision](#supervision)). Vide par défaut : `/metrics` n'existe pas. Avec Docker : `METRICS_TOKEN` dans `.env`. |
 | `backup_dir` | Dossier de la sauvegarde de la nuit faite par le worker (`/backups` dans l'image, `SYNAPTANE_BACKUP_DIR`). Absent : pas de sauvegarde automatique. Voir [Sauvegarde](backup.fr.md). |
-| `backup_time` | Heure de la sauvegarde de la nuit, heure du serveur : `04:00` par défaut ; `off` : aucune. |
-| `backup_local_retention_days` | Jours de conservation des archives de `backup_dir`, 7 par défaut (les 3 plus récentes toujours) ; `0` : toutes. |
+| `backup_time` | Heure de la sauvegarde de la nuit, heure du serveur : `04:00` par défaut (`4:00`, `04h00` sont lus aussi) ; `off` : aucune. Une valeur qui n'est pas une heure donne 04:00, avec un avertissement. |
+| `backup_local_retention_days` | Jours de conservation des archives du worker dans `backup_dir`, 7 par défaut (les 3 plus récentes toujours) ; `0` : toutes. |
+| `backup_timeout_minutes` | Durée maximale d'un dump de la base, ou de sa relecture : 120 minutes par défaut. |
 | `backup_age_recipients` | Clés publiques age (`age1…`) pour lesquelles la copie hors serveur est chiffrée, en plus de celles enregistrées par `backup setup`. En variable d'environnement : séparées par des virgules. |
 | `backup_age_recipients_file` | Ou un fichier de destinataires age. |
 | `backup_remotes` | Destinations rclone de la copie hors serveur (`nom:chemin`, ou un dossier), en plus de celles enregistrées par `backup setup`. |
@@ -348,7 +349,7 @@ Avec Docker Compose, ces variables se règlent dans `.env` (voir les commentaire
 | `GIT_SHA`, `AGENT_CLIS` | Construction seulement (`compose.build.yaml`) : commit inscrit dans l'image, CLI d'abonnement (`true` par défaut). |
 | `APP_PORT`, `APP_BIND`, `FORWARDED_ALLOW_IPS` | Mode par défaut : port local (8000), son adresse (`127.0.0.1`), réseaux des proxys de confiance. |
 | `DOMAIN`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`, `HTTP_PORT`, `HTTPS_PORT` | Mode proxy : domaine, compte Let's Encrypt et certificats de test, ports publiés (80 et 443). |
-| `BACKUP_TIME`, `BACKUP_LOCAL_RETENTION_DAYS` | Sauvegarde de la nuit : heure (`04:00`, `off` : aucune), jours gardés (7). Voir [Sauvegarde](backup.fr.md). |
+| `BACKUP_TIME`, `BACKUP_LOCAL_RETENTION_DAYS`, `BACKUP_TIMEOUT_MINUTES` | Sauvegarde de la nuit : heure (`04:00`, `off` : aucune), jours gardés (7), durée maximale d'un dump (120 minutes). Voir [Sauvegarde](backup.fr.md). |
 | `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Copie hors serveur, sans `backup setup` (voir [Sauvegarde](backup.fr.md)). |
 | `SYNAPTANE_DEFAULT_LOCALE`, `OCR_LANGUAGES`, `TZ` | Langue de l'interface, langues de l'OCR, fuseau horaire. |
 | `SYNAPTANE_WORKER_MEMORY`, `SYNAPTANE_LOG_LEVEL` | Mémoire maximale du worker (`2g`), niveau des journaux. |

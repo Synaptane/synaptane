@@ -319,8 +319,9 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `api_docs` | Publishes the interactive documentation `/api/docs` and the schema `/api/v1/openapi.json`, `false` by default. |
 | `metrics_token` | Bearer token of `/metrics` for Prometheus, 32 characters or more (see [Monitoring](#monitoring)). Empty by default: `/metrics` does not exist. With Docker: `METRICS_TOKEN` in `.env`. |
 | `backup_dir` | Folder of the nightly backup made by the worker (`/backups` in the image, `SYNAPTANE_BACKUP_DIR`). Unset: no automatic backup. See [Backup](backup.md). |
-| `backup_time` | Time of the nightly backup, server time: `04:00` by default; `off`: none. |
-| `backup_local_retention_days` | Days the archives of `backup_dir` are kept, 7 by default (the 3 newest always); `0`: all. |
+| `backup_time` | Time of the nightly backup, server time: `04:00` by default (`4:00`, `04h00` are read too); `off`: none. A value that is not a time gives 04:00, with a warning. |
+| `backup_local_retention_days` | Days the worker's archives of `backup_dir` are kept, 7 by default (the 3 newest always); `0`: all. |
+| `backup_timeout_minutes` | Longest a database dump, or its read-back, may take: 120 minutes by default. |
 | `backup_age_recipients` | age public keys (`age1…`) the off-site copy is encrypted for, in addition to those saved by `backup setup`. As an environment variable: comma-separated. |
 | `backup_age_recipients_file` | Or a file of age recipients. |
 | `backup_remotes` | rclone destinations of the off-site copy (`name:path`, or a folder), in addition to those saved by `backup setup`. |
@@ -339,7 +340,7 @@ With Docker Compose, these variables are set in `.env` (see the comments in `.en
 | `GIT_SHA`, `AGENT_CLIS` | Build only (`compose.build.yaml`): commit recorded in the image, subscription CLIs (`true` by default). |
 | `APP_PORT`, `APP_BIND`, `FORWARDED_ALLOW_IPS` | Default mode: local port (8000), its address (`127.0.0.1`), trusted proxy networks. |
 | `DOMAIN`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`, `HTTP_PORT`, `HTTPS_PORT` | Proxy mode: domain, Let's Encrypt account and test certificates, published ports (80 and 443). |
-| `BACKUP_TIME`, `BACKUP_LOCAL_RETENTION_DAYS` | Nightly backup: time (`04:00`, `off`: none), days kept (7). See [Backup](backup.md). |
+| `BACKUP_TIME`, `BACKUP_LOCAL_RETENTION_DAYS`, `BACKUP_TIMEOUT_MINUTES` | Nightly backup: time (`04:00`, `off`: none), days kept (7), longest dump (120 minutes). See [Backup](backup.md). |
 | `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Off-site copy, without `backup setup` (see [Backup](backup.md)). |
 | `SYNAPTANE_DEFAULT_LOCALE`, `OCR_LANGUAGES`, `TZ` | Interface language, OCR languages, time zone. |
 | `SYNAPTANE_WORKER_MEMORY`, `SYNAPTANE_LOG_LEVEL` | Worker memory cap (`2g`), log level. |
