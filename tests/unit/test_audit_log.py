@@ -214,6 +214,8 @@ EVERYTHING = {
     "error": "repository gone",
     "reason": "interrupted",
     "status": "500",
+    "group": "RH",
+    "previous": "Ressources humaines",
     "token": SECRET,
     "password": SECRET,
     "secret": SECRET,
@@ -294,6 +296,37 @@ def test_details_in_french() -> None:
     assert details("org.default_space_role", role="none") == ["Pas d'accès"]
     assert details("space.restricted", restricted=True) == ["Restreint"]
     assert details("space.restricted", restricted=False) == ["Non restreint"]
+
+
+def test_group_events_in_french() -> None:
+    """The group is the subject of its events, with the account when there is one; a renaming
+    says the former name, a role its value."""
+    french = translator("fr")
+
+    def line(action: str, **values: object) -> list[str]:
+        return labels(audit_log.describe(event(action, **values), None))
+
+    assert line("group.created", group="RH") == ["Groupe créé", "Groupe RH", "Système"]
+    assert line("group.member_added", group="RH", username="dora") == [
+        "Ajout à un groupe",
+        "Groupe RH",
+        "@dora",
+        "Système",
+    ]
+    assert line("group.updated", group="RH", fields="name", previous="Paie")[2:4] == [
+        "Nom",
+        "Auparavant\xa0: Paie",
+    ]
+    assert line("group.updated", group="RH", fields="description", previous="")[2:] == [
+        "Description",
+        "Système",
+    ]
+    assert line("group.space_role_set", group="RH", role="contributor")[2] == "Contributeur"
+    assert line("group.space_role_removed", group="RH")[0] == french(
+        "Group role in the space removed"
+    )
+    for action in ("group.created", "group.deleted", "group.space_role_set"):
+        assert audit_log.ACTIONS[action].family == "members"  # shown to organization admins
 
 
 def test_the_author_of_an_event_without_an_account() -> None:

@@ -539,7 +539,7 @@ aussi, avec moins de détails (qui est devenu super-admin, quelle clé a changé
 | Lecteur | Espace | Lire et chercher. |
 
 Ajouter quelqu'un à un espace en fait automatiquement un membre simple de l'organisation.
-Le retirer de l'organisation lui retire aussi ses espaces.
+Le retirer de l'organisation lui retire aussi ses espaces et ses groupes.
 
 Par défaut, un membre n'accède qu'aux espaces où il est ajouté. Pour donner d'un coup à
 chaque membre un rôle sur tous les espaces de l'organisation, choisissez un **rôle par défaut
@@ -561,6 +561,25 @@ espace non restreint propose le rôle par défaut comme plancher (« Lecteur (pa
 seulement les rôles au-dessus ; la page d'invitation liste l'accès réellement donné, rôle par
 défaut compris.
 
+**Groupes : une équipe, plusieurs espaces.** Pour donner d'un coup à certains membres l'accès
+à plusieurs espaces, au-delà du rôle par défaut, créez un **groupe** dans l'onglet **Groupes**
+de l'organisation (ressources humaines, direction, équipe projet) : ajoutez ses membres
+(membres de l'organisation seulement : invitez d'abord les autres), puis donnez-lui un rôle,
+lecteur ou contributeur, sur chaque espace qu'il ouvre. Chaque membre du groupe a alors le plus
+élevé de ce rôle, de celui qui lui est donné dans l'espace et du rôle par défaut. **Un groupe
+ouvre aussi un espace restreint** : restreignez l'espace des ressources humaines, puis donnez
+l'accès au seul groupe « RH », et personne d'autre dans l'organisation ne le voit. Vous pouvez
+aussi donner un rôle à un groupe depuis **Paramètres → Membres** d'un espace, section **Par un
+groupe**. Sur un espace non restreint, un rôle de groupe inférieur ou égal au rôle par défaut
+n'ajoute rien : la confirmation le signale. La page des membres d'un espace liste les groupes
+qui y accèdent et dit, pour chaque personne, si son accès vient de l'espace lui-même, d'un
+groupe (lequel), du rôle par défaut ou de l'administration de l'organisation. L'onglet
+**Membres** de l'organisation montre les groupes de chaque membre ; retirer quelqu'un de
+l'organisation le retire de ses groupes (la confirmation dit lesquels). Supprimer un groupe
+retire l'accès qu'il donnait, sauf si ses membres l'ont autrement ; supprimer un espace retire
+les rôles des groupes sur lui. Les groupes se gèrent aussi par l'API REST
+(`/organizations/{org}/groups`), et chaque changement est inscrit au journal d'audit.
+
 ## Premiers pas
 
 Au premier démarrage, la page d'accueil du super-admin rappelle ces étapes.
@@ -571,11 +590,12 @@ Au premier démarrage, la page d'accueil du super-admin rappelle ces étapes.
 2. Page de l'organisation, une page par sujet :
    - **Espaces**, puis « Nouvel espace » : nom, identifiant, adresse du dépôt Git ;
    - **Membres** : ajouter, nommer les administrateurs ;
+   - **Groupes** : donner à une équipe l'accès à plusieurs espaces d'un coup ;
    - **Intelligence artificielle** : le fournisseur du rangement nocturne ;
    - **Recherche sémantique** et **Webhooks**, facultatifs ;
    - **Paramètres** : nom, description, rôle par défaut dans les espaces, suppression.
 3. Espace, onglet **Paramètres** : **Dépôt Git** (adresse, accès, webhook, état et conflits),
-   **Membres** (lecteur ou contributeur, espace restreint), **Rangement** (heure, fuseau,
+   **Membres** (lecteur ou contributeur, groupes, espace restreint), **Rangement** (heure, fuseau,
    modèle),
    **Recherche sémantique** et **Général**.
 

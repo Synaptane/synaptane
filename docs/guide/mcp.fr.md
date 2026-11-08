@@ -28,9 +28,9 @@ retour. Si ce nom évoque un éditeur connu (Claude, ChatGPT…) mais que le ret
 pas vers l'un de ses domaines, un avertissement s'affiche : n'autorisez que si vous avez
 lancé la connexion vous-même.
 
-Par un assistant, chacun n'atteint que les espaces dont il est membre, ceux que le rôle par
-défaut de son organisation lui ouvre (espaces restreints exceptés), et ceux des organisations
-qu'il administre : le super-admin n'expose pas toute l'instance à son assistant. Une
+Par un assistant, chacun n'atteint que les espaces dont il est membre, ceux que ses groupes
+lui ouvrent, ceux que le rôle par défaut de son organisation lui ouvre (espaces restreints
+exceptés), et ceux des organisations qu'il administre : le super-admin n'expose pas toute l'instance à son assistant. Une
 connexion en lecture seule ne voit pas les outils d'écriture ; une connexion limitée à l'inbox
 ne voit, en plus de la lecture, que `inbox_add`, `inbox_update` et `inbox_delete`, et une
 écriture dans une page est refusée avec la raison.

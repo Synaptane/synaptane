@@ -1,0 +1,27 @@
+{% extends "org-base.html" %}
+{% from "ui.html" import csrf_field with context %}
+{% block section %}
+<div class="content-narrow">
+<p class="muted">{{ _("A group gives some members of the organization a role on several spaces at once, beyond the organization's default role: human resources, management, a project team. A group also opens restricted spaces to its members.") }}</p>
+{% if org_groups %}
+<div class="stack" data-test="groups">
+  {% for item in org_groups %}
+  <article class="card token-card">
+    <div class="token-head"><h3><a href="/o/{{ org.slug }}/-/groups/{{ item.group.id }}">{{ item.group.name }}</a></h3></div>
+    {% if item.group.description %}<p>{{ item.group.description }}</p>{% endif %}
+    <div class="token-foot"><span>{{ _(pl(item.members, "{n} member", "{n} members"), n=item.members) }} · {{ _(pl(item.spaces, "{n} space", "{n} spaces"), n=item.spaces) }}</span></div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">{{ _("No group yet.") }}</p>
+{% endif %}
+<form class="card section-gap" method="post" action="/o/{{ org.slug }}/-/groups" data-test="group-create">
+  <h2>{{ _("New group") }}</h2>
+  {{ csrf_field() }}
+  <div class="field"><label for="group-name">{{ _("Name") }}</label><input id="group-name" name="name" required maxlength="120" autocomplete="off"></div>
+  <div class="field"><label for="group-description">{{ _("Description (optional)") }}</label><textarea id="group-description" name="description" rows="2"></textarea></div>
+  <button class="button button-primary" type="submit">{{ _("Create the group") }}</button>
+</form>
+</div>
+{% endblock %}

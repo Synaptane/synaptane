@@ -1,16 +1,36 @@
 """Spaces (one Git repository each) and their members."""
 
-from sqlalchemy import select
+from dataclasses import dataclass
+from uuid import UUID
+
+from sqlalchemy import func, select, union
 from sqlalchemy.orm import Session
 
 from synaptane.core import names
-from synaptane.core.access import Action, OrgRole, SpaceRole, can, effective_role, require
+from synaptane.core.access import (
+    Action,
+    OrgRole,
+    SpaceRole,
+    can,
+    effective_role,
+    highest_role,
+    require,
+)
 from synaptane.core.errors import conflict, invalid, not_found
 from synaptane.services import Actor, audit
 from synaptane.services.freshness import clean_period
 from synaptane.services.organizations import ensure_member
 from synaptane.services.secrets import delete_space_secret
-from synaptane.storage.models import Organization, OrgMember, Space, SpaceMember, User
+from synaptane.storage.models import (
+    Group,
+    GroupMember,
+    GroupSpaceRole,
+    Organization,
+    OrgMember,
+    Space,
+    SpaceMember,
+    User,
+)
 
 
 def _validate_repo_url(value: str | None) -> str | None:
@@ -152,6 +172,7 @@ def update_space(
 
 
 def delete_space(session: Session, actor: Actor, space: Space) -> None:
+    """Its members and its groups' roles on it go with it (ON DELETE CASCADE)."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     audit(session, actor, "space.deleted", org_id=space.org_id, slug=space.slug)
     session.delete(space)
@@ -159,7 +180,7 @@ def delete_space(session: Session, actor: Actor, space: Space) -> None:
 
 def list_members(session: Session, actor: Actor, space: Space) -> list[tuple[User, SpaceRole]]:
     """Members added to the space, with the role given there (see `list_access` for the
-    others who access it)."""
+    others who access it: through a group, by default, as administrators)."""
     require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
     rows = session.execute(
         select(User, SpaceMember.role)
@@ -170,17 +191,52 @@ def list_members(session: Session, actor: Actor, space: Space) -> list[tuple[Use
     return [(user, SpaceRole(role)) for user, role in rows]
 
 
+def given_access(session: Session, actor: Actor, space: Space) -> list[str]:
+    """Usernames of those given access to the space on purpose: added to it, or through one of
+    their groups (one query; neither the default role nor the administrators)."""
+    require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
+    given = union(
+        select(SpaceMember.user_id).where(SpaceMember.space_id == space.id),
+        select(GroupMember.user_id)
+        .join(GroupSpaceRole, GroupSpaceRole.group_id == GroupMember.group_id)
+        .where(GroupSpaceRole.space_id == space.id),
+    ).subquery()
+    return list(
+        session.scalars(
+            select(User.username).join(given, given.c.user_id == User.id).order_by(User.username)
+        )
+    )
+
+
 def default_role(space: Space) -> SpaceRole | None:
     """Role the members of the organization have on the space without being added to it."""
     return effective_role(None, space.organization.default_space_role, space.restricted)
 
 
-def list_access(
-    session: Session, actor: Actor, space: Space
-) -> list[tuple[User, SpaceRole | None, OrgRole | SpaceRole]]:
-    """Everyone who accesses the space as a member of its organization: (account, role given
-    in the space or None, effective access: `OrgRole.ADMIN` for an organization admin,
-    otherwise the effective space role). Organization members without access are left out."""
+@dataclass(frozen=True)
+class SpaceAccess:
+    """How someone accesses a space as a member of its organization."""
+
+    user: User
+    given: SpaceRole | None  # role given in the space (None: not added to it)
+    # `OrgRole.ADMIN` for an organization admin, otherwise the effective space role.
+    effective: OrgRole | SpaceRole
+    # Where the effective access comes from: "admin", "given" (in the space), "group" or
+    # "default" (the organization's default role).
+    source: str
+    # The person's groups with a role on the space (name, role), by name.
+    groups: tuple[tuple[str, SpaceRole], ...] = ()
+
+    @property
+    def via_groups(self) -> list[str]:
+        """The groups that give the effective role (source "group")."""
+        return [name for name, role in self.groups if role == self.effective]
+
+
+def list_access(session: Session, actor: Actor, space: Space) -> list[SpaceAccess]:
+    """Everyone who accesses the space as a member of its organization: added to it, through
+    one of their groups, by the organization's default role or as its administrators (two
+    queries). Organization members without access are left out."""
     require(actor.access, Action.READ_SPACE, org_id=space.org_id, space_id=space.id)
     rows = session.execute(
         select(User, OrgMember.role, SpaceMember.role)
@@ -191,15 +247,26 @@ def list_access(
         .where(OrgMember.org_id == space.org_id)
         .order_by(User.username)
     )
-    found: list[tuple[User, SpaceRole | None, OrgRole | SpaceRole]] = []
+    through: dict[UUID, list[tuple[str, SpaceRole]]] = {}
+    for user_id, name, value in session.execute(
+        select(GroupMember.user_id, Group.name, GroupSpaceRole.role)
+        .join(GroupSpaceRole, GroupSpaceRole.group_id == GroupMember.group_id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(GroupSpaceRole.space_id == space.id)
+        .order_by(func.lower(Group.name))
+    ):
+        through.setdefault(user_id, []).append((name, SpaceRole(value)))
+    default = space.organization.default_space_role
+    found: list[SpaceAccess] = []
     for user, org_role, given in rows:
         explicit = SpaceRole(given) if given else None
+        groups = tuple(through.get(user.id, ()))
+        group = highest_role(role for _, role in groups)
         if org_role == OrgRole.ADMIN:
-            found.append((user, explicit, OrgRole.ADMIN))
-        elif role := effective_role(
-            explicit, space.organization.default_space_role, space.restricted
-        ):
-            found.append((user, explicit, role))
+            found.append(SpaceAccess(user, explicit, OrgRole.ADMIN, "admin", groups))
+        elif role := effective_role(explicit, default, space.restricted, group):
+            source = "given" if role == explicit else "group" if role == group else "default"
+            found.append(SpaceAccess(user, explicit, role, source, groups))
     return found
 
 

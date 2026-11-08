@@ -84,7 +84,7 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | `GET /me/tokens` | Jetons personnels : `id`, `name`, `hint` (4 derniers caractères), `created_at`, `expires_at`, `last_used_at`, `read_only`, `inbox_only`, `space_ids` |
 | `POST /me/tokens` | `{"name": …, "days": 90, "read_only": false, "inbox_only": false, "spaces": ["acme/infra"]}` (201) ; `days: null` : sans expiration. Renvoie le `token`, une seule fois |
 | `DELETE /me/tokens/{id}` | Révoque (204) |
-| `GET /spaces` | Tous les espaces visibles : `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effectif : donné dans l'espace, rôle par défaut de l'organisation, ou admin), `restricted` |
+| `GET /spaces` | Tous les espaces visibles : `organization`, `slug`, `name`, `description`, `repo_url`, `branch`, `role` (effectif : donné dans l'espace ou par un groupe, rôle par défaut de l'organisation, ou admin), `restricted` |
 
 ## Comptes (super-admin)
 
@@ -105,7 +105,7 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | `DELETE /organizations/{org}` | super-admin | Supprime une organisation sans espace (204 ; 400 s'il en reste) |
 | `GET /organizations/{org}/members` | membre | `username`, `display_name`, `role` (`admin` ou `member`) |
 | `PUT /organizations/{org}/members/{username}` | admin | `{"role": "member"}` : ajoute ou change le rôle |
-| `DELETE /organizations/{org}/members/{username}` | admin | Retire (204) |
+| `DELETE /organizations/{org}/members/{username}` | admin | Retire (204), des espaces et des groupes de l'organisation aussi |
 
 ## Espaces
 
@@ -114,17 +114,48 @@ Droits : *super-admin* (instance), *admin* (de l'organisation), *contributeur* e
 | `GET /organizations/{org}/spaces` | membre | Espaces visibles de l'organisation |
 | `POST /organizations/{org}/spaces` | admin | `{"slug": …, "name": …, "description": …, "repo_url": …, "branch": "main", "restricted": false}` (201). `restricted: true` : fermé au rôle par défaut de l'organisation dès sa création |
 | `GET …/spaces/{space}` | lecteur | Détail, avec le `role` effectif de l'appelant, `review_every` (périodicité de vérification par défaut des pages, `""` : jamais) et `restricted` (le rôle par défaut de l'organisation ne s'applique pas) |
-| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""` ; 400 si illisible), `restricted` (`true` : seuls les membres ajoutés à l'espace, et les admins de l'organisation, y accèdent). Changer `repo_url` retire les identifiants Git |
+| `PATCH …/spaces/{space}` | admin | `name`, `description`, `repo_url`, `branch`, `review_every` (`90d`, `6m`, `1y`, `never`, `""` ; 400 si illisible), `restricted` (`true` : seuls les membres ajoutés à l'espace, les membres des groupes qui y ont un rôle, et les admins de l'organisation, y accèdent). Changer `repo_url` retire les identifiants Git |
 | `DELETE …/spaces/{space}` | admin | Supprime l'espace dans Synaptane ; le dépôt distant n'est pas touché (204) |
-| `GET …/spaces/{space}/members` | lecteur | Membres ajoutés à l'espace : `username`, `display_name`, `role` (`reader` ou `contributor`, le rôle qui y est donné). Ceux qui n'y accèdent que par le rôle par défaut n'y figurent pas (`GET /organizations/{org}/members` les liste) |
+| `GET …/spaces/{space}/members` | lecteur | Membres ajoutés à l'espace : `username`, `display_name`, `role` (`reader` ou `contributor`, le rôle qui y est donné). Ceux qui n'y accèdent que par un groupe ou par le rôle par défaut n'y figurent pas (`GET …/spaces/{space}/groups` et `GET /organizations/{org}/members` les listent) |
 | `PUT …/spaces/{space}/members/{username}` | admin | `{"role": "contributor"}`. Un compte qui n'est pas membre de l'organisation le devient : avec un rôle par défaut (`default_space_role`), il reçoit alors aussi ce rôle sur chaque espace non restreint de l'organisation |
 | `DELETE …/spaces/{space}/members/{username}` | admin | Retire (204) |
+| `GET …/spaces/{space}/groups` | lecteur | Groupes qui ont un rôle sur l'espace : `id`, `name`, `role`, `members` (`username`, `display_name`) |
 | `GET …/spaces/{space}/vocation` | lecteur | Vocation de l'espace (`.synaptane/vocation.md`) : `path`, `text` (`""` si elle n'existe pas), `sha`, `pending` (en attente de la première synchronisation), `history` (5 dernières modifications : `commit`, `author`, `date`, `subject`) |
 | `PUT …/spaces/{space}/vocation` | admin | `{"text": …, "base_sha": …, "allow_secrets": false}` : un commit au nom de l'appelant, puis une synchronisation. `text` : 20 000 caractères au plus, `""` retire le fichier. `base_sha` : empreinte lue avant modification (`""` : le fichier ne doit pas exister) ; 409 s'il a changé entre-temps. 422 si un secret probable est détecté. Renvoie `commit` (`null` si rien n'a changé) et `pending` : avant la première synchronisation, le texte est mis en attente et écrit par elle |
 | `GET /vocation-templates` | compte | Modèles de vocation : `key` (`infra`, `marketing`, `product`, `client`, `personal`, `family`, `job-search`, `blank`), `label`, `summary`, `text` (dans la langue du compte : anglais ou français) |
 
 `…` vaut `/organizations/{org}`. Pour créer un espace avec une vocation, créez-le puis
 envoyez `PUT …/vocation` (le texte attend la première synchronisation).
+
+## Groupes
+
+Un groupe donne à certains membres d'une organisation un rôle (`reader` ou `contributor`) sur
+plusieurs de ses espaces à la fois. Le rôle effectif d'un membre sur un espace est le plus élevé
+du rôle donné dans l'espace, des rôles de ses groupes sur cet espace et du rôle par défaut de
+l'organisation (qu'un espace restreint ignore). Le rôle d'un groupe s'applique aussi à un espace
+restreint : c'est ainsi qu'on l'ouvre à une équipe. Un groupe est désigné par son `id` (son nom
+peut changer) ; son nom est unique dans l'organisation, sans tenir compte de la casse (409
+sinon).
+
+| Méthode et chemin | Droit | Rôle |
+|---|---|---|
+| `GET /organizations/{org}/groups` | admin | Groupes de l'organisation, par nom : `id`, `name`, `description`, `members` (`username`, `display_name`), `spaces` (`space` : identifiant, `name`, `restricted`, `role`) |
+| `POST /organizations/{org}/groups` | admin | `{"name": …, "description": ""}` (201) |
+| `GET /organizations/{org}/groups/{id}` | admin | Un groupe, avec ses membres et ses espaces (404 pour un groupe d'une autre organisation) |
+| `PATCH /organizations/{org}/groups/{id}` | admin | `name`, `description` |
+| `DELETE /organizations/{org}/groups/{id}` | admin | Supprime le groupe (204) : ses membres perdent l'accès qu'il donnait, sauf s'ils l'ont autrement |
+| `GET /organizations/{org}/groups/{id}/members` | admin | `username`, `display_name` |
+| `PUT /organizations/{org}/groups/{id}/members/{username}` | admin | Ajoute un membre de l'organisation (200, même s'il est déjà dans le groupe) ; 400 pour un compte qui n'est pas membre de l'organisation |
+| `DELETE /organizations/{org}/groups/{id}/members/{username}` | admin | Retire du groupe (204) |
+| `GET /organizations/{org}/groups/{id}/spaces` | admin | `space`, `name`, `restricted`, `role` |
+| `PUT /organizations/{org}/groups/{id}/spaces/{space}` | admin | `{"role": "reader"}` : donne ou change le rôle du groupe sur un espace de l'organisation |
+| `DELETE /organizations/{org}/groups/{id}/spaces/{space}` | admin | Retire le rôle du groupe sur l'espace (204) |
+
+Retirer quelqu'un de l'organisation le retire de ses groupes ; supprimer un espace retire les
+rôles des groupes sur lui. Un jeton limité à certains espaces, à la lecture ou à l'inbox reste
+limité, quels que soient les groupes de son titulaire. Les changements sont écrits au journal
+d'audit (`group.created`, `group.updated`, `group.deleted`, `group.member_added`,
+`group.member_removed`, `group.space_role_set`, `group.space_role_removed`).
 
 ## Git d'un espace
 
