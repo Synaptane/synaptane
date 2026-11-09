@@ -192,14 +192,17 @@ Un jeton d'accès HTTPS cesse de fonctionner à sa date d'expiration, et la sync
   façon le jeton pour la synchronisation, avec les protections de la création de dépôt :
   abandonné après 10 secondes, jamais redirigé, et pour un hôte auto-hébergé, adresse publique
   seulement (résolue une fois, puis connexion à l'adresse vérifiée), sauf pour le
-  super-administrateur. Un dépôt à une adresse IP n'est pas interrogé ; un nom d'hôte
-  internationalisé l'est sous sa forme ASCII (punycode). Rien d'autre n'est lu dans la
+  super-administrateur. Un dépôt à une adresse IP ou à un nom d'hôte qui n'est pas en ASCII
+  simple n'est pas interrogé (deux versions d'IDNA peuvent faire de ce nom deux domaines
+  différents), pas plus qu'avec un mot de passe qui n'est pas en ASCII simple. Rien d'autre n'est lu dans la
   réponse, et la date est gardée avec le jeton, chiffrée : pas de migration. Quand la date
   reste inconnue (pas d'expiration, refus, autre forge, injoignable), le jeton est enregistré
   quand même, sans avertissement. Une clé SSH n'expire pas.
 
-  Un jeton est en ASCII simple : un jeton qui contient une espace ou un autre caractère (un
-  caractère invisible collé avec lui, par exemple) est refusé avec « Jeton d'accès invalide ».
+  Un jeton qui contient un caractère invisible ou de contrôle (espace sans chasse, tabulation ou
+  espace insécable collée avec lui) est refusé avec « Jeton d'accès invalide ». Espaces et
+  lettres accentuées restent permises à l'intérieur : le champ sert aussi au mot de passe
+  (Gitea, Bitbucket Server).
 
 Une fois la date connue :
 - **Paramètres → Dépôt Git → Accès au dépôt** l'affiche, en avertissement à moins de 30 jours,

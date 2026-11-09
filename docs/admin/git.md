@@ -189,13 +189,14 @@ knows this date:
   token for the sync anyway, with the protections of the repository creation: abandoned after
   10 seconds, never redirected, and for a self-hosted host, a public address only (resolved
   once, then connected to the address checked), except for the super admin. A repository at an
-  IP address is not asked; an internationalized host name is asked in its ASCII form
-  (punycode). Nothing else is read from the answer, and the date is kept with the token,
+  IP address or at a host name that is not plain ASCII is not asked (two IDNA versions can turn
+  such a name into two different domains), nor is a password that is not plain ASCII. Nothing else is read from the answer, and the date is kept with the token,
   encrypted: no migration. When the date is unknown (no expiry, refused, another Git host,
   unreachable), the token is saved all the same, without warning. An SSH key does not expire.
 
-  A token is plain ASCII: one with a space or another character (an invisible character pasted
-  with it, for example) is refused with "Invalid access token".
+  A token with an invisible or control character (a zero-width space, a tab or a no-break space
+  pasted with it) is refused with "Invalid access token". Spaces and accented letters stay
+  allowed inside: the field also takes a password (Gitea, Bitbucket Server).
 
 Once the date is known:
 - **Settings → Git repository → Repository access** shows it, as a warning within 30 days,

@@ -785,9 +785,9 @@ def _gitlab_expiry(answer: Any) -> date | None:
 
 
 def _api_base(repo_url: str) -> str | None:
-    """`https://host[:port]` of a repository to ask for its token's expiry, the host in ASCII
-    (an internationalized name in punycode). None for anything else, and for an IP address
-    written as such: a GitLab is reached by its name, which its TLS certificate names."""
+    """`https://host[:port]` of a repository to ask for its token's expiry. None for anything
+    else, for an IP address written as such (a GitLab is reached by its name, which its TLS
+    certificate names) and for a name that is not plain ASCII."""
     parts = urlsplit(repo_url)
     try:
         port = parts.port
@@ -801,9 +801,10 @@ def _api_base(repo_url: str) -> str | None:
         return None
     except ValueError:
         pass
-    try:
-        host = host.encode("idna").decode("ascii")
-    except UnicodeError:
+    if not host.isascii():
+        # An internationalized name is never asked: Python's IDNA (2003) and Git's (2008, UTS
+        # 46) can map it to different domains (faß.de: fass.de or xn--fa-hia.de), and the token
+        # must only reach the repository's own host.
         return None
     return f"https://{host}" + (f":{port}" if port else "")
 
@@ -820,8 +821,8 @@ def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> d
     The token only goes to the repository's own host, which receives it for the sync anyway
     (GitHub: its API). None when the expiry is unknown: no expiry, refused (the API scope may
     be missing), another provider, unreachable, too slow, a private address (unless
-    `allow_private`), an IP address, anything unexpected. Never raises, never logs the token
-    nor an error's text (which could quote it)."""
+    `allow_private`), an IP address or a non-ASCII name, anything unexpected. Never raises,
+    never logs the token nor an error's text (which could quote it)."""
     base = _api_base(repo_url)
     if base is None:
         return None
@@ -872,7 +873,8 @@ def save_https_token(
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     credentials = GitCredentials.https(token, username)
     repo_url = space.repo_url or ""
-    if repo_url and credentials.matches(repo_url):
+    # A password that is not plain ASCII (Basic, another Git host) cannot go in an HTTP header.
+    if repo_url and credentials.matches(repo_url) and credentials.token.isascii():
         session.commit()
         expiry = token_expiry(
             repo_url, credentials.token, allow_private=allow_private or actor.access.is_superadmin

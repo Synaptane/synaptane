@@ -57,6 +57,21 @@ def _value(key: str, template: str = "{value}") -> Show:
     return show
 
 
+def _iso_day(key: str, template: str) -> Show:
+    """A day kept in ISO form, written out in the reader's language; older forms as they are."""
+
+    def show(details: Details) -> list[Label]:
+        value = _text(details, key)
+        if not value:
+            return []
+        try:
+            return [Label(template, value=date.fromisoformat(value))]
+        except ValueError:
+            return [Label(template, value=value)]
+
+    return show
+
+
 def _choice(key: str, labels: Mapping[str, Label]) -> Show:
     """A value among known ones; any other one shows nothing."""
     return lambda details: [labels[v]] if (v := _text(details, key)) in labels else []
@@ -210,7 +225,7 @@ FIELDS = {
     "status": Field(_value("status")),
     "removed": Field(_flag("removed", Label("Text removed"))),
     "previous_name": Field(_value("previous", "Formerly: {value}")),
-    "date": Field(_value("date", "Expiry date: {value}")),  # of a Git token
+    "date": Field(_iso_day("date", "Expiry date: {value}")),  # of a Git token
 }
 
 # Author of an event without an account (`actor_id` empty).

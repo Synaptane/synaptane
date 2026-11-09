@@ -10,7 +10,7 @@ import os
 import shutil
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -89,7 +89,7 @@ class Alert:
     space: Space | None
     organization: Organization | None
     error: str
-    date: str = ""  # a Git token's expiry date, as written in the log
+    date: date | str | None = None  # a Git token's expiry day (written out when shown)
 
 
 @dataclass(frozen=True)
@@ -392,10 +392,18 @@ def _alerts(session: Session, now: datetime) -> list[Alert]:
                 space,
                 org,
                 str(event.details.get("error") or event.details.get("reason") or "")[:300],
-                str(event.details.get("date") or "")[:100],
+                _day(str(event.details.get("date") or "")),
             )
         )
     return found
+
+
+def _day(value: str) -> date | str | None:
+    """A day kept in ISO form; an older form as it is."""
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return value[:100]
 
 
 def report(session: Session, database: Database, ws: Workspace, settings: Settings) -> Report:

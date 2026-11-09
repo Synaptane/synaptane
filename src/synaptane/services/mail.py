@@ -10,6 +10,7 @@ import smtplib
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
@@ -491,8 +492,13 @@ def compose(kind: str, locale: str, **values: object) -> tuple[str, str]:
 
 
 def localized(value: object, locale: str, translate: Callable[..., str] | None = None) -> object:
-    """A value inserted into a text in `locale`: a `Label` is translated, a function of the
-    language is called; anything else is kept as it is."""
+    """A value inserted into a text in `locale`: a `Label` is translated, a day is written out
+    ("8 novembre 2027"), a function of the language is called; anything else is kept as it
+    is."""
+    if type(value) is date:
+        from synaptane.web.i18n import format_day
+
+        return format_day(value, locale)
     if isinstance(value, Label):
         if translate is None:
             from synaptane.web.i18n import translator

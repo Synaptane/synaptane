@@ -28,10 +28,12 @@ of the target version.
   `GET /api/v4/personal_access_tokens/self`), with the protections of the repository creation
   (10 seconds at most, no redirect followed, a self-hosted host at a public address only,
   except for the super admin, no database connection held meanwhile); when the provider does
-  not tell, the token is saved all the same (a repository at an IP address is not asked). GitHub
+  not tell, the token is saved all the same (a repository at an IP address or at a host name
+  that is not plain ASCII is not asked). GitHub
   gives the moment: on the last day, before that hour, the token "expires today". If every email
   of a step fails, the next hourly check sends them again; the audit log and the system alerts
-  show the expiry date. The expiry date in a sync error is shown to the organization's admins
+  show the expiry date, written out in the reader's language (ISO in the `space.alert`
+  webhook). The expiry date in a sync error is shown to the organization's admins
   only, like the rest of the repository access. REST: `credentials_expire` in
   `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
   email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
@@ -43,10 +45,11 @@ of the target version.
   30 days, a warning within 30 days, a problem once it has passed, with where to create the
   next token on GitHub or GitLab. Saving a token whose expiry the provider gives says it
   ("Repository access saved. The token expires on …").
-- An HTTPS access token with a space or a character that is not plain ASCII (an invisible
-  character pasted with it) is refused with "Invalid access token", on the web page and with
-  `PUT …/git/credentials` (400), and when creating a repository: such a token could never
-  authenticate.
+- An HTTPS access token with an invisible or control character (a zero-width space, a tab or a
+  no-break space pasted with it) is refused with "Invalid access token", on the web page and
+  with `PUT …/git/credentials` (400): it could never authenticate. Spaces and accented letters
+  stay allowed (a Basic password for Gitea or Bitbucket Server). The token that creates a
+  repository must be plain ASCII.
 - Two workers no longer send the same alert twice: its check is serialized in the database.
 - The worker's hourly checks (change watermarks, inbox backlog, review reminders, Git token
   expiry) run each on its own: a lasting error in one no longer skips the others.

@@ -7,7 +7,7 @@ given a `once` key (each step before a Git token expires), never again with the 
 
 import logging
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -44,6 +44,12 @@ def _lock(session: Session, key: str) -> None:
     session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0))))
 
 
+def _logged(value: object) -> str:
+    """A value as the log and the webhook keep it: English, a day in ISO form (written out in
+    the reader's language when shown)."""
+    return value.isoformat() if type(value) is date else str(mail.localized(value, "en"))
+
+
 UNDELIVERED = "undelivered"  # detail of a `once` alert whose emails all failed: retried
 
 
@@ -76,7 +82,7 @@ def notify(
     if event is not None and not (once and event.details.get(UNDELIVERED)):
         return False
     if event is None:
-        details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
+        details = {k: _logged(v) for k, v in values.items()}
         event = AuditEvent(
             action=action,
             org_id=space.org_id,
@@ -232,7 +238,11 @@ def check_backlogs(database: Database, ws: Workspace) -> int:
     with database.session() as session:
         candidates = list(
             session.scalars(
-                select(Space).where(Space.repo_url.is_not(None), Space.tidy_enabled.is_(True))
+                # A fixed order: the alerts' locks pile up in this transaction, and another
+                # worker taking them in another order could wait for this one forever.
+                select(Space)
+                .where(Space.repo_url.is_not(None), Space.tidy_enabled.is_(True))
+                .order_by(Space.id)
             )
         )
         for space in candidates:

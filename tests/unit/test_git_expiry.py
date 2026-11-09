@@ -72,12 +72,18 @@ def test_an_unreadable_expiry_is_unknown(value: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "token", ["glpat-abc\u200bdef", "ghp_abc def", "glpat-é", "glpat-\u00a0x", "glpat-\tx"]
+    "token", ["glpat-abc\u200bdef", "glpat-\u00a0x", "glpat-\tx", "glpat-\x7fx", "a\u2028b"]
 )
-def test_a_token_that_is_not_plain_ascii_is_refused(token: str) -> None:
+def test_a_token_with_an_invisible_character_is_refused(token: str) -> None:
     with pytest.raises(SynaptaneError) as raised:
         GitCredentials.https(token)
     assert raised.value.message.startswith("Invalid access token")
+
+
+@pytest.mark.parametrize("token", ["mot de passe", "pässwörd", "  glpat-x  "])
+def test_a_basic_password_may_hold_spaces_and_accents(token: str) -> None:
+    """The field also takes a Basic password (Gitea, Bitbucket Server); outer spaces go."""
+    assert GitCredentials.https(token).token == token.strip()
 
 
 def test_an_authentication_refusal_says_the_token_expired() -> None:
@@ -170,7 +176,6 @@ def test_no_call_for_an_address_that_is_not_https(no_call: list[httpx2.Request],
     [
         "https://[2001:4860::1]/acme/infra.git",  # an IP address: never asked
         "https://140.82.112.3/acme/infra.git",
-        "https://gitlab.\udcff.example/acme/infra.git",  # not encodable
     ],
 )
 def test_no_call_for_an_ip_address_or_an_unusable_name(
@@ -180,21 +185,23 @@ def test_no_call_for_an_ip_address_or_an_unusable_name(
     assert no_call == []
 
 
-def test_an_internationalized_name_is_asked_in_punycode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[httpx2.Request] = []
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://faß.de/a.git",  # fass.de for Python's IDNA 2003, xn--fa-hia.de for Git's
+        "https://gïtlab.example/acme/infra.git",
+        "https://xn--fa-hia.de.évil/a.git",
+    ],
+)
+def test_an_internationalized_name_is_never_asked(no_call: list[httpx2.Request], url: str) -> None:
+    """Two IDNA versions can name two different domains: the token never goes to a guess."""
+    assert forges.token_expiry(url, "glpat-x", allow_private=True) is None
+    assert no_call == []
 
-    def handle(request: httpx2.Request) -> httpx2.Response:
-        seen.append(request)
-        return httpx2.Response(200, json={"expires_at": "2027-03-01"})
 
-    monkeypatch.setattr(forges, "TRANSPORT", httpx2.MockTransport(handle))
-    url = "https://gïtlab.example/acme/infra.git"
-    assert forges.token_expiry(url, "glpat-x", allow_private=True) == datetime(
-        2027, 3, 1, tzinfo=UTC
-    )
-    assert [r.url.raw_host for r in seen] == [b"xn--gtlab-cta.example"]
+def test_a_password_that_is_not_ascii_is_never_sent(no_call: list[httpx2.Request]) -> None:
+    """It could not go in an HTTP header; `save_https_token` does not even ask."""
+    assert forges.token_expiry("https://gitlab.com/a.git", "pässwörd") is None
 
 
 def test_any_unexpected_error_is_swallowed_without_its_text(
@@ -207,3 +214,21 @@ def test_any_unexpected_error_is_swallowed_without_its_text(
     url = "https://gitlab.com/acme/infra.git"
     assert forges.token_expiry(url, "glpat-secret") is None
     assert "RuntimeError" in caplog.text and "glpat-secret" not in caplog.text
+
+
+def test_a_day_is_written_out_in_the_readers_language() -> None:
+    """Alert details keep a day in ISO form; interface texts and emails write it out."""
+    from synaptane.core.errors import Label
+    from synaptane.services import mail
+
+    day = date(2027, 11, 1)
+    assert (
+        translator("fr")("Expiry date: {value}", value=day)
+        == "Date d'expiration : 1er novembre 2027"
+    )
+    assert (
+        translator("en")(Label("Expiry date: {value}", value=day))
+        == "Expiry date: November 1, 2027"
+    )
+    assert mail.localized(day, "fr") == "1er novembre 2027"
+    assert mail.localized(day, "en") == "November 1, 2027"

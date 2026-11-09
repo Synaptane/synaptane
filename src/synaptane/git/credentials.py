@@ -68,12 +68,13 @@ class GitCredentials:
         token, username = token.strip(), username.strip() or "synaptane"
         if not token or any(c in token + username for c in "\r\n\0"):
             raise invalid("Invalid access token.")
-        if not token.isascii() or any(c.isspace() or not c.isprintable() for c in token):
-            # A token is plain ASCII: an invisible character pasted with it (zero-width space)
-            # would never authenticate, and cannot go in an HTTP header.
+        if not all(c.isprintable() for c in token):
+            # An invisible character pasted with the token (zero-width space, tab, no-break
+            # space) would never authenticate. A space or an accented letter stays allowed: the
+            # field also takes a Basic password (Gitea, Bitbucket Server), sent in UTF-8 by Git.
             raise invalid(
-                "Invalid access token: it contains a space or a character that is not plain "
-                "ASCII (an invisible character may have been pasted with it)."
+                "Invalid access token: it contains an invisible or control character (one may "
+                "have been pasted with it)."
             )
         return cls(kind="https", username=username, token=token, expires=expiry_text(expiry))
 

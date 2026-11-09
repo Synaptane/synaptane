@@ -189,12 +189,16 @@ def abandoned(session: Session, since: datetime) -> list[Job]:
     """Space jobs abandoned since `since`, attempts used up (see ABANDONED)."""
     return list(
         session.scalars(
-            select(Job).where(
+            select(Job)
+            .where(
                 Job.status == "failed",
                 Job.space_id.is_not(None),
                 Job.finished_at >= since,
                 or_(Job.error.startswith(ABANDONED), Job.error.startswith(_ABANDONED_FR)),
             )
+            # A fixed order: `alerts.check_abandoned_jobs` takes a lock per space and alert in
+            # one transaction, in this order, as another worker would.
+            .order_by(Job.space_id, Job.finished_at, Job.id)
         )
     )
 

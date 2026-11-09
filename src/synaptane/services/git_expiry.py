@@ -127,17 +127,6 @@ def expiries(
     return sorted(found, key=lambda e: (not e.expired, e.days))  # stable: names stay in order
 
 
-def _date(value: date) -> Callable[[str], str]:
-    """The date written out in each recipient's language (`mail.localized`)."""
-
-    def text(locale: str) -> str:
-        from synaptane.web.i18n import format_day
-
-        return format_day(value, locale)
-
-    return text
-
-
 def _when(days: int) -> Callable[[str], str]:
     """ "in 7 days", "tomorrow", in each recipient's language."""
 
@@ -174,7 +163,7 @@ def check(database: Database, ws: Workspace, now: datetime | None = None) -> int
                     "git_token_expired",
                     ws.public_url,
                     once=once,
-                    date=_date(found.expires),
+                    date=found.expires,
                 )
             else:
                 notified = alerts.notify(
@@ -184,7 +173,7 @@ def check(database: Database, ws: Workspace, now: datetime | None = None) -> int
                     "git_token_expiring",
                     ws.public_url,
                     once=once,
-                    date=_date(found.expires),
+                    date=found.expires,
                     when=_when(found.days),
                 )
             session.commit()  # each alert on its own: the next one does not wait for its lock

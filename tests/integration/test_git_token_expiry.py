@@ -35,6 +35,7 @@ from synaptane.services import (
     git_expiry,
     git_sync,
     instance,
+    jobs,
     mail,
     organizations,
     spaces,
@@ -43,7 +44,7 @@ from synaptane.services.git_sync import GIT_CREDENTIALS
 from synaptane.services.secrets import get_space_secret, put_space_secret
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
-from synaptane.storage.models import AuditEvent, Secret, Space, User
+from synaptane.storage.models import AuditEvent, Job, Secret, Space, User
 from synaptane.web.i18n import format_day, translator
 from synaptane.worker import runner
 from tests.integration.conftest import actor_of, token_for
@@ -116,7 +117,7 @@ def test_one_alert_at_each_step_never_twice(
         "tomorrow",
         None,
     ]
-    assert {details["date"] for _, details in found} == {"November 8, 2027"}
+    assert {details["date"] for _, details in found} == {"2027-11-08"}  # written out when shown
     assert_no_secret(db)
 
 
@@ -259,9 +260,9 @@ def test_the_journal_shows_the_alert(
         health = html.unescape(client.get("/admin/health").text)
     assert "Un jeton d'accès Git expire bientôt" in journal
     assert "Un jeton d'accès Git expire bientôt" in health  # system alerts
-    # The expiry date, in both (as written in the log, in English).
-    assert f"Date d'expiration{NBSP}: November 8, 2027" in journal
-    assert f"Date d'expiration{NBSP}: November 8, 2027" in health
+    # The expiry date, in both, written out in the reader's language.
+    assert f"Date d'expiration{NBSP}: 8 novembre 2027" in journal
+    assert f"Date d'expiration{NBSP}: 8 novembre 2027" in health
     assert SECRET not in journal + health
 
 
@@ -919,7 +920,7 @@ def test_health_and_git_page_say_today_before_the_hour(
     assert "status-error" not in health.split("health-git-tokens")[1].split("</ul>")[0]
 
 
-@pytest.mark.parametrize("token", ["glpat-abc\u200bdef", "ghp_abc def", "glpat-é"])
+@pytest.mark.parametrize("token", ["glpat-abc\u200bdef", "ghp_abc\tdef", "glpat-\u00a0x"])
 @pytest.mark.parametrize("slug", ["gitlab", "github"])
 def test_a_token_with_an_invisible_character_is_refused_without_error(
     client: TestClient,
@@ -972,19 +973,58 @@ def test_a_repository_at_an_ip_address_is_saved_without_asking(
     assert saved(db, box_of(client), space).token == MANUAL
 
 
-def test_an_internationalized_host_is_asked_in_punycode(
+@pytest.mark.parametrize("username", ["carla", "root"])
+def test_an_internationalized_host_is_never_asked(
     client: TestClient,
     database: Database,
     db: Session,
     acme: None,  # noqa: F811
     forge: Forge,  # noqa: F811
+    username: str,
 ) -> None:
+    """faß.de is fass.de for one IDNA version, xn--fa-hia.de for another: the token is saved,
+    never sent to a guessed domain."""
     gitlab_self(forge, httpx2.Response(200, json={"expires_at": "2027-03-01"}))
     actor = actor_of(db, accounts.get_user(db, "root"))
     org = organizations.get_organization(db, actor, "acme")
-    url = "https://gïtlab.example/acme/x.git"
-    space = spaces.create_space(db, actor, org, slug="idn", name="IDN", repo_url=url)
+    space = spaces.create_space(
+        db, actor, org, slug="idn", name="IDN", repo_url="https://faß.de/acme/x.git"
+    )
     db.commit()
-    assert save(client, "idn", "root").endswith("Le jeton expire le 1er mars 2027.")
-    assert [r.url.raw_host for r in forge.seen] == [b"xn--gtlab-cta.example"]
-    assert saved(db, box_of(client), space).expires == "2027-03-01"
+    assert save(client, "idn", username) == "Accès au dépôt enregistré."
+    assert forge.seen == []
+    assert saved(db, box_of(client), space).token == MANUAL
+
+
+@pytest.mark.parametrize("token", ["mot de passe", "pässwörd"])
+def test_a_basic_password_with_spaces_or_accents_is_saved(
+    client: TestClient,
+    database: Database,
+    db: Session,
+    forges_space: dict[str, Space],
+    forge: Forge,  # noqa: F811
+    token: str,
+) -> None:
+    """Gitea, Bitbucket Server: a password in the token field. Saved as it is; one that is
+    not plain ASCII is not sent to ask for an expiry (no HTTP header can carry it)."""
+    gitlab_self(forge, httpx2.Response(404))
+    assert save(client, "selfhosted", "root", token=token) == "Accès au dépôt enregistré."
+    assert saved(db, box_of(client), forges_space["selfhosted"]).token == token
+    assert len(forge.seen) == (1 if token.isascii() else 0)
+
+
+def test_abandoned_jobs_come_in_a_fixed_order(db: Session, wiki: Wiki) -> None:
+    """`alerts.check_abandoned_jobs` takes its locks in this order: two workers agree on it."""
+    for space in (wiki.other, wiki.infra, wiki.other):
+        db.add(
+            Job(
+                kind="index",
+                space_id=space.id,
+                status="failed",
+                finished_at=noon(git_expiry.today()),
+                error=f"{jobs.ABANDONED}: no network",
+            )
+        )
+    db.commit()
+    found = [job.space_id for job in jobs.abandoned(db, noon(git_expiry.today()) - timedelta(1))]
+    assert found == sorted(found, key=str)

@@ -66,10 +66,15 @@ def translator(locale: str) -> Translate:
             entry = french_typography(entry)  # before inserting values
         if not values:
             return entry
-        # A value that is itself an interface text ("Title", "attachment x.pdf") is translated.
+        # A value that is itself an interface text ("Title", "attachment x.pdf") is translated;
+        # a day is written out in the language.
         return entry.format(
             **{
-                k: translate(v.template, **v.params) if isinstance(v, Label) else v
+                k: translate(v.template, **v.params)
+                if isinstance(v, Label)
+                else format_day(v, locale)
+                if type(v) is date
+                else v
                 for k, v in values.items()
             }
         )
