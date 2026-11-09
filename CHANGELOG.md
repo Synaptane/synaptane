@@ -10,6 +10,51 @@ of the target version.
 
 ## [Unreleased]
 
+Upgrading to this version with Claude or ChatGPT subscriptions: nothing to do. The new
+`compose.yaml` runs the CLIs in the new `agents` container and mounts the existing
+`synaptane-agents` volume there, at the same path and with the same account: the logins made in
+the worker stay valid. Pull or rebuild, then `docker compose up -d`; `deploy/host/deploy.sh`
+does it and also waits for the agents container to be healthy. No migration. With a custom
+Compose file without the `agents` service, or without Docker, the CLIs keep running in the
+worker, as before, and `synaptane doctor` and the health page say they are less isolated there.
+
+### Added
+- **The subscription CLIs run in a container of their own**. With a Claude or ChatGPT
+  subscription, Claude Code and Codex no longer run in the worker but in the `agents` service
+  of `compose.yaml` (`synaptane agents-runner`): same image, but neither the data volume
+  (master key, repositories), nor the backups, nor the database, nor any secret of the
+  instance; only the CLIs' logins (`synaptane-agents`, mounted there only) and a key it shares
+  with the worker. It is on a network shared with the worker alone, without Internet, and on
+  one of its own for Anthropic and OpenAI: neither the database nor the web container are
+  within its reach. Non-root, read-only file system, no Linux capability, memory capped
+  (`SYNAPTANE_AGENTS_MEMORY`, 2 GB) and at most `SYNAPTANE_AGENTS_MAX_RUNS` CLIs at once (2).
+  The worker sends it each run, with the key (created by the worker on its first call in the
+  `synaptane-agents-key` volume, never logged); the CLI is launched exactly as before, with the
+  same options, and reaches the run's tools at the worker's address on their private network,
+  with the run's single-use token. A run is stopped at its time limit, as soon as the worker
+  gives up, or beyond 4 MB of results; only the events Synaptane reads come back to the worker.
+  The isolation contract (`synaptane check-clis`) runs in the agents container, where the CLIs
+  run. Sign in with `docker compose exec agents claude auth login` (or
+  `codex login --device-auth`): the AI page gives the command. This closes the known
+  limitation of the earlier versions, where a flaw in the CLI could read the server through the
+  worker's account. See [The agents container](docs/admin/ai.md#the-agents-container), with
+  what it protects and what it does not.
+- **Where the CLIs run, on the health page and in `synaptane doctor`**. **Administration →
+  Health** has a "Subscription agents" line: agents container reachable, CLI versions and
+  isolation contract, or the CLIs running in the worker (less isolated), or what the agents
+  container can reach and should not (a secret, the master key, the Docker socket, the
+  database). The worker reports it every 10 minutes, since the web container does not reach
+  the agents container; `docker compose exec worker synaptane doctor` asks it directly.
+
+### Changed
+- **Test the connection** of a subscription goes through the agents container, and a tidy-up
+  or routine that failed because of it says so in its log ("agents container unavailable" or
+  "busy") instead of blaming the AI provider.
+- `deploy/host/deploy.sh` also waits for the agents container to be healthy, and rolls back
+  otherwise. `scripts/e2e-compose.sh` checks its isolation (no secret, no data, neither the
+  database nor the web container within reach, key required) and that a login made by the
+  previous version stays readable; `E2E_PROJECT` runs two at once.
+
 ## [1.14.0] - 2026-11-09
 
 See every Markdown text as it will read while writing it, not only pages; invite someone straight
