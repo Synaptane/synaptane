@@ -10,64 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-09
+
+See every Markdown text as it will read while writing it, not only pages; invite someone straight
+into groups; be warned before a Git access token expires; and publish the tidy-up bench's results
+in the open. Upgrading from 1.13.0: one migration (`0032`), applied at startup; it creates the
+table of invitation groups, empty, so nobody's access changes. Back up first: going back to 1.13.0
+then means restoring that backup. pydantic 2.14.3 fixes two advisories (Synaptane was not exposed
+in practice), and an access token pasted with an invisible character is now refused with a clear
+message instead of being saved.
+
 ### Added
-- **Publishable results of the tidy-up bench**. A run with a real model
-  (`./scripts/eval.sh tidy --model …`) now writes a versioned run file in `eval/results/runs/`
-  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, read from the
-  repository, and whether files changed since, the dates and duration, the fingerprints of the
-  bench, of each scenario, of the prompt and of the agent's tools, the provider, model, effort
-  actually sent and price applied, and every trial with its graders, tokens, cost, duration,
-  interruption and the model that served it. `./scripts/eval.sh report` aggregates one or more
-  run files into `eval/results/results.json` and two tables, `results.md` and `results.fr.md`,
-  with the method and its limits at the top: per configuration, the pass rate with its 95 %
-  Wilson interval (rows sorted by its lower bound), the score per sweep (mean and standard
-  deviation), the cost per run and per passed run, the tokens and the duration, the passes per
-  scenario, and between every two configurations a paired comparison by scenario (exact sign
-  test, adjusted by Holm's method for the number of pairs). The report only depends on the run files, so the same runs give the same bytes, and it
-  refuses what does not compare honestly: a run stopped by its budget or by the provider, a
-  trial cut, trials missing or doubled, fewer than 3 trials per scenario, a trial served by
-  another model, different scenarios, different commits (unless `--allow-mixed-commits`), a
-  modified tree (unless `--allow-dirty`). Nothing is masked silently: a run file or a report
-  that would contain the key, the provider's address or credentials, anything that looks like a
-  secret or a path of the machine is not written, and the provider's errors are recorded by
-  class and HTTP status, never by their text. A trial hit by a passing provider error (429,
-  529) is played again, twice at most, and its cost counted in the total; with a local or
-  compatible server, only 429, 503 and a refused connection are replayed, since a 500 or a
-  time-out may come from the model. Above 5 % of trials replayed, the report is refused unless
-  `--allow-replays`, and the replays are shown per scenario. Claude's fallback to another model is
-  turned off in the bench. `--trials` is 3 by default for a real model, fewer needs `--draft`;
-  `--prompt FILE` tries other instructions for the agent in the bench only, and `--label` names
-  the configuration. `./scripts/eval.sh tidy --estimate --model M` gives the order of magnitude
-  of a run's cost without calling any model. Each turn of a provider now carries the name of the
-  model that served it (`Turn.model`). See `docs/dev/eval.md` ("Publish the results") and
-  `eval/results/README.md`. No migration.
-- **Warnings before a Git access token expires**. When the expiry date of a space's HTTPS
-  token is known, the organization's admins get an alert by email (in their language), in the
-  audit log (**Alerts**) and through the `space.alert` webhook, **30 days, 7 days and 1 day
-  before, then on the day** it expires (`git_token_expiring`, `git_token_expired`): once per
-  step, checked every hour by the worker, a stopped worker only sending the step reached, and
-  a new token, with another date, starting over. **Administration > Health** gets a **Git
-  access tokens** line, a warning when a token expires within 30 days and a problem once one
-  has expired, listing each space with a link to its Git page and how to renew the token. A
-  sync refused for authentication after this date now says that the token expired, and when,
-  on the space's page, in the REST API and in the sync alert. The date is known for the GitLab
-  project access token Synaptane creates, and now also for a token saved by hand in
-  **Settings → Git repository → Repository access** or with `PUT …/git/credentials`: Synaptane
-  asks the provider once, as it saves it (GitHub: the `GitHub-Authentication-Token-Expiration`
-  header of `GET api.github.com/rate_limit`; any other HTTPS host, taken for a GitLab:
-  `GET /api/v4/personal_access_tokens/self`), with the protections of the repository creation
-  (10 seconds at most, no redirect followed, a self-hosted host at a public address only,
-  except for the super admin, no database connection held meanwhile); when the provider does
-  not tell, the token is saved all the same (a repository at an IP address or at a host name
-  that is not plain ASCII is not asked). GitHub
-  gives the moment: on the last day, before that hour, the token "expires today". If every email
-  of a step fails, the next hourly check sends them again; the audit log and the system alerts
-  show the expiry date, written out in the reader's language (ISO in the `space.alert`
-  webhook). The expiry date in a sync error is shown to the organization's admins
-  only, like the rest of the repository access. REST: `credentials_expire` in
-  `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
-  email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
-  See `docs/admin/git.md#token-expiry`.
 - **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
   **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
   note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
@@ -101,6 +54,63 @@ of the target version.
   joined), and the acceptance writes one `group.member_added` per group,
   by the system, like the other accesses it grants. One migration (`0032`), applied at startup:
   it creates the table linking invitations to groups, empty, so no pending invitation changes.
+- **Warnings before a Git access token expires**. When the expiry date of a space's HTTPS
+  token is known, the organization's admins get an alert by email (in their language), in the
+  audit log (**Alerts**) and through the `space.alert` webhook, **30 days, 7 days and 1 day
+  before, then on the day** it expires (`git_token_expiring`, `git_token_expired`): once per
+  step, checked every hour by the worker, a stopped worker only sending the step reached, and
+  a new token, with another date, starting over. **Administration > Health** gets a **Git
+  access tokens** line, a warning when a token expires within 30 days and a problem once one
+  has expired, listing each space with a link to its Git page and how to renew the token. A
+  sync refused for authentication after this date now says that the token expired, and when,
+  on the space's page, in the REST API and in the sync alert. The date is known for the GitLab
+  project access token Synaptane creates, and now also for a token saved by hand in
+  **Settings → Git repository → Repository access** or with `PUT …/git/credentials`: Synaptane
+  asks the provider once, as it saves it (GitHub: the `GitHub-Authentication-Token-Expiration`
+  header of `GET api.github.com/rate_limit`; any other HTTPS host, taken for a GitLab:
+  `GET /api/v4/personal_access_tokens/self`), with the protections of the repository creation
+  (10 seconds at most, no redirect followed, a self-hosted host at a public address only,
+  except for the super admin, no database connection held meanwhile); when the provider does
+  not tell, the token is saved all the same (a repository at an IP address or at a host name
+  that is not plain ASCII is not asked). GitHub
+  gives the moment: on the last day, before that hour, the token "expires today". If every email
+  of a step fails, the next hourly check sends them again; the audit log and the system alerts
+  show the expiry date, written out in the reader's language (ISO in the `space.alert`
+  webhook). The expiry date in a sync error is shown to the organization's admins
+  only, like the rest of the repository access. REST: `credentials_expire` in
+  `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
+  email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
+  See `docs/admin/git.md#token-expiry`.
+- **Publishable results of the tidy-up bench**. A run with a real model
+  (`./scripts/eval.sh tidy --model …`) now writes a versioned run file in `eval/results/runs/`
+  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, read from the
+  repository, and whether files changed since, the dates and duration, the fingerprints of the
+  bench, of each scenario, of the prompt and of the agent's tools, the provider, model, effort
+  actually sent and price applied, and every trial with its graders, tokens, cost, duration,
+  interruption and the model that served it. `./scripts/eval.sh report` aggregates one or more
+  run files into `eval/results/results.json` and two tables, `results.md` and `results.fr.md`,
+  with the method and its limits at the top: per configuration, the pass rate with its 95 %
+  Wilson interval (rows sorted by its lower bound), the score per sweep (mean and standard
+  deviation), the cost per run and per passed run, the tokens and the duration, the passes per
+  scenario, and between every two configurations a paired comparison by scenario (exact sign
+  test, adjusted by Holm's method for the number of pairs). The report only depends on the run files, so the same runs give the same bytes, and it
+  refuses what does not compare honestly: a run stopped by its budget or by the provider, a
+  trial cut, trials missing or doubled, fewer than 3 trials per scenario, a trial served by
+  another model, different scenarios, different commits (unless `--allow-mixed-commits`), a
+  modified tree (unless `--allow-dirty`). Nothing is masked silently: a run file or a report
+  that would contain the key, the provider's address or credentials, anything that looks like a
+  secret or a path of the machine is not written, and the provider's errors are recorded by
+  class and HTTP status, never by their text. A trial hit by a passing provider error (429,
+  529) is played again, twice at most, and its cost counted in the total; with a local or
+  compatible server, only 429, 503 and a refused connection are replayed, since a 500 or a
+  time-out may come from the model. Above 5 % of trials replayed, the report is refused unless
+  `--allow-replays`, and the replays are shown per scenario. Claude's fallback to another model is
+  turned off in the bench. `--trials` is 3 by default for a real model, fewer needs `--draft`;
+  `--prompt FILE` tries other instructions for the agent in the bench only, and `--label` names
+  the configuration. `./scripts/eval.sh tidy --estimate --model M` gives the order of magnitude
+  of a run's cost without calling any model. Each turn of a provider now carries the name of the
+  model that served it (`Turn.model`). See `docs/dev/eval.md` ("Publish the results") and
+  `eval/results/README.md`. No migration.
 
 ### Changed
 - **Tidy-up bench with a real model**: the trials now run as sweeps, trial 1 of every
@@ -917,7 +927,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/synaptane/synaptane/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/synaptane/synaptane/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/synaptane/synaptane/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/synaptane/synaptane/compare/v1.10.0...v1.11.0
