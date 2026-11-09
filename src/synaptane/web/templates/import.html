@@ -9,9 +9,9 @@
 <ul class="import-list">{% for item in items[:shown] %}<li><code>{{ item }}</code></li>{% endfor %}</ul>
 {% if items|length > shown %}<p class="muted">{{ _("and {count} more", count=items|length - shown) }}</p>{% endif %}
 {%- endmacro %}
-<h2 class="settings-title">{{ _("Import a zip of Markdown files") }}</h2>
+<h2 class="settings-title">{{ _("Import a zip: Obsidian, Markdown, Notion or Confluence") }}</h2>
 {% if plan is none %}
-<p class="muted">{{ _("An Obsidian vault, or any folder of Markdown files, zipped with its attachments. Nothing is written yet: you will see what the archive holds first. Files are kept as they are, and nothing already in the space is overwritten.") }}</p>
+<p class="muted">{{ _("An Obsidian vault or any folder of Markdown files, zipped with its attachments, or the zip of a Notion export (Markdown & CSV) or of a Confluence space exported in HTML. Nothing is written yet: you will see what the archive holds first. Markdown files are kept as they are; Notion and Confluence pages are converted to Markdown, with their links. Nothing already in the space is overwritten.") }}</p>
 <form class="card section-gap-small" method="post" action="{{ base }}" enctype="multipart/form-data">
   {{ csrf_field() }}
   <div class="field">
@@ -22,13 +22,24 @@
     <label for="folder">{{ _("Folder of the space (optional)") }}</label>
     <input id="folder" name="folder" value="{{ folder }}" placeholder="{{ _('At the root of the space') }}">
   </div>
+  <div class="field">
+    <label for="format">{{ _("Format") }}</label>
+    <select id="format" name="format"><option value="">{{ _("Detect automatically") }}</option>{% for key, label in formats.items() %}<option value="{{ key }}">{{ label|tr }}</option>{% endfor %}</select>
+  </div>
   <button class="button button-primary" type="submit">{{ icon('upload') }}{{ _("Check this archive") }}</button>
 </form>
 {% else %}
 {% set count = plan.new|length %}
-<p>{{ _(pl(plan.pages, "{n} page", "{n} pages"), n=plan.pages) }} · {{ _(pl(plan.attachments, "{n} attachment", "{n} attachments"), n=plan.attachments) }}{% if plan.folder %} · {{ _("into {folder}", folder=plan.folder) }}{% endif %}</p>
+<form class="import-format" method="get" action="{{ base }}/{{ plan.token }}">
+  {% if plan.folder %}<input type="hidden" name="folder" value="{{ plan.folder }}">{% endif %}
+  <label for="format">{% if plan.format == plan.detected %}{{ _("Recognized format: {name}.", name=formats[plan.detected]|tr) }}{% else %}{{ _("Recognized format: {name}, read as:", name=formats[plan.detected]|tr) }}{% endif %}</label>
+  <select id="format" name="format">{% for key, label in formats.items() %}<option value="{{ key }}"{% if key == plan.format %} selected{% endif %}>{{ label|tr }}</option>{% endfor %}</select>
+  <button class="button button-small" type="submit">{{ _("Read it this way") }}</button>
+</form>
+<p>{{ _(pl(plan.pages, "{n} page", "{n} pages"), n=plan.pages) }} · {{ _(pl(plan.attachments, "{n} attachment", "{n} attachments"), n=plan.attachments) }}{% if plan.folder %} · {{ _("into {folder}", folder=plan.folder) }}{% endif %}{% if converted %} · {{ _(pl(plan.links.rewritten, "{n} link rewritten", "{n} links rewritten"), n=plan.links.rewritten) }}{% endif %}</p>
+{% if converted %}<p class="muted">{{ _("Pages are converted to Markdown, with clean names; their links lead to the new paths.") }}</p>{% endif %}
 <form id="import-form" method="post" action="{{ base }}/{{ plan.token }}">
-  {{ csrf_field() }}<input type="hidden" name="folder" value="{{ plan.folder }}">
+  {{ csrf_field() }}<input type="hidden" name="folder" value="{{ plan.folder }}">{% if chosen %}<input type="hidden" name="format" value="{{ chosen }}">{% endif %}
   {% if plan.with_secrets %}
   <section class="card section-gap-small" aria-labelledby="import-secrets">
     <h3 id="import-secrets">{{ _("Likely secrets") }} <span class="badge badge-quiet">{{ plan.with_secrets|length }}</span></h3>
@@ -46,6 +57,15 @@
 {% endif %}
 {% if plan.too_large %}
 <details class="card section-gap-small"><summary>{{ _("Too large (25 MB maximum per file), left out") }} <span class="badge badge-quiet">{{ plan.too_large|length }}</span></summary>{{ paths(plan.too_large) }}</details>
+{% endif %}
+{% if plan.links.broken %}
+<details class="card section-gap-small"><summary>{{ _("Links that lead nowhere: their page is not in the export") }} <span class="badge badge-quiet">{{ plan.links.broken_count }}</span></summary>
+<ul class="import-list">{% for page, target in plan.links.broken[:shown] %}<li><code>{{ page }}</code> → <code>{{ target }}</code></li>{% endfor %}</ul>
+{% if plan.links.broken_count > shown %}<p class="muted">{{ _("and {count} more", count=plan.links.broken_count - shown) }}</p>{% endif %}
+</details>
+{% endif %}
+{% if plan.skipped %}
+<details class="card section-gap-small"><summary>{{ _("Files of the export not imported as they are (tables turned into pages, styles, icons)") }} <span class="badge badge-quiet">{{ plan.skipped|length }}</span></summary>{{ paths(plan.skipped) }}</details>
 {% endif %}
 {% if plan.refused %}
 <details class="card section-gap-small"><summary>{{ _("Refused: unsafe path, link, encrypted file or folder conflict") }} <span class="badge badge-quiet">{{ plan.refused|length }}</span></summary>{{ paths(plan.refused) }}</details>

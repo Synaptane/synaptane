@@ -171,18 +171,31 @@ tidy-up is turned off.
 - If the page has changed in the meantime (another person, an external push), the save is
   refused and your text is kept in the form. Reload, then carry over your changes.
 
-## Import an Obsidian vault or a zip of Markdown files
+## Import Obsidian, Markdown, Notion or Confluence
 
-Contributors can bring in a whole folder: in a folder's **⋮** menu, **Import a zip of Markdown
-files**. Zip the vault or folder (100 MB at most, 25 MB per file, 10,000 files) and send it,
-choosing a folder of the space if you wish. Nothing is written at this stage: Synaptane shows
-what the archive holds.
+Contributors can bring in a whole folder: in a folder's **⋮** menu, **Import Obsidian, Notion,
+Confluence…**. Send a zip (100 MB at most, 25 MB per file, 10,000 files, 400 MB once unpacked),
+choosing a folder of the space if you wish. Synaptane recognizes what the archive is:
 
-- **Files to import**: pages and attachments, kept as they are. If everything is in one top
-  folder (a vault zipped from outside), that folder is left out.
+- an **Obsidian vault**, or any folder of **Markdown files** zipped with its attachments: the
+  files are kept as they are;
+- a **Notion export** or a **Confluence export (HTML)**: the pages are converted to Markdown,
+  with clean names, and their links lead to the new paths (see below).
+
+The form can force the format; so can the check screen (**Read it this way**), if the archive is
+not read as it should be. Nothing is written at this stage: Synaptane shows what would happen.
+
+- **Recognized format**, the number of pages and attachments and, for an export, the number of
+  links rewritten.
+- **Files to import**: where each file goes. If everything is in one top folder (a vault or a
+  space zipped from outside), that folder is left out.
 - **Likely secrets**: these files are left out, because a secret pushed to Git is hard to erase.
-  Tick one only if it holds no real secret.
+  Converted pages are checked too. Tick one only if it holds no real secret.
 - **Already in the space**: left as they are, never overwritten.
+- **Links that lead nowhere**: links of an export to a page that is not in it (left as
+  written, so that **Health** lists them afterwards).
+- **Files of the export not imported as they are**: Confluence styles and icons, the second CSV
+  of a Notion database (see below).
 - **Left out**: hidden files and folders (`.obsidian`, `.trash`, `.git`), system files, and
   what cannot be written safely (links, encrypted files, paths that leave the folder).
 
@@ -190,6 +203,80 @@ what the archive holds.
 the tidy-up reviews it as one item, not page by page. Wiki links and
 [Obsidian syntax](../reference/repository-format.md) work as they are. Afterwards, **Health**
 lists the links that lead nowhere. An archive that is not imported is deleted after 24 hours.
+
+### From Notion
+
+1. In Notion, open the **⋯** menu of the page to export (or, for the whole workspace,
+   **Settings → General → Export all workspace content**; workspace owners only).
+2. Choose **Export**, format **Markdown & CSV**, **Include content: Everything**, and turn
+   on **Include subpages** (and **Create folders for subpages** if Notion offers it).
+3. Download the zip Notion sends (by e-mail for a large export) and send it to Synaptane as
+   it is. A large workspace comes as a zip of zips (`Export-…-Part-1.zip`, `-Part-2.zip`…):
+   send the outer zip, Synaptane unpacks the parts, within the same limits. If the export is
+   larger than 100 MB, export a few top-level pages at a time.
+
+What is converted:
+
+- **Names**: the 32-character id Notion adds to every page, folder and table
+  (`Notes 0123…abcd.md`) is removed. Two pages with the same title in a folder become `Notes.md`
+  and `Notes (2).md` (case ignored, so the repository can be cloned on macOS and Windows). A page
+  with subpages or files becomes the home page of its folder: `Notes/README.md`, with
+  `Notes/Subpage.md` and `Notes/image.png`.
+- **Links**: links to a page, a file, an image or a database of the export are rewritten to
+  the new paths, and so are `https://www.notion.so/…` addresses of a page of the export.
+  Links to pages that are not in the export stay as written.
+- **Databases**: the CSV becomes an index page (`Tasks/README.md`): a table of the rows, each
+  linked to its page, relations as links. When Notion gives both `Tasks.csv` and
+  `Tasks_all.csv`, the complete `_all` one is used. The properties of each row go to the
+  front matter of its page (`Status: "Done"`), moved from the lines Notion writes under the
+  title; a property named like a verification field of Synaptane (`owner`, `verified`,
+  `review_every`, `reconfirmed`) becomes `owner (Notion)`, so that it is not taken for one.
+- **Blocks**: callouts (`<aside>`) become callouts, toggles (`<details>`) folded callouts
+  (shown open), `<br>` a line break. The rest of Notion's Markdown is kept as it is.
+
+What is lost: database views, filters, sorts and formulas (only the values are exported),
+comments, colours, page icons and covers, synced blocks (exported as copies), embeds of other
+sites (left as links), and anything Notion itself does not put in the export.
+
+### From Confluence
+
+1. In Confluence, open the space, then **Space settings → Export space** (on Confluence Data
+   Center or Server: **Space tools → Content tools → Export**).
+2. Choose **HTML**, then **Normal export** (the whole space) or **Custom export** (some pages),
+   and download the zip.
+3. Send it to Synaptane as it is.
+
+The **XML** export (for another Confluence site) is not read: Synaptane says so, and asks for the
+HTML one.
+
+What is converted:
+
+- **Tree**: the pages under a page go in its folder, as in Confluence's page tree (taken from
+  the export's `index.html`, otherwise from each page's breadcrumb). A page with subpages or
+  attachments becomes the home page of its folder: `Procedures/README.md`. Names lose the
+  page id (`Procedures_65540.html` becomes `Procedures`), with `(2)` for two equal titles.
+- **Pages**: headings, paragraphs, bold, italic, strikethrough, lists (task lists too), tables,
+  code blocks with their language, quotes, links and images become Markdown. Info, tip, note and
+  warning panels become callouts with the same colour (`> [!info]`, `> [!tip]`, `> [!warning]`
+  for a yellow note, `> [!danger]` for a red warning), an expand a folded callout (shown open), a panel a callout with its title, a status a bold word, an emoticon
+  its emoji. The page's "Created by … last modified on …" line is kept in italics, and its list
+  of attachments at the bottom.
+- **Attachments**: next to their page, under their real name (`attachments/65541/65601.png`
+  becomes `Procedures/Backup/network diagram.png`).
+- **Links**: links to a page or an attachment of the export are rewritten to the new paths, as
+  are addresses of the Confluence site with the id of a page of the export
+  (`…/pages/65540/…`, `viewpage.action?pageId=65540`). Links to pages that are not in the
+  export stay as written; Confluence anchors and links that leave the export keep only their text.
+
+What is lost: page history, comments in the margin, likes, labels, page restrictions,
+layouts and colours, macros that compute their content when the page is shown (Jira issues,
+page lists, tables of contents: Synaptane shows its own outline) beyond what the export holds,
+and diagrams from apps (draw.io, Gliffy) beyond their exported image. The export's styles and
+icons are not imported.
+
+The HTML of an export is not trusted: it is only read, nothing in it is run or loaded, scripts,
+frames and forms are dropped, links keep only safe schemes (`http`, `https`, `mailto`…), and every
+path written comes from the layout made by Synaptane, never from the archive.
 
 ## Verify a page
 

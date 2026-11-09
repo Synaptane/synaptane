@@ -33,7 +33,8 @@ Markdown pages, with the documents that go with them, in your own Git repository
 don't just read it, they feed it, and an AI agent keeps it organized every night.
 
 - **Compared with Notion AI, Confluence or Slite:** no lock-in. It is self-hosted, works with
-  the model of your choice, and your data is a Git repository.
+  the model of your choice, and your data is a Git repository. A Notion or Confluence export
+  comes in as Markdown pages, with their tree and links.
 - **Compared with Outline, Wiki.js, BookStack or Docmost:** it is built around AI assistants,
   and the wiki is maintained for you.
 - **Compared with Obsidian, Logseq or Basic Memory:** it is multi-user and server-side: one

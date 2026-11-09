@@ -185,18 +185,34 @@ dans ce navigateur. Elle n'apparaît pas quand le rangement de l'espace est dés
 - Si la page a changé entre-temps (autre personne, push externe), l'enregistrement est refusé
   et votre texte est conservé dans le formulaire. Rechargez, puis reportez vos modifications.
 
-## Importer un coffre Obsidian ou un zip de Markdown
+## Importer Obsidian, Markdown, Notion ou Confluence
 
 Les contributeurs peuvent faire entrer tout un dossier : dans le menu **⋮** d'un dossier,
-**Importer un zip de fichiers Markdown**. Zippez le coffre ou le dossier (100 Mo au plus, 25 Mo
-par fichier, 10 000 fichiers) et envoyez-le, en choisissant un dossier de l'espace si besoin.
-Rien n'est écrit à ce stade : Synaptane montre ce que contient l'archive.
+**Importer Obsidian, Notion, Confluence…**. Envoyez un zip (100 Mo au plus, 25 Mo par fichier,
+10 000 fichiers, 400 Mo une fois décompressé), en choisissant un dossier de l'espace si besoin.
+Synaptane reconnaît ce qu'est l'archive :
 
-- **Fichiers à importer** : pages et pièces jointes, gardées telles quelles. Si tout est dans un
-  seul dossier de tête (un coffre zippé depuis l'extérieur), ce dossier n'est pas repris.
+- un **coffre Obsidian**, ou n'importe quel dossier de **fichiers Markdown** zippé avec ses
+  pièces jointes : les fichiers restent tels quels ;
+- un **export Notion** ou un **export Confluence (HTML)** : les pages sont converties en
+  Markdown, avec des noms propres, et leurs liens mènent aux nouveaux chemins (voir plus bas).
+
+Le formulaire permet de forcer le format, l'écran de contrôle aussi (**Lire ainsi**), si
+l'archive n'est pas lue comme il faut. Rien n'est écrit à ce stade : Synaptane montre ce qui se
+passerait.
+
+- **Format reconnu**, le nombre de pages et de pièces jointes et, pour un export, le nombre de
+  liens réécrits.
+- **Fichiers à importer** : où va chaque fichier. Si tout est dans un seul dossier de tête (un
+  coffre ou un espace zippé depuis l'extérieur), ce dossier n'est pas repris.
 - **Secrets probables** : ces fichiers sont écartés, car un secret poussé dans Git est difficile
-  à effacer. N'en cochez un que s'il ne contient aucun vrai secret.
+  à effacer. Les pages converties sont vérifiées aussi. N'en cochez un que s'il ne contient
+  aucun vrai secret.
 - **Déjà dans l'espace** : laissés tels quels, jamais écrasés.
+- **Liens qui ne mènent nulle part** : liens d'un export vers une page qui n'y est pas (laissés
+  tels quels, pour que **Santé** les liste ensuite).
+- **Fichiers de l'export non importés tels quels** : styles et icônes de Confluence, second CSV
+  d'une base Notion (voir plus bas).
 - **Écartés** : les fichiers et dossiers cachés (`.obsidian`, `.trash`, `.git`), les fichiers
   système, et ce qui ne peut pas être écrit sans risque (liens, fichiers chiffrés, chemins qui
   sortent du dossier).
@@ -206,6 +222,91 @@ rangement l'examine comme un seul élément, pas page par page. Les liens wiki e
 [syntaxe Obsidian](../reference/repository-format.fr.md) fonctionnent tels quels. Ensuite,
 **Santé** liste les liens qui ne mènent nulle part. Une archive qui n'est pas importée est
 supprimée au bout de 24 heures.
+
+### Depuis Notion
+
+1. Dans Notion, ouvrez le menu **⋯** de la page à exporter (ou, pour tout l'espace de travail,
+   **Paramètres → Général → Exporter tout le contenu de l'espace de travail** ; réservé à ses
+   propriétaires).
+2. Choisissez **Exporter**, format **Markdown et CSV**, **Inclure le contenu : Tout**, et
+   activez **Inclure les sous-pages** (et **Créer des dossiers pour les sous-pages** si Notion
+   le propose).
+3. Téléchargez le zip que Notion envoie (par e-mail pour un gros export) et envoyez-le tel quel
+   à Synaptane. Un gros espace de travail arrive en zip de zips (`Export-…-Part-1.zip`,
+   `-Part-2.zip`…) : envoyez le zip extérieur, Synaptane décompresse les parties, dans les mêmes
+   limites. Si l'export dépasse 100 Mo, exportez quelques pages de premier niveau à la fois.
+
+Ce qui est converti :
+
+- **Noms** : l'identifiant de 32 caractères que Notion ajoute à chaque page, dossier et table
+  (`Notes 0123…abcd.md`) est retiré. Deux pages de même titre dans un dossier deviennent
+  `Notes.md` et `Notes (2).md` (casse ignorée, pour que le dépôt se clone sous macOS et Windows).
+  Une page qui a des sous-pages ou des fichiers devient la page d'accueil de son dossier :
+  `Notes/README.md`, avec `Notes/Sous-page.md` et `Notes/image.png`.
+- **Liens** : les liens vers une page, un fichier, une image ou une base de l'export sont
+  réécrits vers les nouveaux chemins, ainsi que les adresses `https://www.notion.so/…` d'une page
+  de l'export. Les liens vers des pages absentes de l'export restent tels quels.
+- **Bases de données** : le CSV devient une page d'index (`Tâches/README.md`) : un tableau des
+  lignes, chacune liée à sa page, les relations en liens. Quand Notion donne à la fois
+  `Tâches.csv` et `Tâches_all.csv`, c'est le `_all`, complet, qui sert. Les propriétés de chaque
+  ligne vont dans le front matter de sa page (`Status: "Done"`), déplacées depuis les lignes que
+  Notion écrit sous le titre ; une propriété nommée comme un champ de vérification de Synaptane
+  (`owner`, `verified`, `review_every`, `reconfirmed`) devient `owner (Notion)`, pour ne pas
+  être prise pour lui.
+- **Blocs** : les encadrés (`<aside>`) deviennent des encadrés, les blocs dépliables
+  (`<details>`) des encadrés repliables (affichés ouverts), `<br>` un saut de ligne. Le reste du
+  Markdown de Notion est gardé tel quel.
+
+Ce qui est perdu : les vues, filtres, tris et formules des bases (seules les valeurs sont
+exportées), les commentaires, les couleurs, les icônes et couvertures de page, les blocs
+synchronisés (exportés en copies), les intégrations d'autres sites (gardées en liens), et ce que
+Notion ne met pas lui-même dans l'export.
+
+### Depuis Confluence
+
+1. Dans Confluence, ouvrez l'espace, puis **Paramètres de l'espace → Exporter l'espace** (sur
+   Confluence Data Center ou Server : **Outils de l'espace → Outils de contenu → Exporter**).
+2. Choisissez **HTML**, puis **Export normal** (tout l'espace) ou **Export personnalisé**
+   (quelques pages), et téléchargez le zip.
+3. Envoyez-le tel quel à Synaptane.
+
+L'export **XML** (destiné à un autre site Confluence) n'est pas lu : Synaptane le dit, et demande
+l'export HTML.
+
+Ce qui est converti :
+
+- **Arborescence** : les pages placées sous une page vont dans son dossier, comme dans
+  l'arborescence de Confluence (lue dans le `index.html` de l'export, sinon dans le fil d'Ariane
+  de chaque page). Une page qui a des sous-pages ou des pièces jointes devient la page d'accueil
+  de son dossier : `Procédures/README.md`. Les noms perdent l'identifiant de la page
+  (`Procedures_65540.html` devient `Procédures`), avec `(2)` pour deux titres identiques.
+- **Pages** : titres, paragraphes, gras, italique, barré, listes (de tâches aussi), tableaux,
+  blocs de code avec leur langage, citations, liens et images deviennent du Markdown. Les
+  panneaux info, astuce, remarque et avertissement deviennent des encadrés de même couleur
+  (`> [!info]`, `> [!tip]`, `> [!warning]` pour une remarque jaune, `> [!danger]` pour un
+  avertissement rouge), un bloc dépliable un encadré repliable (affiché ouvert), un panneau un
+  encadré avec son titre, un statut un mot en gras, une émoticône son emoji. La ligne « Créé
+  par … modifié le … » de la page est gardée en italique, et la liste de ses pièces jointes en
+  bas.
+- **Pièces jointes** : à côté de leur page, sous leur vrai nom (`attachments/65541/65601.png`
+  devient `Procédures/Backup/schéma réseau.png`).
+- **Liens** : les liens vers une page ou une pièce jointe de l'export sont réécrits vers les
+  nouveaux chemins, ainsi que les adresses du site Confluence portant l'identifiant d'une page de
+  l'export (`…/pages/65540/…`, `viewpage.action?pageId=65540`). Les liens vers des pages absentes
+  de l'export restent tels quels ; les ancres de Confluence et les liens qui sortent de l'export
+  ne gardent que leur texte.
+
+Ce qui est perdu : l'historique des pages, les commentaires en marge, les « j'aime », les
+étiquettes, les restrictions de page, les mises en page et les couleurs, les macros qui calculent
+leur contenu à l'affichage (tickets Jira, listes de pages, tables des matières : Synaptane
+montre son propre plan) au-delà de ce que contient l'export, et les diagrammes d'applications
+(draw.io, Gliffy) au-delà de leur image exportée. Les styles et icônes de l'export ne sont pas
+importés.
+
+Le HTML d'un export n'est pas digne de confiance : il est seulement lu, rien n'y est exécuté ni
+chargé, scripts, cadres et formulaires sont retirés, les liens ne gardent que des schémas sûrs
+(`http`, `https`, `mailto`…), et chaque chemin écrit vient de la disposition faite par
+Synaptane, jamais de l'archive.
 
 ## Vérifier une page
 
