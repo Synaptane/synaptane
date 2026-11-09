@@ -1,8 +1,9 @@
 {% extends "admin-base.html" %}
-{% from "ui.html" import csrf_field, action with context %}
+{% from "ui.html" import csrf_field, action, section_tabs with context %}
 {% block page_title %}{{ _("Email sending") }}{% endblock %}
 {% block section_crumbs %}<span aria-current="page">{{ _("Email sending") }}</span>{% endblock %}
 {% block section %}
+{{ section_tabs(_("Email sections"), [("sending", "/admin/mail", _("Sending")), ("capture", "/admin/mail/capture", _("Capture by email"))], "sending") }}
 <div class="section-heading"><h2>{{ _("Email sending") }}</h2>{% if settings_view %}<span class="status status-ok">{{ _("Configured") }}</span>{% else %}<span class="status">{{ _("Not configured") }}</span>{% endif %}</div>
 <p class="muted admin-intro">{{ _("To send invitations and “forgotten password” links. Without settings, invitation links are shown to the person inviting.") }}</p>
 {% if settings_view %}

@@ -324,6 +324,7 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `ocr_languages` | Langues Tesseract, `fra+eng` par défaut. |
 | `ocr_images` | Extraire le texte des images (OCR), `true` par défaut. |
 | `allow_private_webhooks` | Autorise les webhooks en HTTP et vers le réseau local. **Développement uniquement.** |
+| `allow_insecure_imap` | Autorise la [capture par e-mail](email-capture.fr.md) à relever sa boîte par une connexion IMAP non chiffrée. **Développement uniquement** (un serveur de test local). |
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
 | `metrics_token` | Jeton porteur de `/metrics` pour Prometheus, 32 caractères au moins (voir [Supervision](#supervision)). Vide par défaut : `/metrics` n'existe pas. Avec Docker : `METRICS_TOKEN` dans `.env`. |
 | `backup_dir` | Dossier de la sauvegarde de la nuit faite par le worker (`/backups` dans l'image, `SYNAPTANE_BACKUP_DIR`). Absent : pas de sauvegarde automatique. Voir [Sauvegarde](backup.fr.md). |
@@ -397,6 +398,10 @@ le même compte. Le journal désigne le compte par son nom d'utilisateur ; un id
 correspond à aucun compte y figure sous forme d'empreinte courte (`login:` suivi de 8
 caractères hexadécimaux), jamais tel que saisi, car ce peut être un mot de passe tapé dans le
 mauvais champ.
+
+**Capture par e-mail.** **Administration → E-mail → Capture par e-mail** change les e-mails
+envoyés à `brain+organisation.espace@example.com` en notes de l'inbox, relevés par le worker
+dans une boîte IMAP dédiée : voir [Capture par e-mail](email-capture.fr.md).
 
 ## Index de recherche
 

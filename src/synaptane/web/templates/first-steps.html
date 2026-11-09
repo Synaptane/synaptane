@@ -1,5 +1,6 @@
 {# Space home, until its first tidy-up: what is left to do. See services/first_steps.py. #}
 {% from "icons.html" import icon %}
+{% from "ui.html" import copyable with context %}
 {% set texts = {
   "repository": _("Link a Git repository"),
   "vocation": _("Say what this space is for, in its vocation"),
@@ -18,6 +19,7 @@
     </li>
     {% endfor %}
   </ul>
+  {% if capture_address %}<p class="muted section-gap-small" data-test="first-steps-capture">{{ _("Notes can also arrive by email, from the verified address of your account:") }} {{ copyable("first-steps-capture", capture_address) }}</p>{% endif %}
   <p class="muted section-gap-small"><a href="/account/assistants">{{ _("Connect your AI assistant") }}</a> {{ _("to read and write from Claude or ChatGPT.") }}</p>
   <button type="button" class="button button-small" data-first-steps-close hidden>{{ _("Hide") }}</button>
 </section>

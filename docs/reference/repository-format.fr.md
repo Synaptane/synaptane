@@ -149,7 +149,7 @@ Les mots de passe du Wi-Fi invités changent chaque trimestre…
 |---|---|
 | `type` | `note` |
 | `title` | Titre de la note |
-| `source` | Canal utilisé : `web`, `api` ou `mcp` |
+| `source` | Canal utilisé : `web`, `api`, `mcp` ou `email` (la [capture par e-mail](../admin/email-capture.fr.md)) |
 | `deposited_at` | Date et heure du dépôt (UTC, ISO 8601) |
 | `deposited_by` | Qui l'a déposée : `Nom <e-mail>` (une liste) |
 | `via` | Client : nom de l'application OAuth ou du jeton personnel (facultatif) |

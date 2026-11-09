@@ -22,6 +22,8 @@ and the big picture.
 - [AI and tidy-up](admin/ai.md): providers and subscriptions, nightly tidy-up, purpose and
   rules, routines, cost and budget, search by meaning.
 - [Single sign-on (SSO)](admin/sso.md): GitLab, GitHub, Google, OIDC.
+- [Capture by email](admin/email-capture.md): a mailbox read by the worker, emails turned
+  into inbox notes, sender authentication (DMARC, DKIM).
 - [Webhooks](admin/webhooks.md): outgoing events, format, delivery.
 - [Backup and restore](admin/backup.md): local backup, encrypted offsite copies, restore
   drills.

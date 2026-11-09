@@ -153,12 +153,13 @@ Détails : [Fichiers autres que Markdown](guide/wiki.fr.md#fichiers-autres-que-m
 
 ## Inbox
 
-**Notes.** Par le MCP, l'API REST ou l'interface web, un contributeur dépose une note : un
-titre, un contenu Markdown, des pièces jointes facultatives, sa provenance et une suggestion
-de rangement facultative. Synaptane commite et pousse aussitôt la note sous
-`.synaptane/inbox/`. Une note n'est refusée que pour sa taille, pour les droits, ou parce
-qu'elle semble contenir un secret (mot de passe, clé d'API, clé privée, identifiants dans une
-URL) ; la personne peut confirmer une fausse alerte.
+**Notes.** Par le MCP, l'API REST, l'interface web ou par e-mail (la [capture par
+e-mail](admin/email-capture.fr.md)), un contributeur dépose une note : un titre, un contenu
+Markdown, des pièces jointes facultatives, sa provenance et une suggestion de rangement
+facultative. Synaptane commite et pousse aussitôt la note sous `.synaptane/inbox/`. Une note
+n'est refusée que pour sa taille, pour les droits, ou parce qu'elle semble contenir un secret
+(mot de passe, clé d'API, clé privée, identifiants dans une URL) ; la personne peut confirmer
+une fausse alerte.
 
 **Modifications.** Un contributeur peut aussi modifier `content/` directement (web, REST,
 MCP), et quiconque a accès au dépôt peut y pousser. Chaque page modifiée apparaît dans l'inbox

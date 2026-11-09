@@ -145,7 +145,7 @@ Guest Wi-Fi passwords change every quarter…
 |---|---|
 | `type` | `note` |
 | `title` | Title of the note |
-| `source` | Channel used: `web`, `api` or `mcp` |
+| `source` | Channel used: `web`, `api`, `mcp` or `email` (the [capture by email](../admin/email-capture.md)) |
 | `deposited_at` | Date and time of the drop (UTC, ISO 8601) |
 | `deposited_by` | Who dropped it: `Name <email>` (a list) |
 | `via` | Client: name of the OAuth application or of the personal token (optional) |

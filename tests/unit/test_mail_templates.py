@@ -169,6 +169,20 @@ CALLERS: dict[str, dict[str, object]] = {
     # web/account_pages.py: notice sent to the old address
     "email_changed": {"new": "alice@example.org"},
     # web/invite_pages.py, test e-mail from the administration
+    # services/email_capture.py, _answer: answers to an authenticated sender
+    "capture_accepted": {
+        "space": "Infra",
+        "org": "Acme",
+        "title": "Nouveau NAS",
+        "subject": "Fwd: Nouveau NAS",
+        "link": "https://brain.example.com/o/acme/infra/inbox/note.md",
+    },
+    "capture_refused": {
+        "subject": "Nouveau NAS",
+        "address": "brain+acme.infra@example.com",
+        # A `Label` in the real calls, translated by `compose`.
+        "reason": "Trop de pièces jointes : 10 au maximum.",
+    },
     "test": {},
 }
 

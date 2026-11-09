@@ -1,6 +1,6 @@
 """What `/metrics` says about the instance, read at each scrape: accounts, spaces (sync, items
 waiting in the inbox, last tidy-up), the worker's job queue, AI spending of the month, last
-local backup.
+local backup, capture by email (if configured).
 
 Spaces are named `organization/space`: a few series per space, and an instance has tens of
 spaces, not thousands. Nothing here reads page content or names a person.
@@ -17,9 +17,9 @@ from synaptane.config import Settings
 from synaptane.core.errors import SynaptaneError
 from synaptane.core.metrics import Exposition, Labels
 from synaptane.git.repo import GitError
-from synaptane.services import budget, instance, jobs, tidy
+from synaptane.services import budget, email_capture, instance, jobs, tidy
 from synaptane.services.workspace import Workspace
-from synaptane.storage.models import Job, Organization, Space, User
+from synaptane.storage.models import CaptureSettings, Job, Organization, Space, User
 
 SYNC_STATUSES = ("never", "ok", "error", "conflict")
 
@@ -47,6 +47,7 @@ def write_instance(out: Exposition, session: Session, ws: Workspace) -> None:
     _spaces(out, session, ws)
     _jobs(out, session)
     _spending(out, session)
+    _capture(out, session)
 
 
 def _accounts(out: Exposition, session: Session) -> None:
@@ -159,6 +160,37 @@ def _spending(out: Exposition, session: Session) -> None:
             for org in organizations
         ],
     )
+
+
+def _capture(out: Exposition, session: Session) -> None:
+    """Capture by email: emails of the last 24 hours, and whether the mailbox is read."""
+    row = session.get(CaptureSettings, 1)
+    if row is None:
+        return
+    counts = email_capture.counts_since(session, datetime.now(UTC) - timedelta(hours=24))
+    out.add(
+        "synaptane_email_capture_messages_24h",
+        "gauge",
+        "Emails handled by the capture in the last 24 hours, by status and reason of refusal.",
+        [
+            ({"status": status, "reason": reason or "none"}, count)
+            for status, reasons in sorted(counts.items())
+            for reason, count in sorted(reasons.items())
+        ],
+    )
+    out.one(
+        "synaptane_email_capture_poll_failing",
+        "gauge",
+        "1 if the last poll of the capture mailbox failed.",
+        int(bool(row.poll_error)),
+    )
+    if row.poll_ok_at is not None:
+        out.one(
+            "synaptane_email_capture_last_poll_timestamp_seconds",
+            "gauge",
+            "Last successful poll of the capture mailbox, in seconds since the Unix epoch.",
+            _seconds(row.poll_ok_at),
+        )
 
 
 def write_backups(out: Exposition, settings: Settings) -> None:

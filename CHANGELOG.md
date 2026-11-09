@@ -10,6 +10,39 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Capture by email**. An email sent or forwarded to `brain+organization.space@example.com`
+  becomes a note in the inbox of that space, attachments included, filed by the tidy-up like
+  any other note. The worker reads a dedicated mailbox over IMAP (SSL/TLS or STARTTLS) every
+  2 minutes by default, in its own lane: no webhook, no incoming mail server. The super admin
+  sets it up in **Administration → Email → Capture by email**: server, username, password
+  (encrypted, never shown again), folder read, capture address, trusted servers, interval,
+  answers; **Test the connection** signs in and names the servers that authenticated the
+  latest emails; **Read the mailbox now** asks for a poll. An email is dropped only if its
+  `From` is the verified address of an active account that may drop notes in the space (same
+  rules as the web form and `inbox_add`, restricted spaces and groups included; a super admin
+  only where they are a member), and if the receiving server authenticated it: the topmost
+  `Authentication-Results` header (RFC 8601), written by a trusted server, says `dmarc=pass` or
+  `dkim=pass` aligned on the `From` domain; a header written by the sender is never read. Two
+  options, off by default and documented as less safe: internal domains accepted on SPF alone,
+  and the Microsoft 365 header without identifier. Same limits as every note (10 attachments
+  of 25 MB, 35 MB per email, secrets refused, 120 notes per hour); the plain text version is
+  preferred, HTML is turned into Markdown without scripts or remote images. Handled emails are
+  moved to `Synaptane/Processed` or `Synaptane/Refused`; an email that cannot be dropped now
+  (space busy, rate limit) waits for the next poll; the same email (its `Message-ID`) is never
+  dropped twice; a single poll runs at a time. The note is written in the person's name, with
+  "by email" in the space's activity (a person, not an AI). Only an authenticated sender with
+  an account may get an answer (the reason of a refusal by default, or a confirmation too,
+  or nothing), never a forged address. Members who may drop notes see the address of the
+  space, with a copy button, on its **Inbox** page and in its first steps. The health page
+  shows the polls and the latest refusals (reason, sender's domain, space aimed at: never the
+  content), `/metrics` gives `synaptane_email_capture_messages_24h`,
+  `synaptane_email_capture_poll_failing` and `synaptane_email_capture_last_poll_timestamp_seconds`,
+  and each change of the settings goes to the audit log. New option `allow_insecure_imap`
+  (development only). One migration (`0033`), applied at startup: it creates the two tables of
+  the capture, empty, so nothing is read before the super admin sets it up. See
+  `docs/admin/email-capture.md`.
+
 ## [1.14.0] - 2026-11-09
 
 See every Markdown text as it will read while writing it, not only pages; invite someone straight

@@ -25,7 +25,7 @@
     <div class="activity-head">
       <span class="badge {{ 'badge-quiet' if event.kind != 'page' else '' }}">{{ labels[event.kind] }}</span>
       {% if event.ai %}<span class="badge badge-ai" title="{{ _('Written by an AI') }}">{{ _("AI") }}</span>{% endif %}
-      <strong>{{ event.author }}</strong>{% if event.origin == 'assistant' %} <span class="muted">{{ _("via {client}", client=event.client) if event.client else _("via an MCP assistant") }}</span>{% elif event.origin == 'api' %} <span class="muted">{{ _("via the REST API") }}{% if event.client %} ({{ event.client }}){% endif %}</span>{% endif %}
+      <strong>{{ event.author }}</strong>{% if event.origin == 'assistant' %} <span class="muted">{{ _("via {client}", client=event.client) if event.client else _("via an MCP assistant") }}</span>{% elif event.origin == 'api' %} <span class="muted">{{ _("via the REST API") }}{% if event.client %} ({{ event.client }}){% endif %}</span>{% elif event.origin == 'email' %} <span class="muted">{{ _("by email") }}</span>{% endif %}
       <span class="muted"><time datetime="{{ event.date }}" data-local="full">{{ event.date[:16].replace('T', ' ') }}</time>{% if event.external %} · {{ _("pushed outside Synaptane") }}{% endif %}</span>
     </div>
     <p class="activity-subject" title="{{ event.subject }}">{% if event.kind == 'tidy' %}<a href="{{ base }}/tidy">{{ event.subject|commit_label }}</a>{% else %}{{ event.subject|commit_label }}{% endif %}</p>

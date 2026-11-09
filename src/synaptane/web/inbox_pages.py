@@ -19,6 +19,7 @@ from synaptane.services import (
     budget,
     content,
     deposits,
+    email_capture,
     spaces,
     tidy_journal,
 )
@@ -131,6 +132,8 @@ def _inbox(
         start=start,
         matched=matched,
         page_size=PAGE,
+        # Capture by email: the address of this space, for those who may drop notes.
+        capture_address=email_capture.address_for(page.db, space) if contribute else None,
     )
 
 
