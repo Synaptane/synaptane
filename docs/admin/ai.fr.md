@@ -233,9 +233,10 @@ le même `SYNAPTANE_AGENTS_KEY_FILE`.
 - Ce qu'un passage laisse dans le `HOME` des CLI (`/agents`) reste pour les suivants. Ce qui
   pourrait les orienter est coupé : Claude Code tourne avec `--setting-sources ""` (ni les
   hooks, l'environnement et les permissions de `~/.claude/settings.json`, ni
-  `~/.claude/CLAUDE.md`, les skills ou les agents), Codex avec `--ignore-user-config` et ses
-  hooks coupés ; le contrat d'isolation plante un hook et des instructions dans le `HOME` de
-  sa vérification et échoue s'ils ont un effet. Codex n'a pas d'option pour écarter
+  `~/.claude/CLAUDE.md`, les skills ou les agents), Codex avec `--ignore-user-config`, ses
+  hooks coupés et sans la description des skills de son dossier (`~/.codex/skills`,
+  `~/.agents/skills`) ; le contrat d'isolation plante un hook, des instructions et des skills
+  dans le `HOME` de sa vérification et échoue s'ils ont un effet. Codex n'a pas d'option pour écarter
   `~/.codex/AGENTS.md` (ou `AGENTS.override.md`), qu'il ajoute à chaque passage : Synaptane
   n'en écrit jamais, donc un passage Codex est refusé tant qu'il y en a un. Reste qu'un CLI
   compromis pourrait remplacer les fichiers de connexion eux-mêmes (connecter le CLI à un

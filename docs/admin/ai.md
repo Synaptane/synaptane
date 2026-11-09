@@ -221,9 +221,10 @@ readable by that account (the key is created group-readable), and give the worke
 - What a run leaves in the CLIs' `HOME` (`/agents`) stays for the next ones. What could
   steer them is cut off: Claude Code runs with `--setting-sources ""` (neither the hooks,
   environment and permissions of `~/.claude/settings.json`, nor `~/.claude/CLAUDE.md`, skills
-  or agents), Codex with `--ignore-user-config` and its hooks turned off; the isolation
-  contract plants a hook and instructions in the `HOME` of its check and fails if they have
-  any effect. Codex has no option to leave out `~/.codex/AGENTS.md` (or
+  or agents), Codex with `--ignore-user-config`, its hooks turned off and the descriptions of
+  the skills of its home (`~/.codex/skills`, `~/.agents/skills`) left out; the isolation
+  contract plants a hook, instructions and skills in the `HOME` of its check and fails if they
+  have any effect. Codex has no option to leave out `~/.codex/AGENTS.md` (or
   `AGENTS.override.md`), which it adds to every run: Synaptane never writes them, so a Codex
   run is refused while one is there. What remains: a compromised CLI could replace the login
   files themselves (sign the CLI in to another account, which would then receive the next

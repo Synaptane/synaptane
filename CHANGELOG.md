@@ -38,7 +38,9 @@ worker, as before, and `synaptane doctor` and the health page say they are less 
   The isolation contract (`synaptane check-clis`) runs in the agents container, where the CLIs
   run. Claude Code now runs with `--setting-sources ""`: hooks, settings and instructions left
   in its `HOME` (`~/.claude/settings.json`, `CLAUDE.md`, skills) no longer apply to the runs,
-  which the contract checks by planting some; a Codex run is refused while
+  which the contract checks by planting some; Codex leaves out the descriptions of the skills
+  of its home (`~/.codex/skills`, `~/.agents/skills`), which `--ignore-user-config` kept; a
+  Codex run is refused while
   `~/.codex/AGENTS.md` (which Codex adds to every run, with no option to leave it out) is
   there. Sign in with `docker compose exec agents claude auth login` (or
   `codex login --device-auth`): the AI page gives the command. This closes the known
