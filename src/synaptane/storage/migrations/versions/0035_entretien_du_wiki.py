@@ -8,7 +8,7 @@ head; `spaces.maintain_attempts` counts the runs interrupted in a row before the
 the decision was made on. No existing column changes.
 
 Revision ID: 0035
-Revises: 0033
+Revises: 0034
 """
 
 from collections.abc import Sequence
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0035"
-down_revision: str | None = "0033"
+down_revision: str | None = "0034"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
