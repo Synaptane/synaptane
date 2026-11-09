@@ -24,7 +24,7 @@ jobs:
       postgres:
         # Same image and digest as compose.yaml and compose.dev.yaml: Dependabot only updates
         # the Compose files, tests/unit/test_image_metadata.py checks that all three agree.
-        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: synaptane
           POSTGRES_PASSWORD: synaptane
@@ -47,7 +47,7 @@ jobs:
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
       - name: shellcheck (deployment and operations scripts)
         run: shellcheck scripts/*.sh deploy/*/*.sh
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
