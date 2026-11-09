@@ -110,6 +110,7 @@ CHANGED = {
     "timezone": Label("Time zone"),
     "model": Label("Model"),
     "delay": Label("Delay"),
+    "maintain": Label("Nightly maintenance"),
 }
 
 
