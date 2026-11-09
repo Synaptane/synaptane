@@ -2,11 +2,13 @@
 and the expiry dates read from the providers' answers (docs/admin/git.md)."""
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime
 
 import httpx2
 import pytest
 
+from synaptane.core.errors import SynaptaneError
+from synaptane.git.credentials import GitCredentials
 from synaptane.git.repo import (
     AUTHENTICATION_REQUIRED,
     TOKEN_EXPIRED,
@@ -21,18 +23,61 @@ REFUSED = explain("fetch", "remote: HTTP Basic: Access denied\nfatal: Authentica
 
 
 @pytest.mark.parametrize(
-    ("days", "expected"),
-    [(365, None), (31, None), (30, 30), (8, 30), (7, 7), (2, 7), (1, 1), (0, 0), (-40, 0)],
+    ("days", "expired", "expected"),
+    [
+        (365, False, None),
+        (31, False, None),
+        (30, False, 30),
+        (8, False, 30),
+        (7, False, 7),
+        (2, False, 7),
+        (1, False, 1),
+        (0, False, 1),  # GitHub, its last day before the hour: still the last step before
+        (0, True, 0),
+        (-40, True, 0),
+    ],
 )
-def test_alert_steps(days: int, expected: int | None) -> None:
-    assert git_expiry.step(days) == expected
+def test_alert_steps(days: int, expired: bool, expected: int | None) -> None:
+    assert git_expiry.step(days, expired) == expected
 
 
-def test_days_left_counts_the_expiry_day_as_expired() -> None:
-    expires = date(2027, 11, 8)
-    assert git_expiry.days_left(expires, date(2027, 11, 7)) == 1
-    assert git_expiry.days_left(expires, date(2027, 11, 8)) == 0
-    assert git_expiry.days_left(expires, date(2027, 10, 9)) == 30
+def at(text: str) -> datetime:
+    return datetime.fromisoformat(text).replace(tzinfo=UTC)
+
+
+def test_a_gitlab_day_counts_as_expired_from_its_first_moment() -> None:
+    expires_at = GitCredentials.https("t", expiry=date(2027, 11, 8)).expires_at
+    assert expires_at == at("2027-11-08T00:00:00")
+    assert git_expiry.state(expires_at, at("2027-11-07T23:59:00")) == git_expiry.State(1, False)
+    assert git_expiry.state(expires_at, at("2027-11-08T00:00:00")) == git_expiry.State(0, True)
+    assert git_expiry.state(expires_at, at("2027-10-09T08:00:00")) == git_expiry.State(30, False)
+
+
+def test_a_github_moment_expires_at_its_hour() -> None:
+    credentials = GitCredentials.https("t", expiry=at("2027-11-08T07:00:00"))
+    assert credentials.expires == "2027-11-08T07:00:00+00:00"
+    assert credentials.expiry == date(2027, 11, 8)
+    stored = GitCredentials.from_json(credentials.to_json())
+    assert stored.expires_at == at("2027-11-08T07:00:00")
+    assert git_expiry.state(stored.expires_at, at("2027-11-08T06:59:00")) == git_expiry.State(
+        0, False
+    )  # "expires today"
+    assert git_expiry.state(stored.expires_at, at("2027-11-08T07:00:00")).expired
+
+
+@pytest.mark.parametrize("value", ["", "soon", "2027-13-01", "2027-11-08Tnoon"])
+def test_an_unreadable_expiry_is_unknown(value: str) -> None:
+    credentials = GitCredentials(kind="https", token="t", expires=value)
+    assert credentials.expires_at is None and credentials.expiry is None
+
+
+@pytest.mark.parametrize(
+    "token", ["glpat-abc\u200bdef", "ghp_abc def", "glpat-é", "glpat-\u00a0x", "glpat-\tx"]
+)
+def test_a_token_that_is_not_plain_ascii_is_refused(token: str) -> None:
+    with pytest.raises(SynaptaneError) as raised:
+        GitCredentials.https(token)
+    assert raised.value.message.startswith("Invalid access token")
 
 
 def test_an_authentication_refusal_says_the_token_expired() -> None:
@@ -64,15 +109,15 @@ def test_an_impossible_date_is_shown_as_stored() -> None:
 @pytest.mark.parametrize(
     ("header", "expected"),
     [
-        ("2027-03-01 07:00:00 UTC", date(2027, 3, 1)),
-        ("2027-03-01 00:30:00 +0100", date(2027, 2, 28)),  # the day in UTC
-        ("2027-03-01 23:30:00 -0800", date(2027, 3, 2)),
+        ("2027-03-01 07:00:00 UTC", datetime(2027, 3, 1, 7, tzinfo=UTC)),
+        ("2027-03-01 00:30:00 +0100", datetime(2027, 2, 28, 23, 30, tzinfo=UTC)),
+        ("2027-03-01 23:30:00 -0800", datetime(2027, 3, 2, 7, 30, tzinfo=UTC)),
         ("", None),
         ("tomorrow", None),
         ("2027-03-01", None),
     ],
 )
-def test_github_expiry_header(header: str, expected: date | None) -> None:
+def test_github_expiry_header(header: str, expected: datetime | None) -> None:
     assert forges._github_expiry(header) == expected
 
 
@@ -118,3 +163,47 @@ def no_call(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx2.Request]]:
 def test_no_call_for_an_address_that_is_not_https(no_call: list[httpx2.Request], url: str) -> None:
     assert forges.token_expiry(url, "glpat-secret") is None
     assert no_call == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://[2001:4860::1]/acme/infra.git",  # an IP address: never asked
+        "https://140.82.112.3/acme/infra.git",
+        "https://gitlab.\udcff.example/acme/infra.git",  # not encodable
+    ],
+)
+def test_no_call_for_an_ip_address_or_an_unusable_name(
+    no_call: list[httpx2.Request], url: str
+) -> None:
+    assert forges.token_expiry(url, "glpat-secret", allow_private=True) is None
+    assert no_call == []
+
+
+def test_an_internationalized_name_is_asked_in_punycode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx2.Request] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json={"expires_at": "2027-03-01"})
+
+    monkeypatch.setattr(forges, "TRANSPORT", httpx2.MockTransport(handle))
+    url = "https://gïtlab.example/acme/infra.git"
+    assert forges.token_expiry(url, "glpat-x", allow_private=True) == datetime(
+        2027, 3, 1, tzinfo=UTC
+    )
+    assert [r.url.raw_host for r in seen] == [b"xn--gtlab-cta.example"]
+
+
+def test_any_unexpected_error_is_swallowed_without_its_text(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        raise RuntimeError("glpat-secret leaked in a message")
+
+    monkeypatch.setattr(forges, "TRANSPORT", httpx2.MockTransport(handle))
+    url = "https://gitlab.com/acme/infra.git"
+    assert forges.token_expiry(url, "glpat-secret") is None
+    assert "RuntimeError" in caplog.text and "glpat-secret" not in caplog.text

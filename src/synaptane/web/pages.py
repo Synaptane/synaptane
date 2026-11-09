@@ -301,7 +301,7 @@ templates.env.globals["log_text"] = _log_text
 
 
 templates.env.globals["git_error"] = pass_context(
-    lambda c, text: describe_error(str(text), c["_"], c["locale"])
+    lambda c, text, expiry=True: describe_error(str(text), c["_"], c["locale"], expiry=expiry)
 )
 # A date written out in the page's language: "8 novembre 2027", "November 8, 2027".
 templates.env.filters["day"] = pass_context(lambda c, value: format_day(value, c["locale"]))
@@ -833,8 +833,9 @@ def _render_git(
 ) -> HTMLResponse:
     manage = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     org = space.organization
-    expires = git_sync.credential_expiry(page.db, page.box, space) if manage else None
-    days = git_expiry.days_left(expires) if expires else None
+    expires_at = git_sync.credential_expires_at(page.db, page.box, space) if manage else None
+    expires = expires_at.date() if expires_at else None
+    where = git_expiry.state(expires_at) if expires_at else None
     return render_space_settings(
         page,
         actor,
@@ -844,8 +845,9 @@ def _render_git(
         credential_kind=git_sync.credential_kind(page.db, page.box, space) if manage else None,
         credential_expires=expires if manage else None,
         credential_expires_label=format_day(expires, page.locale) if manage and expires else "",
-        credential_expires_soon=days is not None and days <= git_expiry.WARN_DAYS,
-        credential_expired=days is not None and days <= 0,
+        credential_expires_soon=where is not None and where.days <= git_expiry.WARN_DAYS,
+        credential_expires_today=where is not None and where.days == 0 and not where.expired,
+        credential_expired=where is not None and where.expired,
         # Where to create the next token: GitHub, or a GitLab (any other host).
         token_host="github" if _host(space.repo_url) == "github.com" else "gitlab",
         has_webhook_secret=bool(git_sync.webhook_secret(page.db, actor, page.box, space))

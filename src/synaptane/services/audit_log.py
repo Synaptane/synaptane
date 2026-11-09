@@ -210,6 +210,7 @@ FIELDS = {
     "status": Field(_value("status")),
     "removed": Field(_flag("removed", Label("Text removed"))),
     "previous_name": Field(_value("previous", "Formerly: {value}")),
+    "date": Field(_value("date", "Expiry date: {value}")),  # of a Git token
 }
 
 # Author of an event without an account (`actor_id` empty).
@@ -226,7 +227,7 @@ class Kind:
     author: str = SYSTEM
 
 
-_ALERT_FIELDS = ("routine", "webhook", "error", "reason", "status")
+_ALERT_FIELDS = ("routine", "webhook", "error", "reason", "status", "date")
 
 ACTIONS: dict[str, Kind] = {
     # Members and roles

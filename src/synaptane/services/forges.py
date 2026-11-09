@@ -31,6 +31,7 @@ repository's own host (GitHub: api.github.com), never redirected. Unknown, it is
 kept: saving the token never depends on it.
 """
 
+import ipaddress
 import json
 import logging
 import re
@@ -162,7 +163,7 @@ def _check(new: NewRepository, default_name: str) -> NewRepository:
     if new.provider not in PROVIDERS:
         raise invalid("Choose GitHub or GitLab to create the repository.")
     token = new.token.strip()
-    if not token or any(c.isspace() or ord(c) < 32 for c in token):
+    if not token or not token.isascii() or any(c.isspace() or ord(c) < 32 for c in token):
         raise invalid("Enter the access token that can create the repository.")
     name = new.name.strip() or default_name
     if not _REPO_NAME.fullmatch(name) or name.lower().endswith((".git", ".atom")):
@@ -764,15 +765,15 @@ def create_repository(
 # --- Expiry of a token saved by hand ------------------------------------------------------------
 
 
-def _github_expiry(value: str) -> date | None:
+def _github_expiry(value: str) -> datetime | None:
     """`GitHub-Authentication-Token-Expiration: 2027-11-08 07:00:00 UTC` (or `+0100`): the
-    day, in UTC. None for any other form."""
+    moment, in UTC. None for any other form."""
     value = value.strip().replace(" UTC", " +0000")
     try:
         moment = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
     except ValueError:
         return None
-    return moment.astimezone(UTC).date()
+    return moment.astimezone(UTC)
 
 
 def _gitlab_expiry(answer: Any) -> date | None:
@@ -783,34 +784,57 @@ def _gitlab_expiry(answer: Any) -> date | None:
         return None
 
 
-def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> date | None:
-    """Expiry date of an HTTPS access token, read from the provider of `repo_url`:
-    - github.com: the `GitHub-Authentication-Token-Expiration` header GitHub adds to any
-      answer for an expiring token (`GET /rate_limit`, which counts against no limit);
-    - any other host, taken for a GitLab: `GET /api/v4/personal_access_tokens/self` and its
-      `expires_at` (personal, group and project access tokens). Another Git host answers 404.
-
-    The token only goes to the repository's own host, which receives it for the sync anyway
-    (GitHub: its API). None when the date is unknown: no expiry, refused (the API scope may be
-    missing), another provider, unreachable, too slow, a private address (unless
-    `allow_private`). Never raises, never logs the token."""
+def _api_base(repo_url: str) -> str | None:
+    """`https://host[:port]` of a repository to ask for its token's expiry, the host in ASCII
+    (an internationalized name in punycode). None for anything else, and for an IP address
+    written as such: a GitLab is reached by its name, which its TLS certificate names."""
     parts = urlsplit(repo_url)
     try:
         port = parts.port
     except ValueError:
         return None
-    host = (parts.hostname or "").lower()
+    host = (parts.hostname or "").lower().rstrip(".")
     if parts.scheme != "https" or not host:
         return None
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+    return f"https://{host}" + (f":{port}" if port else "")
+
+
+def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> datetime | None:
+    """Expiry of an HTTPS access token, read from the provider of `repo_url`:
+    - github.com: the `GitHub-Authentication-Token-Expiration` header GitHub adds to any
+      answer for an expiring token (`GET /rate_limit`, which counts against no limit): the
+      moment;
+    - any other host, taken for a GitLab: `GET /api/v4/personal_access_tokens/self` and its
+      `expires_at` (personal, group and project access tokens): the day, at 00:00 UTC. Another
+      Git host answers 404.
+
+    The token only goes to the repository's own host, which receives it for the sync anyway
+    (GitHub: its API). None when the expiry is unknown: no expiry, refused (the API scope may
+    be missing), another provider, unreachable, too slow, a private address (unless
+    `allow_private`), an IP address, anything unexpected. Never raises, never logs the token
+    nor an error's text (which could quote it)."""
+    base = _api_base(repo_url)
+    if base is None:
+        return None
+    host = urlsplit(base).hostname or ""
     deadline = Deadline(EXPIRY_SECONDS)
     try:
         if host == "github.com":
             api = _github_api(token, deadline)
             if api.call("GET", "/rate_limit", optional=True) is None:
                 return None
-            header = api.last_headers.get("github-authentication-token-expiration", "")
-            return _github_expiry(header)
-        base = f"https://{host}" + (f":{port}" if port else "")
+            return _github_expiry(
+                api.last_headers.get("github-authentication-token-expiration", "")
+            )
         api = _Api(
             "gitlab",
             base + "/api/v4",
@@ -819,10 +843,13 @@ def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> d
             rights=GITLAB_RIGHTS,
             deadline=deadline,
         )
-        return _gitlab_expiry(api.call("GET", "/personal_access_tokens/self", optional=True))
+        day = _gitlab_expiry(api.call("GET", "/personal_access_tokens/self", optional=True))
+        return datetime.combine(day, datetime.min.time(), UTC) if day else None
     except SynaptaneError as error:
         log.info("Expiry of the token for %s not read: %s", host, error.message)
-        return None
+    except Exception as error:  # noqa: BLE001 — saving the token never depends on it
+        log.warning("Expiry of the token for %s not read: %s", host, type(error).__name__)
+    return None
 
 
 def save_https_token(
@@ -851,7 +878,9 @@ def save_https_token(
             repo_url, credentials.token, allow_private=allow_private or actor.access.is_superadmin
         )
         if expiry is not None:
-            credentials = replace(credentials, expires=expiry.isoformat())
+            # GitLab: the day (its tokens stop working at 00:00 UTC); GitHub: the moment.
+            midnight = expiry == datetime.combine(expiry.date(), datetime.min.time(), UTC)
+            credentials = credentials.expiring(expiry.date() if midnight else expiry)
     git_sync.set_credentials(session, actor, box, space, credentials)
     return credentials
 

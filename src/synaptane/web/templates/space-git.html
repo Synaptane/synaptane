@@ -16,7 +16,7 @@
     {% if space.synced_at %}<div><dt>{{ _("Last synchronization") }}</dt><dd>{{ when(space.synced_at) }}</dd></div>{% endif %}
     {% if space.remote_head %}<div><dt>{{ _("Latest commit") }}</dt><dd><code>{{ space.remote_head[:10] }}</code></dd></div>{% endif %}
   </dl>
-  {% if space.sync_error %}<div class="notice notice-error" role="alert"><p>{{ git_error(space.sync_error) }}</p></div>{% endif %}
+  {% if space.sync_error %}<div class="notice notice-error" role="alert"><p>{{ git_error(space.sync_error, manage) }}</p></div>{% endif %}
   {# Sync requested, in progress or next attempt: the page reloads on its own as long as the result may arrive at any moment. #}
   {% set sync = sync_activity %}
   {% if sync %}
@@ -80,7 +80,7 @@
 <section class="card section-gap">
   <h2><span class="step">2</span>{{ _("Repository access") }}</h2>
   <p class="muted">{% if credential_kind == 'https' %}{{ _("HTTPS access token saved.") }}{% elif credential_kind == 'ssh' %}{{ _("SSH key saved.") }}{% else %}{{ _("No credentials: only public repositories can be read.") }}{% endif %} {{ _("Secrets are encrypted and never shown again.") }}</p>
-  {% if credential_expires %}<p class="{{ 'notice notice-error' if credential_expired else 'notice notice-warning' if credential_expires_soon else 'muted' }}" data-test="git-token-expiry" data-soon="{{ 'true' if credential_expires_soon else 'false' }}" data-expired="{{ 'true' if credential_expired else 'false' }}">{% if credential_expired %}{{ _("The access token expired on {date}: the sync fails until a new one is saved below.", date=credential_expires_label) }}{% else %}{{ _("The access token expires on {date}: before then, create a new one and save it below.", date=credential_expires_label) }}{% endif %} {% if token_host == 'github' %}{{ _("GitHub: a fine-grained token limited to the repository, “Contents” read and write.") }}{% else %}{{ _("GitLab: Settings → Access tokens, read_repository and write_repository scopes, Maintainer role.") }}{% endif %} {{ _("The organization's admins are alerted 30, 7 and 1 day before, then on the day.") }}</p>{% endif %}
+  {% if credential_expires %}<p class="{{ 'notice notice-error' if credential_expired else 'notice notice-warning' if credential_expires_soon else 'muted' }}" data-test="git-token-expiry" data-soon="{{ 'true' if credential_expires_soon else 'false' }}" data-expired="{{ 'true' if credential_expired else 'false' }}">{% if credential_expired %}{{ _("The access token expired on {date}: the sync fails until a new one is saved below.", date=credential_expires_label) }}{% elif credential_expires_today %}{{ _("The access token expires today, {date}: create a new one now and save it below.", date=credential_expires_label) }}{% else %}{{ _("The access token expires on {date}: before then, create a new one and save it below.", date=credential_expires_label) }}{% endif %} {% if token_host == 'github' %}{{ _("GitHub: a fine-grained token limited to the repository, “Contents” read and write.") }}{% else %}{{ _("GitLab: Settings → Access tokens, read_repository and write_repository scopes, Maintainer role.") }}{% endif %} {{ _("The organization's admins are alerted 30, 7 and 1 day before, then on the day.") }}</p>{% endif %}
   {% if space.repo_url.startswith('https://') %}
   <form method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/git/https">
     {{ csrf_field() }}

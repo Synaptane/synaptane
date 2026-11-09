@@ -188,10 +188,14 @@ knows this date:
   The call goes to the repository's own host only (for GitHub, its API), which receives the
   token for the sync anyway, with the protections of the repository creation: abandoned after
   10 seconds, never redirected, and for a self-hosted host, a public address only (resolved
-  once, then connected to the address checked), except for the super admin. Nothing else is
-  read from the answer, and the date is kept with the token, encrypted: no migration. When the
-  date is unknown (no expiry, refused, another Git host, unreachable), the token is saved all
-  the same, without warning. An SSH key does not expire.
+  once, then connected to the address checked), except for the super admin. A repository at an
+  IP address is not asked; an internationalized host name is asked in its ASCII form
+  (punycode). Nothing else is read from the answer, and the date is kept with the token,
+  encrypted: no migration. When the date is unknown (no expiry, refused, another Git host,
+  unreachable), the token is saved all the same, without warning. An SSH key does not expire.
+
+  A token is plain ASCII: one with a space or another character (an invisible character pasted
+  with it, for example) is refused with "Invalid access token".
 
 Once the date is known:
 - **Settings → Git repository → Repository access** shows it, as a warning within 30 days,
@@ -199,16 +203,21 @@ Once the date is known:
 - the organization's admins get an alert (email and **Alerts** in the audit log, `space.alert`
   webhook) **30 days, 7 days and 1 day before, then on the day** it expires, once per step:
   the worker checks every hour, and a worker stopped for a while only sends the step reached.
-  A new token, with another date, starts over;
+  A new token, with another date, starts over. If every email of a step fails (mail server
+  down), the next hourly check sends them again, without a second audit event or webhook.
+  The audit log and the system alerts show the expiry date;
 - **Administration > Health** has a **Git access tokens** line: warning when a token expires
   within 30 days, problem when one has expired, with a link to each space's Git page;
 - a sync refused for authentication after this date says that the token expired, and when.
+  Only to the organization's admins, like the rest of the repository access: the space's other
+  readers see the general authentication message.
 
 To renew it: create a new token on the provider (GitLab: Settings → Access tokens,
 `read_repository` and `write_repository` scopes, Maintainer role; GitHub: a fine-grained token
 limited to the repository, **Contents** read and write), then paste it in **Repository
-access**. GitLab and GitHub count the expiry in UTC; GitLab's token stops working on its date,
-so that day counts as expired.
+access**. GitLab gives a day, in UTC: its token stops working on that date, so the day counts
+as expired. GitHub gives the moment: on the last day, before that hour, the token "expires
+today", then has expired.
 
 ## 3. Webhook (recommended)
 

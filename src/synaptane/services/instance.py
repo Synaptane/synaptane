@@ -89,6 +89,7 @@ class Alert:
     space: Space | None
     organization: Organization | None
     error: str
+    date: str = ""  # a Git token's expiry date, as written in the log
 
 
 @dataclass(frozen=True)
@@ -391,6 +392,7 @@ def _alerts(session: Session, now: datetime) -> list[Alert]:
                 space,
                 org,
                 str(event.details.get("error") or event.details.get("reason") or "")[:300],
+                str(event.details.get("date") or "")[:100],
             )
         )
     return found

@@ -67,6 +67,12 @@ def credential_expiry(session: Session, box: SecretBox, space: Space) -> date | 
     return GitCredentials.from_json(value).expiry if value else None
 
 
+def credential_expires_at(session: Session, box: SecretBox, space: Space) -> datetime | None:
+    """The moment the saved access token stops working, when known."""
+    value = get_space_secret(session, box, space.id, GIT_CREDENTIALS)
+    return GitCredentials.from_json(value).expires_at if value else None
+
+
 def set_credentials(
     session: Session, actor: Actor, box: SecretBox, space: Space, credentials: GitCredentials
 ) -> None:
@@ -675,12 +681,12 @@ def _exchange(
 
 
 def _with_expiry(error: str, credentials: GitCredentials | None) -> str:
-    """Authentication refused, and the token's known expiry date has passed (on that day, as
-    GitLab does): the error says the token expired rather than "requires authentication"."""
-    expiry = credentials.expiry if credentials else None
-    if expiry is None or expiry > datetime.now(UTC).date():
+    """Authentication refused, and the token's known expiry has passed (GitLab: from 00:00
+    UTC on its day): the error says the token expired rather than "requires authentication"."""
+    expires_at = credentials.expires_at if credentials else None
+    if expires_at is None or expires_at > datetime.now(UTC):
         return error
-    return expired_error(error, expiry)
+    return expired_error(error, expires_at.date())
 
 
 def run_sync(database: Database, ctx: Workspace, space_id: UUID) -> None:

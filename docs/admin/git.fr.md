@@ -192,10 +192,14 @@ Un jeton d'accès HTTPS cesse de fonctionner à sa date d'expiration, et la sync
   façon le jeton pour la synchronisation, avec les protections de la création de dépôt :
   abandonné après 10 secondes, jamais redirigé, et pour un hôte auto-hébergé, adresse publique
   seulement (résolue une fois, puis connexion à l'adresse vérifiée), sauf pour le
-  super-administrateur. Rien d'autre n'est lu dans la réponse, et la date est gardée avec le
-  jeton, chiffrée : pas de migration. Quand la date reste inconnue (pas d'expiration, refus,
-  autre forge, injoignable), le jeton est enregistré quand même, sans avertissement. Une clé
-  SSH n'expire pas.
+  super-administrateur. Un dépôt à une adresse IP n'est pas interrogé ; un nom d'hôte
+  internationalisé l'est sous sa forme ASCII (punycode). Rien d'autre n'est lu dans la
+  réponse, et la date est gardée avec le jeton, chiffrée : pas de migration. Quand la date
+  reste inconnue (pas d'expiration, refus, autre forge, injoignable), le jeton est enregistré
+  quand même, sans avertissement. Une clé SSH n'expire pas.
+
+  Un jeton est en ASCII simple : un jeton qui contient une espace ou un autre caractère (un
+  caractère invisible collé avec lui, par exemple) est refusé avec « Jeton d'accès invalide ».
 
 Une fois la date connue :
 - **Paramètres → Dépôt Git → Accès au dépôt** l'affiche, en avertissement à moins de 30 jours,
@@ -204,18 +208,22 @@ Une fois la date connue :
   journal d'audit, webhook `space.alert`) **30 jours, 7 jours et 1 jour avant, puis le jour
   même** de l'expiration, une fois par palier : le worker vérifie toutes les heures, et un
   worker arrêté un moment n'envoie que le palier atteint. Un nouveau jeton, avec une autre
-  date, repart de zéro ;
+  date, repart de zéro. Si tous les e-mails d'un palier échouent (serveur d'envoi en panne),
+  la vérification horaire suivante les renvoie, sans second événement d'audit ni webhook. Le
+  journal d'audit et les alertes système montrent la date d'expiration ;
 - **Administration > Santé** a une ligne **Jetons d'accès Git** : avertissement quand un jeton
   expire d'ici 30 jours, problème quand l'un a expiré, avec un lien vers la page Git de chaque
   espace ;
 - une synchronisation refusée pour authentification après cette date dit que le jeton a
-  expiré, et quand.
+  expiré, et quand. Seulement aux administrateurs de l'organisation, comme le reste de l'accès
+  au dépôt : les autres lecteurs de l'espace voient le message général d'authentification.
 
 Pour le renouveler : créez un nouveau jeton chez le fournisseur (GitLab : Settings → Access
 tokens, portées `read_repository` et `write_repository`, rôle Maintainer ; GitHub : jeton
 fine-grained limité au dépôt, **Contents** en lecture et écriture), puis collez-le dans **Accès
-au dépôt**. GitLab et GitHub comptent l'expiration en UTC ; le jeton de GitLab cesse de
-fonctionner à sa date, ce jour-là compte donc comme expiré.
+au dépôt**. GitLab donne un jour, en UTC : son jeton cesse de fonctionner à cette date, ce
+jour-là compte donc comme expiré. GitHub donne l'instant : le dernier jour, avant cette heure,
+le jeton « expire aujourd'hui », puis il a expiré.
 
 ## 3. Webhook (recommandé)
 

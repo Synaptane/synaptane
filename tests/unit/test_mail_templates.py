@@ -257,6 +257,9 @@ def real_calls() -> dict[str, set[frozenset[str]]]:
                     # `once` names the alert for its deduplication: not part of the e-mail.
                     ignore = frozenset({"public_url", "kind", "once"})
                     calls.append((function, alert.value, _keywords(node, ignore)))
+    # `notify` composes its emails in `_mail_admins`, with the same arguments.
+    if "_mail_admins" in bases:
+        bases["notify"] = bases.pop("_mail_admins")
     assert {"notify", "notify_org", "notify_instance"} <= set(bases), "compose introuvable"
     for function, alert_kind, values in calls:
         found.setdefault(f"alert_{alert_kind}", set()).add(bases[function] | values)

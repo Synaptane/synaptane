@@ -6,10 +6,11 @@ given a `once` key (each step before a Git token expires), never again with the 
 """
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole
@@ -37,6 +38,15 @@ KINDS = (
 )
 
 
+def _lock(session: Session, key: str) -> None:
+    """Serializes the deduplication of one alert until the end of the transaction: two
+    workers checking the same alert at the same moment do not both send it."""
+    session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0))))
+
+
+UNDELIVERED = "undelivered"  # detail of a `once` alert whose emails all failed: retried
+
+
 def notify(
     session: Session,
     box: SecretBox,
@@ -49,21 +59,52 @@ def notify(
 ) -> bool:
     """Notifies the admins of the organization of `space`. False if notified recently, or,
     with `once` (a key naming this very alert: a token's expiry and the step reached), if an
-    alert of this kind already had this key for the space, however long ago."""
+    alert of this kind already had this key for the space, however long ago.
+
+    With `once`, an alert whose emails all failed (mail server down) is kept as undelivered:
+    the next call sends the emails again, without a second audit event or webhook, and returns
+    True once one goes out."""
     assert kind in KINDS
     action = f"alert.{kind}"
-    query = select(AuditEvent.id).where(
-        AuditEvent.action == action, AuditEvent.space_id == space.id
-    )
+    _lock(session, f"{action}:{space.id}:{once}")
+    query = select(AuditEvent).where(AuditEvent.action == action, AuditEvent.space_id == space.id)
     if once:
         query = query.where(AuditEvent.details["once"].astext == once)
     else:
         query = query.where(AuditEvent.at > datetime.now(UTC) - QUIET)
-    if session.scalar(query.limit(1)) is not None:
+    event = session.scalars(query.order_by(AuditEvent.at.desc()).limit(1)).first()
+    if event is not None and not (once and event.details.get(UNDELIVERED)):
         return False
-    details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
-    audit(session, None, action, space=space, **details, **({"once": once} if once else {}))
-    webhooks.emit(session, space, "space.alert", {"kind": kind, **details})
+    if event is None:
+        details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
+        event = AuditEvent(
+            action=action,
+            org_id=space.org_id,
+            space_id=space.id,
+            details={**details, **({"once": once} if once else {})},
+        )
+        session.add(event)
+        webhooks.emit(session, space, "space.alert", {"kind": kind, **details})
+        retry = False
+    else:
+        retry = True  # an earlier attempt whose emails all failed
+    delivered = _mail_admins(session, box, space, kind, public_url, values)
+    if once:
+        kept: dict[str, object] = {k: v for k, v in event.details.items() if k != UNDELIVERED}
+        event.details = kept if delivered else {**kept, UNDELIVERED: "true"}
+    return delivered or not retry
+
+
+def _mail_admins(
+    session: Session,
+    box: SecretBox,
+    space: Space,
+    kind: str,
+    public_url: str,
+    values: Mapping[str, object],
+) -> bool:
+    """Emails the organization's admins. False only if there was someone to write to and every
+    send failed: True without email sending configured, or without an admin with an address."""
     if not mail.configured(session):
         return True
     org = space.organization
@@ -76,17 +117,19 @@ def notify(
             User.is_active.is_(True),
             User.email.is_not(None),
         )
-    )
+    ).all()
     link = f"{public_url}/o/{org.slug}/{space.slug}"
+    sent = 0
     for admin in admins:
         subject, body = mail.compose(
             f"alert_{kind}", admin.locale, space=space.name, org=org.name, link=link, **values
         )
         try:
             mail.send(session, box, admin.email or "", subject, body)
+            sent += 1
         except mail.MailError as error:
             log.warning("Alert %s not sent to %s: %s", kind, admin.email, error)
-    return True
+    return sent > 0 or not admins
 
 
 # Organization alerts, without a space: each one matches a transition (a webhook cut off by
@@ -144,6 +187,7 @@ def notify_instance(
     alert is not sent again before `QUIET`. False if notified recently."""
     assert kind in INSTANCE_KINDS
     action = f"alert.{kind}"
+    _lock(session, action)
     recent = session.scalar(
         select(AuditEvent.id).where(
             AuditEvent.action == action, AuditEvent.at > datetime.now(UTC) - QUIET

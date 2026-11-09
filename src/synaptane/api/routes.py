@@ -611,7 +611,12 @@ def git_status(
         branch=found.branch,
         status=found.sync_status,
         synced_at=found.synced_at,
-        error=describe_error(found.sync_error, translator(api_locale(request)), api_locale(request))
+        error=describe_error(
+            found.sync_error,
+            translator(api_locale(request)),
+            api_locale(request),
+            expiry=manage,  # the token's expiry: for admins only, as `credentials_expire`
+        )
         if found.sync_error
         else None,
         remote_head=found.remote_head,

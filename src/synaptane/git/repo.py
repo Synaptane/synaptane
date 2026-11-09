@@ -140,11 +140,17 @@ def expired_error(text: str, expiry: date) -> str:
     return TOKEN_EXPIRED.format(date=expiry.isoformat()) + text[len(AUTHENTICATION_REQUIRED) :]
 
 
-def describe_error(text: str, translate: Callable[..., str], locale: str = "en") -> str:
+def describe_error(
+    text: str, translate: Callable[..., str], locale: str = "en", *, expiry: bool = True
+) -> str:
     """A stored Git error (`explain`, or a message of Synaptane) for display: its known message
     translated, Git's own output kept as it is. Also reads errors stored in French. `locale`:
-    the language of `translate`, for a date written out."""
-    if match := _TOKEN_EXPIRED.match(text):
+    the language of `translate`, for a date written out. `expiry`: False for a reader who is
+    not an admin, who sees the general authentication message rather than the token's expiry
+    date (like the rest of the repository access, only for admins)."""
+    if (match := _TOKEN_EXPIRED.match(text)) and not expiry:
+        return translate(AUTHENTICATION_REQUIRED) + text[match.end() :]
+    if match:
         from synaptane.web.i18n import format_day  # the interface's way of writing a date
 
         try:

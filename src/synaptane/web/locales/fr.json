@@ -2089,5 +2089,10 @@
  "in {n} day": "dans {n} jour",
  "in {n} days": "dans {n} jours",
  "The access token expired on {date}: create a new one on the Git host and save it in “Repository access”.": "Le jeton d'accès a expiré le {date} : créez-en un nouveau sur la forge et enregistrez-le dans « Accès au dépôt ».",
- "Repository access saved. The token expires on {date}.": "Accès au dépôt enregistré. Le jeton expire le {date}."
+ "Repository access saved. The token expires on {date}.": "Accès au dépôt enregistré. Le jeton expire le {date}.",
+ "Expiry date: {value}": "Date d'expiration : {value}",
+ "expires today, {date}": "expire aujourd'hui, {date}",
+ "today": "aujourd'hui",
+ "The access token expires today, {date}: create a new one now and save it below.": "Le jeton d'accès expire aujourd'hui, {date} : créez-en un nouveau dès maintenant et enregistrez-le ci-dessous.",
+ "Invalid access token: it contains a space or a character that is not plain ASCII (an invisible character may have been pasted with it).": "Jeton d'accès invalide : il contient une espace ou un caractère qui n'est pas de l'ASCII simple (un caractère invisible a peut-être été collé avec lui)."
 }

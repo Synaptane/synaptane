@@ -10,9 +10,10 @@ an email, the audit log, a log line, a page or an answer.
 import html
 import json
 import logging
+import threading
 import time
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx2
@@ -29,10 +30,12 @@ from synaptane.git.repo import GitError, Repository, describe_error, explain
 from synaptane.server import create_app
 from synaptane.services import (
     accounts,
+    alerts,
     forges,
     git_expiry,
     git_sync,
     instance,
+    mail,
     organizations,
     spaces,
 )
@@ -46,6 +49,7 @@ from synaptane.worker import runner
 from tests.integration.conftest import actor_of, token_for
 from tests.integration.test_alert_mails import PUBLIC_URL, admins, by_recipient, smtp  # noqa: F401
 from tests.integration.test_create_repository import (  # noqa: F401 — shared fixtures
+    Answer,
     Forge,
     acme,
     box_of,
@@ -60,6 +64,11 @@ from tests.integration.wikidata import Wiki
 SECRET = "glpat-SyncTokenNeverInAnAlert"
 EXPIRES = date(2027, 11, 8)
 NBSP = " "
+
+
+def noon(day: date) -> datetime:
+    """Midday UTC of a day: the moment the worker's check runs, in these tests."""
+    return datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
 
 
 def give_token(
@@ -91,7 +100,7 @@ def test_one_alert_at_each_step_never_twice(
 ) -> None:
     give_token(db, ctx.box, wiki.infra, EXPIRES)
     days = [40, 31, 30, 30, 29, 20, 8, 7, 7, 3, 2, 1, 1, 0, 0, -1, -30]
-    sent = [git_expiry.check(database, ctx, on=EXPIRES - timedelta(days=d)) for d in days]
+    sent = [git_expiry.check(database, ctx, now=noon(EXPIRES - timedelta(days=d))) for d in days]
     assert sent == [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0]
     found = alerts_of(db)
     assert [(action, details["once"]) for action, details in found] == [
@@ -116,7 +125,7 @@ def test_a_late_worker_alerts_only_the_step_reached(
 ) -> None:
     """Off for weeks (or a token saved 5 days before its expiry): the 7-day step only."""
     give_token(db, ctx.box, wiki.infra, EXPIRES)
-    assert git_expiry.check(database, ctx, on=EXPIRES - timedelta(days=5)) == 1
+    assert git_expiry.check(database, ctx, now=noon(EXPIRES - timedelta(days=5))) == 1
     assert [d["once"] for _, d in alerts_of(db)] == ["2027-11-08/7"]
     assert [d["when"] for _, d in alerts_of(db)] == ["in 5 days"]
 
@@ -125,11 +134,11 @@ def test_a_renewed_token_starts_over(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     give_token(db, ctx.box, wiki.infra, EXPIRES)
-    assert git_expiry.check(database, ctx, on=EXPIRES) == 1  # expired
+    assert git_expiry.check(database, ctx, now=noon(EXPIRES)) == 1  # expired
     renewed = EXPIRES + timedelta(days=365)
     give_token(db, ctx.box, wiki.infra, renewed)
-    assert git_expiry.check(database, ctx, on=EXPIRES + timedelta(days=1)) == 0  # far away
-    assert git_expiry.check(database, ctx, on=renewed - timedelta(days=30)) == 1
+    assert git_expiry.check(database, ctx, now=noon(EXPIRES + timedelta(days=1))) == 0  # far away
+    assert git_expiry.check(database, ctx, now=noon(renewed - timedelta(days=30))) == 1
     assert [d["once"] for _, d in alerts_of(db)] == ["2027-11-08/0", "2028-11-07/30"]
 
 
@@ -138,7 +147,7 @@ def test_each_space_has_its_own_steps(
 ) -> None:
     give_token(db, ctx.box, wiki.infra, EXPIRES)
     give_token(db, ctx.box, wiki.other, EXPIRES)
-    assert git_expiry.check(database, ctx, on=EXPIRES - timedelta(days=7)) == 2
+    assert git_expiry.check(database, ctx, now=noon(EXPIRES - timedelta(days=7))) == 2
     events = db.scalars(select(AuditEvent).where(AuditEvent.action.startswith("alert.")))
     assert {e.space_id for e in events} == {wiki.infra.id, wiki.other.id}
 
@@ -151,7 +160,7 @@ def test_quiet_without_a_known_expiry(
     put_space_secret(db, ctx.box, wiki.other.id, GIT_CREDENTIALS, ssh.to_json(), None)
     db.commit()
     assert git_expiry.expiries(db, ctx.box, within=None) == []
-    assert git_expiry.check(database, ctx, on=EXPIRES) == 0
+    assert git_expiry.check(database, ctx, now=noon(EXPIRES)) == 0
     assert alerts_of(db) == []
 
 
@@ -164,7 +173,7 @@ def test_an_unreadable_secret_is_skipped(
     other = SecretBox(SecretBox.generate_key())
     put_space_secret(db, other, wiki.other.id, GIT_CREDENTIALS, "{}", None)
     db.commit()
-    found = git_expiry.expiries(db, ctx.box, on=EXPIRES)
+    found = git_expiry.expiries(db, ctx.box, now=noon(EXPIRES))
     assert [e.space.id for e in found] == [wiki.infra.id]
 
 
@@ -176,7 +185,7 @@ def test_a_space_without_repository_is_left_out(
     assert space is not None
     space.repo_url = None
     db.commit()
-    assert git_expiry.expiries(db, ctx.box, on=EXPIRES) == []
+    assert git_expiry.expiries(db, ctx.box, now=noon(EXPIRES)) == []
 
 
 def test_the_alerts_reach_the_org_admins_in_their_language(
@@ -191,7 +200,7 @@ def test_the_alerts_reach_the_org_admins_in_their_language(
     not Alice (contributor, with an address)."""
     ws = replace(ctx, public_url=PUBLIC_URL)
     give_token(db, ctx.box, wiki.infra, EXPIRES)
-    assert git_expiry.check(database, ws, on=EXPIRES - timedelta(days=7)) == 1
+    assert git_expiry.check(database, ws, now=noon(EXPIRES - timedelta(days=7))) == 1
     mails = by_recipient(smtp)
     assert set(mails) == {"ada@example.com", "grace@example.com"}
     link = f"{PUBLIC_URL}/o/acme/infra/-/git"
@@ -205,13 +214,13 @@ def test_the_alerts_reach_the_org_admins_in_their_language(
     assert "Settings → Access tokens" in french_body and "Contents" in english_body
 
     smtp.messages.clear()
-    assert git_expiry.check(database, ws, on=EXPIRES - timedelta(days=1)) == 1
+    assert git_expiry.check(database, ws, now=noon(EXPIRES - timedelta(days=1))) == 1
     mails = by_recipient(smtp)
     assert mails["ada@example.com"][0] == "Le jeton d'accès Git de « Infra » expire demain"
     assert mails["grace@example.com"][0] == "Git access token of “Infra” expires tomorrow"
 
     smtp.messages.clear()
-    assert git_expiry.check(database, ws, on=EXPIRES) == 1
+    assert git_expiry.check(database, ws, now=noon(EXPIRES)) == 1
     mails = by_recipient(smtp)
     assert mails["ada@example.com"][0] == "Le jeton d'accès Git de « Infra » a expiré"
     assert mails["grace@example.com"][0] == "Git access token of “Infra” expired"
@@ -219,7 +228,7 @@ def test_the_alerts_reach_the_org_admins_in_their_language(
     assert "expired on November 8, 2027" in mails["grace@example.com"][1]
 
     smtp.messages.clear()
-    assert git_expiry.check(database, ws, on=EXPIRES + timedelta(days=2)) == 0
+    assert git_expiry.check(database, ws, now=noon(EXPIRES + timedelta(days=2))) == 0
     assert smtp.messages == []
     assert_no_secret(db, *(m.as_string() for m in smtp.messages))
 
@@ -234,7 +243,7 @@ def test_no_secret_in_any_mail(
 ) -> None:
     give_token(db, ctx.box, wiki.infra, EXPIRES)
     for days in (30, 7, 1, 0):
-        git_expiry.check(database, ctx, on=EXPIRES - timedelta(days=days))
+        git_expiry.check(database, ctx, now=noon(EXPIRES - timedelta(days=days)))
     assert len(smtp.messages) == 8  # 4 steps, 2 admins
     assert_no_secret(db, *(message.as_string() for message in smtp.messages))
 
@@ -243,13 +252,16 @@ def test_the_journal_shows_the_alert(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki, settings: Settings
 ) -> None:
     give_token(db, ctx.box, wiki.infra, EXPIRES)
-    git_expiry.check(database, ctx, on=EXPIRES - timedelta(days=7))
+    git_expiry.check(database, ctx, now=noon(EXPIRES - timedelta(days=7)))
     with TestClient(create_app(settings, database), base_url="http://localhost") as client:
         login(client, "root")
         journal = html.unescape(client.get("/o/acme/-/journal").text)
         health = html.unescape(client.get("/admin/health").text)
     assert "Un jeton d'accès Git expire bientôt" in journal
     assert "Un jeton d'accès Git expire bientôt" in health  # system alerts
+    # The expiry date, in both (as written in the log, in English).
+    assert f"Date d'expiration{NBSP}: November 8, 2027" in journal
+    assert f"Date d'expiration{NBSP}: November 8, 2027" in health
     assert SECRET not in journal + health
 
 
@@ -263,16 +275,24 @@ def test_the_worker_checks_every_hour(
 ) -> None:
     calls: list[Workspace] = []
 
-    def check(database: Database, ws: Workspace, on: date | None = None) -> int:
+    def check(database: Database, ws: Workspace, now: datetime | None = None) -> int:
         calls.append(ws)
         raise RuntimeError("broken")
 
+    def broken(*args: object) -> None:
+        raise RuntimeError("lasting failure")
+
     monkeypatch.setattr(git_expiry, "check", check)
+    # The checks run before it fail too: each one on its own, they do not skip it.
+    monkeypatch.setattr(alerts, "check_backlogs", broken)
+    monkeypatch.setattr(runner.Worker, "advance_idle_watermarks", broken)
     worker = runner.Worker(settings, database, ctx)
     with caplog.at_level(logging.WARNING):
         worker.maintenance()  # a failure here must not stop the maintenance
     assert calls == [ctx]
     assert "Git token expiry not checked" in caplog.text
+    assert "Inbox backlog not checked" in caplog.text
+    assert "Change watermarks not moved" in caplog.text
     worker._last_maintenance = 0.0
     worker.maintenance()  # a minute later: not again within the hour
     assert calls == [ctx]
@@ -521,7 +541,7 @@ def saved(db: Session, box: SecretBox, space: Space) -> GitCredentials:
     return GitCredentials.from_json(raw)
 
 
-def gitlab_self(forge: Forge, answer: httpx2.Response) -> None:  # noqa: F811
+def gitlab_self(forge: Forge, answer: Answer) -> None:  # noqa: F811
     forge.routes[("GET", "/api/v4/personal_access_tokens/self")] = answer
 
 
@@ -563,7 +583,9 @@ def test_a_github_token_saved_by_hand_gets_its_expiry(
     )
     message = save(client, "github")
     assert message.endswith("Le jeton expire le 1er mars 2027.")
-    assert saved(db, box_of(client), forges_space["github"]).expires == "2027-03-01"
+    assert (
+        saved(db, box_of(client), forges_space["github"]).expires == "2027-03-01T07:00:00+00:00"
+    )  # the moment
     [request] = forge.seen
     assert str(request.url) == "https://api.github.com/rate_limit"
     assert request.headers["authorization"] == f"Bearer {MANUAL}"
@@ -615,7 +637,7 @@ def test_an_unreachable_or_slow_provider_does_not_block_the_save(
     def unreachable(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("no route to host")
 
-    gitlab_self(forge, unreachable)  # type: ignore[arg-type]
+    gitlab_self(forge, unreachable)
     assert save(client, "gitlab") == "Accès au dépôt enregistré."
 
     def slow(request: httpx2.Request) -> httpx2.Response:
@@ -623,7 +645,7 @@ def test_an_unreachable_or_slow_provider_does_not_block_the_save(
         return httpx2.Response(200, json={"expires_at": "2027-03-01"})
 
     monkeypatch.setattr(forges, "EXPIRY_SECONDS", 0.05)
-    gitlab_self(forge, slow)  # type: ignore[arg-type]
+    gitlab_self(forge, slow)
     assert save(client, "gitlab") == "Accès au dépôt enregistré."
     assert saved(db, box_of(client), forges_space["gitlab"]).expires == ""
 
@@ -750,7 +772,7 @@ def test_no_database_transaction_held_during_the_call(
             )
         return httpx2.Response(200, json={"expires_at": "2027-03-01"})
 
-    gitlab_self(forge, watching)  # type: ignore[arg-type]
+    gitlab_self(forge, watching)
     save(client, "gitlab")
     assert busy == [0]
 
@@ -777,3 +799,192 @@ def test_api_saves_the_expiry_and_tells_it_to_admins(
     seen = client.get(url, headers=member).json()  # the state, never the access
     assert seen["credentials"] is None and seen["credentials_expire"] is None
     assert MANUAL not in response.text + json.dumps(status)
+
+
+# --- Second review: delivery, concurrency, readers, GitHub's hour, odd tokens and hosts --------
+
+
+def test_a_step_whose_mails_all_failed_is_sent_again(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    admins: dict[str, User],  # noqa: F811
+    smtp: Inbox,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mail server down at the 7-day step: the next hourly check sends the emails, without a
+    second audit event; then nothing more."""
+    give_token(db, ctx.box, wiki.infra, EXPIRES)
+    real_send = mail.send
+
+    def down(*args: object, **kwargs: object) -> None:
+        raise mail.MailError("connection refused")
+
+    monkeypatch.setattr(mail, "send", down)
+    moment = noon(EXPIRES - timedelta(days=7))
+    assert git_expiry.check(database, ctx, now=moment) == 1  # recorded, not delivered
+    assert smtp.messages == []
+    [(_, details)] = alerts_of(db)
+    assert details[alerts.UNDELIVERED] == "true"
+    assert git_expiry.check(database, ctx, now=moment + timedelta(hours=1)) == 0  # still down
+    monkeypatch.setattr(mail, "send", real_send)
+    assert git_expiry.check(database, ctx, now=moment + timedelta(hours=2)) == 1
+    assert set(by_recipient(smtp)) == {"ada@example.com", "grace@example.com"}
+    db.expire_all()
+    [(_, details)] = alerts_of(db)  # still a single event
+    assert alerts.UNDELIVERED not in details and details["once"] == "2027-11-08/7"
+    assert git_expiry.check(database, ctx, now=moment + timedelta(hours=3)) == 0
+    assert len(smtp.messages) == 2
+
+
+def test_two_workers_send_an_alert_once(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """The second transaction waits for the first one's lock, then sees its alert."""
+    space_id = wiki.infra.id
+    first = database.session().__enter__()
+    space = first.get(Space, space_id)
+    assert space is not None
+    assert alerts.notify(first, ctx.box, space, "git_token_expired", once="k", date="d")
+    results: list[bool] = []
+
+    def second() -> None:
+        with database.session() as session:
+            found = session.get(Space, space_id)
+            assert found is not None
+            results.append(
+                alerts.notify(session, ctx.box, found, "git_token_expired", once="k", date="d")
+            )
+
+    thread = threading.Thread(target=second)
+    thread.start()
+    time.sleep(0.5)
+    assert thread.is_alive()  # waiting for the lock
+    first.commit()
+    first.close()
+    thread.join(10)
+    assert results == [False]
+    assert len(alerts_of(db)) == 1
+
+
+def test_a_reader_sees_the_general_authentication_message(
+    settings: Settings,
+    database: Database,
+    db: Session,
+    ctx: Workspace,
+    wiki: Wiki,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The token's expiry date is for admins, like the rest of the repository access."""
+    give_token(db, ctx.box, wiki.infra, git_expiry.today() - timedelta(days=3))
+    refuse_fetch(monkeypatch, DENIED)
+    sync_error(database, ctx, wiki.infra)
+    with TestClient(create_app(settings, database), base_url="http://localhost") as client:
+        login(client, "bob")
+        page = html.unescape(client.get("/o/acme/infra/-/git").text)
+        headers = {"Authorization": f"Bearer {token_for(database, 'bob')}"}
+        url = "/api/v1/organizations/acme/spaces/infra/git"
+        status = client.get(url, headers={**headers, "Accept-Language": "en"}).json()
+    assert "Le dépôt demande une authentification" in page and "a expiré" not in page
+    assert status["error"].startswith("The repository requires authentication")
+    assert status["credentials_expire"] is None
+
+
+def test_a_github_token_expires_at_its_hour(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """GitHub gives the moment: its last day before the hour, "expires today" (the last step
+    before), then expired once the hour has passed."""
+    moment = datetime(2027, 11, 8, 7, tzinfo=UTC)
+    give_token(db, ctx.box, wiki.infra, moment)
+    assert git_expiry.check(database, ctx, now=moment - timedelta(hours=2)) == 1
+    [(action, details)] = alerts_of(db)
+    assert action == "alert.git_token_expiring" and details["when"] == "today"
+    assert git_expiry.check(database, ctx, now=moment - timedelta(minutes=1)) == 0
+    assert git_expiry.check(database, ctx, now=moment) == 1
+    assert [a for a, _ in alerts_of(db)][-1] == "alert.git_token_expired"
+
+
+def test_health_and_git_page_say_today_before_the_hour(
+    client: TestClient, db: Session, wiki: Wiki, hosted: dict[str, Space]
+) -> None:
+    last = datetime.combine(git_expiry.today(), datetime.max.time(), UTC).replace(microsecond=0)
+    give_token(db, box_of(client), hosted["github"], last)
+    login(client, "root")
+    page = html.unescape(client.get("/o/acme/github/-/git").text)
+    assert "Le jeton d'accès expire aujourd'hui" in page and 'data-expired="false"' in page
+    health = html.unescape(client.get("/admin/health").text)
+    assert f"expire aujourd'hui, {format_fr(git_expiry.today())}" in health
+    assert "status-error" not in health.split("health-git-tokens")[1].split("</ul>")[0]
+
+
+@pytest.mark.parametrize("token", ["glpat-abc\u200bdef", "ghp_abc def", "glpat-é"])
+@pytest.mark.parametrize("slug", ["gitlab", "github"])
+def test_a_token_with_an_invisible_character_is_refused_without_error(
+    client: TestClient,
+    database: Database,
+    db: Session,
+    forges_space: dict[str, Space],
+    forge: Forge,  # noqa: F811
+    token: str,
+    slug: str,
+) -> None:
+    message = save(client, slug, token=token)
+    assert message.startswith("Jeton d'accès invalide")
+    bearer = {"Authorization": f"Bearer {token_for(database, 'carla')}"}
+    response = client.put(
+        f"/api/v1/organizations/acme/spaces/{slug}/git/credentials",
+        json={"kind": "https", "token": token},
+        headers=bearer,
+    )
+    assert response.status_code == 400 and token not in response.text
+    assert forge.seen == []
+    assert db.scalar(select(Secret).where(Secret.space_id == forges_space[slug].id)) is None
+
+
+@pytest.mark.parametrize("username", ["carla", "root"])
+@pytest.mark.parametrize(
+    "url", ["https://[2001:4860::1]/acme/x.git", "https://140.82.112.3/acme/x.git"]
+)
+def test_a_repository_at_an_ip_address_is_saved_without_asking(
+    client: TestClient,
+    database: Database,
+    db: Session,
+    acme: None,  # noqa: F811
+    forge: Forge,  # noqa: F811
+    username: str,
+    url: str,
+) -> None:
+    actor = actor_of(db, accounts.get_user(db, "root"))
+    org = organizations.get_organization(db, actor, "acme")
+    space = spaces.create_space(db, actor, org, slug="ip", name="IP", repo_url=url)
+    db.commit()
+    assert save(client, "ip", username) == "Accès au dépôt enregistré."
+    bearer = {"Authorization": f"Bearer {token_for(database, username)}"}
+    response = client.put(
+        "/api/v1/organizations/acme/spaces/ip/git/credentials",
+        json={"kind": "https", "token": MANUAL},
+        headers=bearer,
+    )
+    assert response.status_code == 204
+    assert forge.seen == []
+    assert saved(db, box_of(client), space).token == MANUAL
+
+
+def test_an_internationalized_host_is_asked_in_punycode(
+    client: TestClient,
+    database: Database,
+    db: Session,
+    acme: None,  # noqa: F811
+    forge: Forge,  # noqa: F811
+) -> None:
+    gitlab_self(forge, httpx2.Response(200, json={"expires_at": "2027-03-01"}))
+    actor = actor_of(db, accounts.get_user(db, "root"))
+    org = organizations.get_organization(db, actor, "acme")
+    url = "https://gïtlab.example/acme/x.git"
+    space = spaces.create_space(db, actor, org, slug="idn", name="IDN", repo_url=url)
+    db.commit()
+    assert save(client, "idn", "root").endswith("Le jeton expire le 1er mars 2027.")
+    assert [r.url.raw_host for r in forge.seen] == [b"xn--gtlab-cta.example"]
+    assert saved(db, box_of(client), space).expires == "2027-03-01"
