@@ -280,7 +280,7 @@ anciennes.
 | `PUT …/spaces/{space}/tidy-rules` | admin | Mêmes champs et mêmes règles que `PUT …/vocation` |
 | `GET …/spaces/{space}/checks` | admin | [Contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) de l'espace (`.synaptane/checks.md`) : même forme que `GET …/vocation`. Les pages qui les enfreignent sont dans `GET …/health` |
 | `PUT …/spaces/{space}/checks` | admin | Mêmes champs et mêmes règles que `PUT …/vocation` ; 400 si une règle est en erreur (le `message` nomme chaque ligne fautive) |
-| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, heure locale), `timezone` (`Europe/Paris`), `model` (`""` : celui de l'organisation), `delay` (minutes entre un dépôt et le rangement au fil de l'eau, `0` : éteint) (204) |
+| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, heure locale), `timezone` (`Europe/Paris`), `model` (`""` : celui de l'organisation), `delay` (minutes entre un dépôt et le rangement au fil de l'eau, `0` : éteint), `maintain` ([entretien du wiki](../admin/ai.fr.md#entretien-du-wiki) chaque nuit, `true` par défaut) (204) |
 | `POST …/spaces/{space}/tidy` | contributeur | Lance un rangement (202) ; 429 au-delà de la limite de passages manuels (voir [Erreurs](#erreurs)) |
 | `GET …/spaces/{space}/tidy/runs` | lecteur | Passages : `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, jetons consommés, `cost`, `error`, `reverted_at` |
 | `POST …/spaces/{space}/tidy/runs/{id}/revert` | admin | Annule un passage par un commit inverse |

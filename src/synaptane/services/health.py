@@ -313,6 +313,13 @@ def _resolve(page: _Facts, here: str, index: WikiIndex) -> _Resolved:
     return _Resolved(tuple(targets), frozenset(keys))
 
 
+def page_form(text: str) -> tuple[bool, bool]:
+    """(empty, titled) of a page, judged as by this check: the nightly maintenance
+    (`services.maintenance`) must report a page exactly when the health tab would."""
+    facts = _facts(text)
+    return facts.empty, facts.titled
+
+
 def _facts(text: str) -> _Facts:
     links = tuple((ref.kind == "wiki", ref.target) for ref in link_refs(text))
     body, titled = text, False

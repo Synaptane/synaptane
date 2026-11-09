@@ -273,7 +273,7 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `PUT …/spaces/{space}/tidy-rules` | admin | Same fields and same rules as `PUT …/vocation` |
 | `GET …/spaces/{space}/checks` | admin | [Team checks](../guide/wiki.md#team-checks) of the space (`.synaptane/checks.md`): same shape as `GET …/vocation`. The pages that break them are in `GET …/health` |
 | `PUT …/spaces/{space}/checks` | admin | Same fields and same rules as `PUT …/vocation`; 400 if a rule is faulty (the `message` names each faulty line) |
-| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off) (204) |
+| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off), `maintain` (nightly [wiki maintenance](../admin/ai.md#wiki-maintenance), `true` by default) (204) |
 | `POST …/spaces/{space}/tidy` | contributor | Starts a tidy-up (202); 429 beyond the manual run limit (see [Errors](#errors)) |
 | `GET …/spaces/{space}/tidy/runs` | reader | Runs: `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, tokens used, `cost`, `error`, `reverted_at` |
 | `POST …/spaces/{space}/tidy/runs/{id}/revert` | admin | Reverts a run with an inverse commit |

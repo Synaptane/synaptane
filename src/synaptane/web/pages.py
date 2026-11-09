@@ -42,6 +42,7 @@ from synaptane.services import (
     git_sync,
     load_actor,
     mail,
+    maintenance,
     organizations,
     spaces,
     two_factor,
@@ -136,6 +137,8 @@ OPERATION_LABELS = {
     "fusionné": "Page merged with a change made during the tidy-up",
     "conflit": "Page changed during the tidy-up: the human version was kept",
     "attention": "To verify",
+    "corrigé": "Wiki problem fixed",
+    "problème laissé": "Wiki problem left",
 }
 
 
@@ -299,7 +302,8 @@ def _log_text(context: Any, text: object) -> str:
     """A text of a tidy-up log (operation, summary): Synaptane's own notes and the titles of
     page changes translated, the rest (the agent's words, a note's title) as it is."""
     translate = context["_"]
-    return changes.localize_title(budget.localize_notes(str(text), translate), translate)
+    text = maintenance.localize(budget.localize_notes(str(text), translate), translate)
+    return changes.localize_title(text, translate)
 
 
 templates.env.globals["log_text"] = _log_text

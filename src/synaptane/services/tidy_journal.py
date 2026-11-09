@@ -345,6 +345,8 @@ LINKED = (  # wiki paths
     Op.REDUCED,
     Op.MERGED,
     Op.CONFLICT,
+    Op.FIXED,
+    Op.PROBLEM_LEFT,
 )
 
 

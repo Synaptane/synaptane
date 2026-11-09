@@ -96,6 +96,7 @@ def test_full_tidy_pass_commits_once_and_can_be_reverted(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
+    tidy.update_settings(db, wiki.root, wiki.infra, maintain=False)  # test_maintenance
     note = deposit_note(db, database, ctx, wiki)
     content.write_file(db, database, wiki.alice, ctx, wiki.infra, "notes.md", b"# Notes\n")
     db.commit()

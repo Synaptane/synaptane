@@ -40,6 +40,7 @@ from synaptane.services import (
     audit,
     changes,
     jobs,
+    maintenance,
     routine_files,
     vocation,
     webhooks,
@@ -390,6 +391,7 @@ def _apply(session: Session, space: Space, outcome: Outcome) -> None:
     if outcome.status == "ok":
         # Watermark of the changes for the tidy run to review (first clone).
         changes.start(session, space, outcome.remote_head)
+        maintenance.start(session, space, outcome.remote_head)  # nightly maintenance
 
 
 log = logging.getLogger("synaptane.git")

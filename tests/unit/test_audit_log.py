@@ -283,6 +283,10 @@ def test_details_in_french() -> None:
     ]
     assert details("org.ai_configured", budget="12.50") == ["Budget mensuel : 12.50 €"]
     assert details("space.updated", fields="name branch") == ["Nom", "Branche"]
+    assert details("space.tidy_settings", fields="delay maintain") == [
+        "Délai",
+        "Entretien chaque nuit",
+    ]
     assert details("space.embeddings", enabled="True") == ["Activée"]
     assert details("space.git_credentials_set", kind="https") == ["Jeton HTTPS"]
     assert details("token.created", read_only="False", inbox_only="True", scoped="True") == [
