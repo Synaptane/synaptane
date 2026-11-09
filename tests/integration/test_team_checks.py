@@ -312,10 +312,12 @@ def test_undoing_a_run_and_a_routine_report_follow_the_blocking_checks(
 
     routine = routines.create(
         db,
+        database,
         wiki.root,
+        ctx,
         wiki.infra,
         routines.Fields(
-            name="Revue", instructions="Relis.", frequency="daily", at="06:00", output_page="r.md"
+            title="Revue", instructions="Relis.", frequency="daily", at="06:00", output_page="r.md"
         ),
     )
     db.commit()
