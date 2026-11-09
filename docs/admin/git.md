@@ -58,10 +58,10 @@ do far more than the sync needs, so it is not kept:
 - **GitLab**: a project access token named `Synaptane`, with the `read_repository` and
   `write_repository` scopes and the **Maintainer** role (GitLab protects the default branch on
   the first push), valid for the longest the instance allows: 365 days by default. Its expiry
-  date is shown in **Settings → Git repository → Repository access**, and GitLab emails the
-  project's maintainers before it expires: create a new one then on GitLab (Settings → Access
-  tokens) and enter it in **Repository access** (step 2). A deploy key is not used on
-  GitLab: it cannot push to the protected default branch without an extra branch rule.
+  date is kept with it, and Synaptane warns before it comes (see
+  [Token expiry](#token-expiry)): create a new one then on GitLab (Settings → Access tokens)
+  and enter it in **Repository access** (step 2). A deploy key is not used on GitLab: it
+  cannot push to the protected default branch without an extra branch rule.
 
 ### Token to create
 
@@ -170,6 +170,56 @@ date, error (with Git's message) or in conflict.
 Secrets are encrypted with the master key and never shown again. They never appear on Git's
 command line or in its configuration.
 
+## Token expiry
+
+An HTTPS access token stops working on its expiry date, and the sync then fails. Synaptane
+knows this date:
+- for the GitLab project access token it created itself (365 days by default);
+- for a token saved by hand in **Repository access** (web, or `PUT …/git/credentials` of the
+  REST API), when the provider gives it. Synaptane asks once, as it saves the token:
+  - **GitHub** (github.com): the `GitHub-Authentication-Token-Expiration` header of an answer
+    of its API (`GET api.github.com/rate_limit`, which uses up no request quota), given for
+    fine-grained tokens and classic tokens that expire;
+  - **any other HTTPS host**, taken for a GitLab: `GET /api/v4/personal_access_tokens/self`,
+    which gives `expires_at` for personal, group and project access tokens. GitLab may refuse
+    it to a token without the `read_api` or `api` scope (a project token with only
+    `read_repository` and `write_repository`): the date then stays unknown.
+
+  The call goes to the repository's own host only (for GitHub, its API), which receives the
+  token for the sync anyway, with the protections of the repository creation: abandoned after
+  10 seconds, never redirected, and for a self-hosted host, a public address only (resolved
+  once, then connected to the address checked), except for the super admin. A repository at an
+  IP address or at a host name that is not plain ASCII is not asked (two IDNA versions can turn
+  such a name into two different domains), nor is a password that is not plain ASCII. Nothing else is read from the answer, and the date is kept with the token,
+  encrypted: no migration. When the date is unknown (no expiry, refused, another Git host,
+  unreachable), the token is saved all the same, without warning. An SSH key does not expire.
+
+  A token with an invisible or control character (a zero-width space, a tab or a no-break space
+  pasted with it) is refused with "Invalid access token". Spaces and accented letters stay
+  allowed inside: the field also takes a password (Gitea, Bitbucket Server).
+
+Once the date is known:
+- **Settings → Git repository → Repository access** shows it, as a warning within 30 days,
+  as a problem once it has passed;
+- the organization's admins get an alert (email and **Alerts** in the audit log, `space.alert`
+  webhook) **30 days, 7 days and 1 day before, then on the day** it expires, once per step:
+  the worker checks every hour, and a worker stopped for a while only sends the step reached.
+  A new token, with another date, starts over. If every email of a step fails (mail server
+  down), the next hourly check sends them again, without a second audit event or webhook.
+  The audit log and the system alerts show the expiry date;
+- **Administration > Health** has a **Git access tokens** line: warning when a token expires
+  within 30 days, problem when one has expired, with a link to each space's Git page;
+- a sync refused for authentication after this date says that the token expired, and when.
+  Only to the organization's admins, like the rest of the repository access: the space's other
+  readers see the general authentication message.
+
+To renew it: create a new token on the provider (GitLab: Settings → Access tokens,
+`read_repository` and `write_repository` scopes, Maintainer role; GitHub: a fine-grained token
+limited to the repository, **Contents** read and write), then paste it in **Repository
+access**. GitLab gives a day, in UTC: its token stops working on that date, so the day counts
+as expired. GitHub gives the moment: on the last day, before that hour, the token "expires
+today", then has expired.
+
 ## 3. Webhook (recommended)
 
 Without a webhook, Synaptane checks the repository every `poll_minutes`, 5 minutes by
@@ -269,4 +319,4 @@ uv run synaptane worker
 It must run at all times next to `synaptane serve`. Several workers can run at the same time
 safely: each job is taken only once, and each space is handled by only one worker at a time.
 A network error is retried automatically, 5 times at most. An authentication error is shown
-as is on the space page.
+as is on the space page (with the expiry date when the saved token has expired).

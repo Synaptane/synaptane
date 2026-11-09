@@ -568,6 +568,11 @@ class GitStatusOut(BaseModel):
     remote_head: str | None
     conflicts: list[str]
     credentials: str | None = Field(description="https, ssh or null (admins only)")
+    credentials_expire: date | None = Field(
+        None,
+        description="Expiry date of the HTTPS token, when known (admins only): created by "
+        "Synaptane, or read from the provider when saved",
+    )
     webhook_url: str
 
 
@@ -606,12 +611,18 @@ def git_status(
         branch=found.branch,
         status=found.sync_status,
         synced_at=found.synced_at,
-        error=describe_error(found.sync_error, translator(api_locale(request)))
+        error=describe_error(
+            found.sync_error,
+            translator(api_locale(request)),
+            api_locale(request),
+            expiry=manage,  # the token's expiry: for admins only, as `credentials_expire`
+        )
         if found.sync_error
         else None,
         remote_head=found.remote_head,
         conflicts=found.conflict_paths,
         credentials=git_sync.credential_kind(session, box, found) if manage else None,
+        credentials_expire=git_sync.credential_expiry(session, box, found) if manage else None,
         webhook_url=_webhook_url(request, found),
     )
 
@@ -622,15 +633,28 @@ def git_status(
     tags=["git"],
 )
 def set_git_credentials(
-    org: str, space: str, body: GitCredentialsIn, session: DbSession, actor: CurrentActor, box: Box
+    org: str,
+    space: str,
+    body: GitCredentialsIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+    box: Box,
 ) -> Response:
     found = find_space(session, actor, org, space)
-    credentials = (
-        GitCredentials.https(body.token, body.username)
-        if body.kind == "https"
-        else GitCredentials.ssh(body.private_key, body.known_hosts)
-    )
-    git_sync.set_credentials(session, actor, box, found, credentials)
+    if body.kind == "https":  # its expiry read from the provider when it gives it
+        forges.save_https_token(
+            session,
+            actor,
+            box,
+            found,
+            body.token,
+            body.username,
+            allow_private=request.app.state.settings.allow_private_webhooks,
+        )
+    else:
+        credentials = GitCredentials.ssh(body.private_key, body.known_hosts)
+        git_sync.set_credentials(session, actor, box, found, credentials)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

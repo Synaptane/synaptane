@@ -60,11 +60,11 @@ que ce dont la synchronisation a besoin : il n'est donc pas gardé.
 - **GitLab** : un jeton d'accès de projet nommé `Synaptane`, avec les scopes `read_repository`
   et `write_repository` et le rôle **Maintainer** (GitLab protège la branche par défaut au
   premier push), valable le plus longtemps que l'instance le permet : 365 jours par défaut.
-  Sa date d'expiration est affichée dans **Paramètres → Dépôt Git → Accès au dépôt**, et GitLab
-  prévient par e-mail les mainteneurs du projet avant son expiration : créez-en alors un
-  nouveau sur GitLab (Settings → Access tokens) et saisissez-le dans **Accès au dépôt**
-  (étape 2). Pas de clé de déploiement sur GitLab : elle ne peut pas pousser sur la branche par
-  défaut protégée sans règle de branche supplémentaire.
+  Sa date d'expiration est gardée avec lui, et Synaptane prévient avant qu'elle arrive (voir
+  [Expiration des jetons](#expiration-des-jetons)) : créez-en alors un nouveau sur GitLab
+  (Settings → Access tokens) et saisissez-le dans **Accès au dépôt** (étape 2). Pas de clé de
+  déploiement sur GitLab : elle ne peut pas pousser sur la branche par défaut protégée sans
+  règle de branche supplémentaire.
 
 ### Jeton à créer
 
@@ -172,6 +172,62 @@ ensuite l'état : à jour, en erreur (avec le message de Git) ou en conflit.
 Les secrets sont chiffrés avec la clé maître et ne sont jamais réaffichés. Ils ne passent ni
 dans la ligne de commande de Git, ni dans sa configuration.
 
+## Expiration des jetons
+
+Un jeton d'accès HTTPS cesse de fonctionner à sa date d'expiration, et la synchronisation
+échoue alors. Synaptane connaît cette date :
+- pour le jeton d'accès de projet GitLab qu'il a créé lui-même (365 jours par défaut) ;
+- pour un jeton enregistré à la main dans **Accès au dépôt** (web, ou `PUT …/git/credentials`
+  de l'API REST), quand le fournisseur la donne. Synaptane la demande une fois, au moment
+  d'enregistrer le jeton :
+  - **GitHub** (github.com) : l'en-tête `GitHub-Authentication-Token-Expiration` d'une réponse
+    de son API (`GET api.github.com/rate_limit`, qui ne consomme aucun quota de requêtes),
+    donné pour les jetons fine-grained et les jetons classiques qui expirent ;
+  - **tout autre hôte HTTPS**, pris pour un GitLab : `GET /api/v4/personal_access_tokens/self`,
+    qui donne `expires_at` pour les jetons d'accès personnels, de groupe et de projet. GitLab
+    peut le refuser à un jeton sans la portée `read_api` ou `api` (un jeton de projet avec
+    seulement `read_repository` et `write_repository`) : la date reste alors inconnue.
+
+  L'appel ne part que vers l'hôte du dépôt lui-même (pour GitHub, son API), qui reçoit de toute
+  façon le jeton pour la synchronisation, avec les protections de la création de dépôt :
+  abandonné après 10 secondes, jamais redirigé, et pour un hôte auto-hébergé, adresse publique
+  seulement (résolue une fois, puis connexion à l'adresse vérifiée), sauf pour le
+  super-administrateur. Un dépôt à une adresse IP ou à un nom d'hôte qui n'est pas en ASCII
+  simple n'est pas interrogé (deux versions d'IDNA peuvent faire de ce nom deux domaines
+  différents), pas plus qu'avec un mot de passe qui n'est pas en ASCII simple. Rien d'autre n'est lu dans la
+  réponse, et la date est gardée avec le jeton, chiffrée : pas de migration. Quand la date
+  reste inconnue (pas d'expiration, refus, autre forge, injoignable), le jeton est enregistré
+  quand même, sans avertissement. Une clé SSH n'expire pas.
+
+  Un jeton qui contient un caractère invisible ou de contrôle (espace sans chasse, tabulation ou
+  espace insécable collée avec lui) est refusé avec « Jeton d'accès invalide ». Espaces et
+  lettres accentuées restent permises à l'intérieur : le champ sert aussi au mot de passe
+  (Gitea, Bitbucket Server).
+
+Une fois la date connue :
+- **Paramètres → Dépôt Git → Accès au dépôt** l'affiche, en avertissement à moins de 30 jours,
+  en problème une fois passée ;
+- les administrateurs de l'organisation reçoivent une alerte (e-mail et **Alertes** dans le
+  journal d'audit, webhook `space.alert`) **30 jours, 7 jours et 1 jour avant, puis le jour
+  même** de l'expiration, une fois par palier : le worker vérifie toutes les heures, et un
+  worker arrêté un moment n'envoie que le palier atteint. Un nouveau jeton, avec une autre
+  date, repart de zéro. Si tous les e-mails d'un palier échouent (serveur d'envoi en panne),
+  la vérification horaire suivante les renvoie, sans second événement d'audit ni webhook. Le
+  journal d'audit et les alertes système montrent la date d'expiration ;
+- **Administration > Santé** a une ligne **Jetons d'accès Git** : avertissement quand un jeton
+  expire d'ici 30 jours, problème quand l'un a expiré, avec un lien vers la page Git de chaque
+  espace ;
+- une synchronisation refusée pour authentification après cette date dit que le jeton a
+  expiré, et quand. Seulement aux administrateurs de l'organisation, comme le reste de l'accès
+  au dépôt : les autres lecteurs de l'espace voient le message général d'authentification.
+
+Pour le renouveler : créez un nouveau jeton chez le fournisseur (GitLab : Settings → Access
+tokens, portées `read_repository` et `write_repository`, rôle Maintainer ; GitHub : jeton
+fine-grained limité au dépôt, **Contents** en lecture et écriture), puis collez-le dans **Accès
+au dépôt**. GitLab donne un jour, en UTC : son jeton cesse de fonctionner à cette date, ce
+jour-là compte donc comme expiré. GitHub donne l'instant : le dernier jour, avant cette heure,
+le jeton « expire aujourd'hui », puis il a expiré.
+
 ## 3. Webhook (recommandé)
 
 Sans webhook, Synaptane vérifie le dépôt toutes les `poll_minutes`, 5 minutes par défaut.
@@ -273,4 +329,4 @@ Il doit tourner en permanence à côté de `synaptane serve`. Plusieurs workers 
 en même temps sans risque : chaque tâche n'est prise qu'une fois, et chaque espace n'est
 traité que par un seul worker à la fois. Une erreur réseau est retentée automatiquement,
 5 fois au plus. Une erreur d'authentification est affichée telle quelle sur la page de
-l'espace.
+l'espace (avec la date d'expiration quand le jeton enregistré a expiré).

@@ -1,14 +1,16 @@
 """Alerts to the administrators of an organization: what needs their attention.
 
 An alert goes out by email (if sending is configured), by webhook (`space.alert`) and to the
-audit log. The same alert (kind and space) is not sent again before `QUIET`.
+audit log. The same alert (kind and space) is not sent again before `QUIET`, or, for an alert
+given a `once` key (each step before a Git token expires), never again with the same key.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole
@@ -31,7 +33,24 @@ KINDS = (
     "tidy_interrupted",
     "job_abandoned",
     "routine_failed",
+    "git_token_expiring",
+    "git_token_expired",
 )
+
+
+def _lock(session: Session, key: str) -> None:
+    """Serializes the deduplication of one alert until the end of the transaction: two
+    workers checking the same alert at the same moment do not both send it."""
+    session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0))))
+
+
+def _logged(value: object) -> str:
+    """A value as the log and the webhook keep it: English, a day in ISO form (written out in
+    the reader's language when shown)."""
+    return value.isoformat() if type(value) is date else str(mail.localized(value, "en"))
+
+
+UNDELIVERED = "undelivered"  # detail of a `once` alert whose emails all failed: retried
 
 
 def notify(
@@ -40,23 +59,58 @@ def notify(
     space: Space,
     kind: str,
     public_url: str = "",
+    *,
+    once: str = "",
     **values: object,
 ) -> bool:
-    """Notifies the admins of the organization of `space`. False if notified recently."""
+    """Notifies the admins of the organization of `space`. False if notified recently, or,
+    with `once` (a key naming this very alert: a token's expiry and the step reached), if an
+    alert of this kind already had this key for the space, however long ago.
+
+    With `once`, an alert whose emails all failed (mail server down) is kept as undelivered:
+    the next call sends the emails again, without a second audit event or webhook, and returns
+    True once one goes out."""
     assert kind in KINDS
     action = f"alert.{kind}"
-    recent = session.scalar(
-        select(AuditEvent.id).where(
-            AuditEvent.action == action,
-            AuditEvent.space_id == space.id,
-            AuditEvent.at > datetime.now(UTC) - QUIET,
-        )
-    )
-    if recent is not None:
+    _lock(session, f"{action}:{space.id}:{once}")
+    query = select(AuditEvent).where(AuditEvent.action == action, AuditEvent.space_id == space.id)
+    if once:
+        query = query.where(AuditEvent.details["once"].astext == once)
+    else:
+        query = query.where(AuditEvent.at > datetime.now(UTC) - QUIET)
+    event = session.scalars(query.order_by(AuditEvent.at.desc()).limit(1)).first()
+    if event is not None and not (once and event.details.get(UNDELIVERED)):
         return False
-    details = {k: str(mail.localized(v, "en")) for k, v in values.items()}  # log: English
-    audit(session, None, action, space=space, **details)
-    webhooks.emit(session, space, "space.alert", {"kind": kind, **details})
+    if event is None:
+        details = {k: _logged(v) for k, v in values.items()}
+        event = AuditEvent(
+            action=action,
+            org_id=space.org_id,
+            space_id=space.id,
+            details={**details, **({"once": once} if once else {})},
+        )
+        session.add(event)
+        webhooks.emit(session, space, "space.alert", {"kind": kind, **details})
+        retry = False
+    else:
+        retry = True  # an earlier attempt whose emails all failed
+    delivered = _mail_admins(session, box, space, kind, public_url, values)
+    if once:
+        kept: dict[str, object] = {k: v for k, v in event.details.items() if k != UNDELIVERED}
+        event.details = kept if delivered else {**kept, UNDELIVERED: "true"}
+    return delivered or not retry
+
+
+def _mail_admins(
+    session: Session,
+    box: SecretBox,
+    space: Space,
+    kind: str,
+    public_url: str,
+    values: Mapping[str, object],
+) -> bool:
+    """Emails the organization's admins. False only if there was someone to write to and every
+    send failed: True without email sending configured, or without an admin with an address."""
     if not mail.configured(session):
         return True
     org = space.organization
@@ -69,17 +123,19 @@ def notify(
             User.is_active.is_(True),
             User.email.is_not(None),
         )
-    )
+    ).all()
     link = f"{public_url}/o/{org.slug}/{space.slug}"
+    sent = 0
     for admin in admins:
         subject, body = mail.compose(
             f"alert_{kind}", admin.locale, space=space.name, org=org.name, link=link, **values
         )
         try:
             mail.send(session, box, admin.email or "", subject, body)
+            sent += 1
         except mail.MailError as error:
             log.warning("Alert %s not sent to %s: %s", kind, admin.email, error)
-    return True
+    return sent > 0 or not admins
 
 
 # Organization alerts, without a space: each one matches a transition (a webhook cut off by
@@ -137,6 +193,7 @@ def notify_instance(
     alert is not sent again before `QUIET`. False if notified recently."""
     assert kind in INSTANCE_KINDS
     action = f"alert.{kind}"
+    _lock(session, action)
     recent = session.scalar(
         select(AuditEvent.id).where(
             AuditEvent.action == action, AuditEvent.at > datetime.now(UTC) - QUIET
@@ -181,7 +238,11 @@ def check_backlogs(database: Database, ws: Workspace) -> int:
     with database.session() as session:
         candidates = list(
             session.scalars(
-                select(Space).where(Space.repo_url.is_not(None), Space.tidy_enabled.is_(True))
+                # A fixed order: the alerts' locks pile up in this transaction, and another
+                # worker taking them in another order could wait for this one forever.
+                select(Space)
+                .where(Space.repo_url.is_not(None), Space.tidy_enabled.is_(True))
+                .order_by(Space.id)
             )
         )
         for space in candidates:

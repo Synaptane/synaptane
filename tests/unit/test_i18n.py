@@ -318,6 +318,7 @@ def test_labels_computed_by_the_code_are_translated_to_french() -> None:
         *(message for _, message in repo.EXPLANATIONS),
         repo.LOCAL_REPOS_DISABLED,
         repo.REMOTE_TOO_FAST,
+        repo.TOKEN_EXPIRED,
         *(kind for kind, _ in secret_scan._PATTERNS),
         *(text for t in routines.TEMPLATES.values() for text in (t.name, t.description)),
         *(text for t in vocation.TEMPLATES.values() for text in (t.label, t.summary)),

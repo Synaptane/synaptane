@@ -185,8 +185,8 @@ d'audit (`group.created`, `group.updated`, `group.deleted`, `group.member_added`
 
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
-| `GET …/spaces/{space}/git` | lecteur | État : statut, dernière synchronisation, conflits, URL du webhook |
-| `PUT …/spaces/{space}/git/credentials` | admin d'organisation | `{"kind": "https", "token": …}` ou `{"kind": "ssh", "private_key": …, "known_hosts": …}` |
+| `GET …/spaces/{space}/git` | lecteur | État : statut, dernière synchronisation, conflits, URL du webhook ; pour un admin d'organisation, `credentials` (`https`, `ssh` ou `null`) et `credentials_expire` (date d'expiration du jeton HTTPS quand elle est connue, sinon `null`) |
+| `PUT …/spaces/{space}/git/credentials` | admin d'organisation | `{"kind": "https", "token": …}` ou `{"kind": "ssh", "private_key": …, "known_hosts": …}`. La date d'expiration d'un jeton HTTPS est lue chez GitHub ou GitLab quand ils la donnent (voir [Expiration des jetons](../admin/git.fr.md#expiration-des-jetons)) |
 | `DELETE …/spaces/{space}/git/credentials` | admin d'organisation | Supprime les identifiants |
 | `POST …/spaces/{space}/git/sync` | contributeur | Demande une synchronisation (202) |
 | `POST …/spaces/{space}/git/webhook-secret` | admin d'organisation | Génère un secret, renvoie l'URL et le secret |

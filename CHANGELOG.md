@@ -11,6 +11,33 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Warnings before a Git access token expires**. When the expiry date of a space's HTTPS
+  token is known, the organization's admins get an alert by email (in their language), in the
+  audit log (**Alerts**) and through the `space.alert` webhook, **30 days, 7 days and 1 day
+  before, then on the day** it expires (`git_token_expiring`, `git_token_expired`): once per
+  step, checked every hour by the worker, a stopped worker only sending the step reached, and
+  a new token, with another date, starting over. **Administration > Health** gets a **Git
+  access tokens** line, a warning when a token expires within 30 days and a problem once one
+  has expired, listing each space with a link to its Git page and how to renew the token. A
+  sync refused for authentication after this date now says that the token expired, and when,
+  on the space's page, in the REST API and in the sync alert. The date is known for the GitLab
+  project access token Synaptane creates, and now also for a token saved by hand in
+  **Settings → Git repository → Repository access** or with `PUT …/git/credentials`: Synaptane
+  asks the provider once, as it saves it (GitHub: the `GitHub-Authentication-Token-Expiration`
+  header of `GET api.github.com/rate_limit`; any other HTTPS host, taken for a GitLab:
+  `GET /api/v4/personal_access_tokens/self`), with the protections of the repository creation
+  (10 seconds at most, no redirect followed, a self-hosted host at a public address only,
+  except for the super admin, no database connection held meanwhile); when the provider does
+  not tell, the token is saved all the same (a repository at an IP address or at a host name
+  that is not plain ASCII is not asked). GitHub
+  gives the moment: on the last day, before that hour, the token "expires today". If every email
+  of a step fails, the next hourly check sends them again; the audit log and the system alerts
+  show the expiry date, written out in the reader's language (ISO in the `space.alert`
+  webhook). The expiry date in a sync error is shown to the organization's admins
+  only, like the rest of the repository access. REST: `credentials_expire` in
+  `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
+  email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
+  See `docs/admin/git.md#token-expiry`.
 - **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
   **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
   note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
@@ -46,6 +73,19 @@ of the target version.
   it creates the table linking invitations to groups, empty, so no pending invitation changes.
 
 ### Changed
+- **Settings → Git repository → Repository access** shows any known expiry date of the saved
+  token, not only the one of a GitLab project access token created by Synaptane: muted beyond
+  30 days, a warning within 30 days, a problem once it has passed, with where to create the
+  next token on GitHub or GitLab. Saving a token whose expiry the provider gives says it
+  ("Repository access saved. The token expires on …").
+- An HTTPS access token with an invisible or control character (a zero-width space, a tab or a
+  no-break space pasted with it) is refused with "Invalid access token", on the web page and
+  with `PUT …/git/credentials` (400): it could never authenticate. Spaces and accented letters
+  stay allowed (a Basic password for Gitea or Bitbucket Server). The token that creates a
+  repository must be plain ASCII.
+- Two workers no longer send the same alert twice: its check is serialized in the database.
+- The worker's hourly checks (change watermarks, inbox backlog, review reminders, Git token
+  expiry) run each on its own: a lasting error in one no longer skips the others.
 - The purpose's preview now resolves `[[wiki links]]` in the space, and refuses a text above
   262,144 characters.
 - Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
@@ -60,6 +100,9 @@ of the target version.
 - Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
 
 ### Fixed
+- **Worker**: its hourly checks (inbox backlog, change watermarks, Git token expiry) now run
+  right after it starts, also on a machine booted less than an hour before; they used to wait
+  for the first hour.
 - After **Preview** (without JavaScript) or an error, saving the purpose or the filing
   instructions no longer replaces, without a conflict, a version saved by someone else in the
   meantime: the form keeps the version the text started from.

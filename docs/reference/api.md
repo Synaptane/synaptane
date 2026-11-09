@@ -182,8 +182,8 @@ limited, whatever its owner's groups. Changes are written to the audit log (`gro
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET …/spaces/{space}/git` | reader | State: status, last sync, conflicts, webhook URL |
-| `PUT …/spaces/{space}/git/credentials` | organization admin | `{"kind": "https", "token": …}` or `{"kind": "ssh", "private_key": …, "known_hosts": …}` |
+| `GET …/spaces/{space}/git` | reader | State: status, last sync, conflicts, webhook URL; for an organization admin, `credentials` (`https`, `ssh` or `null`) and `credentials_expire` (expiry date of the HTTPS token when known, otherwise `null`) |
+| `PUT …/spaces/{space}/git/credentials` | organization admin | `{"kind": "https", "token": …}` or `{"kind": "ssh", "private_key": …, "known_hosts": …}`. An HTTPS token's expiry date is read from GitHub or GitLab when they give it (see [Token expiry](../admin/git.md#token-expiry)) |
 | `DELETE …/spaces/{space}/git/credentials` | organization admin | Deletes the credentials |
 | `POST …/spaces/{space}/git/sync` | contributor | Requests a sync (202) |
 | `POST …/spaces/{space}/git/webhook-secret` | organization admin | Generates a secret, returns the URL and the secret |

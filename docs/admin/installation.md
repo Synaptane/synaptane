@@ -420,10 +420,12 @@ webhook, when something needs their attention, for example:
 - the tidy-up of a space keeps failing (not just a network glitch), or stops before the end;
 - a space no longer syncs with its repository (credentials refused, repository not found);
 - an inbox holds items that nobody has looked at for more than 3 days;
-- the tidy-up agent reaches the deletion cap, or makes large changes.
+- the tidy-up agent reaches the deletion cap, or makes large changes;
+- a space's Git access token expires in 30 days, 7 days, tomorrow, or has expired (see
+  [Token expiry](git.md#token-expiry)).
 
 The full list of alert kinds is in [Webhooks](webhooks.md). The same alert (kind and space)
-is not sent again within 20 hours. The AI budget has its own alerts (see
+is not sent again within 20 hours; the expiry of a token is notified once per step. The AI budget has its own alerts (see
 [AI and tidy-up](ai.md)).
 
 The super admins are notified, by email if it is set up, when the nightly backup or its
@@ -433,8 +435,9 @@ Health**.
 ## Monitoring
 
 **Administration > Health** (`/admin/health`, super admins) shows the instance on one page:
-database, master key, worker, background tasks, last backup, off-site copy, disk, email sending
-and HTTPS, then the sync and tidy-up of each space, then the system alerts of the last 30 days.
+database, master key, worker, background tasks, last backup, off-site copy, disk, email sending,
+HTTPS and the Git access tokens expiring within 30 days or expired (with a link to each space's
+Git page), then the sync and tidy-up of each space, then the system alerts of the last 30 days.
 A backup counts once it is written and verified, wherever it went; an off-site copy, once every
 destination has it. Copies made before 1.11.0 are not seen.
 
