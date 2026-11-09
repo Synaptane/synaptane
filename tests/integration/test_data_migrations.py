@@ -16,7 +16,9 @@ rules (CHANGELOG):
 - 0031: groups start empty, and the database keeps them within their organization (members
   of the organization only, spaces of the organization only), with cascading deletions;
 - 0032: pending invitations keep their roles and join no group; an invitation only names
-  groups of its organization, and deleting the group or the invitation removes the link.
+  groups of its organization, and deleting the group or the invitation removes the link;
+- 0033: no capture by email is configured (nothing is read before the super admin sets it
+  up), and what it remembers of an email outlives the space and the account it named.
 
 Same principle for every future migration that touches data.
 """
@@ -372,6 +374,97 @@ def test_invitation_groups_migration_keeps_them_within_the_organization(
             == []
         )
         assert rows("SELECT conname FROM pg_constraint WHERE conname = 'uq_invitations_id'") == []
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_email_capture_migration_starts_empty_and_keeps_no_content(
+    new_database: Callable[[], str],
+) -> None:
+    """0033 on an instance in service: no capture configured (nothing is read until the super
+    admin sets it up); a single row of settings, within its bounds; a capture outlives the
+    space and the account it named (the link is emptied, the line kept for the health
+    page); the migration goes down and up again."""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0032")
+    org, space, user = uuid4(), uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def rows(sql: str) -> list[tuple[object, ...]]:
+        with engine.connect() as connection:
+            return [tuple(row) for row in connection.execute(text(sql))]
+
+    settings = (
+        "INSERT INTO capture_settings (id, host, port, security, username, folder, address, "
+        "authserv_ids, unnamed_results, spf_domains, interval, replies, updated_at) VALUES "
+        "(:id, 'imap.example.com', 993, :security, 'brain', 'INBOX', 'brain@example.com', "
+        "'mx.example.com', false, '', :interval, :replies, now())"
+    )
+    try:
+        run(
+            "INSERT INTO organizations (id, slug, name, description, created_at) "
+            "VALUES (:id, 'acme', 'Acme', '', now())",
+            id=org,
+        )
+        run(
+            "INSERT INTO spaces (id, org_id, slug, name, description, branch, created_at, "
+            "sync_status, conflict_paths, tidy_enabled, tidy_time, tidy_timezone) VALUES "
+            "(:id, :org, 'infra', 'Infra', '', 'main', now(), 'never', '[]', true, '02:00', "
+            "'Europe/Paris')",
+            id=space,
+            org=org,
+        )
+        run(
+            "INSERT INTO users (id, username, display_name, email, password_hash, is_superadmin, "
+            "is_active, locale, created_at, must_change_password) VALUES (:id, 'ada', 'Ada', "
+            "'ada@example.com', NULL, false, true, 'fr', now(), false)",
+            id=user,
+        )
+        command.upgrade(config, "0033")
+        assert rows("SELECT * FROM capture_settings") == []
+        assert rows("SELECT * FROM email_captures") == []
+
+        run(settings, id=1, security="ssl", interval=2, replies="refusals")
+        for values in (
+            {"id": 2, "security": "ssl", "interval": 2, "replies": "off"},  # a second row
+            {"id": 1, "security": "tls", "interval": 2, "replies": "off"},
+        ):
+            with pytest.raises(IntegrityError):
+                run(settings, **values)
+        for column, value in (("interval", 0), ("interval", 61), ("replies", "maybe")):
+            with pytest.raises(IntegrityError):
+                run(f"UPDATE capture_settings SET {column} = :value", value=value)
+
+        capture = (
+            "INSERT INTO email_captures (id, key, at, status, reason, sender_domain, target, "
+            "space_id, user_id) VALUES (:id, :key, now(), :status, '', 'example.com', "
+            "'acme.infra', :space, :user)"
+        )
+        run(capture, id=uuid4(), key="a" * 64, status="accepted", space=space, user=user)
+        with pytest.raises(IntegrityError):  # the same email twice
+            run(capture, id=uuid4(), key="a" * 64, status="accepted", space=space, user=user)
+        with pytest.raises(IntegrityError):
+            run(capture, id=uuid4(), key="b" * 64, status="maybe", space=space, user=user)
+        run("DELETE FROM spaces WHERE id = :space", space=space)
+        run("DELETE FROM users WHERE id = :user", user=user)
+        assert rows("SELECT status, target, space_id, user_id FROM email_captures") == [
+            ("accepted", "acme.infra", None, None)
+        ]
+
+        command.downgrade(config, "0032")
+        assert (
+            rows(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name IN ('capture_settings', 'email_captures')"
+            )
+            == []
+        )
         command.upgrade(config, "head")
     finally:
         engine.dispose()

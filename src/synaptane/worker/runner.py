@@ -1,6 +1,6 @@
 """`synaptane worker` process: runs the job queue and schedules the sync.
 
-Five lanes, each with its share of the queue (LANES), so that no job waits behind another of
+Six lanes, each with its share of the queue (LANES), so that no job waits behind another of
 a different kind:
 - fast (main thread, with maintenance): Git sync, resolution, subscription connection test,
   and any new kind of job;
@@ -9,7 +9,9 @@ a different kind:
   of other spaces. Agent routines run there too (same cost, same slowness, and never at the
   same time as a tidy-up of the same space);
 - webhooks: a slow or silent recipient no longer delays syncs;
-- backup: the automatic backup of the night, whose off-site copy can last hours.
+- backup: the automatic backup of the night, whose off-site copy can last hours;
+- email: the capture by email reads its mailbox every few minutes; a slow mail server no
+  longer delays the other jobs.
 Several workers can run: job claiming and the per-space lock prevent duplicates.
 """
 
@@ -38,6 +40,7 @@ from synaptane.services import (
     alerts,
     backup_schedule,
     changes,
+    email_capture,
     freshness,
     git_expiry,
     git_sync,
@@ -73,6 +76,7 @@ LANES: dict[str, frozenset[str]] = {
     "tidy": frozenset({tidy.TIDY, routines.ROUTINE}),
     "webhook": frozenset({webhooks.WEBHOOK}),
     "backup": frozenset({backup_schedule.BACKUP}),
+    "email": frozenset({email_capture.EMAIL}),
 }
 DEDICATED: frozenset[str] = frozenset().union(*LANES.values())
 # Wait for the dedicated lanes on shutdown, below Compose's `stop_grace_period` (60 s): beyond
@@ -103,6 +107,7 @@ class Worker:
             webhooks.WEBHOOK: self._webhook,
             ai_settings.AI_TEST: self._ai_test,
             backup_schedule.BACKUP: self._backup,
+            email_capture.EMAIL: self._email,
         }
 
     # --- Jobs ---------------------------------------------------------------------------------
@@ -137,6 +142,19 @@ class Worker:
             trigger=str(job.payload.get("trigger", backup_schedule.SCHEDULE)),
             public_url=self.settings.public_url,
         )
+
+    def _email(self, _job: Job) -> None:
+        """Capture by email: reads the mailbox once (`email_capture.poll`)."""
+        summary = email_capture.poll(
+            self.database, self.ctx, allow_plain=self.settings.allow_insecure_imap
+        )
+        if summary.accepted or summary.refused:
+            log.info(
+                "Capture by email: %d accepted, %d refused, %d deferred.",
+                summary.accepted,
+                summary.refused,
+                summary.deferred,
+            )
 
     def _tidy(self, job: Job) -> None:
         """Inbox tidy-up by the AI agent (scheduled or requested)."""
@@ -352,6 +370,7 @@ class Worker:
         routine_agent.close_orphans(self.database)
         backup_schedule.schedule(self.database, self.settings)
         backup_schedule.check_abandoned(self.database, self.ctx.box, self.settings.public_url)
+        email_capture.schedule(self.database)  # every `interval` minutes, if configured
         alerts.check_abandoned_jobs(self.database, self.ctx)  # attempts exhausted: notify
         if now - self._last_backlog_check > 3600:  # once an hour
             self._last_backlog_check = now

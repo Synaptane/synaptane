@@ -96,8 +96,17 @@ def remove(session: Session, actor: Actor) -> None:
         audit(session, actor, "instance.mail_removed")
 
 
-def send(session: Session, box: SecretBox, to: str, subject: str, body: str) -> None:
-    """Sends a plain-text email. Raises MailError if sending fails."""
+def send(
+    session: Session,
+    box: SecretBox,
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    automatic: bool = False,
+) -> None:
+    """Sends a plain-text email. Raises MailError if sending fails. `automatic`: an answer to
+    an email (capture by email), marked `Auto-Submitted` so that no robot answers it back."""
     row = session.get(MailSettings, 1)
     if row is None:
         raise MailError("Email sending is not configured on this instance.")
@@ -106,6 +115,8 @@ def send(session: Session, box: SecretBox, to: str, subject: str, body: str) -> 
     message["To"] = to
     message["Subject"] = subject
     message["Message-ID"] = make_msgid(domain=row.sender.rsplit("@", 1)[-1])
+    if automatic:
+        message["Auto-Submitted"] = "auto-replied"
     message.set_content(body)
     password = box.decrypt(row.password, _CONTEXT) if row.password else ""
     try:
@@ -469,6 +480,32 @@ _TEXTS = {
             "The email address of your Synaptane account changed",
             "Hello,\n\nThe email address of your Synaptane account is now: {new}.\n\n"
             "If you did not make this change, tell an administrator.\n",
+        ),
+    },
+    "capture_accepted": {
+        "fr": (
+            "Déposé dans « {space} » : {title}",
+            "Bonjour,\n\nVotre e-mail « {subject} » a été déposé dans l'inbox de l'espace "
+            "« {space} » ({org}). Le rangement le classera dans le wiki.\n\n{link}\n",
+        ),
+        "en": (
+            "Dropped in “{space}”: {title}",
+            "Hello,\n\nYour email “{subject}” was dropped in the inbox of the “{space}” space "
+            "({org}). The tidy-up will file it into the wiki.\n\n{link}\n",
+        ),
+    },
+    "capture_refused": {
+        "fr": (
+            "Non déposé dans Synaptane : {subject}",
+            "Bonjour,\n\nVotre e-mail « {subject} », envoyé à {address}, n'a pas été déposé "
+            "dans Synaptane :\n{reason}\n\nRien n'en a été gardé. Pour déposer une note, "
+            "écrivez à l'adresse de capture de l'espace, affichée sur sa page Inbox.\n",
+        ),
+        "en": (
+            "Not dropped in Synaptane: {subject}",
+            "Hello,\n\nYour email “{subject}”, sent to {address}, was not dropped in "
+            "Synaptane:\n{reason}\n\nNothing of it was kept. To drop a note, write to the "
+            "capture address of the space, shown on its Inbox page.\n",
         ),
     },
     "test": {

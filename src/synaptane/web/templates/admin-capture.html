@@ -1,0 +1,57 @@
+{% extends "admin-base.html" %}
+{% from "ui.html" import csrf_field, action, section_tabs, when with context %}
+{% from "icons.html" import sep %}
+{% block page_title %}{{ _("Capture by email") }}{% endblock %}
+{% block section_crumbs %}<a href="/admin/mail">{{ _("Email") }}</a>{{ sep() }}<span aria-current="page">{{ _("Capture by email") }}</span>{% endblock %}
+{% block section %}
+{{ section_tabs(_("Email sections"), [("sending", "/admin/mail", _("Sending")), ("capture", "/admin/mail/capture", _("Capture by email"))], "capture") }}
+<div class="section-heading"><h2>{{ _("Capture by email") }}</h2>{% if capture %}<span class="status status-ok">{{ _("Configured") }}</span>{% else %}<span class="status">{{ _("Not configured") }}</span>{% endif %}</div>
+<p class="muted admin-intro">{{ _("An email sent or forwarded to brain+organization.space@… becomes a note in the inbox of that space. The worker reads a dedicated mailbox over IMAP; only an email authenticated by the receiving server (DMARC, or aligned DKIM) and sent from the verified address of an account that may drop notes in the space is accepted.") }} <a href="https://github.com/synaptane/synaptane/blob/main/docs/admin/email-capture{{ '.fr' if locale == 'fr' else '' }}.md" rel="noopener" target="_blank">{{ _("How to set up the capture by email") }}</a></p>
+{% if capture %}
+<div class="card admin-mail-test">
+  <h3>{{ _("Check the mailbox") }}</h3>
+  <p class="muted">{{ _("{username} on {server}, folder {folder}.", username=capture.username, server=capture.host ~ ":" ~ capture.port, folder=capture.folder) }}
+  {% if capture.poll_error %}<span class="status status-error">{{ _("Last poll failed") }}</span> {{ _(capture.poll_error) }}{% elif capture.poll_ok_at %}{{ _("Last successful poll:") }} {{ when(capture.poll_ok_at) }}{% else %}{{ _("No poll yet.") }}{% endif %}</p>
+  <div class="admin-inline">
+    {{ action("/admin/mail/capture/test", _("Test the connection")) }}
+    {% if poll_pending %}<span class="muted">{{ _("A poll is waiting or running.") }}</span>{% else %}{{ action("/admin/mail/capture/poll", _("Read the mailbox now")) }}{% endif %}
+  </div>
+  <p class="muted">{{ _("The test signs in, counts the emails waiting and names the servers that authenticated the latest ones: the identifier to trust below.") }}</p>
+</div>
+{% endif %}
+<form class="card section-gap-small" method="post" action="/admin/mail/capture">
+  <h3>{{ _("IMAP mailbox") }}</h3>
+  {{ csrf_field() }}
+  <div class="admin-columns-port">
+    <div class="field"><label for="capture-host">{{ _("Server address") }}</label><input id="capture-host" name="host" required value="{{ capture.host if capture else '' }}" placeholder="imap.example.com"></div>
+    <div class="field"><label for="capture-port">{{ _("Port") }}</label><input id="capture-port" name="port" type="number" min="1" max="65535" value="{{ capture.port if capture else 993 }}" required></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="capture-security">{{ _("Security") }}</label><select id="capture-security" name="security">{% for value, label in (("ssl", "SSL/TLS (993)"), ("starttls", "STARTTLS (143)")) + ((("none", _("None (development only)")),) if allow_plain or (capture and capture.security == "none") else ()) %}<option value="{{ value }}" {% if capture and capture.security == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="capture-folder">{{ _("Folder read") }}</label><input id="capture-folder" name="folder" required value="{{ capture.folder if capture else 'INBOX' }}" aria-describedby="capture-folder-help"><p class="muted" id="capture-folder-help">{{ _("Handled emails are moved to Synaptane/Processed or Synaptane/Refused.") }}</p></div>
+  </div>
+  <div class="form-columns">
+    <div class="field"><label for="capture-user">{{ _("Username") }}</label><input id="capture-user" name="username" required autocomplete="off" value="{{ capture.username if capture else '' }}" placeholder="brain@example.com"></div>
+    <div class="field"><label for="capture-password">{{ _("Password") }}</label><input id="capture-password" name="password" type="password" autocomplete="new-password" {% if not capture %}required{% endif %} placeholder="{{ _('unchanged if empty') if capture and capture.has_password else '' }}" aria-describedby="capture-password-help"><p class="muted" id="capture-password-help">{{ _("An app password if the provider offers one. Encrypted, never shown again.") }}</p></div>
+  </div>
+  <h3 class="section-gap-small">{{ _("Addresses and authentication") }}</h3>
+  <div class="form-columns">
+    <div class="field"><label for="capture-address">{{ _("Capture address") }}</label><input id="capture-address" name="address" type="email" required value="{{ capture.address if capture else '' }}" placeholder="brain@example.com" aria-describedby="capture-address-help"><p class="muted" id="capture-address-help">{{ _("Each space is reached at brain+organization.space@example.com: the provider must accept “+” addresses.") }}</p></div>
+    <div class="field"><label for="capture-ids">{{ _("Trusted servers") }}</label><input id="capture-ids" name="authserv_ids" value="{{ capture.authserv_ids if capture else '' }}" placeholder="mx.google.com" aria-describedby="capture-ids-help"><p class="muted" id="capture-ids-help">{{ _("Identifier at the start of the Authentication-Results header written by the mailbox's provider (mx.google.com for Gmail). Separated by commas.") }}</p></div>
+  </div>
+  <div class="admin-check"><label class="checkbox"><input type="checkbox" name="unnamed_results" value="true" {% if capture and capture.unnamed_results %}checked{% endif %}>{{ _("Microsoft 365: accept its header without identifier") }}</label><p class="muted">{{ _("Exchange Online writes it without one. Only the topmost header is then read, the one Microsoft adds on arrival. Leave unticked with any other provider.") }}</p></div>
+  <div class="field"><label for="capture-spf">{{ _("Internal domains accepted on SPF alone (optional, less safe)") }}</label><input id="capture-spf" name="spf_domains" value="{{ capture.spf_domains if capture else '' }}" placeholder="corp.example" aria-describedby="capture-spf-help"><p class="muted" id="capture-spf-help">{{ _("For a domain that signs nothing (no DKIM, no DMARC): an SPF pass only proves the sending server, and anyone allowed to send through it can then write in the name of a colleague. Leave empty if you can set up DKIM.") }}</p></div>
+  <h3 class="section-gap-small">{{ _("Poll and answers") }}</h3>
+  <div class="form-columns">
+    <div class="field"><label for="capture-interval">{{ _("Read the mailbox every (minutes)") }}</label><input id="capture-interval" name="interval" type="number" min="1" max="60" required value="{{ capture.interval if capture else 2 }}"></div>
+    <div class="field"><label for="capture-replies">{{ _("Answer the sender") }}</label><select id="capture-replies" name="replies" aria-describedby="capture-replies-help">{% for value, label in (("refusals", _("When the email is refused")), ("all", _("Always (confirmation or refusal)")), ("off", _("Never"))) %}<option value="{{ value }}" {% if (capture.replies if capture else 'refusals') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="muted" id="capture-replies-help">{{ _("Only to an authenticated sender who has an account, through email sending. Nobody else is ever answered.") }}</p></div>
+  </div>
+  <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+</form>
+{% if capture %}
+<div class="card section-gap-small admin-state">
+  <div><h3>{{ _("Turn off the capture") }}</h3><p class="muted">{{ _("The worker stops reading the mailbox; the settings and the password are erased. Notes already dropped stay.") }}</p></div>
+  {{ action("/admin/mail/capture/delete", _("Turn off the capture"), confirm=_("Turn off the capture by email? Emails sent to the capture address will wait in the mailbox."), kind="danger", small=false) }}
+</div>
+{% endif %}
+{% endblock %}

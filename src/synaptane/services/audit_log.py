@@ -2,7 +2,7 @@
 
 Organization admins read their organization's events and its spaces' (`/o/<org>/-/journal`);
 super admins read the whole instance, events without an organization included (accounts,
-tokens, single sign-on, email sending), at `/admin/journal`.
+tokens, single sign-on, email sending and capture), at `/admin/journal`.
 
 `audit_events` also keeps the operations of every day (page changes, inbox notes, tidy-up
 requests, costs of semantic indexing, review reminders): they have their own pages (Activity,
@@ -191,6 +191,7 @@ FIELDS = {
     "webhook": Field(_host, subject=True),
     "slug": Field(_value("slug"), subject=True),  # of a deleted space or organization
     "mail_host": Field(_value("host"), subject=True),
+    "capture_address": Field(_value("address"), subject=True),
     "prompt": Field(_prompt, subject=True),
     "group": Field(_value("group", "Group {value}"), subject=True),
     # Details
@@ -237,6 +238,11 @@ FIELDS = {
     # The groups an invitation makes the person join (their names at the time).
     "invited_groups": Field(_groups),
     "date": Field(_iso_day("date", "Expiry date: {value}")),  # of a Git token
+    # Capture by email: the less safe options, when they are on.
+    "capture_spf": Field(_flag("spf", Label("Internal domains accepted on SPF alone"))),
+    "capture_unnamed": Field(
+        _flag("unnamed", Label("Results without a server identifier accepted (Microsoft 365)"))
+    ),
 }
 
 # Author of an event without an account (`actor_id` empty).
@@ -341,6 +347,14 @@ ACTIONS: dict[str, Kind] = {
     "sso.provider_deleted": Kind("settings", Label("SSO provider deleted"), ("sso",)),
     "instance.mail_configured": Kind("settings", Label("Email sending set up"), ("mail_host",)),
     "instance.mail_removed": Kind("settings", Label("Email sending removed")),
+    "instance.capture_configured": Kind(
+        "settings",
+        Label("Capture by email set up"),
+        ("capture_address", "mail_host", "capture_spf", "capture_unnamed"),
+    ),
+    "instance.capture_removed": Kind(
+        "settings", Label("Capture by email removed"), ("capture_address",)
+    ),
     "instance.backup_requested": Kind("settings", Label("Backup requested")),
     # Accounts and security
     "user.created": Kind("security", Label("Account created"), ("account", "superadmin")),

@@ -446,6 +446,19 @@ n'avez pas accès.
 
 ## Inbox et activité
 
+- **Par e-mail** : quand le super-admin a mis en place la [capture par
+  e-mail](../admin/email-capture.fr.md), la page **Inbox** d'un espace affiche son adresse à
+  ceux dont les e-mails y seraient acceptés (adresse vérifiée, droit de déposer des notes ; un
+  super-admin seulement dans ses espaces), par exemple `brain+acme.infra@example.com`, avec un
+  bouton **Copier** (les premiers pas de l'espace aussi). Envoyez-y ou transférez-y un e-mail
+  **depuis l'adresse vérifiée de votre compte** : il devient une note à votre nom, son objet
+  pour titre, avec ses pièces jointes (10 au plus), et le rangement la classe. Le serveur de
+  réception doit avoir authentifié votre e-mail (DKIM ou DMARC de votre domaine, voir le guide
+  d'administration) : un expéditeur usurpé est refusé en silence. Un e-mail peut nommer
+  plusieurs espaces, en À ou en Cc (jamais en Cci), et doit être daté de moins de 48 heures
+  avant son arrivée (transférez un e-mail plus ancien : le transfert est daté du jour). Selon
+  les réglages, vous recevez une réponse quand l'e-mail est refusé (pourquoi) ou à chaque fois
+  (avec le lien vers la note).
 - **Inbox** (barre de gauche) : filtrez par texte ou par type (notes, modifications, éléments
   laissés par le rangement). Sur une note, un contributeur peut la **modifier** (si le
   rangement l'avait laissée, elle redevient à traiter), la **déplacer** vers l'inbox d'un

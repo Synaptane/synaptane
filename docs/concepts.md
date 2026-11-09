@@ -143,11 +143,12 @@ Details: [Files other than Markdown](guide/wiki.md#files-other-than-markdown).
 
 ## Inbox
 
-**Notes.** From MCP, the REST API or the web UI, a contributor drops a note: a title, Markdown
-content, optional attachments, where it comes from and an optional filing suggestion.
-Synaptane commits and pushes the note right away under `.synaptane/inbox/`. A note is only
-refused for its size, for permissions, or because it seems to contain a secret (password, API
-key, private key, credentials in a URL); the person can confirm a false alarm.
+**Notes.** From MCP, the REST API, the web UI or by email (the [capture by
+email](admin/email-capture.md)), a contributor drops a note: a title, Markdown content,
+optional attachments, where it comes from and an optional filing suggestion. Synaptane commits
+and pushes the note right away under `.synaptane/inbox/`. A note is only refused for its size,
+for permissions, or because it seems to contain a secret (password, API key, private key,
+credentials in a URL); the person can confirm a false alarm.
 
 **Changes.** A contributor can also change `content/` directly (web, REST, MCP), and anyone
 with access to the repository can push to it. Each changed page shows in the inbox as a

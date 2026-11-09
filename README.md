@@ -58,11 +58,11 @@ don't just read it, they feed it, and an AI agent keeps it organized every night
   (MCP Apps) to review, file and undo without leaving it. Tested with Claude.ai, Claude
   Desktop, Claude Code and ChatGPT connectors. A connection can be limited to read-only, to
   the inbox or to some spaces.
-- **Inbox and nightly tidy-up.** Drop notes from your assistant, the web UI or the REST API.
-  An AI agent files them, updates existing pages, fixes links and commits. Each space can
-  describe its *purpose* to guide it. Guardrails: a cap of 10 deletions per run, caps on
-  tokens, steps and tool calls per run, an optional monthly budget, and one-click undo of a
-  run.
+- **Inbox and nightly tidy-up.** Drop notes from your assistant, the web UI, the REST API or by
+  email (authenticated senders only). An AI agent files them, updates existing pages, fixes
+  links and commits. Each space can describe its *purpose* to guide it. Guardrails: a cap of 10
+  deletions per run, caps on tokens, steps and tool calls per run, an optional monthly budget,
+  and one-click undo of a run.
 - **Scheduled agent routines.** For example a weekly consistency check or a Friday digest.
   Output goes to a report page, the inbox, email or a webhook.
 - **Search that finds things.** Full-text search with accent folding and light stemming

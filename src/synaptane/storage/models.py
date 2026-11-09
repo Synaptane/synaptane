@@ -688,6 +688,68 @@ class MailSettings(Base):
     )
 
 
+class CaptureSettings(Base):
+    """Capture by email (`services.email_capture`): the IMAP mailbox the worker reads, and
+    how senders are authenticated. Configured by the super admin. A single row."""
+
+    __tablename__ = "capture_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(default=993)
+    security: Mapped[str] = mapped_column(String(16), default="ssl")  # ssl, starttls, none
+    username: Mapped[str] = mapped_column(String(320))
+    password: Mapped[bytes | None] = mapped_column(LargeBinary)  # encrypted (SecretBox)
+    folder: Mapped[str] = mapped_column(String(255), default="INBOX")
+    # Public address (brain@example.com): a space is reached at brain+org.space@example.com.
+    address: Mapped[str] = mapped_column(String(320))
+    # Identifiers (authserv-id) of the receiving server whose Authentication-Results header
+    # is trusted, separated by spaces or commas.
+    authserv_ids: Mapped[str] = mapped_column(String(1000))
+    # Microsoft 365 writes this header without an identifier: accepted only if asked.
+    unnamed_results: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Internal domains without DKIM or DMARC: accepted on SPF alone (less safe).
+    spf_domains: Mapped[str] = mapped_column(String(1000), default="")
+    interval: Mapped[int] = mapped_column(default=2)  # minutes between two polls
+    replies: Mapped[str] = mapped_column(String(16), default="refusals")  # off, refusals, all
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Last poll: when it ended, the last one that worked, and the last error (short).
+    polled_at: Mapped[datetime | None]
+    poll_ok_at: Mapped[datetime | None]
+    poll_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="single_row"),
+        CheckConstraint("security IN ('starttls', 'ssl', 'none')", name="security"),
+        CheckConstraint("replies IN ('off', 'refusals', 'all')", name="replies"),
+        CheckConstraint("interval BETWEEN 1 AND 60", name="interval"),
+    )
+
+
+class EmailCapture(Base):
+    """An email the capture handled, accepted or refused: what makes the poll idempotent
+    (`key`: digest of the Message-ID and of the space aimed at) and what the health page shows
+    of the refusals. Neither the subject, nor the content, nor the full sender address."""
+
+    __tablename__ = "email_captures"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    key: Mapped[str] = mapped_column(String(64), unique=True)
+    at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    # accepted, refused, or deferred (space busy: tried again; `at` is then the first try)
+    status: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(String(32), default="")
+    sender_domain: Mapped[str] = mapped_column(String(255), default="")
+    target: Mapped[str] = mapped_column(String(130), default="")  # org.space as written
+    space_id: Mapped[UUID | None] = mapped_column(ForeignKey("spaces.id", ondelete="SET NULL"))
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    path: Mapped[str | None] = mapped_column(Text)  # the inbox note created
+
+    __table_args__ = (
+        CheckConstraint("status IN ('accepted', 'refused', 'deferred')", name="status"),
+    )
+
+
 class Invitation(Base):
     """Invitation to join an organization (and spaces, and groups), via a single-use link."""
 

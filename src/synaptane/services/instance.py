@@ -22,7 +22,7 @@ from synaptane.ai.base import SUBSCRIPTION_PROVIDERS
 from synaptane.config import Settings
 from synaptane.core.errors import Label, SynaptaneError
 from synaptane.git.repo import GitError
-from synaptane.services import alerts, git_expiry, jobs, mail, secrets, tidy
+from synaptane.services import alerts, email_capture, git_expiry, jobs, mail, secrets, tidy
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database, pending_migrations
 from synaptane.storage.models import (
@@ -108,6 +108,7 @@ class Report:
     checks: list[Check]
     spaces: list[SpaceState]
     alerts: list[Alert]
+    capture: email_capture.State | None = None  # capture by email, if configured
 
     @property
     def state(self) -> str:
@@ -345,6 +346,30 @@ def _mail(session: Session) -> Check:
     return Check(title, WARN, Label("Not configured: alerts and invitations cannot go out."))
 
 
+def _capture(state: email_capture.State, now: datetime) -> Check:
+    """The capture by email: polls that work, and what came in over 7 days."""
+    title = Label("Capture by email")
+    tally = Label(
+        "Last 7 days: {accepted} accepted, {refused} refused.",
+        accepted=state.accepted,
+        refused=state.refused,
+    )
+    if state.error is not None:
+        return Check(title, ERROR, state.error, note=tally, guide="email-capture")
+    if state.poll_ok_at is None:
+        return Check(
+            title,
+            WARN,
+            Label("No poll yet: the worker reads the mailbox every few minutes."),
+            guide="email-capture",
+        )
+    # Three polls missed (15 minutes at least): the worker, or the mail server, is stuck.
+    if now - state.poll_ok_at > timedelta(minutes=max(3 * state.interval, 15)):
+        message = Label("Late. Last successful poll:")
+        return Check(title, WARN, message, state.poll_ok_at, tally, guide="email-capture")
+    return Check(title, OK, Label("Last successful poll:"), state.poll_ok_at, tally)
+
+
 def _https(settings: Settings) -> Check:
     title = Label("HTTPS")
     if settings.secure_cookies:
@@ -515,6 +540,7 @@ def report(session: Session, database: Database, ws: Workspace, settings: Settin
         .order_by(Organization.slug, Space.slug)
     ).all()
     states = [_space_state(session, ws, space, tidied.get(space.id)) for space in spaces]
+    capture = email_capture.state(session, now)
     return Report(
         checks=[
             _database(database),
@@ -525,10 +551,12 @@ def report(session: Session, database: Database, ws: Workspace, settings: Settin
             _offsite(settings, now),
             _disk(settings),
             _mail(session),
+            *([_capture(capture, now)] if capture is not None else []),
             _https(settings),
             _git_tokens(session, ws),
             *filter(None, [_agents(session, settings, now)]),
         ],
         spaces=sorted(states, key=lambda s: s.state != ERROR),  # stable: names stay in order
         alerts=_alerts(session, now),
+        capture=capture,
     )

@@ -22,6 +22,8 @@ assistant IA via MCP, et rangés chaque nuit par un agent IA. Commencez par les
 - [IA et rangement](admin/ai.fr.md) : fournisseurs et abonnements, rangement nocturne,
   vocation et consignes, routines, coût et budget, recherche par le sens.
 - [Connexion SSO](admin/sso.fr.md) : GitLab, GitHub, Google, OIDC.
+- [Capture par e-mail](admin/email-capture.fr.md) : une boîte relevée par le worker, des
+  e-mails changés en notes de l'inbox, authentification des expéditeurs (DMARC, DKIM).
 - [Webhooks](admin/webhooks.fr.md) : événements sortants, format, livraison.
 - [Sauvegarde et restauration](admin/backup.fr.md) : sauvegarde locale, copies hors serveur
   chiffrées, exercices de restauration.

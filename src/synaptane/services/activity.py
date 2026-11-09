@@ -28,9 +28,10 @@ KINDS = ("page", "inbox", "tidy", "external", "ai")
 PAGE_SIZE = 40
 MAX_SCAN = 2_000  # at most this many commits read per page
 # Who wrote a change: an AI (the tidy-up, a routine, an assistant over MCP) or a person (in
-# the web interface, through the REST API, or pushed with Git from elsewhere).
+# the web interface, through the REST API, by email to the capture address, or pushed with Git
+# from elsewhere).
 AI_ORIGINS = ("tidy", "routine", "assistant")
-ORIGINS = (*AI_ORIGINS, "web", "api", "git")
+ORIGINS = (*AI_ORIGINS, "web", "api", "email", "git")
 SHARE_DAYS = 30
 
 
@@ -68,6 +69,8 @@ def origin_of(commit: Commit, committer: Identity) -> tuple[str, str]:
         return "assistant", client.strip() if channel.strip() == "MCP" else ""
     if commit.source == "api":
         return "api", client.strip() if channel.strip() == "API" else ""
+    if commit.source == "email":  # sender authenticated (services.email_capture)
+        return "email", ""
     return "web", ""
 
 
@@ -82,6 +85,8 @@ def written_by(commit: Commit, committer: Identity) -> str:
         return f"{name} (AI)"
     if origin == "api":
         return f"{name} via the REST API" + (f" ({client})" if client else "")
+    if origin == "email":
+        return f"{name} (by email)"
     return f"{name} (pushed with Git)" if origin == "git" else name
 
 

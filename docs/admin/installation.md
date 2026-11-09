@@ -327,6 +327,7 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `ocr_languages` | Tesseract languages, `fra+eng` by default. |
 | `ocr_images` | Extract text from images (OCR), `true` by default. |
 | `allow_private_webhooks` | Allows webhooks over HTTP and to the local network. **Development only.** |
+| `allow_insecure_imap` | Allows the [capture by email](email-capture.md) to read its mailbox over an unencrypted IMAP connection. **Development only** (a local test server). |
 | `api_docs` | Publishes the interactive documentation `/api/docs` and the schema `/api/v1/openapi.json`, `false` by default. |
 | `metrics_token` | Bearer token of `/metrics` for Prometheus, 32 characters or more (see [Monitoring](#monitoring)). Empty by default: `/metrics` does not exist. With Docker: `METRICS_TOKEN` in `.env`. |
 | `backup_dir` | Folder of the nightly backup made by the worker (`/backups` in the image, `SYNAPTANE_BACKUP_DIR`). Unset: no automatic backup. See [Backup](backup.md). |
@@ -396,6 +397,10 @@ login (spaces, case, email) count for the same account. The log names the accoun
 identifier; a login that matches no account is logged as a short fingerprint
 (`login:` and 8 hexadecimal characters), never as typed, since it may be a password entered
 in the wrong field.
+
+**Capture by email.** **Administration → Email → Capture by email** turns emails sent to
+`brain+organization.space@example.com` into inbox notes, read by the worker from a dedicated
+IMAP mailbox: see [Capture by email](email-capture.md).
 
 ## Search index
 

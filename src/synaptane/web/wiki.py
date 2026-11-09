@@ -38,6 +38,7 @@ from synaptane.services import (
     Actor,
     content,
     deposits,
+    email_capture,
     first_steps,
     freshness,
     related,
@@ -107,6 +108,11 @@ def _wiki(
         files = page.space_files(actor, space)
     except SynaptaneError:
         files = None
+    steps = (
+        first_steps.steps(page.db, actor, page.workspace, page.box, space)
+        if not path and extra.get("view") in ("folder", "unsynced")
+        else None
+    )
     return page.render(
         "wiki.html",
         status_code=status_code,
@@ -120,11 +126,9 @@ def _wiki(
         contribute=page.can_contribute(actor, space),
         page_url=lambda p: page_url(space, p),
         raw_url=lambda p: raw_url(space, p),
-        first_steps=(
-            first_steps.steps(page.db, actor, page.workspace, page.box, space)
-            if not path and extra.get("view") in ("folder", "unsynced")
-            else None
-        ),
+        first_steps=steps,
+        # Capture by email, among the ways of adding content (the steps are for contributors).
+        capture_address=email_capture.address_shown(page.db, actor.user, space) if steps else None,
         **extra,
     )
 

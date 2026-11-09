@@ -60,11 +60,12 @@ IA la tient en ordre chaque nuit.
   des vues dans la conversation (MCP Apps) pour relire, ranger et annuler sans la quitter.
   Testé avec les connecteurs de Claude.ai, Claude Desktop, Claude Code et ChatGPT. Une
   connexion peut être limitée à la lecture seule, à l'inbox ou à certains espaces.
-- **Inbox et rangement nocturne.** Déposez des notes depuis votre assistant, l'interface web
-  ou l'API REST. Un agent IA les range, met à jour les pages existantes, corrige les liens et
-  commite. Chaque espace peut décrire sa *vocation* pour le guider. Garde-fous : 10
-  suppressions au plus par passage, des plafonds de jetons, d'étapes et d'appels d'outils par
-  passage, un budget mensuel facultatif, et l'annulation d'un passage en un clic.
+- **Inbox et rangement nocturne.** Déposez des notes depuis votre assistant, l'interface web,
+  l'API REST ou par e-mail (expéditeurs authentifiés seulement). Un agent IA les range, met à
+  jour les pages existantes, corrige les liens et commite. Chaque espace peut décrire sa
+  *vocation* pour le guider. Garde-fous : 10 suppressions au plus par passage, des plafonds de
+  jetons, d'étapes et d'appels d'outils par passage, un budget mensuel facultatif, et
+  l'annulation d'un passage en un clic.
 - **Routines d'agent planifiées.** Par exemple un contrôle de cohérence chaque semaine ou un
   résumé le vendredi. La sortie va dans une page de rapport, l'inbox, un e-mail ou un webhook.
 - **Une recherche qui trouve.** Recherche plein texte qui ignore les accents, avec une

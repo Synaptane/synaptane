@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "icons.html" import icon, sep, file_icon %}
-{% from "ui.html" import action, secret_confirm, file_input with context %}
+{% from "ui.html" import action, secret_confirm, file_input, copyable with context %}
 {% from "deposit-form.html" import deposit_form with context %}
 {% from "editor.html" import editor with context %}
 {% from "tidy-run-now.html" import run_now_button with context %}
@@ -78,6 +78,7 @@
     <p class="muted">{{ _("What is dropped here is filed into the wiki by the tidy-up agent. Changes made directly (web, assistants, Git) are flagged here too, to be integrated.") }}{% set upcoming = tidy_next_label(space) %}{% if upcoming and tidy_ready %} {{ upcoming }}.{% endif %}</p>
     {# Information, not an error: the inbox works, its notes wait for an AI to be set up. #}
     {% if not tidy_ready %}<div class="notice" role="status"><p>{{ _("Notes wait here until an AI provider is configured for the organization: the tidy-up needs one to file them.") }} {% if actor.access.is_org_admin(space.org_id) %}<a href="/o/{{ org.slug }}/-/ai">{{ _("Configure AI") }}</a>{% else %}{{ _("Ask an organization administrator.") }}{% endif %}</p></div>{% endif %}
+    {% if capture_address %}<div class="card inbox-capture" data-test="capture-address"><p>{{ _("Or send an email to this space, a forwarded one too (attachments included):") }}</p><p>{{ copyable("capture-address", capture_address) }}</p><p class="muted">{{ _("From the verified address of your account: the email becomes a note, filed by the tidy-up.") }}</p></div>{% endif %}
     {% if total %}<p class="muted">{{ _(pl(counts.note, "{n} note", "{n} notes"), n=counts.note) }}, {{ _(pl(counts.change, "{n} changed page", "{n} changed pages"), n=counts.change) }}{% if counts.left %}, {{ _("{n} of them left by the tidy-up", n=counts.left) }}{% endif %}.</p>{% endif %}
     {% if total > 5 or query or kind %}
     <form class="inbox-filter" method="get" role="search">

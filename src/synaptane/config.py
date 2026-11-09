@@ -40,6 +40,9 @@ class Settings(BaseModel):
     ocr_languages: str = "fra+eng"  # Tesseract languages for scanned PDFs and images
     ocr_images: bool = True  # extract text from images for search
     allow_private_webhooks: bool = False  # webhooks to the local network: development only
+    # Capture by email over an unencrypted IMAP connection: development only (a local test
+    # server); the password and every email would otherwise travel in clear.
+    allow_insecure_imap: bool = False
     api_docs: bool = False  # publish /api/docs and the OpenAPI schema (lists every route)
     # Bearer token of /metrics (Prometheus); empty: /metrics does not exist.
     metrics_token: str = ""

@@ -11,6 +11,48 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Capture by email**. An email sent or forwarded to `brain+organization.space@example.com`
+  becomes a note in the inbox of that space, attachments included, filed by the tidy-up like
+  any other note. The worker reads a dedicated mailbox over IMAP (SSL/TLS or STARTTLS) every 2
+  minutes by default, in its own lane: no webhook, no incoming mail server. The super admin
+  sets it up in **Administration → Email → Capture by email**: server, username, password
+  (encrypted, never shown again), folder read, capture address, trusted servers, interval,
+  answers; **Test the connection** signs in and names the servers that authenticated the latest
+  emails; **Read the mailbox now** asks for a poll. An email is dropped only if its `From` is
+  the verified address of an active account that may drop notes in the space (same rules as the
+  web form and `inbox_add`, restricted spaces and groups included; a super admin only where
+  they are a member), and if the receiving server authenticated it: the topmost
+  `Authentication-Results` header (RFC 8601), written by a trusted server, says `dmarc=pass` or
+  `dkim=pass` aligned on the `From` domain (a DMARC pass must name that domain in
+  `header.from`); a header written by the sender is never read, nor one that could be read two
+  ways. Against a signed email replayed by someone else: a header allowed once (From, To, Cc,
+  Subject, Date, Message-ID…) present twice, or a line of the headers that is not a header,
+  refuses the email in silence, its `Date` must be within 48 hours of its reception (IMAP
+  `INTERNALDATE`), and the capture address must be in To or Cc (a blind copy, or an address
+  only in `Delivered-To`, aims at nothing); a Cc added to a signed email that had none still
+  passes within those 48 hours (documented). A poll is cut
+  after 5 minutes whatever the server does. Two options, off by default and documented as less
+  safe: internal domains accepted on SPF alone, and the Microsoft 365 header without
+  identifier. Same limits as every note (10 attachments of 25 MB, 35 MB per email, secrets
+  refused, 120 notes per hour); the plain text version is preferred, HTML is turned into
+  Markdown without scripts or remote images. Handled emails are moved to `Synaptane/Processed`
+  or `Synaptane/Refused`; an email that cannot be dropped now (space busy, rate limit) waits
+  for the next poll without holding back the others, and is refused after 24 hours; the parts
+  of an email are only read once its sender is authenticated and has an account, and an email
+  of too many nested parts is refused; the same email (its `Message-ID`) is never dropped
+  twice; a single poll runs at a time. The note is written in the person's name, with "by
+  email" in the space's activity (a person, not an AI). Only an authenticated sender with an
+  account may get an answer (the reason of a refusal by default, or a confirmation too, or
+  nothing; 20 per hour and per account at most), never a forged address. Members whose emails
+  would be accepted (the same rule, super admin included) see the address of the space, with a
+  copy button, on its **Inbox** page and in its first steps. The health page shows the polls
+  and the latest refusals (reason, sender's domain, space aimed at: never the content),
+  `/metrics` gives `synaptane_email_capture_messages_24h`,
+  `synaptane_email_capture_poll_failing` and
+  `synaptane_email_capture_last_poll_timestamp_seconds`, and each change of the settings goes
+  to the audit log. New option `allow_insecure_imap` (development only). One migration
+  (`0033`), applied at startup: it creates the two tables of the capture, empty, so nothing is
+  read before the super admin sets it up. See `docs/admin/email-capture.md`.
 - **The subscription CLIs run in a container of their own**. With a Claude or ChatGPT
   subscription, Claude Code and Codex no longer run in the worker but in the `agents` service
   of `compose.yaml` (`synaptane agents-runner`): same image, but neither the data volume

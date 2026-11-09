@@ -51,6 +51,7 @@ from synaptane.web import (
     account_pages,
     admin_pages,
     audit_pages,
+    capture_pages,
     group_pages,
     health_pages,
     home_pages,
@@ -152,6 +153,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
     app.include_router(health_pages.router, include_in_schema=False)
     app.include_router(sso_pages.router, include_in_schema=False)
     app.include_router(invite_pages.router, include_in_schema=False)
+    app.include_router(capture_pages.router, include_in_schema=False)
     app.mount(
         "/static", StaticFiles(directory=Path(__file__).parent / "web" / "static"), name="static"
     )
