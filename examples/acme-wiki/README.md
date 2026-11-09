@@ -41,7 +41,7 @@ SYNAPTANE_ALLOW_LOCAL_REPOS=true synaptane demo
 
 The command creates a `demo` super admin (password printed once), the `acme` organization and
 the `acme/it` space, backed by a local Git repository filled from this folder, then indexes it.
-Running it again changes nothing. With Docker, see "Demo data" in
-[the installation guide](../../docs/admin/installation.md).
+Running it again changes nothing. With Docker, see
+[Demo data](../../docs/admin/first-steps.md#demo-data) in the first steps.
 
 The verification dates are fixed: as time passes, more pages will show as "to review".

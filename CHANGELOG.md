@@ -10,6 +10,13 @@ of the target version.
 
 ## [Unreleased]
 
+### Changed
+- The installation guide is split into three pages: **Install and run** (Docker Compose, modes,
+  upgrade, rollback, from source), **Configuration** (options and variables, email, search
+  index, alerts, monitoring, audit log, roles) and **First steps** (organizations, spaces,
+  demo data). Links to the moved sections now go to `docs/admin/configuration.md` and
+  `docs/admin/first-steps.md`.
+
 ## [1.15.0] - 2026-11-09
 
 Send or forward an email to a space's inbox; import a Notion or Confluence export; and run the

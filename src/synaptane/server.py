@@ -183,7 +183,7 @@ def create_app(settings: Settings, database: Database | None = None) -> FastAPI:
 
     @app.get("/metrics", include_in_schema=False)
     def metrics(request: Request) -> Response:
-        """Prometheus metrics (docs/admin/installation.md, Monitoring), with the bearer token
+        """Prometheus metrics (docs/admin/configuration.md, Monitoring), with the bearer token
         `metrics_token`; without one, this address does not exist."""
         if not settings.metrics_token:
             raise StarletteHTTPException(404)

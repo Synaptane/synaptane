@@ -280,6 +280,7 @@ and the [concepts](docs/concepts.md).
 - **Users:** [connect your AI assistant (MCP)](docs/guide/mcp.md),
   [read, write and search the wiki](docs/guide/wiki.md).
 - **Administrators:** [installation](docs/admin/installation.md),
+  [configuration](docs/admin/configuration.md), [first steps](docs/admin/first-steps.md),
   [Git repositories](docs/admin/git.md), [AI and tidy-up](docs/admin/ai.md),
   [single sign-on](docs/admin/sso.md), [webhooks](docs/admin/webhooks.md),
   [backup and restore](docs/admin/backup.md),
