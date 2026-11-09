@@ -141,6 +141,7 @@ class AnthropicConversation:
             output_tokens=response.usage.output_tokens,
             cached_tokens=response.usage.cache_read_input_tokens or 0,
             cache_write_tokens=written,
+            model=str(getattr(response, "model", "") or ""),  # another one after a fallback
         )
 
     def reply(self, results: list[ToolResult]) -> None:

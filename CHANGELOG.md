@@ -11,6 +11,36 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Publishable results of the tidy-up bench**. A run with a real model
+  (`./scripts/eval.sh tidy --model …`) now writes a versioned run file in `eval/results/runs/`
+  (`synaptane-tidy-bench-run`, format 1): Synaptane's version and commit, read from the
+  repository, and whether files changed since, the dates and duration, the fingerprints of the
+  bench, of each scenario, of the prompt and of the agent's tools, the provider, model, effort
+  actually sent and price applied, and every trial with its graders, tokens, cost, duration,
+  interruption and the model that served it. `./scripts/eval.sh report` aggregates one or more
+  run files into `eval/results/results.json` and two tables, `results.md` and `results.fr.md`,
+  with the method and its limits at the top: per configuration, the pass rate with its 95 %
+  Wilson interval (rows sorted by its lower bound), the score per sweep (mean and standard
+  deviation), the cost per run and per passed run, the tokens and the duration, the passes per
+  scenario, and between every two configurations a paired comparison by scenario (exact sign
+  test, adjusted by Holm's method for the number of pairs). The report only depends on the run files, so the same runs give the same bytes, and it
+  refuses what does not compare honestly: a run stopped by its budget or by the provider, a
+  trial cut, trials missing or doubled, fewer than 3 trials per scenario, a trial served by
+  another model, different scenarios, different commits (unless `--allow-mixed-commits`), a
+  modified tree (unless `--allow-dirty`). Nothing is masked silently: a run file or a report
+  that would contain the key, the provider's address or credentials, anything that looks like a
+  secret or a path of the machine is not written, and the provider's errors are recorded by
+  class and HTTP status, never by their text. A trial hit by a passing provider error (429,
+  529) is played again, twice at most, and its cost counted in the total; with a local or
+  compatible server, only 429, 503 and a refused connection are replayed, since a 500 or a
+  time-out may come from the model. Above 5 % of trials replayed, the report is refused unless
+  `--allow-replays`, and the replays are shown per scenario. Claude's fallback to another model is
+  turned off in the bench. `--trials` is 3 by default for a real model, fewer needs `--draft`;
+  `--prompt FILE` tries other instructions for the agent in the bench only, and `--label` names
+  the configuration. `./scripts/eval.sh tidy --estimate --model M` gives the order of magnitude
+  of a run's cost without calling any model. Each turn of a provider now carries the name of the
+  model that served it (`Turn.model`). See `docs/dev/eval.md` ("Publish the results") and
+  `eval/results/README.md`. No migration.
 - **Warnings before a Git access token expires**. When the expiry date of a space's HTTPS
   token is known, the organization's admins get an alert by email (in their language), in the
   audit log (**Alerts**) and through the `space.alert` webhook, **30 days, 7 days and 1 day
@@ -73,6 +103,9 @@ of the target version.
   it creates the table linking invitations to groups, empty, so no pending invitation changes.
 
 ### Changed
+- **Tidy-up bench with a real model**: the trials now run as sweeps, trial 1 of every
+  scenario, then trial 2, and `--json` gives the path of the run file in its new format (a JSON
+  object, no longer a list of results).
 - **Settings → Git repository → Repository access** shows any known expiry date of the saved
   token, not only the one of a GitLab project access token created by Synaptane: muted beyond
   30 days, a warning within 30 days, a problem once it has passed, with where to create the

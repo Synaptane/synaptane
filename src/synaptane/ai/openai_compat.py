@@ -123,6 +123,7 @@ class OpenAICompatConversation:
             output_tokens=output,
             cached_tokens=cached,
             cache_write_tokens=written,
+            model=str(data.get("model") or ""),
         )
 
     def reply(self, results: list[ToolResult]) -> None:

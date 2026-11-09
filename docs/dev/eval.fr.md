@@ -21,6 +21,7 @@ lancement crée une base jetable, puis la supprime.
 ./scripts/eval.sh                       # modèle simulé, puis recherche : gratuit, ~15 s
 ./scripts/eval.sh tidy --scenario deplacement --scenario doublon
 ./scripts/eval.sh search
+./scripts/eval.sh report                # résultats publiables des vrais lancements (gratuit)
 uv run python -m tests.eval --help      # toutes les options
 ```
 
@@ -29,36 +30,168 @@ et recherche, jamais de vrai modèle.
 
 ### Avec un vrai modèle (payant, jamais en CI)
 
+Estimez d'abord le coût, **sans aucun appel** (la base sert, pas le modèle) :
+
+```sh
+./scripts/eval.sh tidy --estimate --model claude-sonnet-5-5 --trials 5
+```
+
+Le banc joue le chemin idéal de chaque scénario (son bon script) et compte ce que le
+fournisseur facturerait : toute la conversation en entrée à chaque tour (consignes, outils,
+messages, résultats des outils), relue depuis le cache sauf la partie nouvelle, comme le fait
+le fournisseur Anthropic (pour un autre fournisseur, toute l'entrée au plein tarif), et les
+appels d'outils en sortie, à raison d'un jeton pour
+3,5 caractères. Un vrai modèle cherche et lit davantage, et son raisonnement (l'effort) n'est
+pas compté : la fourchette va du chemin idéal à cinq fois celui-ci, et le `--budget` conseillé
+couvre le haut de la fourchette. Estimé le 9 novembre 2026 (29 appels au modèle par balayage
+des 13 scénarios), pour 5 essais, en dollars :
+
+| Modèle (tarif public, $ par million de jetons) | Chemin idéal | Haut de la fourchette | `--budget` conseillé |
+|---|---:|---:|---:|
+| `claude-haiku-5-5` (0,10 / 0,50) | 0,03 | 0,17 | 1 |
+| `claude-sonnet-5-5` (2 / 10) | 0,66 | 3,31 | 4 |
+| `claude-opus-5-5` (4 / 20) | 1,32 | 6,62 | 7 |
+
+Ce sont des estimations, pas des devis : le fichier du premier vrai lancement donne le coût et
+les jetons réels de chaque essai, pour caler les suivants.
+
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-…        # lue dans l'environnement, jamais en argument
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 3 --trials 3 \
-  --json resultats-sonnet-medium.json
+./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 4 --trials 5
 ```
 
 - `--budget` (en €) est **obligatoire** : le banc arrête le modèle dès que le coût cumulé
-  l'atteindrait (le dernier tour peut le dépasser un peu) et ne joue plus les scénarios
-  suivants. Le coût suit les tarifs publics de `ai/pricing.py` (écritures en cache à 1,25 fois
-  l'entrée) ; pour un autre modèle, `--price-input` et `--price-output` (€ par million).
-- `--trials 3` : trois essais par scénario, pour voir la variance d'un modèle.
+  l'atteindrait (le dernier tour peut le dépasser un peu). Le coût suit les tarifs publics de
+  `ai/pricing.py` (écritures en cache à 1,25 fois l'entrée ; montants publics en dollars
+  comptés un pour un) ; pour un autre modèle, `--price-input` et `--price-output` (par million
+  de jetons). Un lancement arrêté par le budget, même pendant son dernier essai, est incomplet
+  et non publiable.
+- `--trials` (3 par défaut, au moins 1) : **balayages** de tous les scénarios, l'un après l'autre (essai 1
+  de chaque scénario, puis essai 2…), pour voir la variance d'un modèle. Publier en demande au
+  moins 3 : moins est refusé avant tout appel, sauf avec `--draft` (le lancement n'est alors
+  pas publiable).
+- Un essai coupé par le fournisseur ne mesure rien du modèle. Après une erreur passagère (429,
+  529, délai dépassé, `transient`), l'essai est écarté, gardé dans le fichier sous `discarded`
+  avec son coût, et rejoué 30 secondes plus tard, deux fois au plus. Avec un serveur local ou
+  compatible (`ollama`, `openai_compatible`), seuls la saturation (429, 503) et le refus de
+  connexion sont rejoués : un 500, un délai dépassé ou une réponse hors format peuvent venir du
+  modèle lui-même (appel d'outil mal formé, raisonnement trop long), et comptent comme son
+  échec (`model_error`). Une erreur durable (clé refusée, modèle introuvable, adresse
+  injoignable après les reprises) arrête le lancement, comme une erreur du banc ou de Git : il
+  est alors incomplet. Un essai que le modèle arrête lui-même (plafond de tours, refus) compte
+  comme son échec. L'erreur du fournisseur est enregistrée par sa classe, son modèle de
+  message, son statut HTTP et son caractère passager, jamais par son texte libre (qui peut
+  citer l'adresse).
+- Le repli de Claude vers un autre modèle (`fallbacks`) est désactivé dans le banc, et chaque
+  tour enregistre le modèle qui l'a servi : un essai servi par un autre modèle est refusé par
+  le rapport. L'effort n'est envoyé qu'à Claude, et pas aux modèles qui le refusent (Haiku) :
+  le fichier enregistre alors `n/a`.
 - `--provider` : tout fournisseur par clé d'API (`anthropic`, `openai`, `mistral`, `ollama`,
   `openai_compatible`, avec `--base-url` et `--api-key-env`). Les abonnements (Claude Code,
-  Codex) ne sont pas proposés : le banc ne touche jamais à leurs identifiants.
-- Ordre de grandeur : 13 scénarios d'un ou deux éléments, de quelques centimes à quelques
-  dizaines de centimes chacun selon le modèle ; commencez par `--budget 1`.
+  Codex) ne sont pas proposés : le banc ne touche jamais à leurs identifiants. L'adresse est
+  enregistrée comme `default` ou `custom`, jamais elle-même.
+- `--prompt FICHIER` : essaie d'autres consignes à la place de `INSTRUCTIONS`
+  (`services/tidy_tools.py`), pour le banc seulement, jamais pour l'instance. Le fichier a les
+  mêmes champs `{…}` (`name`, `address`, `description`, `language`, `vocation`, `custom`,
+  `max_deletions` ; accolades littérales doublées), et aucun autre. Un fichier hors du dépôt
+  est recopié dans le fichier du lancement, que son commit ne reproduirait pas. `--label NOM`
+  nomme la configuration dans le rapport (sinon modèle · effort, et l'empreinte de l'invite).
+- Chaque vrai lancement écrit son **fichier de lancement** dans `eval/results/runs/`
+  (`<date>-<modèle>-<effort>[-<label>].json`, jamais écrasé ; `--json CHEMIN` pour le mettre
+  ailleurs) : voir [Publier les résultats](#publier-les-résultats). La commande se termine par
+  le code 1 si le lancement est incomplet.
 
 **À faire : relancer en mode réel après la traduction des consignes.** Les consignes de
 l'agent sont désormais en anglais, alors que le wiki et les notes du banc restent en
 français : le banc doit être relancé avec un vrai modèle pour vérifier que l'agent range
-toujours correctement et écrit en français (la langue des pages du wiki) :
+toujours correctement et écrit en français (la langue des pages du wiki).
+
+Pour comparer deux réglages (Sonnet 5.5 en `medium` et en `high`, Opus 5.5 en `medium`, une
+autre invite…), lancez-les avec le même `--trials` sur le même commit, puis publiez-les
+ensemble : le rapport compare le taux de réussite avec son intervalle, et le **coût par
+passage réussi** : une requête moins chère qui rate son scénario ne fait pas d'économie.
+
+## Publier les résultats
 
 ```sh
-./scripts/eval.sh tidy --model claude-sonnet-5-5 --effort medium --budget 1 --trials 1
+./scripts/eval.sh report                 # tous les lancements de eval/results/runs/
+./scripts/eval.sh report eval/results/runs/2026-11-09-claude-sonnet-5-5-medium.json …
 ```
 
-Pour comparer deux réglages (Sonnet 5.5 en `medium` et en `high`, Opus 5.5 en `medium`…),
-lancez-les avec le même `--trials` et comparez le **coût par passage réussi** et par élément
-rangé, affichés à la fin : une requête moins chère qui rate son scénario ne fait pas
-d'économie.
+Le rapport agrège un ou plusieurs fichiers de lancement en `eval/results/results.json` et deux
+tableaux, `results.md` (anglais) et `results.fr.md` (français), avec la méthode et ses limites
+en tête. Il ne dépend que des lancements (aucune date du jour) : les mêmes lancements donnent
+toujours les mêmes octets, dans n'importe quel ordre. Validez les lancements et le rapport
+ensemble ; le [README du dossier](../../eval/results/README.fr.md) dit comment ils ont été
+produits.
+
+Il refuse, avec la raison, ce qui ne se compare pas honnêtement :
+- un lancement incomplet : arrêté par le budget ou le fournisseur, un essai coupé, ou des
+  essais manquants, en double ou hors de ceux demandés (la complétude est recomptée, pas crue
+  sur parole) ;
+- un essai servi par un autre modèle que celui demandé ;
+- moins de 3 essais par scénario (`--min-trials` pour changer le plancher) ;
+- des lancements sur des scénarios ou des correcteurs différents (l'empreinte du banc
+  diffère) ;
+- des lancements sur des commits différents (`--allow-mixed-commits` pour les accepter ; le
+  commit est de toute façon affiché sur chaque ligne) ;
+- plus de 5 % d'essais rejoués après une erreur du fournisseur (`--allow-replays` pour
+  l'accepter : un avertissement est alors en tête des tableaux). Rejouer peut favoriser les
+  essais courts, qu'une erreur touche moins souvent ; les rejoués sont donnés par scénario, et
+  leur coût fait partie du total ;
+- un lancement sur un arbre modifié, fichiers suivis changés ou fichiers non suivis hors de
+  `eval/results/`, que son commit seul ne reproduit pas (`--allow-dirty` pour l'accepter, il
+  est alors signalé).
+
+Rien n'est masqué en silence. Avant d'écrire un lancement, le banc cherche ses secrets (la
+clé, l'adresse du fournisseur, son mot de passe, et son hôte quand il ne peut pas être un
+simple mot : un nom avec un point ou une adresse IP ; `ollama` ou `localhost` ne sont pas des
+secrets, ni le nom d'utilisateur seul) dans le texte libre du lancement (nom, explications des
+correcteurs, métriques, messages d'erreur), et partout tout ce qui ressemble à un secret (clés d'API et jetons des services courants, JWT, en-têtes et champs `Bearer` ou `x-api-key`,
+champ `key`, `token` ou `password` à valeur longue, identifiants dans une adresse) ou à un chemin de la machine (`/home`, `/Users`, `/tmp`,
+`/opt`, `C:\Users`, `D:\…`, `/mnt/d/`, `~/`…) : s'il en trouve, rien n'est écrit dans le dépôt, une copie
+masquée, pour vous seul, va dans le dossier temporaire (pour ne pas perdre un lancement payé),
+et la commande dit ce qui a été trouvé, jamais la valeur. Le rapport contrôle de même ce qu'il
+publierait.
+
+Format (`format_version` 1, changé si le sens d'un champ change) :
+- **Lancement** (`synaptane-tidy-bench-run`) : version et commit de Synaptane (lus dans le
+  dépôt ; `dirty` : fichiers changés depuis), dates de début et de fin, durée ; empreinte du
+  banc (ses fichiers, des correcteurs à la préparation de l'espace, et le wiki) et de chaque
+  scénario (ses notes, modifications humaines, attentes) ; fournisseur, modèle, effort
+  réellement envoyé et demandé, adresse (`default` ou `custom`), `fallbacks: false`, invite
+  (`source`, `path`, `sha256`, et `text` hors du dépôt), empreinte des outils, tarif appliqué,
+  budget, essais demandés, `complete`, `stopped_by` (`budget`, `provider`, `error` ou
+  `null`) ; puis
+  chaque essai : scénario, numéro, `passed`, correcteurs en échec avec leur explication,
+  `interrupted` (`budget`, `provider`, `error`, `model_error`, `step_cap`, `refusal` ou
+  `null`),
+  `provider_error`, `served_models`, `model_mismatch`, jetons (entrée avec les écritures en
+  cache, sortie, cache lu, cache écrit), tours, coût, durée, éléments rangés et métriques du
+  passage ; et `discarded`, les essais rejoués après une erreur passagère.
+- **Rapport** (`synaptane-tidy-bench-results`) : la méthode, le banc, puis une configuration
+  par ligne (même commit, fournisseur, modèle, effort, invite, outils et tarif : deux tels
+  lancements s'additionnent ; deux lignes n'ont jamais le même nom, on ajoute ce qui les
+  distingue), triées par la **borne basse** de l'intervalle (trois réussites sur trois ne
+  passent pas devant 29 sur 30), puis par taux de réussite, puis par coût par passage : taux de
+  réussite avec son intervalle de Wilson à 95 %, score par balayage (part des scénarios
+  réussis en un balayage : moyenne, écart-type d'échantillon, minimum, maximum), coût (total et
+  par passage réussi, essais écartés compris puisqu'ils ont été payés ; par passage avec sa
+  dispersion ; des seuls essais écartés), jetons et tours par passage, durée, essais rejoués et
+  leur part, arrêts du modèle lui-même, et par scénario les réussites, les essais rejoués et
+  les correcteurs en échec (leur nom seulement, pas leur explication). Puis, pour chaque paire
+  de lignes, la **comparaison appariée par scénario** : sur combien de scénarios chacune a le
+  meilleur taux de réussite, le test des signes exact, bilatéral, et son p ajusté par la
+  méthode de Holm pour le nombre de paires. Le rapport revérifie le modèle qui a servi chaque
+  essai d'après `served_models` ; cela ne se vérifie que si le fournisseur le nomme.
+
+Les intervalles valent pour les scénarios du banc : ils disent ce qu'une configuration ferait
+de nouveau sur eux, pas sur une vraie inbox. Des intervalles disjoints suggèrent un vrai écart,
+des intervalles qui se chevauchent ne l'excluent pas : la comparaison appariée est le meilleur
+test entre deux lignes.
+
+Tout ce qui est publié vient du wiki fictif du banc (`tests/eval/wikidata.py`, public comme
+les scénarios) : aucune donnée d'une instance n'est lue ni envoyée.
 
 ## Lire les résultats
 

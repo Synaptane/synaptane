@@ -21,6 +21,7 @@ def fake_post(responses: list[httpx2.Response], seen: list[dict[str, Any]]) -> A
 
 def chat(message: dict[str, Any], reason: str = "tool_calls") -> httpx2.Response:
     body = {
+        "model": "mistral-large-2611",
         "choices": [{"message": message, "finish_reason": reason}],
         "usage": {"prompt_tokens": 12, "completion_tokens": 3},
     }
@@ -44,6 +45,7 @@ def test_openai_compatible_tool_round_trip(monkeypatch: pytest.MonkeyPatch) -> N
     turn = conversation.step()
     assert turn.stop == "tool_use" and turn.tool_calls[0].input == {"ok": True}
     assert (turn.input_tokens, turn.output_tokens) == (12, 3)
+    assert turn.model == "mistral-large-2611"  # the model that answered, as named by the API
     assert seen[0]["url"] == "https://api.mistral.ai/v1/chat/completions"
     assert seen[0]["headers"] == {"Authorization": "Bearer mk"}
     conversation.reply([ToolResult("c1", "ok")])
@@ -90,3 +92,25 @@ def test_claude_options_follow_the_model() -> None:
     assert "output_config" not in haiku and "fallbacks" not in haiku
     gateway = request_options(AIConfig("anthropic", "claude-opus-5-5", "k", "https://gw/v1"))
     assert "fallbacks" not in gateway  # a gateway may reject the beta
+
+
+def test_anthropic_turn_names_the_model_that_answered() -> None:
+    from types import SimpleNamespace
+
+    from synaptane.ai.anthropic_provider import AnthropicConversation
+
+    usage = SimpleNamespace(
+        input_tokens=5, output_tokens=2, cache_creation_input_tokens=1, cache_read_input_tokens=3
+    )
+    response = SimpleNamespace(
+        content=[], stop_reason="end_turn", usage=usage, model="claude-opus-5-5-20261001"
+    )
+    conversation = AnthropicConversation(
+        AIConfig("anthropic", "claude-sonnet-5-5", "k"), "s", "u", []
+    )
+    conversation.client = SimpleNamespace(  # type: ignore[assignment]
+        beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response))
+    )
+    turn = conversation.step()
+    assert turn.model == "claude-opus-5-5-20261001"  # served by another model (fallback)
+    assert (turn.input_tokens, turn.cached_tokens, turn.cache_write_tokens) == (6, 3, 1)
