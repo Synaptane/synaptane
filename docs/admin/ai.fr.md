@@ -470,6 +470,11 @@ l'organisation créent, modifient, lancent et suppriment ; les contributeurs voi
 routines et leur journal ; les lecteurs ne les voient pas (ils lisent les pages de rapport
 comme toute page).
 
+Chaque routine est **un fichier du dépôt de l'espace**, `.synaptane/routines/<nom>.md`,
+versionné comme la vocation et les consignes de rangement (voir
+[Le fichier d'une routine](#le-fichier-dune-routine)). Paramètres → Routines et l'API REST
+écrivent ce fichier : un commit au nom de l'administrateur, puis une synchronisation.
+
 Une routine, c'est :
 
 - des **consignes** : ce que l'agent doit faire et ce que doit contenir sa sortie ;
@@ -491,6 +496,66 @@ Une routine, c'est :
     pas décoché « Recevoir les e-mails des routines » dans **Mon compte** (préférence
     distincte des avis de rangement, active par défaut, rappelée dans chaque e-mail) ;
   - le **webhook** `routine.done`, avec le texte de sortie (webhooks de l'organisation).
+
+### Le fichier d'une routine
+
+Git fait foi. Le fichier d'une routine commence par un en-tête entre deux lignes `---`, suivi
+des consignes :
+
+```markdown
+---
+title: Contrôle de cohérence
+description: Contradictions et pages périmées, chaque semaine
+schedule: weekly monday 06:00
+scope: infra, clients/acme
+report: rapports/coherence.md
+inbox: true
+email: admins
+webhook: false
+enabled: true
+template: coherence
+---
+Relis les pages modifiées depuis le dernier passage…
+```
+
+| Champ | Valeur |
+|---|---|
+| `title` | Nom affiché dans Synaptane (par défaut : tiré du nom du fichier) |
+| `description` | Facultative, sur une ligne |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace |
+| `scope` | Dossiers du wiki, séparés par des virgules, en liste JSON, ou un par ligne `- dossier` ; absent : tout l'espace |
+| `report` | Page de rapport réécrite à chaque passage, relative au wiki |
+| `inbox` | `true` : un élément dans l'inbox par correction à faire |
+| `email` | `admins`, `members` ou `none` |
+| `webhook` | `true` : le webhook `routine.done` |
+| `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
+| `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
+
+Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
+plus. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
+de 20 dossiers au plus, et au moins une sortie.
+
+- **À chaque synchronisation**, Synaptane lit les fichiers au commit courant de l'espace. Un
+  nouveau fichier crée la routine, qui attend son prochain créneau. Un fichier modifié change
+  les réglages, jamais l'état des passages : une routine qui a déjà tourné aujourd'hui ne
+  repart pas parce que son fichier a changé, et une nouvelle heure déjà passée attend le
+  lendemain. Un fichier supprimé retire la routine ; son journal et son coût restent dans le
+  budget du mois.
+- **Un fichier invalide ne tourne pas.** L'erreur (ligne incomprise, planning inconnu, aucune
+  sortie…) s'affiche dans Paramètres → Routines et dans l'API REST (`error`). Un champ que
+  cette version ne connaît pas est signalé (`warnings`) et ignoré, sans empêcher la lecture ;
+  une réécriture par Synaptane le garde.
+- **Depuis Synaptane**, l'enregistrement réécrit l'en-tête dans ce format. Un fichier modifié
+  depuis l'ouverture du formulaire (un push, un autre administrateur) est refusé, avec le choix
+  de le remplacer, comme pour la vocation. Avant la première synchronisation de l'espace, la
+  routine attend en base ; cette synchronisation l'écrit.
+
+**Confiance.** Quiconque peut pousser sur le dépôt peut créer ou modifier une routine, comme il
+peut modifier les consignes de rangement : accordez le droit de pousser en conséquence. Dans
+Synaptane, seuls les administrateurs de l'organisation écrivent ces fichiers : pages, notes,
+imports, e-mails capturés et assistants (MCP, REST) n'écrivent que dans `content/` et dans
+l'inbox. Quel que soit son auteur, une routine garde ses garde-fous : elle n'écrit nulle part
+ailleurs que dans ses sorties, dans la limite du budget.
 
 ### Modèles fournis
 
@@ -571,7 +636,7 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   e-mails envoyés, webhook), texte de sortie, modèle, jetons, coût estimé ou quota, et pour
   un échec, la cause traduite (le détail technique pour les administrateurs).
 - Le commit d'une routine (page de rapport et éléments d'inbox ensemble) est au nom de
-  `Synaptane routine (<nom>)`, sujet `Routine "<nom>": …` : il n'apparaît pas comme une
+  `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` : il n'apparaît pas comme une
   modification à examiner par le rangement (pas plus que ceux des versions antérieures, au nom
   de `Synaptane – routine`). Les passages d'une routine supprimée restent comptés dans le budget du mois.
 - Sans fournisseur d'IA configuré, une routine planifiée ne tourne pas (pas d'échec inscrit) ;

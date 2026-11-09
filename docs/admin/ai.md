@@ -444,6 +444,11 @@ report, suggested fixes, a digest sent to the team. The space's **Settings → R
 and delete them; contributors see the routines and their log; readers do not see them (they
 read report pages like any other page).
 
+Each routine is **a file of the space's repository**, `.synaptane/routines/<name>.md`,
+versioned like the purpose and the tidy-up rules (see [The routine file](#the-routine-file)).
+Settings → Routines and the REST API write this file: a commit in the administrator's name,
+then a synchronization.
+
 A routine is made of:
 
 - **instructions**: what the agent must do and what its output must contain;
@@ -463,6 +468,64 @@ A routine is made of:
     "Receive emails from the routines of my spaces" in **My account** (a preference separate
     from tidy-up notices, on by default, recalled in every email);
   - the `routine.done` **webhook**, with the output text (organization webhooks).
+
+### The routine file
+
+Git is the source of truth. A routine file has a header between two `---` lines, then the
+instructions:
+
+```markdown
+---
+title: Consistency check
+description: Contradictions and outdated pages, every week
+schedule: weekly monday 06:00
+scope: infra, clients/acme
+report: reports/consistency.md
+inbox: true
+email: admins
+webhook: false
+enabled: true
+template: coherence
+---
+Read the pages changed since the last run…
+```
+
+| Field | Value |
+|---|---|
+| `title` | Name shown in Synaptane (default: made from the file name) |
+| `description` | Optional, one line |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space |
+| `scope` | Folders of the wiki, separated by commas, as a JSON list, or one `- folder` line each; missing: the whole space |
+| `report` | Report page rewritten on every run, relative to the wiki |
+| `inbox` | `true`: one inbox item per fix to make |
+| `email` | `admins`, `members` or `none` |
+| `webhook` | `true`: the `routine.done` webhook |
+| `enabled` | `false`: the routine does not run on schedule (default `true`) |
+| `template` | Original template (`coherence`, `digest`), set by Synaptane |
+
+The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
+characters at most. 20 routines at most per space, instructions of 20,000 characters at most,
+scope of 20 folders at most, at least one output.
+
+- **At each synchronization**, Synaptane reads the files at the space's current commit. A new
+  file creates the routine, which waits for its next slot. A changed file updates the
+  settings, never the state of the runs: a routine that already ran today does not run again
+  because its file changed, and a new time already passed waits for tomorrow. A removed file
+  removes the routine; its log and its cost stay in the month's budget.
+- **An invalid file does not run.** The error (line not understood, unknown schedule, no
+  output…) shows in Settings → Routines and in the REST API (`error`). A field this version
+  does not know is reported (`warnings`) and ignored, without preventing the reading; a
+  rewrite by Synaptane keeps it.
+- **From Synaptane**, saving rewrites the header in this format. A file changed since the form
+  was opened (a push, another administrator) is refused, with the choice to replace it, as for
+  the purpose. Before the space's first synchronization, the routine waits in the database;
+  that synchronization writes it.
+
+**Trust.** Anyone who can push to the repository can create or change a routine, as they can
+change the tidy-up rules: give push access accordingly. Inside Synaptane, only organization
+administrators write these files: pages, notes, imports, captured emails and assistants
+(MCP, REST) write in `content/` and in the inbox only. A routine stays bound by its safeguards
+whoever wrote it: it writes nowhere except its outputs, within the budget.
 
 ### Built-in templates
 
@@ -538,7 +601,7 @@ regenerated welcome FAQ…).
   sent, webhook), output text, model, tokens, estimated cost or quota, and for a failure,
   the translated cause (technical details for administrators).
 - A routine's commit (report page and inbox items together) is made under the name
-  `Synaptane routine (<name>)`, subject `Routine "<name>": …`: it does not show up as a change
+  `Synaptane routine (<title>)`, subject `Routine "<title>": …`: it does not show up as a change
   for tidy-up to examine (nor do those of older versions, named `Synaptane – routine`).
   Runs of a deleted routine still count toward the month's budget.
 - Without a configured AI provider, a scheduled routine does not run (no failure recorded);

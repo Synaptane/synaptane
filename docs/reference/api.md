@@ -276,16 +276,18 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 
 A routine is a scheduled AI agent that rereads the wiki of a space and only writes to its
 outputs (see [Agent routines](../admin/ai.md#agent-routines-per-space)). Paths under
-`…/spaces/{space}/routines`.
+`…/spaces/{space}/routines`. Each routine is a file of the repository,
+`.synaptane/routines/<name>.md`: every write is a commit of that file in the caller's name,
+and a push can change it too.
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET …/routines` | contributor | Routines of the space: `id`, `name`, `template` (`coherence`, `digest` or `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = Monday), `monthday` (1 to 28), `at` (`"06:00"`, the space's local time), `scope` (folders; empty: the whole space), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
-| `POST …/routines` | admin | Creates a routine (201). `{"template": "coherence"}` starts from a provided template (its settings, then the given fields); blank: `name`, `instructions` and at least one output |
+| `GET …/routines` | contributor | Routines of the space: `id`, `name` (file name), `title`, `description`, `path` (file in the repository), `sha` (hash of the file, for `base_sha`; `null` until the next synchronization writes it, then `pending` is `true`), `error` (invalid file: why it does not run; `null` otherwise), `warnings` (what was ignored, such as an unknown field), `template` (`coherence`, `digest` or `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = Monday), `monthday` (1 to 28), `at` (`"06:00"`, the space's local time), `scope` (folders; empty: the whole space), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
+| `POST …/routines` | admin | Creates a routine (201). `{"template": "coherence"}` starts from a provided template (its settings, then the given fields); blank: `title`, `instructions` and at least one output. `name`: file name (lowercase letters, digits, dashes), made from the title if omitted; a free text is taken as the title, as before routines were files. 409 if the name is taken, 422 for a likely secret (`allow_secrets: true` to confirm) |
 | `GET …/routines/{id}` | contributor | One routine |
-| `PATCH …/routines/{id}` | admin | Changes the given fields (`enabled: false` disables it) |
-| `DELETE …/routines/{id}` | admin | Deletes the routine (204); its runs still count toward the budget, its report page stays in the wiki |
-| `POST …/routines/{id}/run` | admin | Runs the routine as soon as the worker is free (202); refused (400) if the month's budget is reached |
+| `PATCH …/routines/{id}` | admin | Changes the given fields (`enabled: false` disables it) and rewrites the file. `base_sha`: the `sha` read before; 409 if the file changed since (push, another admin). The file name does not change (400); an invalid file is fixed in the repository (400) |
+| `DELETE …/routines/{id}` | admin | Removes the routine's file (204; `?base_sha=` as for `PATCH`); its runs still count toward the budget, its report page stays in the wiki |
+| `POST …/routines/{id}/run` | admin | Runs the routine as soon as the worker is free (202); refused (400) if the month's budget is reached or the file is invalid |
 | `GET …/routines/{id}/runs` | contributor | Runs, newest first: `status` (`running`, `done`, `failed`), `trigger`, `model`, `summary`, `report` (output text), `outputs` (`page`, `inbox`: titles of the items dropped, `emails`: number sent, `webhook`), `commit`, tokens, `cost`, `quota`, `error` |
 
 ## Semantic search

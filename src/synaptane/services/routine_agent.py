@@ -131,7 +131,7 @@ class Spec:
     """Settings of a routine for a run (detached from the session)."""
 
     id: UUID
-    name: str
+    name: str  # the routine's title (its file name if it has none)
     template: str
     instructions: str
     scope: tuple[str, ...]
@@ -145,7 +145,7 @@ class Spec:
     def of(cls, routine: Routine) -> "Spec":
         return cls(
             routine.id,
-            routine.name,
+            routine.title or routine.name,  # what people read; the file name is for Git
             routine.template,
             routine.instructions,
             tuple(routine.scope or ()),
@@ -1155,6 +1155,9 @@ def run_one(
         routine = session.get(Routine, routine_id)
         if routine is None:
             return None
+        if routine.error is not None:  # invalid file since the request: not run
+            log.info("Routine %s not run: its file is invalid", routine_id)
+            return None
         space = session.get(Space, routine.space_id)
         assert space is not None
         _ = space.organization
@@ -1168,7 +1171,7 @@ def run_one(
         record = RoutineRun(
             routine_id=routine.id,
             space_id=space.id,
-            name=routine.name,
+            name=spec.name,
             trigger=trigger,
             requested_by=requested_by,
             model=config.model if config else "",

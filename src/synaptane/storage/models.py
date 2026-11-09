@@ -497,7 +497,12 @@ class TidyRun(Base):
 class Routine(Base):
     """Agent routine of a space (`services.routines`): instructions, a schedule, a scope and
     outputs. The agent reads the wiki; it only writes to its outputs (report page, inbox,
-    email, webhook)."""
+    email, webhook).
+
+    The routine is described by a file of the repository, `.synaptane/routines/<name>.md`
+    (`services.routine_files`): the settings below are a copy of it, kept in step at each
+    synchronization. The state of the runs (`last_date`, `last_run_at`, `requested`) lives
+    here only."""
 
     __tablename__ = "routines"
     __table_args__ = (
@@ -510,7 +515,9 @@ class Routine(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
-    name: Mapped[str] = mapped_column(String(120))
+    name: Mapped[str] = mapped_column(String(120))  # file name, without `.md`
+    title: Mapped[str] = mapped_column(String(120), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
     template: Mapped[str] = mapped_column(String(32), default="")  # original template; "": blank
     instructions: Mapped[str] = mapped_column(Text, default="")
     # Schedule, in the space's local time (`Space.tidy_timezone`).
@@ -526,6 +533,14 @@ class Routine(Base):
     output_email: Mapped[str] = mapped_column(String(16), default="")
     output_webhook: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Hash of the file at the last reconciliation. None: the routine is not in the repository
+    # yet (saved in the database before routines moved to Git, or created before the first
+    # synchronization); the next synchronization writes it.
+    sha: Mapped[str | None] = mapped_column(String(64))
+    # Invalid file (`Label.dumps`): the routine is not run, its settings are the last valid
+    # ones. `warnings`: what was ignored (unknown field…), as `Label.dumps` too.
+    error: Mapped[str | None] = mapped_column(Text)
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list)
     last_date: Mapped[date | None]  # last (local) day the scheduled pass was requested
     last_run_at: Mapped[datetime | None]  # start of the last successful pass
     # Request waiting for the worker ("schedule" or "manual"): a single job per space

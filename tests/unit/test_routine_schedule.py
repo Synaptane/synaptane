@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from synaptane.core.errors import SynaptaneError
-from synaptane.services import routines
+from synaptane.services import routine_files, routines
 from synaptane.storage.models import Routine, Space
 
 
@@ -86,17 +86,17 @@ def test_next_run_is_the_next_matching_slot_in_local_time() -> None:
 
 
 def test_output_page_and_scope_are_cleaned() -> None:
-    assert routines.clean_page(" content/rapports/semaine ") == "rapports/semaine.md"
-    assert routines.clean_page("") == ""
-    assert routines.clean_scope(["infra/", "/infra", "", "clients/acme"]) == [
+    assert routine_files.clean_page(" content/rapports/semaine ") == "rapports/semaine.md"
+    assert routine_files.clean_page("") == ""
+    assert routine_files.clean_scope(["infra/", "/infra", "", "clients/acme"]) == [
         "infra",
         "clients/acme",
     ]
     for bad in ("../secret.md", ".git/config.md"):
         with pytest.raises(SynaptaneError):
-            routines.clean_page(bad)
+            routine_files.clean_page(bad)
     with pytest.raises(SynaptaneError):
-        routines.clean_scope(["../hors"])
+        routine_files.clean_scope(["../hors"])
 
 
 def test_templates_are_ready_to_use() -> None:

@@ -16,6 +16,7 @@ content/                          visible: wiki, search, MCP
   vocation.md                     the space's purpose (optional)
   prompts/tidy.md                 tidy-up rules (optional)
   prompts/<name>.md               the team's prompts for assistants (optional)
+  routines/<name>.md              the space's agent routines (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -27,8 +28,9 @@ README.md, .github/, …            anything else: ignored by Synaptane
 - On the first sync, Synaptane creates what is missing, and only that: `content/README.md`
   (with the space's name and description) if `content/` does not exist, and
   `.synaptane/inbox/`.
-- Space settings (description, tidy-up time and time zone, model, embeddings, routines) are
-  kept in the database and changed in the web UI or the REST API, not in the repository.
+- Space settings (description, tidy-up time and time zone, model, embeddings) are kept in the
+  database and changed in the web UI or the REST API, not in the repository. Routines are
+  files of the repository; only the state of their runs is kept in the database.
 - Git is the source of truth: every file here can also be changed by a push, and Synaptane
   picks it up on the next sync.
 
@@ -120,6 +122,34 @@ The team's **prompts for assistants**: every other Markdown file of the folder, 
 (organization administrators) or by a push. See [Your team's
 prompts](../guide/mcp.md#your-teams-prompts).
 
+## `.synaptane/routines/<name>.md`
+
+The space's **agent routines**, one Markdown file each (20 at most), named with lowercase
+letters, digits and dashes (40 characters at most): the name of the routine. A header between
+two `---` lines, then the instructions:
+
+```markdown
+---
+title: Weekly digest
+schedule: weekly friday 16:00
+scope: projects, decisions
+report: reports/weekly-digest.md
+email: members
+---
+Write the summary of the week…
+```
+
+Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
+`monthly 1 06:00`), `scope` (folders separated by commas, a JSON list or one `- folder` line
+each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+`template`. Values are plain text or JSON. An unknown field is reported and ignored; an
+invalid file does not run, and its error shows in Settings → Routines and the REST API.
+
+Written in **Settings → Routines** (organization administrators: a commit in their name) or by
+a push: anyone who can push can change them. Read at each synchronization; the state of the
+runs (last run, run requested) stays in the database, so a changed file never makes a routine
+run again. See [Agent routines](../admin/ai.md#agent-routines-per-space).
+
 ## `.synaptane/inbox/`
 
 One **note** is one Markdown file with a front matter, named after its date (UTC), its type,
@@ -173,8 +203,12 @@ Git history since the last tidy-up.
 - Tidy-up runs are committed by `Synaptane tidy-up` (`Synaptane – rangement` in older
   histories), subject `Tidy-up: …`: one commit per run. Its commits, like Synaptane's merges
   and the initial files, are never reported to the inbox as changes.
-- A routine commits its report page and inbox items as `Synaptane routine (<name>)`, subject
-  `Routine "<name>": …` (`Synaptane – routine` in older histories).
+- A routine commits its report page and inbox items as `Synaptane routine (<title>)`, subject
+  `Routine "<title>": …` (`Synaptane – routine` in older histories).
+- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
+  the administrator's name. The routines kept in the database by older versions are written by
+  `Synaptane: routines written to the repository`, at the first synchronization after the
+  upgrade.
 - Synaptane's own commits have English subjects: `Inbox: <title>` (a note dropped; also
   `Inbox: edit “…”`, `Inbox: delete “…”`, `Inbox: “…” moved to <space>`),
   `Synaptane: initialize space`, `Synaptane: merge remote changes`,

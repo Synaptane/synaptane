@@ -10,6 +10,42 @@ of the target version.
 
 ## [Unreleased]
 
+### Changed
+- **Agent routines are files of the repository.** Each routine of a space is now
+  `.synaptane/routines/<name>.md`, versioned like the purpose and the tidy-up rules: a header
+  (`title`, `description`, `schedule` such as `weekly monday 06:00`, `scope`, `report`,
+  `inbox`, `email`, `webhook`, `enabled`, `template`), then the instructions. Git is the
+  source of truth; the database only keeps the state of the runs. At each synchronization,
+  Synaptane reads the files at the space's current commit: a new file creates the routine
+  (which waits for its next slot), a changed file updates its settings without making it run
+  again, a removed file removes it (its log and its cost stay in the month's budget). An
+  invalid file does not run, and its error shows in **Settings → Routines** and in the REST
+  API (`error`); a field this version does not know is reported (`warnings`), ignored, and
+  kept when Synaptane rewrites the file. **Settings → Routines**, the provided templates
+  (**Enable**, **Customize first**) and the REST API keep working and write the file: a commit
+  in the administrator's name, under the space lock, then a synchronization; a file changed
+  since the form was opened is refused, with the choice to replace it, as for the purpose.
+  Anyone who can push to the repository can now change a routine, as they can change the
+  tidy-up rules: grant push access accordingly. Inside Synaptane, only organization
+  administrators write these files. REST: a routine gains `title`, `description`, `path`,
+  `sha`, `pending`, `error` and `warnings`; `name` is now the file name (a free text given at
+  creation is still taken as the title); `PATCH` and `DELETE` accept `base_sha`. See
+  [Agent routines](docs/admin/ai.md#the-routine-file).
+
+### Upgrade
+- One migration (`0034`), applied at startup. Each existing routine keeps its row, so its
+  state and its runs; its name becomes its title, and it gets a file name made from it
+  (`Contrôle de cohérence` → `controle-de-coherence`, `-2` if the name is taken in the space).
+  At the next synchronization of each space, Synaptane writes its routines to the repository
+  in one commit, `Synaptane: routines written to the repository`, and pushes it. A routine
+  keeps running from the database until then, and runs neither twice nor not at all: its last
+  run day stays. A space not synchronized yet writes them at its first synchronization. If a
+  file of the same name is already in the repository with other content, the repository wins
+  and the routine of the database takes a free name (`-2`); with the same content, it is
+  adopted. A failed push keeps the commit in the local copy, and the next synchronization
+  pushes it. REST clients that change a routine's `name` with `PATCH` must change `title`
+  instead. As before any upgrade, back up first.
+
 ## [1.15.0] - 2026-11-09
 
 Send or forward an email to a space's inbox; import a Notion or Confluence export; and run the

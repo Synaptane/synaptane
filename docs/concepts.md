@@ -95,10 +95,10 @@ administrator adds each member. See [Single sign-on](admin/sso.md).
 
 - The content lives in the repositories. The PostgreSQL database holds the accounts,
   organizations, spaces and permissions, the settings (repository, tidy-up, AI providers,
-  routines, webhooks, single sign-on), tokens and connections, encrypted secrets, the job
-  queue, the tidy-up and routine history, the audit log and the semantic index (pgvector,
-  rebuilt from Git). Full-text search needs no index: ripgrep reads the repositories and the
-  extracted text, kept under `data_dir`. `synaptane reindex` rebuilds the extracted text and
+  webhooks, single sign-on), tokens and connections, encrypted secrets, the job queue, the
+  tidy-up and routine history (routines themselves are files of the repository), the audit
+  log and the semantic index (pgvector, rebuilt from Git). Full-text search needs no index:
+  ripgrep reads the repositories and the extracted text, kept under `data_dir`. `synaptane reindex` rebuilds the extracted text and
   the semantic index from Git.
 - Each space has a local clone. Every write is a readable commit: the author is the person
   who acted (or the tidy-up agent, `Synaptane tidy-up`), and the message says what was done
@@ -217,8 +217,11 @@ check** (contradictions, outdated information, duplicates) and a weekly **digest
 the team learned and decided, in English and in French (the language of the person who
 creates the routine).
 
-Organization administrators create, change, run and delete routines; contributors of the
-space see them and their log. The nightly tidy-up is not a routine.
+Each routine is a file of the space's repository, `.synaptane/routines/<name>.md`: Git is the
+source of truth, the database only keeps the state of its runs. Organization administrators
+create, change, run and delete routines from Synaptane; anyone who can push to the repository
+can change them too. Contributors of the space see them and their log. The nightly tidy-up is
+not a routine.
 
 ## Search
 

@@ -22,7 +22,9 @@ def _routine(db: Session, database: Database, ctx: Workspace, wiki: Wiki) -> Rou
     configure_ai(db, ctx, wiki)
     wiki.remote.push({"content/serveurs/sauvegarde.md": "# Sauvegarde\n\nElle tourne à 3h.\n"})
     git_sync.run_sync(database, ctx, wiki.infra.id)
-    routine = routines.create(db, wiki.root, wiki.infra, routines.Fields(), template="coherence")
+    routine = routines.create(
+        db, database, wiki.root, ctx, wiki.infra, routines.Fields(), template="coherence"
+    )
     db.commit()
     return routine
 

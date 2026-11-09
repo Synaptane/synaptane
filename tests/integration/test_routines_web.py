@@ -55,7 +55,8 @@ def test_admin_manages_routines_from_the_space_settings(
     assert "Modifier la routine" in form and "contradictions entre pages" in form
     data = {
         "csrf": token,
-        "name": "Cohérence infra",
+        "base_sha": routine.sha or "",
+        "title": "Cohérence infra",
         "instructions": "Mes consignes très précises.",
         "frequency": "monthly",
         "monthday": "3",
@@ -75,7 +76,7 @@ def test_admin_manages_routines_from_the_space_settings(
     )
     assert saved.status_code == 303
     routine = only(db)
-    assert (routine.name, routine.frequency, routine.monthday, routine.at) == (
+    assert (routine.title, routine.frequency, routine.monthday, routine.at) == (
         "Cohérence infra",
         "monthly",
         3,
@@ -148,7 +149,7 @@ def test_blank_routine_from_the_form(client: TestClient, db: Session, wiki: Wiki
         BASE,
         data={
             "csrf": csrf(client, BASE),
-            "name": "FAQ d'accueil",
+            "title": "FAQ d'accueil",
             "instructions": "Régénère la FAQ.",
             "frequency": "weekly",
             "weekday": "2",
@@ -163,14 +164,17 @@ def test_blank_routine_from_the_form(client: TestClient, db: Session, wiki: Wiki
     assert created.status_code == 303
     routine = only(db)
     assert (routine.template, routine.weekday, routine.output_email) == ("", 2, "admins")
+    assert routine.name == "faq-d-accueil" and routine.sha is not None
     assert routine.output_webhook and routine.enabled
     assert "Chaque mercredi à 09:00" in client.get(BASE).text
 
 
 def test_contributors_see_readers_do_not_and_only_admins_change(
-    client: TestClient, db: Session, wiki: Wiki
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
-    routine = routines.create(db, wiki.root, wiki.infra, routines.Fields(), template="digest")
+    routine = routines.create(
+        db, database, wiki.root, ctx, wiki.infra, routines.Fields(), template="digest"
+    )
     db.commit()
     login(client, "alice")  # contributor
     page = client.get(BASE)
@@ -190,7 +194,7 @@ def test_contributors_see_readers_do_not_and_only_admins_change(
         assert "Action non autorisée." in refused.text, path  # message, nothing changed
     edit = {
         "csrf": token,
-        "name": "Pirate",
+        "title": "Pirate",
         "instructions": "x",
         "frequency": "daily",
         "at": "01:00",
@@ -199,7 +203,7 @@ def test_contributors_see_readers_do_not_and_only_admins_change(
     assert client.post(BASE, data={**edit, "output_inbox": "true"}).status_code == 403
     db.expire_all()
     [same] = db.scalars(select(Routine))
-    assert (same.name, same.enabled, same.requested) == ("Résumé hebdomadaire", True, None)
+    assert (same.title, same.enabled, same.requested) == ("Résumé hebdomadaire", True, None)
     assert client.get(f"{BASE}/new").status_code == 403
     assert client.get(f"{BASE}/{routine.id}/edit").status_code == 403
 
@@ -217,7 +221,9 @@ def test_rest_api(client: TestClient, db: Session, database: Database, wiki: Wik
     created = client.post(API, json={"template": "coherence", "at": "05:45"}, headers=root)
     assert created.status_code == 201, created.text
     body = created.json()
-    assert body["name"] == "Contrôle de cohérence" and body["at"] == "05:45"
+    assert body["title"] == "Contrôle de cohérence" and body["at"] == "05:45"
+    assert body["name"] == "controle-de-coherence" and body["pending"] is False
+    assert body["path"] == ".synaptane/routines/controle-de-coherence.md" and body["sha"]
     assert body["output_inbox"] is True and body["next_run"] and body["last_run"] is None
     rid = body["id"]
     assert [r["id"] for r in client.get(API, headers=alice).json()] == [rid]
