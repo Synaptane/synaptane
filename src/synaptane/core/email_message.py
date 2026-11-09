@@ -11,7 +11,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from email import policy
+from email import errors, policy
 from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from email.utils import getaddresses, parsedate_to_datetime
@@ -65,6 +65,9 @@ class Parsed:
     auth_results: list[str]  # Authentication-Results headers, topmost first
     automatic: bool  # auto-reply, bounce, mailing list: never answered, never dropped
     duplicated: tuple[str, ...] = ()  # SINGLE_HEADERS present more than once
+    # A line of the headers that is not a header: Python stops reading the headers there (or
+    # skips it), where another reader, a DKIM verifier say, may read on.
+    broken_headers: bool = False
     received: list[str] = field(default_factory=list)  # Received headers, topmost first
     body: str = ""
     attachments: list[tuple[str, bytes]] = field(default_factory=list)
@@ -136,12 +139,19 @@ def parse(raw: bytes, *, with_content: bool = True) -> Parsed:
         auth_results=_header(message, "Authentication-Results"),
         automatic=_automatic(message),
         duplicated=_duplicated(message),
+        broken_headers=any(isinstance(d, _BROKEN) for d in message.defects),
         received=_header(message, "Received"),
     )
     if with_content and isinstance(message, EmailMessage):
         parsed.body, parsed.attachments = _content(message)
         parsed.has_content = True
     return parsed
+
+
+# `To : x` (space before the colon, obsolete syntax), a line without colon, a NUL, a second
+# "From " line: the headers below are not headers for Python, but may be for others; a signed
+# email replayed with headers of one's own above such a line would hide its duplicates.
+_BROKEN = (errors.MissingHeaderBodySeparatorDefect, errors.MisplacedEnvelopeHeaderDefect)
 
 
 def _duplicated(message: Message) -> tuple[str, ...]:

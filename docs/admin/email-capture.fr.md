@@ -142,18 +142,26 @@ dernier). Donc, en plus de l'authentification :
 - un e-mail où un en-tête que la RFC 5322 permet une seule fois apparaît deux fois (`From`,
   `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `Message-ID`, `In-Reply-To`,
   `References`) est refusé en silence (« Un en-tête permis une seule fois apparaît deux
-  fois ») ;
+  fois »), tout comme un e-mail dont une ligne des en-têtes n'est pas un en-tête (`To : …` avec
+  une espace avant les deux-points, une ligne sans deux-points) : Python cesse d'y lire les
+  en-têtes, là où un vérificateur DKIM peut continuer, et des doublons pourraient se cacher
+  dessous ;
 - un e-mail dont la `Date` (signée) est absente ou à plus de **48 heures** de sa réception
   (l'`INTERNALDATE` IMAP, sinon la date de l'en-tête `Received` le plus haut) est refusé : un
   e-mail plus ancien se transfère, ce qui lui donne la date du jour ;
-- l'adresse de capture doit être en **À ou en Cc**, que l'expéditeur a écrits et que DKIM
-  signe : une copie cachée (Cci), ou une adresse présente seulement dans l'enveloppe
-  (`Delivered-To`, `X-Original-To`), ne vise rien. L'enveloppe ne sert qu'à choisir, quand À
-  et Cc nomment plusieurs espaces, l'espace de cette copie. **Microsoft 365 ne signe pas À et
-  Cc** : pour des expéditeurs sur Microsoft 365, quelqu'un qui détient un de leurs e-mails
-  pourrait le rejouer, dans les 48 heures, vers une autre adresse de capture où l'expéditeur
-  peut déposer ; la note resterait au nom de l'expéditeur, avec son contenu, et le même e-mail
-  n'est jamais déposé deux fois dans le même espace.
+- l'adresse de capture doit être en **À ou en Cc** : une copie cachée (Cci), ou une adresse
+  présente seulement dans l'enveloppe (`Delivered-To`, `X-Original-To`), ne vise rien.
+  L'enveloppe ne sert qu'à choisir, quand À et Cc nomment plusieurs espaces, l'espace de cette
+  copie.
+
+**Ce qui reste.** DKIM signe les en-têtes À et Cc présents (Gmail ; pas Microsoft 365, qui ne
+signe ni l'un ni l'autre), mais pas un en-tête absent : la plupart des e-mails n'ont pas de Cc,
+et quelqu'un qui en détient un peut y ajouter un `Cc` avec une adresse de capture sans casser
+sa signature (sauf si le serveur de l'expéditeur « sur-signe » Cc, ce que peu font). Dans les
+**48 heures** suivant sa date, un tel e-mail peut donc être rejoué vers un espace où son
+expéditeur peut déposer. La note reste au nom de l'expéditeur, avec son contenu (message cité
+compris), et le même e-mail n'est jamais déposé deux fois dans le même espace. Gardez-le en
+tête pour les espaces dont les membres reçoivent des e-mails de personnes extérieures.
 
 **Domaines internes acceptés sur SPF seul (moins sûr).** Pour un domaine qui ne signe rien (ni
 DKIM ni DMARC), vous pouvez l'indiquer : un `spf=pass` dont le domaine d'enveloppe est aligné

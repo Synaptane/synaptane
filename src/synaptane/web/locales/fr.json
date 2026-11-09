@@ -2216,5 +2216,6 @@
  "Capture address neither in To nor in Cc": "Adresse de capture ni en À ni en Cc",
  "Date missing, or more than 48 hours away from the reception": "Date absente, ou à plus de 48 heures de la réception",
  "Its date is missing, or more than 48 hours away from when it arrived: an older email is not dropped (it could be replayed by someone else). Forward it instead: the forward gets today's date.": "Sa date est absente, ou à plus de 48 heures de son arrivée : un e-mail plus ancien n'est pas déposé (quelqu'un d'autre pourrait le rejouer). Transférez-le plutôt : le transfert prend la date du jour.",
- "The capture address must be in To or Cc, not in a blind copy (Bcc).": "L'adresse de capture doit être en À ou en Cc, pas en copie cachée (Cci)."
+ "The capture address must be in To or Cc, not in a blind copy (Bcc).": "L'adresse de capture doit être en À ou en Cc, pas en copie cachée (Cci).",
+ "A line of the headers is not a header (replayed email?)": "Une ligne des en-têtes n'est pas un en-tête (e-mail rejoué ?)"
 }

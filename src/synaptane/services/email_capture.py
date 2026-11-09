@@ -84,6 +84,7 @@ POLL_BUDGET = 240.0  # seconds: no new email taken after that
 # bounded by TIMEOUT and by what is left, and a watchdog closes the socket at the deadline (a
 # server that sends a byte every 29 seconds keeps no poll alive).
 POLL_DEADLINE = 300.0
+LOGOUT_TIMEOUT = 5.0  # seconds: the poll is over, the server need not answer at length
 # An email dated more than this away from its reception is refused: an authentic, signed
 # email replayed later by someone else keeps its old date (signed).
 MAX_CLOCK_GAP = timedelta(hours=48)
@@ -107,6 +108,7 @@ REASONS: dict[str, Label] = {
     "automatic": Label("Automatic message (auto-reply, bounce, mailing list)"),
     "malformed": Label("No single sender address"),
     "duplicate_headers": Label("A header that may appear once appears twice (replayed email?)"),
+    "malformed_headers": Label("A line of the headers is not a header (replayed email?)"),
     "stale_date": Label("Date missing, or more than 48 hours away from the reception"),
     "not_in_recipients": Label("Capture address neither in To nor in Cc"),
     "not_authenticated": Label("Sender not authenticated (neither DMARC nor aligned DKIM)"),
@@ -483,18 +485,20 @@ class Mailbox:
         if conf.security == "ssl":
             self.imap = imaplib.IMAP4_SSL(conf.host, conf.port, ssl_context=context, timeout=left)
         elif conf.security == "starttls":
-            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=left)
-            self._arm()
-            self.imap.starttls(ssl_context=context)
+            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=left)  # TLS below
         elif self.allow_plain:
             self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=left)
         else:
             raise CaptureError(Label("Unencrypted connection refused."))
-        if self.deadline is not None:
-            self._watchdog = threading.Timer(max(self.deadline - time.monotonic(), 0), self._cut)
-            self._watchdog.daemon = True
-            self._watchdog.start()
         try:
+            if self.deadline is not None:
+                left = max(self.deadline - time.monotonic(), 0)
+                self._watchdog = threading.Timer(left, self._cut)
+                self._watchdog.daemon = True
+                self._watchdog.start()
+            if conf.security == "starttls":
+                self._arm()
+                self.imap.starttls(ssl_context=context)
             self._arm()
             self._ok(self.imap.login(conf.username, conf.password))
             self._arm()
@@ -511,13 +515,28 @@ class Mailbox:
         self._close()
 
     def _close(self) -> None:
+        """Logs out within LOGOUT_TIMEOUT (the watchdog still armed: a server that drips its
+        answer cannot hold it), then closes the socket whatever happened: imaplib leaves it
+        open when its LOGOUT fails."""
+        imap = self.imap
+        if imap is not None:
+            wait = LOGOUT_TIMEOUT
+            if self.deadline is not None:  # never beyond the deadline (nor zero: blocking)
+                wait = max(min(wait, self.deadline - time.monotonic()), 0.1)
+            sock = getattr(imap, "sock", None)
+            if sock is not None:
+                with suppress(OSError):
+                    sock.settimeout(wait)
+            with suppress(Exception):
+                imap.logout()
+            with suppress(Exception):
+                imap.shutdown()  # after a failed LOGOUT; harmless after a good one
+        self.imap = None
         if self._watchdog is not None:
             self._watchdog.cancel()
+            if self._watchdog is not threading.current_thread():
+                self._watchdog.join(1.0)  # its thread ends now: none left behind, poll after poll
             self._watchdog = None
-        if self.imap is not None:
-            with suppress(Exception):
-                self.imap.logout()
-            self.imap = None
 
     @property
     def _imap(self) -> imaplib.IMAP4:
@@ -628,7 +647,10 @@ def test(session: Session, actor: Actor, box: SecretBox, *, allow_plain: bool) -
     counts: dict[str, int] = {}
     unnamed = 0
     try:
-        with Mailbox(conf, allow_plain=allow_plain, timeout=TEST_TIMEOUT) as mailbox:
+        deadline = time.monotonic() + 2 * TEST_TIMEOUT  # a web request waits for it
+        with Mailbox(
+            conf, allow_plain=allow_plain, timeout=TEST_TIMEOUT, deadline=deadline
+        ) as mailbox:
             waiting = mailbox.select(conf.folder, readonly=True)
             for uid in mailbox.uids()[-10:]:
                 head = mailbox.fetch(uid, "BODY.PEEK[HEADER.FIELDS (AUTHENTICATION-RESULTS)]")
@@ -922,6 +944,8 @@ def handle(
         silent = "automatic"
     elif parsed.duplicated:  # a header added above the signed one: never told, never read
         silent = "duplicate_headers"
+    elif parsed.broken_headers:  # headers Python does not read: duplicates could hide there
+        silent = "malformed_headers"
     elif not sender:
         silent = "malformed"
     else:

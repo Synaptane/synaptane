@@ -132,17 +132,25 @@ most readers, reads the first of two headers, DKIM the last). So, besides authen
 
 - an email where a header RFC 5322 allows once appears twice (`From`, `Sender`, `Reply-To`,
   `To`, `Cc`, `Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`) is refused in
-  silence ("A header that may appear once appears twice");
+  silence ("A header that may appear once appears twice"), and so is one with a line among
+  its headers that is not a header (`To : …` with a space before the colon, a line without
+  colon): Python stops reading the headers there, where a DKIM verifier may read on, and
+  duplicates could hide below it;
 - an email whose `Date` (signed) is missing or more than **48 hours** away from its reception
   (the IMAP `INTERNALDATE`, otherwise the date of the topmost `Received` header) is refused: an
   older email is to be forwarded, which gives it today's date;
-- the capture address must be in **To or Cc**, which the sender wrote and DKIM signs: a blind
-  copy (Bcc), or an address only in the envelope (`Delivered-To`, `X-Original-To`), aims at
-  nothing. The envelope only chooses, when To and Cc name several spaces, the space of this
-  copy. **Microsoft 365 does not sign To and Cc**: for senders on Microsoft 365, someone who
-  has one of their emails could replay it, within 48 hours, to another capture address where
-  the sender may drop notes; the note would still be in the sender's name, with their
-  content, and the same email is never dropped twice in the same space.
+- the capture address must be in **To or Cc**: a blind copy (Bcc), or an address only in the
+  envelope (`Delivered-To`, `X-Original-To`), aims at nothing. The envelope only chooses, when
+  To and Cc name several spaces, the space of this copy.
+
+**What remains.** DKIM signs the To and Cc headers that are present (Gmail; not Microsoft 365,
+which signs neither), but not one that is absent: most emails have no Cc, and someone who has
+one of them can add a `Cc` with a capture address without breaking its signature (unless the
+sender's server "oversigns" Cc, which few do). Within **48 hours** of its date, such an email
+can thus be replayed to a space where its sender may drop notes. The note stays in the
+sender's name, with their content (a quoted message included), and the same email is never
+dropped twice in the same space. Keep it in mind for spaces whose members receive emails
+from people outside the organization.
 
 **Internal domains accepted on SPF alone (less safe).** For a domain that signs nothing
 (neither DKIM nor DMARC), you may list it: an `spf=pass` whose envelope domain is aligned with

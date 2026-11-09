@@ -276,6 +276,48 @@ def test_an_old_email_is_refused(
     assert len(told) == 2 and all("48 heures" in t for t in told)
 
 
+def test_a_replay_hiding_its_duplicates_below_a_broken_line_is_refused(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server, smtp: Inbox
+) -> None:
+    """Headers of one's own (To, Subject, Date), a line that is not a header, then the signed
+    email: Python reads only the added headers and finds no duplicate."""
+    signed = message(to="eve@evil.test", subject="Original")
+    added = (
+        f"Authentication-Results: {FORGED}\r\nFrom: alice@acme.test\r\n"
+        "To: brain+acme.infra@capture.test\r\nSubject: Choisi\r\n"
+        "Date: Mon, 09 Nov 2026 09:32:00 +0000\r\nnot a header\r\n"
+    ).encode()
+    server.deliver(added + signed.split(b"\n", 1)[1])  # below the server's own header
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["malformed_headers"] and notes(wiki, ctx) == []
+    assert smtp.messages == []
+
+
+def _timers() -> list[threading.Thread]:
+    return [t for t in threading.enumerate() if isinstance(t, threading.Timer) and t.is_alive()]
+
+
+def test_the_connection_is_closed_and_the_watchdog_stopped_whatever_happens(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server
+) -> None:
+    """imaplib leaves the socket open when its LOGOUT fails; STARTTLS refused after the
+    connection opened: closed all the same, and no watchdog left behind."""
+    server.refuse_logout = True
+    server.deliver(message())
+    assert poll(database, ctx).accepted == 1
+    assert server.connections[-1].closed and _timers() == []
+    row = db.get(CaptureSettings, 1)
+    assert row is not None
+    row.security, row.port = "starttls", 143
+    db.commit()
+    server.refuse_starttls = True
+    assert "STARTTLS refused" in email_capture.poll(database, ctx).error
+    assert server.connections[-1].closed and _timers() == []
+    with pytest.raises(email_capture.CaptureError):
+        email_capture.test(db, wiki.root, ctx.box, allow_plain=False)
+    assert server.connections[-1].closed and _timers() == []
+
+
 def test_the_poll_never_lasts_beyond_its_deadline(
     db: Session,
     database: Database,

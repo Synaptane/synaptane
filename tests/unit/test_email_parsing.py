@@ -497,3 +497,20 @@ def test_find_space_refuses_malformed_tags_without_a_query(tag: str) -> None:
             raise AssertionError("no query for a malformed tag")
 
     assert find_space(NoSession(), tag) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"Not a header line",  # Python stops reading the headers here, a verifier may not
+        b"To : brain+acme.infra@capture.test",  # obsolete syntax: read by some, not by Python
+        b"X-Odd\x00: y",
+        b"From alice@acme.test Mon Nov  9 09:00:00 2026",  # a second envelope line
+    ],
+)
+def test_a_line_of_the_headers_that_python_does_not_read_is_reported(line: bytes) -> None:
+    """Headers of one's own, then such a line, then a signed email: Python would read only the
+    added headers and see no duplicate, where a DKIM verifier reads on to the signed ones."""
+    raw = b"From: alice@acme.test\r\nSubject: added\r\n" + line + b"\r\n" + message()
+    assert parse(raw, with_content=False).broken_headers
+    assert not parse(message(), with_content=False).broken_headers

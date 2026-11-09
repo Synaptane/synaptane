@@ -26,9 +26,11 @@ of the target version.
   `dkim=pass` aligned on the `From` domain (a DMARC pass must name that domain in
   `header.from`); a header written by the sender is never read, nor one that could be read two
   ways. Against a signed email replayed by someone else: a header allowed once (From, To, Cc,
-  Subject, Date, Message-ID…) present twice refuses the email in silence, its `Date` must be
-  within 48 hours of its reception (IMAP `INTERNALDATE`), and the capture address must be in To
-  or Cc (a blind copy, or an address only in `Delivered-To`, aims at nothing). A poll is cut
+  Subject, Date, Message-ID…) present twice, or a line of the headers that is not a header,
+  refuses the email in silence, its `Date` must be within 48 hours of its reception (IMAP
+  `INTERNALDATE`), and the capture address must be in To or Cc (a blind copy, or an address
+  only in `Delivered-To`, aims at nothing); a Cc added to a signed email that had none still
+  passes within those 48 hours (documented). A poll is cut
   after 5 minutes whatever the server does. Two options, off by default and documented as less
   safe: internal domains accepted on SPF alone, and the Microsoft 365 header without
   identifier. Same limits as every note (10 attachments of 25 MB, 35 MB per email, secrets

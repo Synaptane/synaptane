@@ -45,6 +45,8 @@ class Server:
     commands: list[str] = field(default_factory=list)
     connections: list["FakeIMAP"] = field(default_factory=list)
     refuse_login: bool = False
+    refuse_starttls: bool = False
+    refuse_logout: bool = False  # the LOGOUT answer never comes (imaplib then raises)
     refuse_create: set[str] = field(default_factory=set)
     drop_after: int | None = None  # commands before the connection is lost
     delay: float = 0.0  # seconds each command takes (a slow server)
@@ -105,6 +107,8 @@ class FakeIMAP:
 
     def starttls(self, ssl_context: object = None) -> tuple[str, list[bytes]]:
         self._log("STARTTLS")
+        if self.server.refuse_starttls:
+            raise imaplib.IMAP4.error("STARTTLS refused")
         self.tls = True
         return "OK", [b"Begin TLS"]
 
@@ -199,7 +203,16 @@ class FakeIMAP:
 
     def logout(self) -> tuple[str, list[bytes]]:
         self._log("LOGOUT")
+        if self.server.refuse_logout:
+            raise imaplib.IMAP4.abort("socket error: timed out")
+        self.shutdown()
         return "BYE", [b"Logging out"]
+
+    def shutdown(self) -> None:
+        """Closes the connection (imaplib: after LOGOUT, or by hand)."""
+        self.closed = True
+
+    closed = False
 
     # Last: in the class body, `list` names this method from here on.
     def list(self, directory: str = '""', pattern: str = "*") -> tuple[str, list[bytes | None]]:
