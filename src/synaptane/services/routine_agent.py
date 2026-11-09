@@ -132,7 +132,7 @@ class Spec:
     """Settings of a routine for a run (detached from the session)."""
 
     id: UUID
-    name: str
+    name: str  # the routine's title (its file name if it has none)
     template: str
     instructions: str
     scope: tuple[str, ...]
@@ -146,7 +146,7 @@ class Spec:
     def of(cls, routine: Routine) -> "Spec":
         return cls(
             routine.id,
-            routine.name,
+            routine.title or routine.name,  # what people read; the file name is for Git
             routine.template,
             routine.instructions,
             tuple(routine.scope or ()),
@@ -1108,6 +1108,9 @@ def run_pending(
     return 0
 
 
+LOCKED_DELAY = timedelta(seconds=15)  # a reconciliation holds the rows for a moment only
+
+
 def _run_pending(
     database: Database,
     ws: Workspace,
@@ -1133,6 +1136,20 @@ def _run_pending(
                 .with_for_update(skip_locked=True)
             )
             if routine is None:
+                # A request locked by someone else (a synchronization reconciling the routines
+                # with their files, a save) is skipped: it gets a task again, otherwise it
+                # would wait for the routine's next slot.
+                locked = session.scalar(
+                    select(Routine.id)
+                    .where(
+                        Routine.space_id == space_id,
+                        Routine.requested.is_not(None),
+                        Routine.id.not_in(seen),
+                    )
+                    .limit(1)
+                )
+                if locked is not None:
+                    jobs.enqueue(session, ROUTINE, space_id, delay=LOCKED_DELAY)
                 break
             trigger, by = str(routine.requested), routine.requested_by
             routine.requested, routine.requested_by = None, None
@@ -1173,6 +1190,9 @@ def run_one(
         routine = session.get(Routine, routine_id)
         if routine is None:
             return None
+        if routine.error is not None:  # invalid file since the request: not run
+            log.info("Routine %s not run: its file is invalid", routine_id)
+            return None
         space = session.get(Space, routine.space_id)
         assert space is not None
         _ = space.organization
@@ -1186,7 +1206,7 @@ def run_one(
         record = RoutineRun(
             routine_id=routine.id,
             space_id=space.id,
-            name=routine.name,
+            name=spec.name,
             trigger=trigger,
             requested_by=requested_by,
             model=config.model if config else "",

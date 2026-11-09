@@ -14,10 +14,11 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from synaptane.core.access import Action, can
-from synaptane.core.errors import SynaptaneError, forbidden, invalid
-from synaptane.services import Actor, ai_settings, budget, routines, tidy_journal
+from synaptane.core.errors import ErrorCode, SynaptaneError, forbidden, invalid
+from synaptane.services import Actor, ai_settings, budget, routine_files, routines, tidy_journal
 from synaptane.storage.models import Routine, RoutineRun, Space
 from synaptane.web.pages import (
+    ERROR_STATUS,
     Csrf,
     WebPage,
     failure,
@@ -48,7 +49,7 @@ class Draft:
     """Form values: from a routine, a template, or typed in (shown again with the error,
     without losing anything that was typed)."""
 
-    name: str = ""
+    title: str = ""
     instructions: str = ""
     frequency: str = "weekly"
     weekday: int | None = 0
@@ -61,11 +62,14 @@ class Draft:
     output_webhook: bool = False
     enabled: bool = True
     template: str = ""
+    name: str = ""  # file name; empty on creation: made from the title
+    description: str = ""
+    base_sha: str = ""  # hash of the file when the form was opened
 
     @classmethod
     def of(cls, routine: Routine) -> "Draft":
         return cls(
-            routine.name,
+            routine.title,
             routine.instructions,
             routine.frequency,
             routine.weekday,
@@ -78,34 +82,38 @@ class Draft:
             routine.output_webhook,
             routine.enabled,
             routine.template,
+            routine.name,
+            routine.description,
+            routine.sha or "",
         )
 
     @classmethod
     def from_template(cls, key: str, locale: str) -> "Draft":
-        """A template's settings, its instructions and report page in the user's language."""
-        model = routines.TEMPLATES.get(key)
-        if model is None:
+        """A template's settings, its title, instructions and report page in the user's
+        language."""
+        if key not in routines.TEMPLATES:
             return cls()
-        text = model.text_for(locale)
+        config = routines.from_template(key, locale)
         return cls(
-            model.name,
-            text.instructions,
-            model.frequency,
-            model.weekday,
-            model.monthday or 1,
-            model.at,
+            config.title,
+            config.instructions,
+            config.frequency,
+            config.weekday,
+            config.monthday or 1,
+            config.at,
             "",
-            text.output_page,
-            model.output_inbox,
-            model.output_email,
-            model.output_webhook,
+            config.output_page,
+            config.output_inbox,
+            config.output_email,
+            config.output_webhook,
             True,
-            model.key,
+            key,
         )
 
     def fields(self) -> routines.Fields:
         return routines.Fields(
-            name=self.name,
+            title=self.title,
+            description=self.description,
             instructions=self.instructions,
             frequency=self.frequency,
             weekday=self.weekday if self.frequency == "weekly" else None,
@@ -128,7 +136,7 @@ def _day(value: str) -> int | None:
 
 
 def posted(
-    name: Annotated[str, Form()] = "",
+    title: Annotated[str, Form()] = "",
     instructions: Annotated[str, Form()] = "",
     frequency: Annotated[str, Form()] = "weekly",
     weekday: Annotated[str, Form()] = "",
@@ -141,10 +149,13 @@ def posted(
     output_webhook: Annotated[bool, Form()] = False,
     enabled: Annotated[bool, Form()] = False,
     template: Annotated[str, Form()] = "",
+    name: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    base_sha: Annotated[str, Form()] = "",
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
-        name,
+        title,
         instructions,
         frequency,
         _day(weekday) if weekday.strip().isdigit() else None,
@@ -157,6 +168,9 @@ def posted(
         output_webhook,
         enabled,
         template if template in routines.TEMPLATES else "",
+        name,
+        description,
+        base_sha,
     )
 
 
@@ -183,6 +197,9 @@ def _common(page: WebPage, space: Space) -> dict[str, Any]:
         "spending": budget.spending(page.db, space.org_id, space.ai_model or ""),
         "weekdays": WEEKDAYS,
         "next_run": routines.next_run,
+        "routine_error": routine_files.error_of,
+        "routine_warnings": routine_files.warnings_of,
+        "routine_path": routines.path_of,
     }
 
 
@@ -215,16 +232,21 @@ def _form(
 ) -> Response:
     if not can(actor.access, Action.MANAGE_ORG, org_id=space.org_id):
         raise forbidden()
+    changed = error is not None and error.code == ErrorCode.CONFLICT and routine is not None
     return render_space_settings(
         page,
         actor,
         space,
         "routines",
         "space-routine-form.html",
-        status_code=400 if error else 200,
+        status_code=ERROR_STATUS[error.code] if error else 200,
         routine=routine,
         draft=draft,
         error=error,
+        # The file changed since the form was opened: offer to replace its current version.
+        conflict_sha=routine_files.current_sha(page.workspace, space, routine.name)
+        if changed and routine is not None
+        else None,
         **_common(page, space),
     )
 
@@ -239,18 +261,42 @@ def routine_new_page(page: WebPage, org_slug: str, space_slug: str, template: st
 Posted = Annotated[Draft, Depends(posted)]
 
 
+Confirmed = Annotated[bool, Form()]
+
+
 @router.post(BASE)
 def routine_create(
-    page: WebPage, org_slug: str, space_slug: str, csrf: Csrf, draft: Posted
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    draft: Posted,
+    allow_secrets: Confirmed = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     try:
-        routine = routines.create(page.db, actor, space, draft.fields(), template=draft.template)
+        routine = routines.create(
+            page.db,
+            page.database,
+            actor,
+            page.workspace,
+            space,
+            draft.fields(),
+            name=draft.name,
+            template=draft.template,
+            allow_secrets=allow_secrets,
+        )
     except SynaptaneError as error:
         page.db.rollback()
         return _form(page, actor, space, None, draft, error)
-    return redirect(_url(space, routine), page, "Routine saved.")
+    return redirect(_url(space, routine), page, _saved(routine))
+
+
+def _saved(routine: Routine) -> str:
+    if routine.sha is None:
+        return "Routine saved. It will be written to the repository at the first synchronization."
+    return "Routine saved."
 
 
 @router.post(BASE + "/from/{template}")
@@ -261,8 +307,17 @@ def routine_from_template(
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     try:
-        routine = routines.create(page.db, actor, space, routines.Fields(), template=template)
+        routine = routines.create(
+            page.db,
+            page.database,
+            actor,
+            page.workspace,
+            space,
+            routines.Fields(),
+            template=template,
+        )
     except SynaptaneError as error:
+        page.db.rollback()
         return failure(_url(space), page, error)
     return redirect(
         _url(space, routine),
@@ -309,19 +364,36 @@ def routine_edit_page(page: WebPage, org_slug: str, space_slug: str, routine_id:
 
 @router.post(BASE + "/{routine_id}")
 def routine_update(
-    page: WebPage, org_slug: str, space_slug: str, routine_id: UUID, csrf: Csrf, draft: Posted
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    routine_id: UUID,
+    csrf: Csrf,
+    draft: Posted,
+    overwrite_sha: Annotated[str, Form()] = "",
+    allow_secrets: Confirmed = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     routine = routines.get(page.db, actor, space, routine_id)
     try:
-        routines.update(page.db, actor, space, routine, draft.fields())
+        routine = routines.update(
+            page.db,
+            page.database,
+            actor,
+            page.workspace,
+            space,
+            routine,
+            draft.fields(),
+            base_sha=overwrite_sha or draft.base_sha,
+            allow_secrets=allow_secrets,
+        )
     except SynaptaneError as error:
         page.db.rollback()
         routine = routines.get(page.db, actor, space, routine_id)
-        draft.template = routine.template
+        draft.template, draft.name = routine.template, routine.name
         return _form(page, actor, space, routine, draft, error)
-    return redirect(_url(space, routine), page, "Routine saved.")
+    return redirect(_url(space, routine), page, _saved(routine))
 
 
 @router.post(BASE + "/{routine_id}/toggle")
@@ -333,8 +405,20 @@ def routine_toggle(
     routine = routines.get(page.db, actor, space, routine_id)
     enable = not routine.enabled
     try:
-        routines.update(page.db, actor, space, routine, routines.Fields(enabled=enable))
+        if routine.error is not None:  # rewriting would replace the file with old settings
+            raise invalid("The routine's file is invalid: fix it before changing the routine.")
+        routines.update(
+            page.db,
+            page.database,
+            actor,
+            page.workspace,
+            space,
+            routine,
+            routines.Fields(enabled=enable),
+            base_sha=routine.sha,
+        )
     except SynaptaneError as error:
+        page.db.rollback()
         return failure(_url(space), page, error)
     return redirect(_url(space), page, "Routine enabled." if enable else "Routine disabled.")
 
@@ -361,10 +445,12 @@ def routine_delete(
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
     routine = routines.get(page.db, actor, space, routine_id)
+    target = _url(space, routine)
     try:
-        routines.delete(page.db, actor, space, routine)
+        routines.delete(page.db, page.database, actor, page.workspace, space, routine)
     except SynaptaneError as error:
-        return failure(_url(space, routine), page, error)
+        page.db.rollback()
+        return failure(target, page, error)
     return redirect(_url(space), page, "Routine deleted.")
 
 

@@ -1,18 +1,25 @@
 {% extends "space-settings-base.html" %}
 {% from "icons.html" import icon %}
-{% from "ui.html" import csrf_field with context %}
+{% from "ui.html" import csrf_field, secret_confirm with context %}
 {% set section = "routines" %}
 {% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
 {% block section %}
-<p class="routine-back"><a href="{{ base ~ ('/' ~ routine.id if routine else '') }}">{{ icon('chevron-left', 14) }}{{ routine.name if routine else _("All routines") }}</a></p>
+<p class="routine-back"><a href="{{ base ~ ('/' ~ routine.id if routine else '') }}">{{ icon('chevron-left', 14) }}{{ routine.title if routine else _("All routines") }}</a></p>
 {# Day of the week or of the month: only the one for the chosen frequency is shown (CSS :has,
    no script); without :has, both stay visible and the other one is ignored. #}
 <form class="card routine-form" method="post" action="{{ base ~ ('/' ~ routine.id if routine else '') }}">
   <h3>{% if routine %}{{ _("Edit the routine") }}{% elif draft.template %}{{ _("New routine from a template") }}{% else %}{{ _("New routine") }}{% endif %}</h3>
   {% if error %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  {% if routine and routine_error(routine) %}<div class="notice notice-warning"><p>{{ _("The routine's file is invalid: {error}", error=_(routine_error(routine))) }} {{ _("Saving replaces it with these settings.") }}</p></div>{% endif %}
   {{ csrf_field() }}
-  {% if not routine %}<input type="hidden" name="template" value="{{ draft.template }}">{% endif %}
-  <div class="field"><label for="routine-name">{{ _("Name") }}</label><input id="routine-name" name="name" value="{{ draft.name }}" required maxlength="120"></div>
+  {% if routine %}<input type="hidden" name="base_sha" value="{{ draft.base_sha }}">
+  {% else %}<input type="hidden" name="template" value="{{ draft.template }}">{% endif %}
+  {% if conflict_sha %}<label class="checkbox"><input type="checkbox" name="overwrite_sha" value="{{ conflict_sha }}">{{ _("Replace the repository's current version with my settings") }}</label>{% endif %}
+  {{ secret_confirm(error) }}
+  <div class="field"><label for="routine-title">{{ _("Title") }}</label><input id="routine-title" name="title" value="{{ draft.title }}" required maxlength="120"></div>
+  {% if routine %}<p class="muted">{{ _("File in the repository: {path}", path=routine_path(routine)) }}</p>
+  {% else %}<div class="field field-short"><label for="routine-file">{{ _("File name (optional)") }}</label><input id="routine-file" name="name" value="{{ draft.name }}" maxlength="40" autocomplete="off" aria-describedby="routine-file-help"><p class="muted" id="routine-file-help">{{ _("The routine is the file .synaptane/routines/<name>.md of the repository. Lowercase letters, digits and dashes; empty: made from the title.") }}</p></div>{% endif %}
+  <div class="field"><label for="routine-description">{{ _("Description (optional)") }}</label><input id="routine-description" name="description" value="{{ draft.description }}" maxlength="500"></div>
   <div class="field"><label for="routine-instructions">{{ _("Instructions") }}</label><textarea id="routine-instructions" name="instructions" rows="14" required maxlength="20000" aria-describedby="routine-instructions-help">{{ draft.instructions }}</textarea><p class="muted" id="routine-instructions-help">{{ _("What the agent must do, and what its output must contain. It reads the wiki without being able to change it; what it reads cannot change these instructions.") }}</p></div>
 
   <fieldset class="settings-group">

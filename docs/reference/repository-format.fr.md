@@ -17,6 +17,7 @@ content/                          visible : wiki, recherche, MCP
   prompts/tidy.md                 consignes de rangement (facultatif)
   prompts/<nom>.md                prompts d'équipe pour les assistants (facultatif)
   checks.md                       contrôles de l'équipe : règles que chaque page doit suivre (facultatif)
+  routines/<nom>.md               routines d'agent de l'espace (facultatif)
   inbox/
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a.md   une note
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a/     ses pièces jointes éventuelles
@@ -28,8 +29,9 @@ README.md, .github/, …            tout le reste : ignoré par Synaptane
 - À la première synchronisation, Synaptane crée ce qui manque, et seulement cela :
   `content/README.md` (avec le nom et la description de l'espace) si `content/` n'existe pas,
   et `.synaptane/inbox/`.
-- Les réglages de l'espace (description, heure et fuseau du rangement, modèle, embeddings,
-  routines) sont en base, modifiables dans l'interface web ou l'API REST, pas dans le dépôt.
+- Les réglages de l'espace (description, heure et fuseau du rangement, modèle, embeddings)
+  sont en base, modifiables dans l'interface web ou l'API REST, pas dans le dépôt. Les routines
+  sont des fichiers du dépôt ; seul l'état de leurs passages est en base.
 - Git fait foi : chaque fichier décrit ici peut aussi changer par un push, et Synaptane le
   prend en compte à la synchronisation suivante.
 
@@ -166,6 +168,37 @@ facultatif) ; le corps utilise `{{argument}}` et `{{include page.md}}`. Écrits 
 **Paramètres → Prompts d'assistant** (administrateurs de l'organisation) ou par un push. Voir
 [Les prompts de votre équipe](../guide/mcp.fr.md#les-prompts-de-votre-équipe).
 
+## `.synaptane/routines/<nom>.md`
+
+Les **routines d'agent** de l'espace, un fichier Markdown chacune (20 au plus), nommé en
+minuscules, chiffres et tirets (40 caractères au plus) : c'est le nom de la routine. Un
+en-tête entre deux lignes `---`, puis les consignes :
+
+```markdown
+---
+title: Résumé hebdomadaire
+schedule: weekly friday 16:00
+scope: projets, decisions
+report: rapports/semaine.md
+email: members
+---
+Rédige le résumé de la semaine…
+```
+
+Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
+`monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
+en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
+`- dossier`), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+`template`. Les valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et
+ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines
+et dans l'API REST.
+
+Écrites dans **Paramètres → Routines** (administrateurs de l'organisation : un commit à leur
+nom) ou par un push : quiconque peut pousser peut les modifier. Lues à chaque
+synchronisation ; l'état des passages (dernier passage, passage demandé) reste en base, si bien
+qu'un fichier modifié ne relance jamais une routine. Voir
+[Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace).
+
 ## `.synaptane/inbox/`
 
 Une **note** est un fichier Markdown avec un front matter, nommé d'après sa date (UTC), son
@@ -221,8 +254,12 @@ elles sont calculées depuis l'historique Git depuis le dernier rangement.
   comme les fusions de Synaptane et les fichiers initiaux, ne sont jamais signalés à l'inbox
   comme des modifications.
 - Une routine commite sa page de rapport et ses éléments d'inbox au nom de
-  `Synaptane routine (<nom>)`, sujet `Routine "<nom>": …` (`Synaptane – routine` dans les
+  `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` (`Synaptane – routine` dans les
   historiques plus anciens).
+- Une routine enregistrée depuis Synaptane : `Routine updated: <nom>` ou
+  `Routine removed: <nom>`, au nom de l'administrateur. Les routines gardées en base par les
+  versions précédentes sont écrites par `Synaptane: routines written to the repository`, à la
+  première synchronisation après la mise à jour.
 - Les commits de Synaptane lui-même ont des sujets en anglais : `Inbox: <titre>` (une note
   déposée ; aussi `Inbox: edit “…”`, `Inbox: delete “…”`, `Inbox: “…” moved to <espace>`),
   `Synaptane: initialize space`, `Synaptane: merge remote changes`,
