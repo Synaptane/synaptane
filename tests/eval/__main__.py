@@ -24,6 +24,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_UP, Decimal
 from pathlib import Path
+from typing import Any
 
 from synaptane.ai import pricing
 from synaptane.ai.base import API_PROVIDERS, EFFORTS, AIConfig, Usage
@@ -91,6 +92,30 @@ def _prompt(args: argparse.Namespace) -> publish.Prompt | None:
 
 RETRIES = 2  # essais rejoués au plus après une erreur passagère du fournisseur (429, 529…)
 RETRY_PAUSE = 30.0  # secondes avant de rejouer
+# Serveurs compatibles OpenAI et Ollama : un 500, un délai dépassé ou une réponse hors format
+# peuvent venir du modèle lui-même (appel d'outil mal formé, raisonnement trop long). Seuls la
+# saturation (429, 503) et le refus de connexion y sont rejoués ; le reste est son échec.
+LOCAL_PROVIDERS = ("openai_compatible", "ollama")
+
+
+def _models_fault(provider: str, result: Result) -> bool:
+    """Erreur passagère d'un serveur local qui ne se rejoue pas : celle du modèle."""
+    error = result.error
+    return (
+        provider in LOCAL_PROVIDERS
+        and error is not None
+        and error["transient"]
+        and not replayable(provider, error)
+    )
+
+
+def replayable(provider: str, error: dict[str, Any] | None) -> bool:
+    """L'erreur du fournisseur justifie-t-elle d'écarter l'essai et de le rejouer ?"""
+    if error is None or not error["transient"]:
+        return False
+    if provider in LOCAL_PROVIDERS:
+        return error["status"] in (429, 503) or str(error["message"]).startswith("Cannot reach")
+    return True
 
 
 def _real(
@@ -108,7 +133,8 @@ def _real(
     l'essai (gardé dans `discarded`, son coût compté) et le rejouer, `RETRIES` fois au plus ;
     une erreur durable du fournisseur ou le budget arrêtent le lancement, qui est alors
     incomplet (et refusé par le rapport)."""
-    args.trials = args.trials or publish.MIN_TRIALS  # défaut : de quoi publier
+    if args.trials is None:
+        args.trials = publish.MIN_TRIALS  # défaut : de quoi publier
     key = os.environ.get(args.api_key_env, "")
     if not key and args.provider not in ("ollama", "openai_compatible"):
         print(f"Clé absente : définissez {args.api_key_env}.", file=sys.stderr)
@@ -156,7 +182,7 @@ def _real(
                     duration = time.monotonic() - clock
                     spent += result.cost or Decimal(0)
                     print(_line(result, f" #{trial}"), flush=True)
-                    passing = result.error is not None and result.error["transient"]
+                    passing = replayable(args.provider, result.error)
                     if result.interrupted == "provider" and passing and attempt < RETRIES:
                         discarded.append(publish.Discarded(trial, result, duration))
                         why = result.detail
@@ -166,9 +192,16 @@ def _real(
                     trials.append(publish.Trial(trial, result, duration))
                     if result.interrupted == "budget":
                         stopped_by = "budget"
+                    elif result.interrupted == "provider" and _models_fault(args.provider, result):
+                        # Serveur local : 500, délai, réponse hors format comptent au modèle.
+                        result.interrupted = "model_error"
+                        result.failures["échec"] = "passage interrompu (model_error)"
                     elif result.interrupted == "provider":
                         stopped_by = "provider"
                         print(f"        erreur du fournisseur : {result.detail}", file=sys.stderr)
+                    elif result.interrupted == "error":
+                        stopped_by = "error"  # erreur du banc ou de Git : rien ne sert de continuer
+                        print(f"        erreur du banc : {result.detail}", file=sys.stderr)
                     break
                 if stopped_by:
                     break
@@ -188,6 +221,8 @@ def _real(
         print("Budget atteint : lancement incomplet, non publiable (relancez avec plus de budget).")
     elif stopped_by == "provider":
         print("Le fournisseur a échoué : lancement incomplet, non publiable.")
+    elif stopped_by == "error":
+        print("Erreur du banc : lancement arrêté, incomplet, non publiable.")
     record = publish.run_record(
         scenarios=chosen,
         trials=trials,
@@ -226,7 +261,8 @@ def _estimate(env: Env, chosen: list[Scenario], args: argparse.Namespace) -> int
     scénario (son bon script), compté comme le facturerait le fournisseur. Le cache relu à
     chaque tour n'est compté que pour Anthropic, dont le fournisseur le demande ; ailleurs,
     toute l'entrée au plein tarif (haut de fourchette)."""
-    args.trials = args.trials or publish.MIN_TRIALS
+    if args.trials is None:
+        args.trials = publish.MIN_TRIALS
     price, prompt = _price(args), _prompt(args)
     if price is None or prompt is None:
         return 2
@@ -272,6 +308,7 @@ def _report(args: argparse.Namespace) -> int:
             min_trials=args.min_trials,
             allow_dirty=args.allow_dirty,
             allow_mixed_commits=args.allow_mixed_commits,
+            allow_replays=args.allow_replays,
         )
     except publish.ReportError as error:
         print(f"Rapport refusé :\n{error}", file=sys.stderr)
@@ -351,7 +388,7 @@ def parser() -> argparse.ArgumentParser:
         "--budget", type=float, default=0.0, help="€ au plus, obligatoire avec --model"
     )
     tidy.add_argument(
-        "--trials", type=int, default=0, help="essais par scénario, vrai modèle ; défaut : 3"
+        "--trials", type=int, default=None, help="essais par scénario, vrai modèle ; défaut : 3"
     )
     tidy.add_argument(
         "--draft", action="store_true", help="vrai modèle avec moins de 3 essais (non publiable)"
@@ -381,6 +418,11 @@ def parser() -> argparse.ArgumentParser:
     )
     report.add_argument(
         "--allow-mixed-commits", action="store_true", help="accepter des commits différents"
+    )
+    report.add_argument(
+        "--allow-replays",
+        action="store_true",
+        help=f"accepter plus de {publish.MAX_REPLAYED:.0%} d'essais rejoués",
     )
     mcp = sub.add_parser("mcp", help="outils MCP, vus par un assistant")
     mcp.add_argument("--case", action="append", default=[], help="cas (répétable) ; défaut : tous")
@@ -414,8 +456,8 @@ def main(argv: list[str] | None = None) -> int:
         if unknown := [n for n in args.scenario if n not in known]:
             cli.error(f"scénario inconnu : {', '.join(unknown)} (connus : {', '.join(known)})")
         chosen = [known[n] for n in args.scenario] or SCENARIOS
-        if args.trials < 0:
-            cli.error("--trials : au moins 1")
+        if args.trials is not None and args.trials < 1:
+            cli.error(f"--trials {args.trials} : au moins 1 essai par scénario")
         if args.estimate:
             if not args.model:
                 cli.error("--estimate demande --model (le tarif du modèle)")

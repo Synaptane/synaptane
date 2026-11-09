@@ -66,16 +66,20 @@ export ANTHROPIC_API_KEY=sk-ant-…        # lue dans l'environnement, jamais en
   comptés un pour un) ; pour un autre modèle, `--price-input` et `--price-output` (par million
   de jetons). Un lancement arrêté par le budget, même pendant son dernier essai, est incomplet
   et non publiable.
-- `--trials` (3 par défaut) : **balayages** de tous les scénarios, l'un après l'autre (essai 1
+- `--trials` (3 par défaut, au moins 1) : **balayages** de tous les scénarios, l'un après l'autre (essai 1
   de chaque scénario, puis essai 2…), pour voir la variance d'un modèle. Publier en demande au
   moins 3 : moins est refusé avant tout appel, sauf avec `--draft` (le lancement n'est alors
   pas publiable).
 - Un essai coupé par le fournisseur ne mesure rien du modèle. Après une erreur passagère (429,
   529, délai dépassé, `transient`), l'essai est écarté, gardé dans le fichier sous `discarded`
-  avec son coût, et rejoué 30 secondes plus tard, deux fois au plus. Une erreur durable (clé
-  refusée, modèle introuvable, adresse injoignable après les reprises) arrête le lancement,
-  qui est alors incomplet. Un essai que le modèle arrête lui-même (plafond de tours, refus)
-  compte comme son échec. L'erreur du fournisseur est enregistrée par sa classe, son modèle de
+  avec son coût, et rejoué 30 secondes plus tard, deux fois au plus. Avec un serveur local ou
+  compatible (`ollama`, `openai_compatible`), seuls la saturation (429, 503) et le refus de
+  connexion sont rejoués : un 500, un délai dépassé ou une réponse hors format peuvent venir du
+  modèle lui-même (appel d'outil mal formé, raisonnement trop long), et comptent comme son
+  échec (`model_error`). Une erreur durable (clé refusée, modèle introuvable, adresse
+  injoignable après les reprises) arrête le lancement, comme une erreur du banc ou de Git : il
+  est alors incomplet. Un essai que le modèle arrête lui-même (plafond de tours, refus) compte
+  comme son échec. L'erreur du fournisseur est enregistrée par sa classe, son modèle de
   message, son statut HTTP et son caractère passager, jamais par son texte libre (qui peut
   citer l'adresse).
 - Le repli de Claude vers un autre modèle (`fallbacks`) est désactivé dans le banc, et chaque
@@ -131,15 +135,21 @@ Il refuse, avec la raison, ce qui ne se compare pas honnêtement :
   diffère) ;
 - des lancements sur des commits différents (`--allow-mixed-commits` pour les accepter ; le
   commit est de toute façon affiché sur chaque ligne) ;
+- plus de 5 % d'essais rejoués après une erreur du fournisseur (`--allow-replays` pour
+  l'accepter : un avertissement est alors en tête des tableaux). Rejouer peut favoriser les
+  essais courts, qu'une erreur touche moins souvent ; les rejoués sont donnés par scénario, et
+  leur coût fait partie du total ;
 - un lancement sur un arbre modifié, fichiers suivis changés ou fichiers non suivis hors de
   `eval/results/`, que son commit seul ne reproduit pas (`--allow-dirty` pour l'accepter, il
   est alors signalé).
 
-Rien n'est masqué en silence. Avant d'écrire un lancement, le banc y cherche ses secrets (la
-clé, l'adresse du fournisseur, son hôte et ses identifiants) et tout ce qui ressemble à un
-secret (clés d'API et jetons des services courants, JWT, en-têtes `Bearer` ou `x-api-key`,
-identifiants dans une adresse) ou à un chemin de la machine (`/home`, `/Users`, `/tmp`,
-`/opt`, `C:\Users`, `~/`…) : s'il en trouve, rien n'est écrit dans le dépôt, une copie
+Rien n'est masqué en silence. Avant d'écrire un lancement, le banc cherche ses secrets (la
+clé, l'adresse du fournisseur, son mot de passe, et son hôte quand il ne peut pas être un
+simple mot : un nom avec un point ou une adresse IP ; `ollama` ou `localhost` ne sont pas des
+secrets, ni le nom d'utilisateur seul) dans le texte libre du lancement (nom, explications des
+correcteurs, métriques, messages d'erreur), et partout tout ce qui ressemble à un secret (clés d'API et jetons des services courants, JWT, en-têtes et champs `Bearer` ou `x-api-key`,
+champ `key`, `token` ou `password` à valeur longue, identifiants dans une adresse) ou à un chemin de la machine (`/home`, `/Users`, `/tmp`,
+`/opt`, `C:\Users`, `D:\…`, `/mnt/d/`, `~/`…) : s'il en trouve, rien n'est écrit dans le dépôt, une copie
 masquée, pour vous seul, va dans le dossier temporaire (pour ne pas perdre un lancement payé),
 et la commande dit ce qui a été trouvé, jamais la valeur. Le rapport contrôle de même ce qu'il
 publierait.
@@ -151,9 +161,11 @@ Format (`format_version` 1, changé si le sens d'un champ change) :
   scénario (ses notes, modifications humaines, attentes) ; fournisseur, modèle, effort
   réellement envoyé et demandé, adresse (`default` ou `custom`), `fallbacks: false`, invite
   (`source`, `path`, `sha256`, et `text` hors du dépôt), empreinte des outils, tarif appliqué,
-  budget, essais demandés, `complete`, `stopped_by` (`budget`, `provider` ou `null`) ; puis
+  budget, essais demandés, `complete`, `stopped_by` (`budget`, `provider`, `error` ou
+  `null`) ; puis
   chaque essai : scénario, numéro, `passed`, correcteurs en échec avec leur explication,
-  `interrupted` (`budget`, `provider`, `error`, `step_cap`, `refusal` ou `null`),
+  `interrupted` (`budget`, `provider`, `error`, `model_error`, `step_cap`, `refusal` ou
+  `null`),
   `provider_error`, `served_models`, `model_mismatch`, jetons (entrée avec les écritures en
   cache, sortie, cache lu, cache écrit), tours, coût, durée, éléments rangés et métriques du
   passage ; et `discarded`, les essais rejoués après une erreur passagère.
@@ -163,12 +175,15 @@ Format (`format_version` 1, changé si le sens d'un champ change) :
   distingue), triées par la **borne basse** de l'intervalle (trois réussites sur trois ne
   passent pas devant 29 sur 30), puis par taux de réussite, puis par coût par passage : taux de
   réussite avec son intervalle de Wilson à 95 %, score par balayage (part des scénarios
-  réussis en un balayage : moyenne, écart-type d'échantillon, minimum, maximum), coût (total,
-  par passage avec sa dispersion, par passage réussi, des essais écartés), jetons et tours par
-  passage, durée, essais rejoués, arrêts du modèle lui-même, et par scénario les réussites et
+  réussis en un balayage : moyenne, écart-type d'échantillon, minimum, maximum), coût (total et
+  par passage réussi, essais écartés compris puisqu'ils ont été payés ; par passage avec sa
+  dispersion ; des seuls essais écartés), jetons et tours par passage, durée, essais rejoués et
+  leur part, arrêts du modèle lui-même, et par scénario les réussites, les essais rejoués et
   les correcteurs en échec (leur nom seulement, pas leur explication). Puis, pour chaque paire
   de lignes, la **comparaison appariée par scénario** : sur combien de scénarios chacune a le
-  meilleur taux de réussite, et le test des signes exact, bilatéral.
+  meilleur taux de réussite, le test des signes exact, bilatéral, et son p ajusté par la
+  méthode de Holm pour le nombre de paires. Le rapport revérifie le modèle qui a servi chaque
+  essai d'après `served_models` ; cela ne se vérifie que si le fournisseur le nomme.
 
 Les intervalles valent pour les scénarios du banc : ils disent ce qu'une configuration ferait
 de nouveau sur eux, pas sur une vraie inbox. Des intervalles disjoints suggèrent un vrai écart,

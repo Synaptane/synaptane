@@ -150,6 +150,7 @@ def test_aggregation_counts_rates_spread_and_costs() -> None:
         "total": 3,
         "pass_rate": 0.0,
         "failures": {"faits": 3},
+        "replayed": 0,
     }
     assert config["tokens_per_run"]["cache_write"] == 1000.0
     assert config["duration_s"]["per_run"]["mean"] == 12.0
@@ -259,10 +260,20 @@ def test_paired_comparison_by_scenario() -> None:
     assert pair["sign_test_p"] == 0.5
     english = publish.markdown(report, "en")
     assert "## Paired comparison by scenario" in english
-    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0.500 |" in english
-    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0,500 |" in publish.markdown(
-        report, "fr"
-    )
+    assert pair["holm_p"] == 0.5  # a single pair: nothing to adjust
+    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0.500 | 0.500 |" in english
+    assert "Holm" in english
+    french = publish.markdown(report, "fr")
+    assert "| model-a · medium | model-b · medium | 2 | 0 | 1 | 0,500 | 0,500 |" in french
+
+
+def test_holm_adjusts_for_several_pairs() -> None:
+    assert publish.holm([]) == []
+    assert publish.holm([0.01, 0.04, 0.03]) == [0.03, 0.06, 0.06]
+    assert publish.holm([0.5, 0.9]) == [1.0, 1.0]
+    runs = [(f"{m}.json", synthetic_run(m)) for m in ("model-a", "model-b", "model-c")]
+    pairs = publish.aggregate(runs)["comparisons"]
+    assert len(pairs) == 3 and all(p["holm_p"] >= p["sign_test_p"] for p in pairs)
 
 
 def test_markdown_has_the_method_first_then_the_tables() -> None:
@@ -354,6 +365,47 @@ def test_runs_that_do_not_compare_honestly_are_refused(run: dict[str, Any], mess
         publish.aggregate([("x.json", run)])
 
 
+def _replayed(n: int) -> dict[str, Any]:
+    run = synthetic_run()
+    run["discarded"] = [
+        {
+            "scenario": "alpha",
+            "trial": 1,
+            "provider_error": None,
+            "duration_s": 1.0,
+            "tokens": {},
+            "cost": 0.02,
+        }  # fmt: skip
+    ] * n
+    return run
+
+
+def test_replays_are_counted_published_and_capped() -> None:
+    with pytest.raises(publish.ReportError, match="rejoués"):
+        publish.aggregate([("x.json", _replayed(1))])  # 1 out of 9: above 5 %
+    report = publish.aggregate([("x.json", _replayed(1))], allow_replays=True)
+    (config,) = report["configurations"]
+    assert config["discarded"] == 1 and config["replayed_share"] == 0.1111
+    assert config["scenarios"]["alpha"]["replayed"] == 1
+    # The discarded trial was paid: in the total and in the cost per passed run.
+    assert config["cost"]["total"] == 0.11 and config["cost"]["discarded"] == 0.02
+    assert config["cost"]["per_passed_run"] == round(0.11 / 9, 4)
+    english = publish.markdown(report, "en")
+    assert english.index("**Warning**: 11 % of the trials") < english.index("## Method")
+    assert "| `alpha` | 3/3 (+1) |" in english and "(+n): trials replayed" in english
+    assert "(1 out of 9, 11 %)" in english
+    many = synthetic_run(outcomes={n: [True] * 10 for n in SCENARIO_NAMES})
+    many["discarded"] = _replayed(1)["discarded"]  # 1 out of 30: under 5 %
+    assert "Warning" not in publish.markdown(publish.aggregate([("m.json", many)]), "en")
+
+
+def test_the_served_model_is_checked_again_in_the_report() -> None:
+    run = synthetic_run("claude-sonnet-5-5")
+    run["trials"][0]["served_models"] = ["claude-haiku-5-5"]  # flag left at False
+    with pytest.raises(publish.ReportError, match="autre modèle"):
+        publish.aggregate([("x.json", run)])
+
+
 def test_the_model_stopping_itself_counts_as_its_own_failure() -> None:
     run = _cut("step_cap")
     (config,) = publish.aggregate([("x.json", run)])["configurations"]
@@ -427,6 +479,13 @@ def test_completeness_is_counted_not_believed() -> None:
         "/srv/x",
         "/workspace/x",
         "~/bench/x",
+        '"x-api-key": "' + "0123456789abcdef" + '"',
+        "https://bob@" + "llm.corp.internal/v1",
+        "D:\\work\\bench\\prompt.txt",
+        "/mnt/d/projets/x",
+        "key=" + "Zx9Yq8Wv7Ut6Sr5Qp4On3Ml2Kj1Ih0Gf",
+        '"password": "' + "correct-horse-battery" + '"',
+        "C:/Users/rene/x",
     ],
 )
 def test_what_looks_like_a_secret_or_a_machine_path_is_caught(text: str) -> None:
@@ -438,7 +497,7 @@ def test_ordinary_bench_text_is_not_mistaken_for_a_secret() -> None:
     ordinary = (
         "infra/stockage.md → ../x.md, 16 To, procedures/risk-management-plan-2026.md, "
         "tests/eval/__main__.py, src/synaptane/services/tidy_tools.py (INSTRUCTIONS), "
-        "passage interrompu (provider)"
+        "passage interrompu (provider), authorization: none needed, Plan B:\\nfoo bar"
     )
     assert publish.leaks(ordinary) == [] and publish.scrub(ordinary) == ordinary
 
@@ -446,26 +505,62 @@ def test_ordinary_bench_text_is_not_mistaken_for_a_secret() -> None:
 def test_the_secrets_of_a_run_include_the_provider_address() -> None:
     secrets = publish.run_secrets(FAKE_KEY, "http://bench:s3cret%21@llm.corp.internal:8000/v1/")
     assert FAKE_KEY in secrets and "llm.corp.internal" in secrets
-    assert "s3cret!" in secrets and "bench" in secrets
+    assert "s3cret!" in secrets and "bench" not in secrets  # the user alone is not secret
     assert publish.leaks("Cannot reach llm.corp.internal", secrets) == [
         "valeur secrète du lancement"
     ]
     assert publish.run_secrets("", "") == []
 
 
-def test_a_run_with_a_secret_is_refused_and_kept_aside_masked(tmp_path: Path) -> None:
-    run = synthetic_run(outcomes={"alpha": [False] * 3})
+def test_a_run_with_a_secret_is_refused_and_kept_aside_masked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    aside_dir = tmp_path / "aside"
+    aside_dir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(aside_dir))
+    run = synthetic_run(outcomes={"alpha": [False] * 3}, provider="openai_compatible")
     run["trials"][0]["failures"] = {"échec": "Cannot reach http://llm.corp.internal:8000/v1"}
     secrets = publish.run_secrets(FAKE_KEY, "http://llm.corp.internal:8000/v1")
     with pytest.raises(publish.ReportError, match="valeur secrète du lancement") as error:
         publish.write_run(tmp_path / "run.json", run, secrets)
     assert not (tmp_path / "run.json").exists()
     assert "llm.corp.internal" not in str(error.value)  # the message never repeats the value
-    aside = Path(tempfile.gettempdir()) / "synaptane-bench-refused-run.json"
-    try:
-        assert "llm.corp.internal" not in aside.read_text() and "[secret]" in aside.read_text()
-    finally:
-        aside.unlink()
+    (aside,) = aside_dir.glob("synaptane-bench-refused-run-*.json")
+    assert aside.stat().st_mode & 0o777 == 0o600
+    copy = json.loads(aside.read_text())
+    assert "llm.corp.internal" not in aside.read_text()
+    assert copy["trials"][0]["failures"]["échec"].startswith("Cannot reach [secret]")
+    assert copy["config"]["provider"] == "openai_compatible"  # the rest stays readable
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://ollama:11434/v1",
+        "http://localhost:11434/v1",
+        "http://bench:" + "pw0rd@127.0.0.1:9/v1",
+    ],
+)
+def test_a_word_of_the_format_is_not_a_secret(tmp_path: Path, base_url: str) -> None:
+    run = synthetic_run("llama3", provider="ollama")
+    run["bench"]["files"] = {"bench": "x"}  # a key named like the user of the address
+    run["trials"][0]["metrics"] = {"note": "served by ollama on localhost"}
+    publish.write_run(tmp_path / "run.json", run, publish.run_secrets("", base_url))
+    assert json.loads((tmp_path / "run.json").read_text())["config"]["provider"] == "ollama"
+
+
+def test_only_the_password_key_and_a_dotted_host_are_secrets() -> None:
+    assert publish.run_secrets("", "http://ollama:11434/v1") == ["http://ollama:11434/v1"]
+    secrets = publish.run_secrets("", "http://bench:" + "pw0rd@127.0.0.1:9/v1")
+    assert "bench" not in secrets and "pw0rd" in secrets and "127.0.0.1" in secrets
+    run = synthetic_run()
+    run["config"]["label"] = "uses pw0rd"
+    assert publish.leaks(publish.dump(run), secrets, publish.free_text(run)) == [
+        "valeur secrète du lancement"
+    ]
+    run["config"]["label"] = ""
+    run["config"]["model"] = "pw0rd"  # a value of the format: not where secrets are looked for
+    assert publish.leaks(publish.dump(run), secrets, publish.free_text(run)) == []
 
 
 def test_a_report_never_publishes_a_secret(tmp_path: Path) -> None:
@@ -574,3 +669,31 @@ def test_run_file_names_never_overwrite(tmp_path: Path) -> None:
     assert second.name == "2026-11-08-claude-sonnet-5-5-medium-2.json"
     named = publish.run_path("openai/gpt-6.1-sol", "high", "My Prompt", "2026-11-08", tmp_path)
     assert named.name == "2026-11-08-openai-gpt-6.1-sol-high-my-prompt.json"
+
+
+def test_zero_trials_is_refused_with_a_clear_message(capsys: pytest.CaptureFixture[str]) -> None:
+    from tests.eval import __main__ as eval_main
+
+    with pytest.raises(SystemExit):
+        eval_main.main(["tidy", "--model", "claude-sonnet-5-5", "--trials", "0", "--budget", "1"])
+    assert "--trials 0 : au moins 1 essai par scénario" in capsys.readouterr().err
+
+
+def test_which_provider_errors_are_replayed() -> None:
+    from tests.eval import __main__ as eval_main
+
+    def error(status: int | None, message: str = "x", transient: bool = True) -> dict[str, Any]:
+        return {"type": "AIError", "message": message, "status": status, "transient": transient}
+
+    assert eval_main.replayable("anthropic", error(529))
+    assert eval_main.replayable("anthropic", error(None, "Anthropic unreachable."))
+    assert not eval_main.replayable("anthropic", error(401, transient=False))
+    assert not eval_main.replayable("anthropic", None)
+    # A local server: only saturation and a refused connection; a 500, a time-out or an
+    # answer out of format may come from the model itself.
+    assert eval_main.replayable("ollama", error(503))
+    assert eval_main.replayable("openai_compatible", error(429))
+    assert eval_main.replayable("ollama", error(None, "Cannot reach {address} (connection …"))
+    assert not eval_main.replayable("ollama", error(500))
+    assert not eval_main.replayable("openai_compatible", error(None, "{address} does not answer"))
+    assert not eval_main.replayable("ollama", error(None, "Unexpected response from the provider"))

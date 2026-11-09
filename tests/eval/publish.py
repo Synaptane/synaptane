@@ -29,6 +29,7 @@ import hashlib
 import itertools
 import json
 import math
+import os
 import re
 import statistics
 import string
@@ -67,6 +68,7 @@ BENCH_FILES = (
 )
 DEFAULT_PROMPT = "src/synaptane/services/tidy_tools.py (INSTRUCTIONS)"
 MIN_TRIALS = 3
+MAX_REPLAYED = 0.05  # au-delà, des essais rejoués peuvent biaiser le résultat (les plus longs)
 Z95 = 1.959964  # quantile à 97,5 % de la loi normale : intervalle à 95 %
 # Champs de l'invite du rangement (`tidy.tidy_space`) : une autre invite n'en a pas d'autres.
 PROMPT_FIELDS = frozenset(
@@ -256,37 +258,88 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("en-tête Bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=\-]{8,}", _I)),
     (
         "en-tête ou champ de clé",
-        re.compile(r"\b(?:x-api-key|api[_-]?key|authorization)\b\s*[:=]\s*\S+", _I),
+        # En-tête, champ JSON ou paramètre suivi d'une valeur qui ressemble à une clé (pas
+        # « authorization: none »).
+        re.compile(
+            r"\b(?:x-api-key|api[_-]?key|api[_-]?token|access[_-]?token|authorization)\b"
+            r"[\"']?\s*[:=]\s*[\"']?(?!(?:none|null|n/a)\b)[A-Za-z0-9._~+/=\-]{8,}",
+            _I,
+        ),
+    ),
+    (
+        "valeur d'un champ secret",
+        re.compile(
+            r"\b(?:key|token|secret|password|passwd)\b[\"']?\s*[:=]\s*[\"']?"
+            r"[A-Za-z0-9._~+/=\-]{16,}",
+            _I,
+        ),
     ),
     (
         "identifiants dans une adresse",
-        re.compile(r"\b[a-z][a-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@", _I),
+        re.compile(r"\b[a-z][a-z0-9+.\-]*://[^/\s:@\"']+(?::[^/\s@\"']*)?@", _I),
     ),
     (
         "chemin de la machine",
         re.compile(
-            r"(?<![\w.])(?:/(?:home|Users|root|tmp|private|var/folders|mnt/[a-z]/Users|Volumes"
-            r"|opt|srv|workspace)/[^\s\"'`]*|~/[^\s\"'`]+|[A-Za-z]:\\Users\\[^\s\"'`]*)"
+            r"(?<![\w.])(?:/(?:home|Users|root|tmp|private|var/folders|mnt/[a-z]|Volumes"
+            r"|opt|srv|workspace)/[^\s\"'`]*|~/[^\s\"'`]+)"
+            # Windows : C:\dossier\…, D:\… (doublés dans du JSON), C:/Users/… ; deux niveaux au
+            # moins, pour ne pas prendre « B:\n » d'un texte échappé pour un chemin.
+            r"|\b[A-Za-z]:(?:\\{1,2}[^\s\"'`\\]+\\{1,2}|/(?:Users|Documents and Settings)/)"
         ),
     ),
 )
 
 
 def run_secrets(api_key: str, base_url: str) -> list[str]:
-    """Les valeurs secrètes d'un lancement : la clé, l'adresse du fournisseur, son hôte et ses
-    identifiants (l'adresse d'un service interne n'a pas à être publiée)."""
+    """Les valeurs secrètes d'un lancement : la clé, l'adresse du fournisseur, son mot de passe,
+    et son hôte s'il ne peut pas être un simple mot (un nom avec un point, une adresse IP :
+    `llm.corp.internal`, `10.0.0.5`). « ollama » ou « localhost » ne sont pas des secrets, ni le
+    nom d'utilisateur seul. Elles ne sont cherchées que dans le texte libre (`free_text`)."""
     secrets = [api_key, base_url, base_url.rstrip("/")]
     if base_url:
         parts = urlsplit(base_url)
-        secrets += [parts.hostname or "", parts.netloc]
-        secrets += [unquote(parts.username or ""), unquote(parts.password or "")]
+        host = parts.hostname or ""
+        secrets += [unquote(parts.password or ""), host if ("." in host or ":" in host) else ""]
     return [s for s in dict.fromkeys(secrets) if s and len(s) >= 4]
 
 
-def leaks(text: str, secrets: Iterable[str] = ()) -> list[str]:
+def _free(path: tuple[str, ...]) -> bool:
+    """Champs de texte libre d'un lancement : ce qu'un modèle, un fournisseur ou une personne
+    a pu écrire (le reste, noms de champs et valeurs du format, ne vient que du banc)."""
+    head = path[:3]
+    return (
+        path[:2] == ("config", "label")
+        or path[:3] == ("config", "prompt", "text")
+        or (path[:1] == ("scenarios",) and path[2:3] == ("summary",))
+        or (path[:1] in (("trials",), ("discarded",))
+            and head[2:3] in (("failures",), ("metrics",), ("provider_error",)))
+    )  # fmt: skip
+
+
+def _walk(value: Any, path: tuple[str, ...], change: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _walk(v, (*path, k), change) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_walk(v, (*path, "*"), change) for v in value]
+    if isinstance(value, str):
+        return change(value, _free(path))
+    return value
+
+
+def free_text(record: dict[str, Any]) -> str:
+    """Le texte libre d'un lancement, mis bout à bout (où chercher ses secrets propres)."""
+    found: list[str] = []
+    _walk(record, (), lambda text, free: found.append(text) if free else None)
+    return "\n".join(found)
+
+
+def leaks(text: str, secrets: Iterable[str] = (), free: str | None = None) -> list[str]:
     """Ce qu'un texte à publier contient de secret ou de suspect : la nature, jamais la
-    valeur (le message de refus ne doit pas la recopier)."""
-    found = ["valeur secrète du lancement"] if any(s and s in text for s in secrets) else []
+    valeur (le message de refus ne doit pas la recopier). Les secrets du lancement sont
+    cherchés dans `free` (son texte libre) s'il est donné, sinon dans tout le texte."""
+    where = text if free is None else free
+    found = ["valeur secrète du lancement"] if any(s and s in where for s in secrets) else []
     found += [name for name, pattern in PATTERNS if pattern.search(text)]
     return found
 
@@ -450,16 +503,19 @@ def dump(data: Any) -> str:
 
 def write_run(path: Path, record: dict[str, Any], secrets: Sequence[str] = ()) -> None:
     """Écrit le lancement s'il ne contient rien de secret ni de suspect. Sinon, rien n'est
-    écrit dans le dépôt : une copie masquée, privée, va dans le dossier temporaire (pour ne pas
-    perdre un lancement payé), et `ReportError` dit ce qui a été trouvé et où est la copie."""
+    écrit dans le dépôt : une copie masquée, privée (créée en 0600, jamais à travers un lien),
+    va dans le dossier temporaire pour ne pas perdre un lancement payé, et `ReportError` dit
+    ce qui a été trouvé et où est la copie. Les secrets du lancement ne sont cherchés et
+    masqués que dans son texte libre : le reste de la copie reste lisible."""
     text = dump(record)
-    if found := leaks(text, secrets):
-        aside = Path(tempfile.gettempdir()) / f"synaptane-bench-refused-{path.stem}.json"
-        aside.write_text(scrub(text, secrets), encoding="utf-8")
-        aside.chmod(0o600)
+    if found := leaks(text, secrets, free_text(record)):
+        masked = _walk(record, (), lambda value, free: scrub(value, secrets if free else ()))
+        fd, name = tempfile.mkstemp(prefix=f"synaptane-bench-refused-{path.stem}-", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as aside:
+            aside.write(dump(masked))
         raise ReportError(
             f"lancement non écrit dans {path.parent.name}/ : {', '.join(found)} ; "
-            f"copie masquée, à ne pas publier : {aside}"
+            f"copie masquée, à ne pas publier : {name}"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -543,8 +599,18 @@ def load_runs(paths: Sequence[Path]) -> list[tuple[str, dict[str, Any]]]:
     return runs
 
 
-def _run_problems(name: str, run: dict[str, Any], min_trials: int, allow_dirty: bool) -> list[str]:
+def _run_problems(
+    name: str, run: dict[str, Any], min_trials: int, allow_dirty: bool, allow_replays: bool
+) -> list[str]:
     problems = []
+    share = len(run["discarded"]) / max(1, len(run["trials"]))
+    if share > MAX_REPLAYED and not allow_replays:
+        problems.append(
+            f"{name} : {len(run['discarded'])} essais rejoués après une erreur du fournisseur "
+            f"({share:.0%}, plus de {MAX_REPLAYED:.0%}) : les essais longs, plus souvent "
+            "touchés, seraient sous-représentés ; relancez plus tard (--allow-replays pour "
+            "passer outre, la part est alors affichée en tête)"
+        )
     trials = run["trials"]
     scenarios = [s["name"] for s in run["scenarios"]]
     requested = run["trials_requested"]
@@ -566,7 +632,9 @@ def _run_problems(name: str, run: dict[str, Any], min_trials: int, allow_dirty: 
             f"{name} : lancement incomplet ({why}) : un essai coupé ne dit rien du modèle, "
             "à relancer (plus de budget, ou quand le fournisseur répond)"
         )
-    if others := sorted({m for t in trials if t["model_mismatch"] for m in t["served_models"]}):
+    asked = run["config"]["model"]
+    served = {m for t in trials for m in t["served_models"]}  # recompté, pas cru sur parole
+    if others := sorted(m for m in served if not same_model(asked, m)):
         problems.append(f"{name} : essais servis par un autre modèle que celui demandé {others}")
     if requested < min_trials:
         problems.append(
@@ -587,11 +655,16 @@ def check(
     min_trials: int,
     allow_dirty: bool,
     allow_mixed_commits: bool = False,
+    allow_replays: bool = False,
 ) -> None:
     """Refuse ce qui ne se compare pas honnêtement, avec la raison."""
     if not runs:
         raise ReportError("aucun lancement : lancez d'abord `tidy --model …` (docs/dev/eval.md)")
-    problems = [p for name, run in runs for p in _run_problems(name, run, min_trials, allow_dirty)]
+    problems = [
+        p
+        for name, run in runs
+        for p in _run_problems(name, run, min_trials, allow_dirty, allow_replays)
+    ]
     benches = {(run["bench"]["sha256"], _canonical(run["scenarios"])) for _, run in runs}
     if len(benches) > 1:
         problems.append(
@@ -622,9 +695,11 @@ def _configuration(key: str, group: Sequence[tuple[str, dict[str, Any]]]) -> dic
         for n in range(1, run["trials_requested"] + 1)
     ]
     costs = [float(t["cost"]) for t in trials if t["cost"] is not None]
-    known = len(costs) == len(trials)
-    total_cost = round(sum(costs), 4) if known else None
     discarded = [d for _, run in group for d in run["discarded"]]
+    known = len(costs) == len(trials) and all(d["cost"] is not None for d in discarded)
+    discarded_cost = round(sum(float(d["cost"] or 0) for d in discarded), 4)
+    # Les essais écartés ont été payés : ils comptent dans le coût total et par passage réussi.
+    total_cost = round(sum(costs) + discarded_cost, 4) if known else None
     per_scenario = {}
     for name in names:
         mine = [t for t in trials if t["scenario"] == name]
@@ -638,6 +713,7 @@ def _configuration(key: str, group: Sequence[tuple[str, dict[str, Any]]]) -> dic
             "total": len(mine),
             "pass_rate": round(ok / len(mine), 4) if mine else None,
             "failures": dict(sorted(graders.items())),
+            "replayed": sum(1 for d in discarded if d["scenario"] == name),
         }
     label = config["label"] or f"{config['model']} · {config['effort']}"
     if config["prompt"]["source"] != "default" and not config["label"]:
@@ -674,13 +750,14 @@ def _configuration(key: str, group: Sequence[tuple[str, dict[str, Any]]]) -> dic
         "sweep_score": _spread(sweeps),
         "interruptions": dict(sorted(interruptions.items())),  # du modèle : plafond, refus
         "discarded": len(discarded),
+        "replayed_share": round(len(discarded) / len(trials), 4) if trials else 0.0,
         "cost": {
             "total": total_cost,
-            "per_run": _spread(costs) if known else _spread([]),
+            "per_run": _spread(costs) if len(costs) == len(trials) else _spread([]),
             "per_passed_run": round(total_cost / passed, 4)
             if total_cost is not None and passed
             else None,
-            "discarded": round(sum(float(d["cost"] or 0) for d in discarded), 4),
+            "discarded": discarded_cost,
             "currency": first["price"]["currency"],
         },
         "tokens_per_run": {
@@ -732,9 +809,22 @@ def _order(config: dict[str, Any]) -> tuple[float, float, float, str, str]:
             mean if mean is not None else math.inf, config["label"], config["id"])  # fmt: skip
 
 
+def holm(p_values: Sequence[float]) -> list[float]:
+    """Correction de Holm-Bonferroni : p ajustés pour des comparaisons multiples (avec
+    plusieurs paires, un p < 0,05 isolé arrive par hasard)."""
+    order = sorted(range(len(p_values)), key=lambda i: p_values[i])
+    adjusted = [1.0] * len(p_values)
+    running = 0.0
+    for rank, i in enumerate(order):
+        running = max(running, min(1.0, (len(p_values) - rank) * p_values[i]))
+        adjusted[i] = round(running, 4)
+    return adjusted
+
+
 def _comparisons(configurations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Chaque paire de configurations, scénario par scénario : sur combien de scénarios l'une
-    fait mieux que l'autre (taux de réussite), et le test des signes exact sur ces écarts."""
+    fait mieux que l'autre (taux de réussite), le test des signes exact sur ces écarts, et le
+    p ajusté de Holm sur l'ensemble des paires."""
     pairs = []
     for a, b in itertools.combinations(configurations, 2):
         better = worse = ties = 0
@@ -759,6 +849,8 @@ def _comparisons(configurations: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "sign_test_p": sign_test(better, worse),
             }
         )
+    for pair, adjusted in zip(pairs, holm([p["sign_test_p"] for p in pairs]), strict=True):
+        pair["holm_p"] = adjusted
     return pairs
 
 
@@ -768,6 +860,7 @@ def aggregate(
     min_trials: int = MIN_TRIALS,
     allow_dirty: bool = False,
     allow_mixed_commits: bool = False,
+    allow_replays: bool = False,
 ) -> dict[str, Any]:
     """Le rapport publiable : configurations triées, comparaisons, méthode, provenance."""
     check(
@@ -775,6 +868,7 @@ def aggregate(
         min_trials=min_trials,
         allow_dirty=allow_dirty,
         allow_mixed_commits=allow_mixed_commits,
+        allow_replays=allow_replays,
     )
     ordered = sorted(runs, key=lambda r: r[0])
     groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
@@ -796,7 +890,11 @@ def aggregate(
             "sweep_score": "share of scenarios passed in one sweep (trial n of every "
             "scenario); mean and sample standard deviation over sweeps",
             "comparison": "paired by scenario: scenarios where one configuration has the "
-            "higher pass rate, exact two-sided sign test",
+            "higher pass rate, exact two-sided sign test, Holm-adjusted over all pairs",
+            "replays": "trials cut by a passing provider error are discarded and played "
+            f"again; refused above {MAX_REPLAYED:.0%} unless allowed",
+            "cost_with_discarded": "total cost and cost per passed run include the discarded "
+            "trials, which were paid",
             "order": "lower bound of the interval, then pass rate, then cost per run",
             "cost": "estimated from token counts at the price shown, not an invoice",
             "min_trials": min_trials,
@@ -830,14 +928,16 @@ TEXTS: dict[str, dict[str, str]] = {
         "A run passes when no grader fails.",
         "m2": "{scenarios} scenarios, {trials} trials per scenario and configuration at least; "
         "every configuration ran the same scenarios (bench `{bench}`). No trial was cut by the "
-        "budget or by the provider; a trial hit by a passing provider error (429, 529…) was "
-        "discarded and played again, and the table says how many.",
+        "budget or by the provider: a trial hit by a passing provider error (429, 529…) was "
+        "discarded and played again ({replayed} out of {played}, {share}).",
         "m3": "Pass rate: runs passed out of runs played, with its 95 % Wilson interval. Rows "
         "are sorted by the lower bound of that interval. Sweep score: share of scenarios "
         "passed in one sweep, mean ± standard deviation over sweeps.",
         "m4": "Cost: estimated from the tokens reported by the provider, at the price shown "
-        "(public list price on the run date unless stated), not an invoice. Claude's fallback "
-        "to another model is turned off, and every trial was served by the model asked for.",
+        "(public list price on the run date unless stated), not an invoice; the total and the "
+        "cost per passed run include the discarded trials, which were paid. Claude's fallback "
+        "to another model is turned off, and every trial whose provider names the model that "
+        "served it was served by the model asked for.",
         "limits": "Limits",
         "l1": "A small sample: the intervals are conditional on these {scenarios} short "
         "scenarios on one fictional wiki; they say how a configuration does again on them, not "
@@ -847,6 +947,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "l3": "Graders check invariants of the result, not the quality of the writing.",
         "l4": "A model name can point to a different model later at its provider; each row "
         "gives its dates and the Synaptane commit it ran on.",
+        "l5": "Replaying the trials cut by the provider can favour the short ones, which an "
+        "error hits less often: above {max_replayed} of replays, the report is refused unless "
+        "asked for, and the replays are shown per scenario.",
+        "replay_warning": "**Warning**: {share} of the trials of {label} were replayed after a "
+        "provider error, more than {max_replayed}: read its row with care.",
+        "replay_note": "(+n): trials replayed after a passing provider error.",
         "summary": "Summary",
         "h_conf": "Configuration",
         "h_trials": "Trials",
@@ -863,11 +969,13 @@ TEXTS: dict[str, dict[str, str]] = {
         "failures": "Graders that failed most",
         "comparison": "Paired comparison by scenario",
         "c_intro": "For each pair of rows: on how many scenarios each has the higher pass "
-        "rate (ties apart), and the exact two-sided sign test. A small p (below 0.05) says the "
-        "difference is unlikely to be chance; with {scenarios} scenarios, it takes a clear gap.",
+        "rate (ties apart), the exact two-sided sign test, and its p adjusted by Holm's method "
+        "for the number of pairs compared. A small adjusted p (below 0.05) says the difference "
+        "is unlikely to be chance; with {scenarios} scenarios, it takes a clear gap.",
         "c_better": "better on",
         "c_ties": "Ties",
         "c_p": "Sign test p",
+        "c_holm": "Holm p",
         "c_none": "A single configuration: nothing to compare.",
         "provenance": "Provenance",
         "p_model": "Provider / model / effort",
@@ -898,17 +1006,18 @@ TEXTS: dict[str, dict[str, str]] = {
         "correcteur n'échoue.",
         "m2": "{scenarios} scénarios, au moins {trials} essais par scénario et par "
         "configuration ; toutes les configurations ont joué les mêmes scénarios (banc "
-        "`{bench}`). Aucun essai n'a été coupé par le budget ni par le fournisseur ; un essai "
-        "touché par une erreur passagère du fournisseur (429, 529…) a été écarté puis rejoué, "
-        "et le tableau dit combien.",
+        "`{bench}`). Aucun essai n'a été coupé par le budget ni par le fournisseur : un essai "
+        "touché par une erreur passagère du fournisseur (429, 529…) a été écarté puis rejoué "
+        "({replayed} sur {played}, {share}).",
         "m3": "Taux de réussite : passages réussis sur passages joués, avec son intervalle de "
         "Wilson à 95 %. Les lignes sont triées par la borne basse de cet intervalle. Score par "
         "balayage : part des scénarios réussis en un balayage, moyenne ± écart-type sur les "
         "balayages.",
         "m4": "Coût : estimé à partir des jetons comptés par le fournisseur, au tarif indiqué "
-        "(tarif public à la date du lancement, sauf mention), pas une facture. Le repli de "
-        "Claude vers un autre modèle est désactivé, et chaque essai a été servi par le modèle "
-        "demandé.",
+        "(tarif public à la date du lancement, sauf mention), pas une facture ; le total et le "
+        "coût par passage réussi comprennent les essais écartés, qui ont été payés. Le repli de "
+        "Claude vers un autre modèle est désactivé, et chaque essai dont le fournisseur nomme "
+        "le modèle qui l'a servi a été servi par le modèle demandé.",
         "limits": "Limites",
         "l1": "Un petit échantillon : les intervalles valent pour ces {scenarios} scénarios "
         "courts sur un seul wiki fictif ; ils disent ce qu'une configuration ferait de nouveau "
@@ -919,6 +1028,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "l3": "Les correcteurs vérifient des invariants du résultat, pas la qualité de l'écriture.",
         "l4": "Un nom de modèle peut désigner plus tard un autre modèle chez son fournisseur ; "
         "chaque ligne donne ses dates et le commit de Synaptane sur lequel elle a tourné.",
+        "l5": "Rejouer les essais coupés par le fournisseur peut favoriser les plus courts, "
+        "qu'une erreur touche moins souvent : au-delà de {max_replayed} d'essais rejoués, le "
+        "rapport est refusé sauf demande expresse, et les rejoués sont donnés par scénario.",
+        "replay_warning": "**Attention** : {share} des essais de {label} ont été rejoués après "
+        "une erreur du fournisseur, plus de {max_replayed} : lisez sa ligne avec prudence.",
+        "replay_note": "(+n) : essais rejoués après une erreur passagère du fournisseur.",
         "summary": "Synthèse",
         "h_conf": "Configuration",
         "h_trials": "Essais",
@@ -935,12 +1050,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "failures": "Correcteurs le plus souvent en échec",
         "comparison": "Comparaison appariée par scénario",
         "c_intro": "Pour chaque paire de lignes : sur combien de scénarios chacune a le "
-        "meilleur taux de réussite (égalités à part), et le test des signes exact, bilatéral. "
-        "Un p petit (sous 0,05) dit que l'écart a peu de chances d'être dû au hasard ; avec "
+        "meilleur taux de réussite (égalités à part), le test des signes exact, bilatéral, et "
+        "son p ajusté par la méthode de Holm pour le nombre de paires comparées. Un p ajusté "
+        "petit (sous 0,05) dit que l'écart a peu de chances d'être dû au hasard ; avec "
         "{scenarios} scénarios, il faut un écart net.",
         "c_better": "meilleure sur",
         "c_ties": "Égalités",
         "c_p": "p (test des signes)",
+        "c_holm": "p de Holm",
         "c_none": "Une seule configuration : rien à comparer.",
         "provenance": "Provenance",
         "p_model": "Fournisseur / modèle / effort",
@@ -996,17 +1113,29 @@ def markdown(report: dict[str, Any], lang: str) -> str:
     configs = report["configurations"]
     scenarios = [s["name"] for s in report["bench"]["scenarios"]]
     least = min(c["trials_per_scenario"] for c in configs)
+    replayed = sum(c["discarded"] for c in configs)
+    played = sum(c["total"] for c in configs)
     values = {
         "pages": report["bench"]["wiki_pages"],
         "scenarios": len(scenarios),
         "trials": least,
         "bench": report["bench"]["sha256"][:12],
+        "replayed": replayed,
+        "played": played,
+        "share": _percent(replayed / played if played else 0.0, lang),
+        "max_replayed": _percent(MAX_REPLAYED, lang),
     }
     sep = " : " if lang == "fr" else ": "
-    lines = [t["switch"], "", f"# {t['title']}", "", t["intro"], "", f"## {t['method']}", ""]
+    lines = [t["switch"], "", f"# {t['title']}", "", t["intro"], ""]
+    for c in configs:
+        if c["replayed_share"] > MAX_REPLAYED:
+            share = _percent(c["replayed_share"], lang)
+            lines += [t["replay_warning"].format(**values | {"share": share, "label": c["label"]})]
+            lines += [""]
+    lines += [f"## {t['method']}", ""]
     lines += [f"- {t[k].format(**values)}" for k in ("m1", "m2", "m3", "m4")]
     lines += ["", f"### {t['limits']}", ""]
-    lines += [f"- {t[k].format(**values)}" for k in ("l1", "l2", "l3", "l4")]
+    lines += [f"- {t[k].format(**values)}" for k in ("l1", "l2", "l3", "l4", "l5")]
     lines += ["", f"## {t['summary']}", ""]
     head = (
         "h_conf",
@@ -1051,10 +1180,14 @@ def markdown(report: dict[str, Any], lang: str) -> str:
     lines.append("| " + " | ".join([t["h_scenario"]] + [_cell(c["label"]) for c in configs]) + " |")
     lines.append("|---|" + "---:|" * len(configs))
     for name in scenarios:
-        cells = [
-            f"{c['scenarios'][name]['passed']}/{c['scenarios'][name]['total']}" for c in configs
-        ]
+        cells = []
+        for c in configs:
+            mine = c["scenarios"][name]
+            again = f" (+{mine['replayed']})" if mine.get("replayed") else ""
+            cells.append(f"{mine['passed']}/{mine['total']}{again}")
         lines.append(f"| `{name}` | " + " | ".join(cells) + " |")
+    if replayed:
+        lines += ["", t["replay_note"]]
     lines += ["", f"### {t['failures']}", ""]
     for c in configs:
         counts: dict[str, int] = {}
@@ -1067,14 +1200,16 @@ def markdown(report: dict[str, Any], lang: str) -> str:
     lines += ["", f"## {t['comparison']}", ""]
     if report["comparisons"]:
         lines += [t["c_intro"].format(**values), ""]
+        better = t["c_better"]
         lines.append(
-            f"| A | B | A {t['c_better']} | B {t['c_better']} | {t['c_ties']} | {t['c_p']} |"
+            f"| A | B | A {better} | B {better} | {t['c_ties']} | {t['c_p']} | {t['c_holm']} |"
         )
-        lines.append("|---|---|---:|---:|---:|---:|")
+        lines.append("|---|---|---:|---:|---:|---:|---:|")
         for p in report["comparisons"]:
             lines.append(
                 f"| {_cell(p['a_label'])} | {_cell(p['b_label'])} | {p['a_better']} | "
-                f"{p['b_better']} | {p['ties']} | {_number(p['sign_test_p'], 3, lang)} |"
+                f"{p['b_better']} | {p['ties']} | {_number(p['sign_test_p'], 3, lang)} | "
+                f"{_number(p['holm_p'], 3, lang)} |"
             )
     else:
         lines.append(t["c_none"])

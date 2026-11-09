@@ -23,7 +23,7 @@ of the target version.
   Wilson interval (rows sorted by its lower bound), the score per sweep (mean and standard
   deviation), the cost per run and per passed run, the tokens and the duration, the passes per
   scenario, and between every two configurations a paired comparison by scenario (exact sign
-  test). The report only depends on the run files, so the same runs give the same bytes, and it
+  test, adjusted by Holm's method for the number of pairs). The report only depends on the run files, so the same runs give the same bytes, and it
   refuses what does not compare honestly: a run stopped by its budget or by the provider, a
   trial cut, trials missing or doubled, fewer than 3 trials per scenario, a trial served by
   another model, different scenarios, different commits (unless `--allow-mixed-commits`), a
@@ -31,7 +31,10 @@ of the target version.
   that would contain the key, the provider's address or credentials, anything that looks like a
   secret or a path of the machine is not written, and the provider's errors are recorded by
   class and HTTP status, never by their text. A trial hit by a passing provider error (429,
-  529) is played again, twice at most, and its cost kept. Claude's fallback to another model is
+  529) is played again, twice at most, and its cost counted in the total; with a local or
+  compatible server, only 429, 503 and a refused connection are replayed, since a 500 or a
+  time-out may come from the model. Above 5 % of trials replayed, the report is refused unless
+  `--allow-replays`, and the replays are shown per scenario. Claude's fallback to another model is
   turned off in the bench. `--trials` is 3 by default for a real model, fewer needs `--draft`;
   `--prompt FILE` tries other instructions for the agent in the bench only, and `--label` names
   the configuration. `./scripts/eval.sh tidy --estimate --model M` gives the order of magnitude

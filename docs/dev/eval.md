@@ -66,14 +66,18 @@ export ANTHROPIC_API_KEY=sk-ant-…        # read from the environment, never as
   one for one); for another model, use `--price-input` and `--price-output` (per million
   tokens). A run stopped by the budget, even in its last trial, is incomplete and not
   publishable.
-- `--trials` (3 by default): **sweeps** of every scenario, one after the other (trial 1 of
+- `--trials` (3 by default, at least 1): **sweeps** of every scenario, one after the other (trial 1 of
   every scenario, then trial 2…), to see a model's variance. Publishing needs at least 3:
   fewer is refused before any call, unless `--draft` (the run then cannot be published).
 - A trial cut by the provider measures nothing about the model. After a passing error (429,
   529, time-out, `transient`), the trial is discarded, kept in the run file under `discarded`
-  with its cost, and played again after 30 seconds, twice at most. A lasting error (key
-  refused, model not found, address unreachable after the retries) stops the run, which is
-  then incomplete. A trial the model ends by itself (step cap, refusal) counts as its failure.
+  with its cost, and played again after 30 seconds, twice at most. With a local or compatible
+  server (`ollama`, `openai_compatible`), only saturation (429, 503) and a refused connection
+  are replayed: a 500, a time-out or an answer out of format may come from the model itself
+  (malformed tool call, reasoning too long), and count as its failure (`model_error`). A
+  lasting error (key refused, model not found, address unreachable after the retries) stops
+  the run, and so does an error of the bench or of Git: the run is then incomplete. A trial the
+  model ends by itself (step cap, refusal) counts as its failure.
   The provider's error is recorded as its class, message template, HTTP status and whether it
   is passing, never its free text (which may quote the address).
 - Claude's fallback to another model (`fallbacks`) is turned off in the bench, and each turn
@@ -126,15 +130,20 @@ It refuses, with the reason, what does not compare honestly:
 - runs of different scenarios or graders (the bench's fingerprint differs);
 - runs on different commits (`--allow-mixed-commits` to accept them; the commit is shown on
   every row anyway);
+- more than 5 % of trials replayed after a provider error (`--allow-replays` to accept it: a
+  warning then heads the tables). Replays may favour the short trials, which an error hits less
+  often; they are shown per scenario, and their cost is part of the total;
 - a run on a modified tree, tracked files changed or files not tracked outside
   `eval/results/`, which its commit alone does not reproduce (`--allow-dirty` to accept it, and
   it is then flagged).
 
 Nothing is masked silently. Before writing a run file, the bench looks for its secrets (the
-key, the provider's address, its host and its credentials) and for anything that looks like a
-secret (API keys and tokens of the usual services, JWT, `Bearer` or `x-api-key` headers,
-credentials in an address) or a path of the machine (`/home`, `/Users`, `/tmp`, `/opt`,
-`C:\Users`, `~/`…): if it finds any, nothing is written in the repository, a masked copy for
+key, the provider's address, its password, and its host when it cannot be a plain word: a name
+with a dot or an IP address; `ollama` or `localhost` are not secrets, nor is the user name
+alone) in the free text of the run (label, graders' explanations, metrics, error messages),
+and everywhere for anything that looks like a secret (API keys and tokens of the usual services, JWT, `Bearer` or `x-api-key` headers and
+fields, a `key`, `token` or `password` field with a long value, credentials in an address) or a path of the machine (`/home`, `/Users`, `/tmp`, `/opt`,
+`C:\Users`, `D:\…`, `/mnt/d/`, `~/`…): if it finds any, nothing is written in the repository, a masked copy for
 you alone goes to the temporary folder (so as not to lose a paid run), and the command says
 what was found, never the value. The report checks what it would publish the same way.
 
@@ -145,9 +154,10 @@ Format (`format_version` 1, changed if the meaning of a field changes):
   each scenario's (its notes, human changes, expectations); provider, model, effort actually
   sent and requested, base URL (`default` or `custom`), `fallbacks: false`, prompt (`source`,
   `path`, `sha256`, and `text` outside the repository), tools' fingerprint, price applied,
-  budget, trials requested, `complete`, `stopped_by` (`budget`, `provider` or `null`); then
+  budget, trials requested, `complete`, `stopped_by` (`budget`, `provider`, `error` or `null`);
+then
   each trial: scenario, number, `passed`, failing graders with their explanation,
-  `interrupted` (`budget`, `provider`, `error`, `step_cap`, `refusal` or `null`),
+  `interrupted` (`budget`, `provider`, `error`, `model_error`, `step_cap`, `refusal` or `null`),
   `provider_error`, `served_models`, `model_mismatch`, tokens (input with cache writes,
   output, cached, cache writes), turns, cost, duration, items filed and the run's metrics; and
   `discarded`, the trials played again after a passing error.
@@ -157,11 +167,14 @@ Format (`format_version` 1, changed if the meaning of a field changes):
   bound** of the interval (three passes out of three do not come before 29 out of 30), then
   pass rate, then cost per run: pass rate with its 95 % Wilson interval, sweep score (share
   of scenarios passed in one sweep: mean, sample standard deviation, minimum, maximum), cost
-  (total, per run with its spread, per passed run, of the discarded trials), tokens and turns
-  per run, duration, trials replayed, stops by the model itself, and per scenario the passes
+  (total and per passed run, discarded trials included since they were paid; per run with its
+  spread; of the discarded trials alone), tokens and turns per run, duration, trials replayed
+  and their share, stops by the model itself, and per scenario the passes, the trials replayed
   and the graders that failed (their names only, not their explanations). Then, for each pair
   of rows, the **paired comparison by scenario**: on how many scenarios each has the higher
-  pass rate, and the exact two-sided sign test.
+  pass rate, the exact two-sided sign test, and its p adjusted by Holm's method for the number
+  of pairs. The report checks the model that served each trial again from `served_models`;
+  this can only be checked when the provider names it.
 
 The intervals are conditional on the bench's scenarios: they say how a configuration does again
 on them, not on a real inbox. Separate intervals suggest a real difference, overlapping ones

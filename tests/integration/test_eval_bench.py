@@ -18,6 +18,7 @@ import pytest
 from synaptane.ai import pricing
 from synaptane.ai.base import AIConfig, AIError
 from synaptane.config import Settings
+from synaptane.git.repo import GitError
 from synaptane.services import content
 from synaptane.services import tidy as tidy_module
 from synaptane.services.workspace import Workspace
@@ -201,7 +202,7 @@ class Fake:
 
     def step(self) -> Any:
         if self.error is not None and self.scripted.index >= self.fail_after:
-            raise self.error
+            raise self.error  # an AIError, or another error to see what the bench does
         turn = self.scripted.step()
         turn.model = self.served
         return turn
@@ -216,8 +217,9 @@ class Fake:
 def _fake(
     plan: dict[str, list[str]], systems: list[str] | None = None, served: str = SONNET
 ) -> Callable[[Scenario], Callable[[dict[str, str]], Any]]:
-    """For each scenario, one entry per attempt: "bon", "mauvais", "529" (overloaded after one
-    turn: a passing error), "panne" (key refused before any work, quoting the address)."""
+    """For each scenario, one entry per attempt: "bon", "mauvais", "529" or "500" (overloaded or
+    failing after one turn: passing errors), "panne" (address unreachable before any work,
+    quoting it), "git" (an error of the bench itself)."""
     played: dict[str, int] = {}
 
     def conversation(scenario: Scenario) -> Callable[[dict[str, str]], Any]:
@@ -235,9 +237,12 @@ def _fake(
                     raise AIError(
                         "Cannot reach {address}: check it.", address="http://llm.corp.internal"
                     )
-                if which == "529":
-                    overloaded = AIError("Anthropic error {status}", transient=True, status=529)
-                    return Fake(script, fail_after=1, error=overloaded)
+                if which in ("529", "500", "503"):
+                    status = int(which)
+                    overloaded = AIError("Provider error {status}", transient=True, status=status)
+                    return Fake(script, fail_after=1, error=overloaded, served=served)
+                if which == "git":
+                    return Fake(script, fail_after=1, error=GitError("bench broken"))  # type: ignore[arg-type]
                 return Fake(script, served=served)
 
             return opened
@@ -248,9 +253,12 @@ def _fake(
 
 
 @pytest.fixture
-def key(monkeypatch: pytest.MonkeyPatch) -> str:
+def key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     monkeypatch.setenv("SYNAPTANE_BENCH_TEST_KEY", FAKE_KEY)
     monkeypatch.setattr(eval_main, "RETRY_PAUSE", 0.0)
+    aside = tmp_path / "aside"  # private copies of refused runs: one folder per test
+    aside.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(aside))
     return FAKE_KEY
 
 
@@ -296,7 +304,7 @@ def test_real_mode_writes_a_publishable_run_and_report(env: Env, tmp_path: Path,
     assert (replayed["scenario"], replayed["trial"]) == ("ambigue", 2)
     assert replayed["provider_error"] == {
         "type": "AIError",
-        "message": "Anthropic error {status}",
+        "message": "Provider error {status}",
         "status": 529,
         "transient": True,
     }
@@ -304,7 +312,10 @@ def test_real_mode_writes_a_publishable_run_and_report(env: Env, tmp_path: Path,
     assert all(t["cost"] > 0 and t["duration_s"] > 0 for t in run["trials"])
 
     out = tmp_path / "results"
-    written = publish.write_report([tmp_path / "run.json"], out, allow_dirty=True)
+    with pytest.raises(publish.ReportError, match="rejoués"):  # 1 out of 6: above 5 %
+        publish.write_report([tmp_path / "run.json"], out, allow_dirty=True)
+    written = publish.write_report([tmp_path / "run.json"], out, allow_dirty=True,
+                                   allow_replays=True)  # fmt: skip
     assert [p.name for p in written] == ["results.json", "results.md", "results.fr.md"]
     report = json.loads((out / "results.json").read_text())
     (config,) = report["configurations"]
@@ -362,19 +373,74 @@ def test_a_provider_error_before_any_work_is_not_a_model_failure(
     assert run["config"]["base_url"] == "custom"
 
 
-def test_a_secret_in_the_run_is_refused_not_masked(
-    env: Env, tmp_path: Path, key: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_secret_in_the_run_is_refused_not_masked(env: Env, tmp_path: Path, key: str) -> None:
     chosen = _chosen("completer")
     url = "http://bench:" + "s3cretpass@127.0.0.1:9/v1"
     args = _real_args(tmp_path, "--budget", "5", "--base-url", url, "--label", "s3cretpass")
     assert eval_main._real(env, chosen, args, _fake({"completer": ["bon"] * 3})) == 1
     assert not (tmp_path / "run.json").exists()
-    aside = Path(tempfile.gettempdir()) / "synaptane-bench-refused-run.json"
-    try:
-        assert "s3cretpass" not in aside.read_text()
-    finally:
-        aside.unlink()
+    (aside,) = (tmp_path / "aside").glob("synaptane-bench-refused-run-*.json")
+    copy = json.loads(aside.read_text())
+    assert "s3cretpass" not in aside.read_text() and copy["config"]["label"] == "[secret]"
+    assert copy["config"]["provider"] == "anthropic" and copy["bench"]["wiki_pages"] == 50
+    # Without the password in a free text, the same address is no reason to refuse.
+    args = _real_args(tmp_path, "--budget", "5", "--base-url", url)
+    assert eval_main._real(env, chosen, args, _fake({"completer": ["bon"] * 3})) == 0
+    assert "s3cretpass" not in (tmp_path / "run.json").read_text()
+
+
+def _local_args(tmp_path: Path, *extra: str) -> Any:
+    return eval_main.parser().parse_args(
+        [
+            "tidy",
+            "--provider",
+            "ollama",
+            "--base-url",
+            "http://ollama:11434/v1",
+            "--model",
+            "llama3",
+            "--price-input",
+            "0.1",
+            "--price-output",
+            "0.1",
+            "--json",
+            str(tmp_path / "run.json"),
+            "--budget",
+            "5",
+            *extra,
+        ]
+    )
+
+
+def test_a_local_server_is_published_and_its_own_errors_count_against_the_model(
+    env: Env, tmp_path: Path, key: str
+) -> None:
+    chosen = _chosen("completer", "ambigue")
+    # A 503 (saturated) is replayed; a 500 may come from the model: its failure, no replay.
+    plan = {"completer": ["bon", "503", "bon", "bon"], "ambigue": ["bon", "500", "bon"]}
+    args = _local_args(tmp_path)
+    assert eval_main._real(env, chosen, args, _fake(plan, served="llama3:latest")) == 0
+    run = json.loads((tmp_path / "run.json").read_text())  # "ollama" is not a secret
+    assert run["complete"] and run["config"]["provider"] == "ollama"
+    assert run["config"]["effort"] == "n/a" and run["config"]["base_url"] == "custom"
+    assert [d["provider_error"]["status"] for d in run["discarded"]] == [503]
+    cut = [t for t in run["trials"] if t["interrupted"]]
+    assert [(t["scenario"], t["trial"], t["interrupted"]) for t in cut] == [
+        ("ambigue", 2, "model_error")
+    ]
+    assert not cut[0]["passed"]
+    report = publish.aggregate(publish.load_runs([tmp_path / "run.json"]), allow_dirty=True,
+                               allow_replays=True)  # fmt: skip
+    assert report["configurations"][0]["interruptions"] == {"model_error": 1}
+
+
+def test_an_error_of_the_bench_stops_the_run(env: Env, tmp_path: Path, key: str) -> None:
+    chosen = _chosen("completer", "ambigue")
+    plan = {"completer": ["git"], "ambigue": ["bon"]}
+    assert eval_main._real(env, chosen, _real_args(tmp_path, "--budget", "5"), _fake(plan)) == 1
+    run = json.loads((tmp_path / "run.json").read_text())
+    assert run["stopped_by"] == "error" and len(run["trials"]) == 1
+    assert run["trials"][0]["interrupted"] == "error"
 
 
 def test_a_trial_served_by_another_model_is_flagged(env: Env, tmp_path: Path, key: str) -> None:
