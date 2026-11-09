@@ -786,7 +786,6 @@ def save(
         row = session.scalar(
             select(Routine)
             .where(Routine.space_id == space.id, Routine.name == name)
-            .with_for_update()
             .execution_options(populate_existing=True)
         )
         if creating and row is not None:
