@@ -195,7 +195,7 @@ Synaptane reconnaît ce qu'est l'archive :
 - un **coffre Obsidian**, ou n'importe quel dossier de **fichiers Markdown** zippé avec ses
   pièces jointes : les fichiers restent tels quels ;
 - un **export Notion** ou un **export Confluence (HTML)** : les pages sont converties en
-  Markdown, avec des noms propres, et leurs liens mènent aux nouveaux chemins (voir plus bas).
+  Markdown, avec des noms nettoyés, et leurs liens mènent aux nouveaux chemins (voir plus bas).
 
 Le formulaire permet de forcer le format, l'écran de contrôle aussi (**Lire ainsi**), si
 l'archive n'est pas lue comme il faut. Rien n'est écrit à ce stade : Synaptane montre ce qui se

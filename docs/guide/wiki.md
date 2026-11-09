@@ -258,8 +258,8 @@ What is converted:
 - **Pages**: headings, paragraphs, bold, italic, strikethrough, lists (task lists too), tables,
   code blocks with their language, quotes, links and images become Markdown. Info, tip, note and
   warning panels become callouts with the same colour (`> [!info]`, `> [!tip]`, `> [!warning]`
-  for a yellow note, `> [!danger]` for a red warning), an expand a folded callout (shown open), a panel a callout with its title, a status a bold word, an emoticon
-  its emoji. The page's "Created by … last modified on …" line is kept in italics, and its list
+  for a yellow note, `> [!danger]` for a red warning), an expand a folded callout (shown open),
+  a panel a callout with its title, a status a bold word, an emoticon its emoji. The page's "Created by … last modified on …" line is kept in italics, and its list
   of attachments at the bottom.
 - **Attachments**: next to their page, under their real name (`attachments/65541/65601.png`
   becomes `Procedures/Backup/network diagram.png`).

@@ -2120,7 +2120,7 @@
  "Read it this way": "Lire ainsi",
  "{n} link rewritten": "{n} lien réécrit",
  "{n} links rewritten": "{n} liens réécrits",
- "Pages are converted to Markdown, with clean names; their links lead to the new paths.": "Les pages sont converties en Markdown, avec des noms propres ; leurs liens mènent aux nouveaux chemins.",
+ "Pages are converted to Markdown, with clean names; their links lead to the new paths.": "Les pages sont converties en Markdown, avec des noms nettoyés ; leurs liens mènent aux nouveaux chemins.",
  "Links that lead nowhere: their page is not in the export": "Liens qui ne mènent nulle part : leur page n'est pas dans l'export",
  "Files of the export not imported as they are (tables turned into pages, styles, icons)": "Fichiers de l'export non importés tels quels (tables changées en pages, styles, icônes)",
  "Import Obsidian, Notion, Confluence…": "Importer Obsidian, Notion, Confluence…",
