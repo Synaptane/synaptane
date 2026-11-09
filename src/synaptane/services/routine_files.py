@@ -476,30 +476,50 @@ def _folders(header: _Header) -> list[str]:
     return [str(v).strip() for v in items if str(v).strip()]
 
 
+# French spellings, read as well (Synaptane always writes the English one back).
+_FREQUENCY_WORDS = {
+    "daily": "daily",
+    "quotidien": "daily",
+    "weekly": "weekly",
+    "hebdo": "weekly",
+    "hebdomadaire": "weekly",
+    "monthly": "monthly",
+    "mensuel": "monthly",
+}
+_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def _weekday(word: str) -> int | None:
+    for index, spellings in enumerate(zip(WEEKDAYS, _JOURS, strict=True)):
+        if any(word in (day, day[:3]) for day in spellings):
+            return index
+    return None
+
+
 def parse_schedule(text: str) -> tuple[str, int | None, int | None, str]:
     """`daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` → frequency, day of
-    the week (0: Monday), day of the month, time."""
+    the week (0: Monday), day of the month, time. French is read too: `quotidien` or
+    `chaque jour`, `hebdo` or `hebdomadaire` with `lundi` (or `lun`)…, `mensuel`."""
     words = text.lower().split()
+    if words[:2] == ["chaque", "jour"]:
+        words = ["daily", *words[2:]]
     wrong = invalid(
         "schedule: “{value}” is not understood. Examples: daily 02:30, weekly monday 06:00, "
         "monthly 1 06:00.",
         value=text[:60],
     )
-    if not words or not _TIME.fullmatch(words[-1]):
+    if len(words) < 2 or not _TIME.fullmatch(words[-1]):
         raise wrong
     at = parse_time(words[-1]).strftime("%H:%M")
-    match words[:-1]:
-        case ["daily"]:
-            return "daily", None, None, at
-        case ["weekly", day]:
-            for index, name in enumerate(WEEKDAYS):
-                if day in (name, name[:3]):
-                    return "weekly", index, None, at
-            raise wrong
-        case ["monthly", day] if day.isdigit():
-            if not 1 <= int(day) <= 28:
-                raise invalid("Day of the month: from 1 to 28.")
-            return "monthly", None, int(day), at
+    frequency, rest = _FREQUENCY_WORDS.get(words[0]), words[1:-1]
+    if frequency == "daily" and not rest:
+        return "daily", None, None, at
+    if frequency == "weekly" and len(rest) == 1 and (day := _weekday(rest[0])) is not None:
+        return "weekly", day, None, at
+    if frequency == "monthly" and len(rest) == 1 and rest[0].isdigit():
+        if not 1 <= int(rest[0]) <= 28:
+            raise invalid("Day of the month: from 1 to 28.")
+        return "monthly", None, int(rest[0]), at
     raise wrong
 
 

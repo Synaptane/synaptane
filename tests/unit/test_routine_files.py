@@ -69,6 +69,19 @@ def test_schedules_lists_and_flags_in_several_spellings() -> None:
     assert config("schedule: daily 2:30").at == "02:30"
     assert config("schedule: Weekly MON 06:00").weekday == 0
     assert config("schedule: monthly 28 23:59").monthday == 28
+    # French is read too; Synaptane writes English back.
+    for french, plan in (
+        ("quotidien 02:30", ("daily", None, None, "02:30")),
+        ("chaque jour 7:05", ("daily", None, None, "07:05")),
+        ("hebdo lundi 06:00", ("weekly", 0, None, "06:00")),
+        ("Hebdomadaire DIM 18:00", ("weekly", 6, None, "18:00")),
+        ("hebdo mer 09:00", ("weekly", 2, None, "09:00")),
+        ("mensuel 1 06:00", ("monthly", None, 1, "06:00")),
+    ):
+        read_back = config(f"schedule: {french}")
+        assert read_back.plan[1:] == plan, french
+        assert routine_files.schedule_text(read_back).split()[0] in ("daily", "weekly", "monthly")
+    assert "schedule: weekly sunday 18:00" in render(config("schedule: hebdo dimanche 18:00"))
     block = config("schedule: daily 02:00\nscope:\n  - infra\n  - 'clients/acme'\n")
     assert block.scope == ["infra", "clients/acme"]
     assert config('schedule: daily 02:00\nscope: ["a", "b"]').scope == ["a", "b"]
@@ -107,6 +120,8 @@ def test_an_unknown_field_is_reported_kept_and_harmless() -> None:
         ("---\nreport: r.md\n---\nx\n", "schedule: missing"),
         ("---\nschedule: hourly\nreport: r.md\n---\nx\n", "is not understood"),
         ("---\nschedule: weekly someday 06:00\nreport: r.md\n---\nx\n", "is not understood"),
+        ("---\nschedule: hebdo 06:00\nreport: r.md\n---\nx\n", "is not understood"),
+        ("---\nschedule: chaque lundi 06:00\nreport: r.md\n---\nx\n", "is not understood"),
         ("---\nschedule: monthly 31 06:00\nreport: r.md\n---\nx\n", "Day of the month"),
         ("---\nschedule: daily 25:00\nreport: r.md\n---\nx\n", "Invalid time"),
         ("---\nschedule: daily 02:00\n---\nx\n", "at least one output"),
@@ -130,6 +145,11 @@ def test_a_file_too_large_is_not_read() -> None:
 
 def test_names() -> None:
     assert routine_files.name_for("Résumé hebdomadaire") == "resume-hebdomadaire"
+    # A template's routine has one file name in every language.
+    assert {k: t.file_name for k, t in routines.TEMPLATES.items()} == {
+        "coherence": "consistency-check",
+        "digest": "weekly-digest",
+    }
     assert routine_files.name_for("!!!") == "routine"
     assert len(routine_files.name_for("x" * 80)) == 40
     assert routine_files.free_name("digest", {"digest", "digest-2"}) == "digest-3"

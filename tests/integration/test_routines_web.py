@@ -222,8 +222,8 @@ def test_rest_api(client: TestClient, db: Session, database: Database, wiki: Wik
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["title"] == "Contrôle de cohérence" and body["at"] == "05:45"
-    assert body["name"] == "controle-de-coherence" and body["pending"] is False
-    assert body["path"] == ".synaptane/routines/controle-de-coherence.md" and body["sha"]
+    assert body["name"] == "consistency-check" and body["pending"] is False
+    assert body["path"] == ".synaptane/routines/consistency-check.md" and body["sha"]
     assert body["output_inbox"] is True and body["next_run"] and body["last_run"] is None
     rid = body["id"]
     assert [r["id"] for r in client.get(API, headers=alice).json()] == [rid]

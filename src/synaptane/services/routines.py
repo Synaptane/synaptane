@@ -81,6 +81,12 @@ class Template:
         """Instructions and report page in a language; English for any language missing."""
         return self.texts.get(locale) or self.texts["en"]
 
+    @property
+    def file_name(self) -> str:
+        """Name of the routine's file, the same in every language (`consistency-check`), so
+        that a team finds the template's routine under one name whoever enabled it."""
+        return name_for(self.name)
+
 
 def flow(text: str) -> str:
     """Text written at 100 columns in the code → paragraphs and bullets of one line each, as
@@ -277,8 +283,8 @@ def create(
     source: str = "web",
 ) -> Routine:
     """New routine, blank or from a template (its settings in the creator's language, then
-    `fields`): a new file `.synaptane/routines/<name>.md`. `name` defaults to one made from
-    the title."""
+    `fields`): a new file `.synaptane/routines/<name>.md`. `name` defaults to the template's
+    (`consistency-check`, `weekly-digest`), or else to one made from the title."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     count = len(list(session.scalars(select(Routine.id).where(Routine.space_id == space.id))))
     if count >= MAX_ROUTINES:
@@ -287,7 +293,12 @@ def create(
     apply(config, fields)
     if not config.title or not config.instructions:
         raise invalid("Give the routine a title and instructions.")
-    file_name = check_name(name) if name.strip() else name_for(config.title)
+    if name.strip():
+        file_name = check_name(name)
+    elif template:
+        file_name = TEMPLATES[template].file_name  # whatever the language of the title
+    else:
+        file_name = name_for(config.title)
     routine = save(
         session,
         database,

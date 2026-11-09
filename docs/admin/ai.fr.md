@@ -522,7 +522,7 @@ Relis les pages modifiées depuis le dernier passage…
 |---|---|
 | `title` | Nom affiché dans Synaptane (par défaut : tiré du nom du fichier) |
 | `description` | Facultative, sur une ligne |
-| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00` |
 | `scope` | Dossiers du wiki, séparés par des virgules, en liste JSON, ou un par ligne `- dossier` ; absent : tout l'espace |
 | `report` | Page de rapport réécrite à chaque passage, relative au wiki |
 | `inbox` | `true` : un élément dans l'inbox par correction à faire |
@@ -532,7 +532,9 @@ Relis les pages modifiées depuis le dernier passage…
 | `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
-plus. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
+plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
+son titre : `consistency-check.md`, `weekly-digest.md` ; une autre prend un nom tiré de son
+titre, sauf si vous en choisissez un. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
 de 20 dossiers au plus, au moins une sortie, et un fichier de 64 000 octets au plus.
 
 - **À chaque synchronisation**, Synaptane lit les fichiers au commit courant de l'espace. Un
@@ -545,7 +547,8 @@ de 20 dossiers au plus, au moins une sortie, et un fichier de 64 000 octets au p
   sortie…) s'affiche dans Paramètres → Routines et dans l'API REST (`error`). Un champ que
   cette version ne connaît pas est signalé (`warnings`) et ignoré, sans empêcher la lecture ;
   une réécriture par Synaptane le garde.
-- **Depuis Synaptane**, l'enregistrement réécrit l'en-tête dans ce format. Un fichier modifié
+- **Depuis Synaptane**, l'enregistrement réécrit l'en-tête dans ce format, en anglais : un
+  planning écrit en français redevient `weekly monday 06:00`. Un fichier modifié
   depuis l'ouverture du formulaire (un push, un autre administrateur) est refusé, avec le choix
   de le remplacer, comme pour la vocation. Avant la première synchronisation de l'espace, la
   routine attend en base ; cette synchronisation l'écrit.

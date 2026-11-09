@@ -284,13 +284,13 @@ def test_a_routine_created_before_the_first_sync_is_written_by_it(
     routine = routines.create(
         db, database, wiki.root, ctx, space, routines.Fields(), template="digest"
     )
-    assert routine.sha is None and routine.name == "resume-hebdomadaire"
+    assert routine.sha is None and routine.name == "weekly-digest"
     routine = routines.update(
         db, database, wiki.root, ctx, space, routine, routines.Fields(at="17:00")
     )
     assert routine.sha is None and routine.at == "17:00"
     sync(database, ctx, space.id)
-    text = remote.read(".synaptane/routines/resume-hebdomadaire.md") or ""
+    text = remote.read(".synaptane/routines/weekly-digest.md") or ""
     assert "schedule: weekly friday 17:00" in text and "template: digest" in text
     db.expire_all()
     found = db.get(Routine, routine.id)
@@ -307,7 +307,7 @@ def test_the_form_refuses_a_file_changed_since_it_was_opened(
     path = routines.path_of(routine)
     clone = ctx.clone_path(wiki.infra.id)
     author = git(clone, "log", "-1", "--format=%an|%s")
-    assert author == f"{wiki.root.user.display_name}|Routine updated: resume-hebdomadaire"
+    assert author == f"{wiki.root.user.display_name}|Routine updated: weekly-digest"
     opened = routine.sha
     sync(database, ctx, wiki.infra.id)  # pushed
     text = wiki.remote.read(path) or ""

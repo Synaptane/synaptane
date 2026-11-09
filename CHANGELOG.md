@@ -13,7 +13,8 @@ of the target version.
 ### Changed
 - **Agent routines are files of the repository.** Each routine of a space is now
   `.synaptane/routines/<name>.md`, versioned like the purpose and the tidy-up rules: a header
-  (`title`, `description`, `schedule` such as `weekly monday 06:00`, `scope`, `report`,
+  (`title`, `description`, `schedule` such as `weekly monday 06:00`, or in French
+  `hebdo lundi 06:00`, written back in English by Synaptane, `scope`, `report`,
   `inbox`, `email`, `webhook`, `enabled`, `template`), then the instructions. Git is the source
   of truth; the database keeps a copy of the settings and the state of the runs. At each
   synchronization, Synaptane reads the files at the space's current commit: a new file creates
@@ -29,13 +30,16 @@ of the target version.
   tidy-up rules: grant push access accordingly. Inside Synaptane, only organization
   administrators write these files. REST: a routine gains `title`, `description`, `path`,
   `sha`, `pending`, `error` and `warnings`; `name` is now the file name (a free text given at
-  creation is still taken as the title); `PATCH` and `DELETE` accept `base_sha`. See
+  creation is still taken as the title); `PATCH` and `DELETE` accept `base_sha`. A routine
+  created from a template has the same file name in every language: `consistency-check`,
+  `weekly-digest`. See
   [Agent routines](docs/admin/ai.md#the-routine-file).
 
 ### Upgrade
 - One migration (`0034`), applied at startup. Each existing routine keeps its row, so its
   state and its runs; its name becomes its title, and it gets a file name made from it
-  (`Contrôle de cohérence` → `controle-de-coherence`, `-2` if the name is taken in the space).
+  (`Contrôle de cohérence` → `controle-de-coherence`, `-2` if the name is taken in the space),
+  even for a routine created from a template, which a new one would name `consistency-check`.
   At the next synchronization of each space, Synaptane writes its routines to the repository
   in one commit, `Synaptane: routines written to the repository`, and pushes it. A routine
   keeps running from the database until then, and runs neither twice nor not at all: its last

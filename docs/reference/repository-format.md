@@ -140,7 +140,8 @@ Write the summary of the week…
 ```
 
 Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
-`monthly 1 06:00`), `scope` (folders separated by commas, a JSON list or one `- folder` line
+`monthly 1 06:00`; French is read too, such as `hebdo lundi 06:00`, and Synaptane writes English
+back), `scope` (folders separated by commas, a JSON list or one `- folder` line
 each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
 `template`. Values are plain text or JSON. An unknown field is reported and ignored; an
 invalid file does not run, and its error shows in Settings → Routines and the REST API.

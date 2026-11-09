@@ -494,7 +494,7 @@ Read the pages changed since the last run…
 |---|---|
 | `title` | Name shown in Synaptane (default: made from the file name) |
 | `description` | Optional, one line |
-| `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space. French is read too: `quotidien` or `chaque jour`, `hebdo` or `hebdomadaire` with `lundi` to `dimanche` (or `lun`, `mar`…), `mensuel`, such as `hebdo lundi 06:00` |
 | `scope` | Folders of the wiki, separated by commas, as a JSON list, or one `- folder` line each; missing: the whole space |
 | `report` | Report page rewritten on every run, relative to the wiki |
 | `inbox` | `true`: one inbox item per fix to make |
@@ -504,7 +504,9 @@ Read the pages changed since the last run…
 | `template` | Original template (`coherence`, `digest`), set by Synaptane |
 
 The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
-characters at most. 20 routines at most per space, instructions of 20,000 characters at most,
+characters at most. A routine created from a template always gets the same name, whatever the
+language of its title: `consistency-check.md`, `weekly-digest.md`; another one gets a name made
+from its title, unless you choose one. 20 routines at most per space, instructions of 20,000 characters at most,
 scope of 20 folders at most, at least one output, and a file of 64,000 bytes at most.
 
 - **At each synchronization**, Synaptane reads the files at the space's current commit. A new
@@ -516,7 +518,8 @@ scope of 20 folders at most, at least one output, and a file of 64,000 bytes at 
   output…) shows in Settings → Routines and in the REST API (`error`). A field this version
   does not know is reported (`warnings`) and ignored, without preventing the reading; a
   rewrite by Synaptane keeps it.
-- **From Synaptane**, saving rewrites the header in this format. A file changed since the form
+- **From Synaptane**, saving rewrites the header in this format, in English: a schedule written
+  in French comes back as `weekly monday 06:00`. A file changed since the form
   was opened (a push, another administrator) is refused, with the choice to replace it, as for
   the purpose. Before the space's first synchronization, the routine waits in the database;
   that synchronization writes it.
