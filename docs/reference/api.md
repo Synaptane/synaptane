@@ -182,8 +182,8 @@ limited, whatever its owner's groups. Changes are written to the audit log (`gro
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET …/spaces/{space}/git` | reader | State: status, last sync, conflicts, webhook URL |
-| `PUT …/spaces/{space}/git/credentials` | organization admin | `{"kind": "https", "token": …}` or `{"kind": "ssh", "private_key": …, "known_hosts": …}` |
+| `GET …/spaces/{space}/git` | reader | State: status, last sync, conflicts, webhook URL; for an organization admin, `credentials` (`https`, `ssh` or `null`) and `credentials_expire` (expiry date of the HTTPS token when known, otherwise `null`) |
+| `PUT …/spaces/{space}/git/credentials` | organization admin | `{"kind": "https", "token": …}` or `{"kind": "ssh", "private_key": …, "known_hosts": …}`. An HTTPS token's expiry date is read from GitHub or GitLab when they give it (see [Token expiry](../admin/git.md#token-expiry)) |
 | `DELETE …/spaces/{space}/git/credentials` | organization admin | Deletes the credentials |
 | `POST …/spaces/{space}/git/sync` | contributor | Requests a sync (202) |
 | `POST …/spaces/{space}/git/webhook-secret` | organization admin | Generates a secret, returns the URL and the secret |
@@ -322,8 +322,8 @@ See [Webhooks](../admin/webhooks.md) for the format and the signature.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /organizations/{org}/invitations` | Pending invitations: `id`, `email`, `org_role`, `expires_at` |
-| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}}` (201). Returns the `link` to pass on, once only; `granted: true` if the address already had an account (access granted at once). 30 per organization per hour at most (429 beyond) |
+| `GET /organizations/{org}/invitations` | Pending invitations: `id`, `email`, `org_role`, `expires_at`, `groups` (`id` and `name` of the groups joined on acceptance; a group deleted since is no longer listed) |
+| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}, "groups": ["<id>"]}` (201). `groups`: identifiers of groups of the organization (`GET /organizations/{org}/groups`, 200 at most, 422 beyond), joined on acceptance, after becoming a member; an unknown group, or one of another organization, is refused (404). For an existing account, `groups` in the answer lists the groups it actually joined. Returns the `link` to pass on, once only; `granted: true` if the address already had an account (access granted and groups joined at once). 30 per organization per hour at most (429 beyond) |
 | `DELETE /organizations/{org}/invitations/{id}` | Cancels (204) |
 
 ## MCP

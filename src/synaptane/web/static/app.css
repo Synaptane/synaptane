@@ -150,6 +150,9 @@ fieldset.choice-list{display:flex;flex-direction:column}
 .choice-list>div .checkbox{margin:0}
 .choice-list .checkbox:hover,.choice-list>div:hover{background:var(--hover)}
 .choice-list>p{padding:10px 12px;color:var(--ink-3);border:1px dashed var(--border);border-radius:var(--radius)}
+/* Choix sur deux lignes : un nom, puis ce qu'il donne (groupes d'une invitation). */
+.checkbox-detail{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.checkbox-detail>.muted{line-height:1.4}
 .segmented{display:inline-flex;gap:2px;padding:3px;border:0;border-radius:var(--radius);background:var(--hover)}
 .segmented button{width:28px;height:26px;border:0;border-radius:calc(var(--radius) - 2px);background:none;color:var(--ink-3);display:grid;place-items:center;padding:0}
 .segmented button:hover{color:var(--ink)}
@@ -481,6 +484,10 @@ td .inline-form input:not([type=checkbox]){min-height:30px;flex:1 1 140px}
 .workspace main:has(.editor-panes.split){max-width:1480px}
 .wiki-main:has(.editor-panes.split){max-width:none}
 @media(max-width:700px){.editor-preview-scroll{padding:14px 14px}}
+/* Shorter editors (purpose, prompts, a note dropped): a preview of their size; the purpose's
+column widens side by side, as the page does. */
+.vocation-form .editor-preview,.deposit-form .editor-preview{min-height:220px}
+.vocation-page:has(.editor-panes.split){max-width:none}
 .markdown{font-family:var(--font-read);font-size:var(--read-size);line-height:var(--read-lh);max-width:68ch;overflow-wrap:anywhere}
 .markdown h1{font-size:40px;letter-spacing:-0.03em;line-height:1.08;margin:0 0 24px}
 .markdown h2{font-size:21px;letter-spacing:-0.015em;margin:36px 0 10px}
@@ -1014,6 +1021,9 @@ input[type=search]::-webkit-search-cancel-button:hover{background:var(--ink)}
 a.admin-row-title:hover{text-decoration:underline}
 .admin-row-meta{display:block;margin:2px 0 0;font-size:12.5px;color:var(--ink-3);overflow-wrap:anywhere}
 .admin-row-meta code{font-size:12px}
+.health-tokens{margin:6px 0 2px;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.health-tokens li{margin:2px 0;overflow-wrap:anywhere}
+.health-token-expired{white-space:nowrap}
 /* Listes et tableau dans une carte sans marge intérieure : lignes pleine largeur. */
 .admin-list{list-style:none;margin:0;padding:0}
 .admin-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 20px;border-top:1px solid var(--border)}

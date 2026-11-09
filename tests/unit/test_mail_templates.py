@@ -35,7 +35,12 @@ CALLERS: dict[str, dict[str, object]] = {
         "link": "https://brain.example.com/invite/jeton",
     },
     # web/invite_pages.py, _notify_added: existing account added to the organization
-    "added": {"inviter": "Alice", "org": "Acme", "link": "https://brain.example.com"},
+    "added": {
+        "inviter": "Alice",
+        "org": "Acme",
+        "access": "- Groupe rejoint : « RH »\n\n",
+        "link": "https://brain.example.com",
+    },
     # web/invite_pages.py, forgotten password
     "reset": {"link": "https://brain.example.com/reset/jeton"},
     # services/budget.py, check_alerts
@@ -107,6 +112,19 @@ CALLERS: dict[str, dict[str, object]] = {
         "link": LINK,
         "routine": "Contrôle de cohérence",  # services/routine_agent.py, run_one
         "error": "Budget mensuel d'IA atteint",
+    },
+    "alert_git_token_expiring": {
+        "space": "Infra",
+        "org": "Acme",
+        "link": LINK,
+        "date": "8 novembre 2027",  # services/git_expiry.py, check
+        "when": "dans 7 jours",
+    },
+    "alert_git_token_expired": {
+        "space": "Infra",
+        "org": "Acme",
+        "link": LINK,
+        "date": "8 novembre 2027",  # services/git_expiry.py, check
     },
     # services/routine_agent.py, send_report: a routine's output sent to the team
     "routine_report": {
@@ -241,8 +259,12 @@ def real_calls() -> dict[str, set[frozenset[str]]]:
                     named = {k.arg: k.value for k in node.keywords}
                     alert = node.args[3] if len(node.args) > 3 else named["kind"]
                     assert isinstance(alert, ast.Constant) and isinstance(alert.value, str)
-                    ignore = frozenset({"public_url", "kind"})
+                    # `once` names the alert for its deduplication: not part of the e-mail.
+                    ignore = frozenset({"public_url", "kind", "once"})
                     calls.append((function, alert.value, _keywords(node, ignore)))
+    # `notify` composes its emails in `_mail_admins`, with the same arguments.
+    if "_mail_admins" in bases:
+        bases["notify"] = bases.pop("_mail_admins")
     assert {"notify", "notify_org", "notify_instance"} <= set(bases), "compose introuvable"
     for function, alert_kind, values in calls:
         found.setdefault(f"alert_{alert_kind}", set()).add(bases[function] | values)

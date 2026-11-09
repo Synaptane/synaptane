@@ -10,6 +10,7 @@ import smtplib
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
@@ -148,12 +149,12 @@ _TEXTS = {
         "fr": (
             "Vous avez accès à « {org} » sur Synaptane",
             "Bonjour,\n\n{inviter} vous a donné accès à l'organisation « {org} » sur "
-            "Synaptane.\n\n{link}\n",
+            "Synaptane.\n\n{access}{link}\n",
         ),
         "en": (
             "You now have access to “{org}” on Synaptane",
             "Hello,\n\n{inviter} gave you access to the “{org}” organization on "
-            "Synaptane.\n\n{link}\n",
+            "Synaptane.\n\n{access}{link}\n",
         ),
     },
     "reset": {
@@ -329,6 +330,49 @@ _TEXTS = {
             "repository:\n{error}\n\nRepository status:\n{link}/-/git\n",
         ),
     },
+    "alert_git_token_expiring": {
+        "fr": (
+            "Le jeton d'accès Git de « {space} » expire {when}",
+            "Bonjour,\n\nLe jeton d'accès avec lequel Synaptane synchronise l'espace « {space} » "
+            "({org}) avec son dépôt Git expire le {date} ({when}). Ensuite, la synchronisation "
+            "échouera.\n\nCréez un nouveau jeton sur la forge (GitLab : Settings → Access "
+            "tokens, portées read_repository et write_repository, rôle Maintainer ; GitHub : jeton "
+            "fine-grained limité au dépôt, droit « Contents » en lecture et écriture), puis "
+            "enregistrez-le dans « Accès au dépôt » :\n{link}/-/git\n",
+        ),
+        "en": (
+            "Git access token of “{space}” expires {when}",
+            "Hello,\n\nThe access token Synaptane uses to sync the “{space}” space ({org}) with "
+            "its Git repository expires on {date} ({when}). After that, the sync will fail.\n\n"
+            "Create a new token on the Git host (GitLab: Settings → Access tokens, read_repository "
+            "and write_repository scopes, Maintainer role; GitHub: a fine-grained token limited to "
+            "the repository, “Contents” read and write), then save it in “Repository access”:\n"
+            "{link}/-/git\n",
+        ),
+    },
+    "alert_git_token_expired": {
+        "fr": (
+            "Le jeton d'accès Git de « {space} » a expiré",
+            "Bonjour,\n\nLe jeton d'accès avec lequel Synaptane synchronise l'espace « {space} » "
+            "({org}) avec son dépôt Git a expiré le {date}. La synchronisation échoue jusqu'à ce "
+            "qu'un nouveau jeton soit enregistré ; rien n'est perdu entre-temps, les changements "
+            "faits dans Synaptane partiront à la synchronisation suivante.\n\nCréez un nouveau "
+            "jeton sur la forge (GitLab : Settings → Access tokens, portées "
+            "read_repository et write_repository, rôle Maintainer ; GitHub : jeton fine-grained "
+            "limité au dépôt, droit « Contents » en lecture et écriture), puis enregistrez-le "
+            "dans « Accès au dépôt » :\n{link}/-/git\n",
+        ),
+        "en": (
+            "Git access token of “{space}” expired",
+            "Hello,\n\nThe access token Synaptane uses to sync the “{space}” space ({org}) with "
+            "its Git repository expired on {date}. The sync fails until a new token is saved; "
+            "nothing is lost meanwhile, the changes made in Synaptane go out with the next "
+            "sync.\n\nCreate a new token on the Git host (GitLab: Settings → Access tokens, "
+            "read_repository and write_repository scopes, Maintainer role; GitHub: a fine-grained "
+            "token limited to the repository, “Contents” read and write), then save it in "
+            "“Repository access”:\n{link}/-/git\n",
+        ),
+    },
     "alert_inbox_backlog": {
         "fr": (
             "Inbox de « {space} » en retard",
@@ -448,8 +492,13 @@ def compose(kind: str, locale: str, **values: object) -> tuple[str, str]:
 
 
 def localized(value: object, locale: str, translate: Callable[..., str] | None = None) -> object:
-    """A value inserted into a text in `locale`: a `Label` is translated, a function of the
-    language is called; anything else is kept as it is."""
+    """A value inserted into a text in `locale`: a `Label` is translated, a day is written out
+    ("8 novembre 2027"), a function of the language is called; anything else is kept as it
+    is."""
+    if type(value) is date:
+        from synaptane.web.i18n import format_day
+
+        return format_day(value, locale)
     if isinstance(value, Label):
         if translate is None:
             from synaptane.web.i18n import translator

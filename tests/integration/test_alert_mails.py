@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 from email.header import decode_header, make_header
 from email.message import Message
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pytest
 from sqlalchemy.orm import Session
@@ -31,7 +31,7 @@ from tests.integration.wikidata import Wiki
 PUBLIC_URL = "https://brain.example.com"
 
 # Values of the same type as those of the real callers (services/tidy.py, git_sync.py, alerts.py).
-ALERT_VALUES: dict[str, dict[str, object]] = {
+ALERT_VALUES: dict[str, dict[str, Any]] = {
     "deletion_cap": {"limit": tidy_tools.MAX_DELETIONS},
     "tidy_failed": {"error": "Erreur interne : RuntimeError: panne"},
     "sync_error": {"error": "dépôt introuvable"},
@@ -46,6 +46,8 @@ ALERT_VALUES: dict[str, dict[str, object]] = {
     },
     "job_abandoned": {"task": "index", "attempts": 5, "error": "Abandonnée : délai dépassé"},
     "routine_failed": {"routine": "Contrôle de cohérence", "error": "Erreur Anthropic 529"},
+    "git_token_expiring": {"date": "8 novembre 2027", "when": "dans 7 jours"},
+    "git_token_expired": {"date": "8 novembre 2027"},
 }
 
 

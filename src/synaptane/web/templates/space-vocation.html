@@ -1,5 +1,6 @@
 {% extends "space-settings-base.html" %}
 {% from "ui.html" import csrf_field, when, secret_confirm with context %}
+{% from "editor.html" import editor with context %}
 {% set section = "vocation" %}
 
 {# One of the two files: editor, preview, latest changes. #}
@@ -14,23 +15,20 @@
   <p class="muted">{{ lead }}</p>
   {{ caller() }}
   {% if mine and error %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
-  <form method="post" action="{{ action_url }}" class="vocation-form">
+  <form method="post" action="{{ action_url }}#{{ key }}" class="vocation-form">
     {{ csrf_field() }}
-    <input type="hidden" name="base_sha" value="{{ doc.sha or '' }}">
-    <div class="field">
-      <label for="{{ key }}-text">{{ _("Text (Markdown)") }}</label>
-      <textarea id="{{ key }}-text" name="text" class="editor vocation-editor" rows="{{ 22 if key == 'vocation' else 12 }}" spellcheck="true" placeholder="{{ placeholder }}" aria-describedby="{{ key }}-help">{{ drafts[key] if key in drafts else doc.text }}</textarea>
-      <p class="muted" id="{{ key }}-help">{{ _("20,000 characters at most. An empty text removes the file from the repository.") }}</p>
-    </div>
+    {# The version the draft started from, kept through a preview or an error: a save over a newer one is a conflict. #}
+    <input type="hidden" name="base_sha" value="{{ bases[key] if key in bases else (doc.sha or '') }}">
+    {{ editor(drafts[key] if key in drafts else doc.text, 22 if key == 'vocation' else 12, "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/preview", id=key ~ "-text", label=_("Text (Markdown)"), params={"kind": key}, classes="editor vocation-editor", placeholder=placeholder, help=_("20,000 characters at most. An empty text removes the file from the repository.")) }}
     {% if mine and conflict_sha %}<label class="checkbox"><input type="checkbox" name="overwrite_sha" value="{{ conflict_sha }}">{{ _("Replace the repository's current version with my text") }}</label>{% endif %}
     {% if mine %}{{ secret_confirm(error) }}{% endif %}
     <div class="actions">
       <button class="button button-primary" type="submit" name="action" value="save">{{ _("Save") }}</button>
-      <button class="button" type="submit" name="action" value="preview" formnovalidate>{{ _("Preview") }}</button>
+      <button class="button" type="submit" name="action" value="preview" formnovalidate data-preview-fallback>{{ _("Preview") }}</button>
     </div>
   </form>
   {% if preview_kind == key %}
-  <div class="vocation-preview" aria-labelledby="{{ key }}-preview-title">
+  <div class="vocation-preview" role="region" aria-labelledby="{{ key }}-preview-title">
     <p class="section-label" id="{{ key }}-preview-title">{{ _("Preview — not saved yet") }}</p>
     <div class="markdown">{{ preview_html|safe if preview_html.strip() else _("(empty text)") }}</div>
   </div>

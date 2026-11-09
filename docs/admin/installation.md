@@ -353,9 +353,10 @@ setting, to your account's address.
 
 With email set up:
 - an organization admin **invites** people from the **Members** tab. They choose the address,
-  the role in the organization and, optionally, a role per space. The person gets a link
-  valid for 14 days and creates their account. If the address is the **verified** address of
-  an existing account, access is granted at once;
+  the role in the organization and, optionally, a role per space and **groups** to join (see
+  [Roles](#roles) below). The person gets a link valid for 14 days and creates their account.
+  If the address is the **verified** address of an existing account, access is granted at
+  once;
 - **Forgot your password?** on the sign-in page sends a link valid for 30 minutes.
 
 Without email, invitations still work: the link is shown once to the person who invites, who
@@ -419,10 +420,12 @@ webhook, when something needs their attention, for example:
 - the tidy-up of a space keeps failing (not just a network glitch), or stops before the end;
 - a space no longer syncs with its repository (credentials refused, repository not found);
 - an inbox holds items that nobody has looked at for more than 3 days;
-- the tidy-up agent reaches the deletion cap, or makes large changes.
+- the tidy-up agent reaches the deletion cap, or makes large changes;
+- a space's Git access token expires in 30 days, 7 days, tomorrow, or has expired (see
+  [Token expiry](git.md#token-expiry)).
 
 The full list of alert kinds is in [Webhooks](webhooks.md). The same alert (kind and space)
-is not sent again within 20 hours. The AI budget has its own alerts (see
+is not sent again within 20 hours; the expiry of a token is notified once per step. The AI budget has its own alerts (see
 [AI and tidy-up](ai.md)).
 
 The super admins are notified, by email if it is set up, when the nightly backup or its
@@ -432,8 +435,9 @@ Health**.
 ## Monitoring
 
 **Administration > Health** (`/admin/health`, super admins) shows the instance on one page:
-database, master key, worker, background tasks, last backup, off-site copy, disk, email sending
-and HTTPS, then the sync and tidy-up of each space, then the system alerts of the last 30 days.
+database, master key, worker, background tasks, last backup, off-site copy, disk, email sending,
+HTTPS and the Git access tokens expiring within 30 days or expired (with a link to each space's
+Git page), then the sync and tidy-up of each space, then the system alerts of the last 30 days.
 A backup counts once it is written and verified, wherever it went; an off-site copy, once every
 destination has it. Copies made before 1.11.0 are not seen.
 
@@ -562,7 +566,8 @@ above it; the invitation page lists the access actually given, default role incl
 **Groups: one team, several spaces.** To give some members access to several spaces at once,
 beyond the default role, create a **group** in the organization's **Groups** tab (human
 resources, management, a project team): add its members (members of the organization only:
-invite the others first), then give it a role, reader or contributor, on each space it opens.
+invite the others, checking the group in the invitation form), then give it a role, reader or
+contributor, on each space it opens.
 Each member of the group then has the highest of that role, the one given to them in the space
 and the default role. **A group opens a restricted space too**: restrict the human resources
 space, then give access to the "HR" group only, and nobody else in the organization sees it.
@@ -576,6 +581,23 @@ removes them from its groups (the confirmation says which). Deleting a group rem
 access it gave, unless its members have it otherwise; deleting a space removes the groups'
 roles on it. Groups are managed through the REST API too (`/organizations/{org}/groups`), and
 every change is written to the audit log.
+
+**Inviting someone straight into groups.** The invitation form of the **Members** tab lists
+the organization's groups, each with what it gives ("Contributor on HR"): check those the
+person joins. When they accept, they become a member of the organization, then of the checked
+groups, in one go; an existing account joins them at once, and its notice email lists the roles
+given in spaces and the groups joined. Before creating their account, the person sees their
+real access on the invitation page, groups included ("HR: contributor, through the group
+“Management”"), and the **Pending invitations** list shows the groups of each
+invitation. A group deleted before the acceptance is simply not joined, and a renamed group is
+joined under its new name. Canceling an invitation drops its groups; inviting the same address
+again replaces them with the new choice. Only groups of the organization can be chosen: the
+database refuses any other, and so is a group deleted while the invitation is being sent. The
+audit log keeps the groups, by their names at the time, in the **Invitation sent** event and
+in the **Existing account added by invitation** event (there, only the groups actually
+joined, not those the account was already in); the acceptance writes one **Added to a group**
+event per group, by the system, like the other accesses it grants. Through the REST API:
+`"groups": [<id>, …]` (200 at most) in `POST /organizations/{org}/invitations`.
 
 ## First steps
 

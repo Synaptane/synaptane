@@ -16,7 +16,8 @@ from synaptane.core.throttle import LoginThrottle
 from synaptane.services import accounts as accounts_service
 from synaptane.services import invitations, mail, organizations
 from synaptane.storage.db import Database
-from synaptane.storage.models import User
+from synaptane.web.group_pages import ROLE_WORDS
+from synaptane.web.i18n import plural, quoted_names, translator
 from synaptane.web.pages import (
     Csrf,
     Page,
@@ -44,20 +45,27 @@ def org_invite(
     email: Annotated[str, Form()],
     org_role: Annotated[OrgRole, Form()] = OrgRole.MEMBER,
     space_role: Annotated[list[str] | None, Form()] = None,
+    group: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
     actor = page.check_csrf(csrf)
     org = organizations.get_organization(page.db, actor, org_slug)
     target = f"{org_url(org)}/-/members"
-    # One menu per space: "<id>:<role>", or empty for no access.
+    # One menu per space: "<id>:<role>", or empty for no access. One box per group: its id.
     chosen = dict(value.split(":", 1) for value in space_role or [] if ":" in value)
     try:
         created = invitations.invite(
-            page.db, actor, org, email=email, org_role=org_role, space_roles=chosen
+            page.db,
+            actor,
+            org,
+            email=email,
+            org_role=org_role,
+            space_roles=chosen,
+            group_ids=group or [],
         )
     except SynaptaneError as error:
         return failure(target, page, error)
     if created.existing is not None:
-        _notify_added(page, created.existing, email, org.name, actor.user.display_name)
+        _notify_added(page, created, email, org.name, actor.user.display_name)
         if mail.configured(page.db):  # same response as an unknown address: nothing leaks
             return redirect(target, page, "Invitation sent to {email}.", email=email)
         return redirect(target, page, "Existing account: access granted to {name}.", name=email)
@@ -94,13 +102,37 @@ def org_invite(
     )
 
 
-def _notify_added(page: Page, user: User, email: str, org: str, inviter: str) -> None:
+def access_text(locale: str, created: invitations.Created) -> str:
+    """What the notice to an existing account says it was given: its roles in spaces and the
+    groups it joined (a paragraph, "" if nothing beyond the organization)."""
+    translate = translator(locale)
+    lines = [
+        translate("Role in {space}: {role}", space=space.name, role=ROLE_WORDS[role])
+        for space, role in created.spaces
+    ]
+    if created.groups:
+        names = quoted_names(translate, [group.name for group in created.groups])
+        count = len(created.groups)
+        text = plural(locale, count, "Group joined: {names}", "Groups joined: {names}")
+        lines.append(translate(text, names=names))
+    return "".join(f"- {line}\n" for line in lines) + "\n" if lines else ""
+
+
+def _notify_added(
+    page: Page, created: invitations.Created, email: str, org: str, inviter: str
+) -> None:
     """Notice to an existing account, in its language."""
-    if not mail.configured(page.db):
+    user = created.existing
+    if user is None or not mail.configured(page.db):
         return
     email = user.email or email
     subject, body = mail.compose(
-        "added", user.locale, inviter=inviter, org=org, link=page.settings.public_url
+        "added",
+        user.locale,
+        inviter=inviter,
+        org=org,
+        access=access_text(user.locale, created),
+        link=page.settings.public_url,
     )
     try:
         mail.send(page.db, page.box, email, subject, body)
@@ -130,15 +162,13 @@ def invitation_page(page: WebPage, token: str) -> Response:
     from synaptane.storage.models import Organization
 
     org = page.db.get(Organization, invitation.org_id)
-    inviter, granted = invitations.describe(page.db, invitation)
     return page.render(
         "invite.html",
         invitation=invitation,
         org=org,
         token=token,
         error=None,
-        inviter=inviter,
-        granted=granted,
+        offer=invitations.describe(page.db, invitation),
     )
 
 
@@ -176,6 +206,7 @@ def invitation_accept(
             token=token,
             error=error,
             form={"username": username, "display_name": display_name},
+            offer=invitations.describe(page.db, invitation) if invitation else None,
         )
     return sign_in(page, user, "/", "Welcome to Synaptane!")
 

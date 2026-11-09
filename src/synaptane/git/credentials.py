@@ -14,8 +14,8 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -32,23 +32,51 @@ class GitCredentials:
     token: str = field(default="", repr=False)
     private_key: str = field(default="", repr=False)
     known_hosts: str = ""
-    # Expiry of a token Synaptane created itself (GitLab project access token), ISO date.
+    # Expiry of the token, when known: created by Synaptane (GitLab project access token, an ISO
+    # date) or read from the provider when saved (`forges.save_https_token`: GitHub gives the
+    # moment, an ISO date and time in UTC).
     expires: str = ""
 
     @property
-    def expiry(self) -> date | None:
+    def expires_at(self) -> datetime | None:
+        """The moment the token stops working, in UTC: the given time, or 00:00 UTC of the
+        given day (GitLab's tokens stop working on their date)."""
+        if not self.expires:
+            return None
         try:
-            return date.fromisoformat(self.expires) if self.expires else None
+            if "T" in self.expires:
+                moment = datetime.fromisoformat(self.expires)
+                return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).astimezone(UTC)
+            return datetime.combine(date.fromisoformat(self.expires), time(), UTC)
         except ValueError:
             return None
 
+    @property
+    def expiry(self) -> date | None:
+        """The day the token expires, in UTC."""
+        moment = self.expires_at
+        return moment.date() if moment else None
+
+    def expiring(self, expiry: date | datetime | None) -> "GitCredentials":
+        """The same credentials with this expiry (a day, or a moment)."""
+        return replace(self, expires=expiry_text(expiry))
+
     @classmethod
-    def https(cls, token: str, username: str = "", expiry: date | None = None) -> "GitCredentials":
+    def https(
+        cls, token: str, username: str = "", expiry: date | datetime | None = None
+    ) -> "GitCredentials":
         token, username = token.strip(), username.strip() or "synaptane"
         if not token or any(c in token + username for c in "\r\n\0"):
             raise invalid("Invalid access token.")
-        expires = expiry.isoformat() if expiry else ""
-        return cls(kind="https", username=username, token=token, expires=expires)
+        if not all(c.isprintable() for c in token):
+            # An invisible character pasted with the token (zero-width space, tab, no-break
+            # space) would never authenticate. A space or an accented letter stays allowed: the
+            # field also takes a Basic password (Gitea, Bitbucket Server), sent in UTF-8 by Git.
+            raise invalid(
+                "Invalid access token: it contains an invisible or control character (one may "
+                "have been pasted with it)."
+            )
+        return cls(kind="https", username=username, token=token, expires=expiry_text(expiry))
 
     @classmethod
     def ssh(cls, private_key: str, known_hosts: str) -> "GitCredentials":
@@ -112,6 +140,14 @@ SSH_TIMEOUTS = (
     "-o",
     "ServerAliveCountMax=4",
 )
+
+
+def expiry_text(expiry: date | datetime | None) -> str:
+    """How an expiry is kept: an ISO date, or an ISO date and time in UTC."""
+    if isinstance(expiry, datetime):
+        moment = expiry if expiry.tzinfo else expiry.replace(tzinfo=UTC)
+        return moment.astimezone(UTC).isoformat(timespec="seconds")
+    return expiry.isoformat() if expiry else ""
 
 
 def https_host(remote: str) -> str:

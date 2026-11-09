@@ -41,11 +41,113 @@ of the target version.
   of a run's cost without calling any model. Each turn of a provider now carries the name of the
   model that served it (`Turn.model`). See `docs/dev/eval.md` ("Publish the results") and
   `eval/results/README.md`. No migration.
+- **Warnings before a Git access token expires**. When the expiry date of a space's HTTPS
+  token is known, the organization's admins get an alert by email (in their language), in the
+  audit log (**Alerts**) and through the `space.alert` webhook, **30 days, 7 days and 1 day
+  before, then on the day** it expires (`git_token_expiring`, `git_token_expired`): once per
+  step, checked every hour by the worker, a stopped worker only sending the step reached, and
+  a new token, with another date, starting over. **Administration > Health** gets a **Git
+  access tokens** line, a warning when a token expires within 30 days and a problem once one
+  has expired, listing each space with a link to its Git page and how to renew the token. A
+  sync refused for authentication after this date now says that the token expired, and when,
+  on the space's page, in the REST API and in the sync alert. The date is known for the GitLab
+  project access token Synaptane creates, and now also for a token saved by hand in
+  **Settings → Git repository → Repository access** or with `PUT …/git/credentials`: Synaptane
+  asks the provider once, as it saves it (GitHub: the `GitHub-Authentication-Token-Expiration`
+  header of `GET api.github.com/rate_limit`; any other HTTPS host, taken for a GitLab:
+  `GET /api/v4/personal_access_tokens/self`), with the protections of the repository creation
+  (10 seconds at most, no redirect followed, a self-hosted host at a public address only,
+  except for the super admin, no database connection held meanwhile); when the provider does
+  not tell, the token is saved all the same (a repository at an IP address or at a host name
+  that is not plain ASCII is not asked). GitHub
+  gives the moment: on the last day, before that hour, the token "expires today". If every email
+  of a step fails, the next hourly check sends them again; the audit log and the system alerts
+  show the expiry date, written out in the reader's language (ISO in the `space.alert`
+  webhook). The expiry date in a sync error is shown to the organization's admins
+  only, like the rest of the repository access. REST: `credentials_expire` in
+  `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
+  email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
+  See `docs/admin/git.md#token-expiry`.
+- **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
+  **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
+  note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
+  information** (in the space chosen in the form; no side by side in these narrow forms), and
+  above the purpose, the filing instructions (**Settings → Purpose**) and each team prompt
+  (**Settings → Assistant prompts**). Same server rendering as reading, same protections
+  (form token, 262,144 characters at most, one preview at a time per account whatever the
+  editor, database connection given back before rendering), nothing committed, indexed,
+  dropped or logged; the right asked is exactly that of the corresponding edit: dropping or
+  correcting the note (`POST /o/<org>/<space>/-/inbox/preview`, with `note` for a note being
+  corrected), the organization administrator for the purpose, the instructions and the prompts
+  (`POST /o/<org>/<space>/-/vocation/preview`, with `kind`). The purpose's **Preview** button,
+  which reloads the page, stays for browsers without JavaScript (hidden otherwise), and team
+  prompts get one too. No migration.
+- **Invite someone straight into groups**. The invitation form of the organization's
+  **Members** tab lists its groups, each with what it gives ("Contributor on HR"): the
+  administrator checks those the person joins. On acceptance, the person becomes a member of
+  the organization, then of these groups, in the same transaction as the rest of their access;
+  an existing account joins them at once, and its notice email now lists the roles given in
+  spaces and the groups joined. The invitation page says the real access before the
+  account is created, groups included ("HR: contributor, through the group “Management”", "You
+  also join the group “Management”"; names are quoted, a name may hold a comma), and **Pending invitations** shows each invitation's groups.
+  A group deleted before the acceptance is simply not joined, a renamed group is joined under its
+  new name, canceling or renewing the invitation drops its groups, and a group of another
+  organization, or one deleted while the invitation is being sent, is refused, by the service
+  and by the database. REST: `"groups": [<id>, …]` (200 at most) in
+  `POST /organizations/{org}/invitations` (404 for an unknown group or one of another
+  organization), and `groups` (`id`, `name`) in the invitations listed and created. The audit
+  log keeps the groups, as a list of their names at the time, in the **Invitation sent** and
+  **Existing account added by invitation** events (for the latter, only the groups actually
+  joined), and the acceptance writes one `group.member_added` per group,
+  by the system, like the other accesses it grants. One migration (`0032`), applied at startup:
+  it creates the table linking invitations to groups, empty, so no pending invitation changes.
 
 ### Changed
 - **Tidy-up bench with a real model**: the trials now run as sweeps, trial 1 of every
   scenario, then trial 2, and `--json` gives the path of the run file in its new format (a JSON
   object, no longer a list of results).
+- **Settings → Git repository → Repository access** shows any known expiry date of the saved
+  token, not only the one of a GitLab project access token created by Synaptane: muted beyond
+  30 days, a warning within 30 days, a problem once it has passed, with where to create the
+  next token on GitHub or GitLab. Saving a token whose expiry the provider gives says it
+  ("Repository access saved. The token expires on …").
+- An HTTPS access token with an invisible or control character (a zero-width space, a tab or a
+  no-break space pasted with it) is refused with "Invalid access token", on the web page and
+  with `PUT …/git/credentials` (400): it could never authenticate. Spaces and accented letters
+  stay allowed (a Basic password for Gitea or Bitbucket Server). The token that creates a
+  repository must be plain ASCII.
+- Two workers no longer send the same alert twice: its check is serialized in the database.
+- The worker's hourly checks (change watermarks, inbox backlog, review reminders, Git token
+  expiry) run each on its own: a lasting error in one no longer skips the others.
+- The purpose's preview now resolves `[[wiki links]]` in the space, and refuses a text above
+  262,144 characters.
+- Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
+  2.5.0, an overloaded (529) or unavailable (503) Claude API raises a subclass of its server
+  error: Synaptane still reports it as a temporary error, retried later, as before.
+- Downloaded images, still pinned by digest in `compose.yaml`: PostgreSQL
+  (`pgvector/pgvector:pg17`) rebuilt on 31 October 2026 with the Debian fixes of its base,
+  still PostgreSQL 17.11 and pgvector 0.8.7, so the data needs nothing; certbot 5.9.0, whose
+  renewal hooks no longer receive the names that failed to renew as renewed (Synaptane's
+  renewal uses no hook). They are fetched on the next `docker compose pull` (or `up -d`) of an
+  upgrade.
+- Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
+
+### Fixed
+- **Worker**: its hourly checks (inbox backlog, change watermarks, Git token expiry) now run
+  right after it starts, also on a machine booted less than an hour before; they used to wait
+  for the first hour.
+- After **Preview** (without JavaScript) or an error, saving the purpose or the filing
+  instructions no longer replaces, without a conflict, a version saved by someone else in the
+  meantime: the form keeps the version the text started from.
+
+### Security
+- pydantic 2.14.3: fixes two validation bypasses when extra data is allowed
+  (GHSA-qpmf-fgh3-ff25, keys of `__pydantic_extra__` in JSON; GHSA-3r8g-cqwr-jr29, aliased
+  fields of a `TypedDict` or dataclass). Synaptane's own models allow no extra data; the only
+  affected type among its dependencies (the `_meta` of MCP requests, in the MCP SDK) carries a
+  progress token Synaptane does not use, so it was not exposed in practice. The minimum version
+  required is raised to pydantic 2.14.2, so that an installation with pip cannot keep an affected
+  version.
 
 ## [1.13.0] - 2026-11-08
 

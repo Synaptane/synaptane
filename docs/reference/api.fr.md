@@ -185,8 +185,8 @@ d'audit (`group.created`, `group.updated`, `group.deleted`, `group.member_added`
 
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
-| `GET …/spaces/{space}/git` | lecteur | État : statut, dernière synchronisation, conflits, URL du webhook |
-| `PUT …/spaces/{space}/git/credentials` | admin d'organisation | `{"kind": "https", "token": …}` ou `{"kind": "ssh", "private_key": …, "known_hosts": …}` |
+| `GET …/spaces/{space}/git` | lecteur | État : statut, dernière synchronisation, conflits, URL du webhook ; pour un admin d'organisation, `credentials` (`https`, `ssh` ou `null`) et `credentials_expire` (date d'expiration du jeton HTTPS quand elle est connue, sinon `null`) |
+| `PUT …/spaces/{space}/git/credentials` | admin d'organisation | `{"kind": "https", "token": …}` ou `{"kind": "ssh", "private_key": …, "known_hosts": …}`. La date d'expiration d'un jeton HTTPS est lue chez GitHub ou GitLab quand ils la donnent (voir [Expiration des jetons](../admin/git.fr.md#expiration-des-jetons)) |
 | `DELETE …/spaces/{space}/git/credentials` | admin d'organisation | Supprime les identifiants |
 | `POST …/spaces/{space}/git/sync` | contributeur | Demande une synchronisation (202) |
 | `POST …/spaces/{space}/git/webhook-secret` | admin d'organisation | Génère un secret, renvoie l'URL et le secret |
@@ -328,8 +328,8 @@ Voir [Webhooks](../admin/webhooks.fr.md) pour le format et la signature.
 
 | Méthode et chemin | Rôle |
 |---|---|
-| `GET /organizations/{org}/invitations` | Invitations en attente : `id`, `email`, `org_role`, `expires_at` |
-| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}}` (201). Renvoie le `link` à transmettre, une seule fois ; `granted: true` si l'adresse avait déjà un compte (accès donnés aussitôt). 30 par organisation et par heure au plus (429 au-delà) |
+| `GET /organizations/{org}/invitations` | Invitations en attente : `id`, `email`, `org_role`, `expires_at`, `groups` (`id` et `name` des groupes rejoints à l'acceptation ; un groupe supprimé depuis n'y figure plus) |
+| `POST /organizations/{org}/invitations` | `{"email": …, "org_role": "member", "spaces": {"infra": "reader"}, "groups": ["<id>"]}` (201). `groups` : identifiants de groupes de l'organisation (`GET /organizations/{org}/groups`, 200 au plus, 422 au-delà), rejoints à l'acceptation, une fois membre ; un groupe inconnu, ou d'une autre organisation, est refusé (404). Pour un compte existant, `groups` dans la réponse liste les groupes réellement rejoints. Renvoie le `link` à transmettre, une seule fois ; `granted: true` si l'adresse avait déjà un compte (accès donnés et groupes rejoints aussitôt). 30 par organisation et par heure au plus (429 au-delà) |
 | `DELETE /organizations/{org}/invitations/{id}` | Annule (204) |
 
 ## MCP

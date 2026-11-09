@@ -24,8 +24,14 @@ database connection is given back during the calls: a slow provider holds no con
 A self-hosted GitLab is only reached over HTTPS, at a public address (same check as the
 webhooks: resolved once, then connected to the checked address), unless the account is the
 super admin, who can reach a GitLab of the local network.
+
+An HTTPS token an admin saves by hand has its expiry date read from its provider
+(`save_https_token`), with the same protections: one call, `EXPIRY_SECONDS` at most, to the
+repository's own host (GitHub: api.github.com), never redirected. Unknown, it is simply not
+kept: saving the token never depends on it.
 """
 
+import ipaddress
 import json
 import logging
 import re
@@ -36,7 +42,7 @@ import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -71,6 +77,7 @@ CALL_SECONDS = 20.0  # one call, from the connection to the last byte of the ans
 OPERATION_SECONDS = 60.0  # the whole creation, every call included
 MAX_ANSWER = 1_000_000  # bytes read from an answer, at most
 SEARCH_PAGES = 5  # pages of 100 namespaces read, at most, when searching one
+EXPIRY_SECONDS = 10.0  # reading the expiry of a token saved by hand: the admin waits
 # Tests: simulated provider APIs (`httpx2.MockTransport`). Never a real call in the tests.
 TRANSPORT: httpx2.BaseTransport | None = None
 
@@ -156,7 +163,7 @@ def _check(new: NewRepository, default_name: str) -> NewRepository:
     if new.provider not in PROVIDERS:
         raise invalid("Choose GitHub or GitLab to create the repository.")
     token = new.token.strip()
-    if not token or any(c.isspace() or ord(c) < 32 for c in token):
+    if not token or not token.isascii() or any(c.isspace() or ord(c) < 32 for c in token):
         raise invalid("Enter the access token that can create the repository.")
     name = new.name.strip() or default_name
     if not _REPO_NAME.fullmatch(name) or name.lower().endswith((".git", ".atom")):
@@ -753,6 +760,131 @@ def create_repository(
     if new.provider == "github":
         return _github(new, key_title, description, deadline)
     return _gitlab(new, key_title, description, allow_private=allow_private, deadline=deadline)
+
+
+# --- Expiry of a token saved by hand ------------------------------------------------------------
+
+
+def _github_expiry(value: str) -> datetime | None:
+    """`GitHub-Authentication-Token-Expiration: 2027-11-08 07:00:00 UTC` (or `+0100`): the
+    moment, in UTC. None for any other form."""
+    value = value.strip().replace(" UTC", " +0000")
+    try:
+        moment = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None
+    return moment.astimezone(UTC)
+
+
+def _gitlab_expiry(answer: Any) -> date | None:
+    expires = answer.get("expires_at") if isinstance(answer, dict) else None
+    try:
+        return date.fromisoformat(expires[:10]) if isinstance(expires, str) else None
+    except ValueError:
+        return None
+
+
+def _api_base(repo_url: str) -> str | None:
+    """`https://host[:port]` of a repository to ask for its token's expiry. None for anything
+    else, for an IP address written as such (a GitLab is reached by its name, which its TLS
+    certificate names) and for a name that is not plain ASCII."""
+    parts = urlsplit(repo_url)
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower().rstrip(".")
+    if parts.scheme != "https" or not host:
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    if not host.isascii():
+        # An internationalized name is never asked: Python's IDNA (2003) and Git's (2008, UTS
+        # 46) can map it to different domains (faß.de: fass.de or xn--fa-hia.de), and the token
+        # must only reach the repository's own host.
+        return None
+    return f"https://{host}" + (f":{port}" if port else "")
+
+
+def token_expiry(repo_url: str, token: str, *, allow_private: bool = False) -> datetime | None:
+    """Expiry of an HTTPS access token, read from the provider of `repo_url`:
+    - github.com: the `GitHub-Authentication-Token-Expiration` header GitHub adds to any
+      answer for an expiring token (`GET /rate_limit`, which counts against no limit): the
+      moment;
+    - any other host, taken for a GitLab: `GET /api/v4/personal_access_tokens/self` and its
+      `expires_at` (personal, group and project access tokens): the day, at 00:00 UTC. Another
+      Git host answers 404.
+
+    The token only goes to the repository's own host, which receives it for the sync anyway
+    (GitHub: its API). None when the expiry is unknown: no expiry, refused (the API scope may
+    be missing), another provider, unreachable, too slow, a private address (unless
+    `allow_private`), an IP address or a non-ASCII name, anything unexpected. Never raises,
+    never logs the token nor an error's text (which could quote it)."""
+    base = _api_base(repo_url)
+    if base is None:
+        return None
+    host = urlsplit(base).hostname or ""
+    deadline = Deadline(EXPIRY_SECONDS)
+    try:
+        if host == "github.com":
+            api = _github_api(token, deadline)
+            if api.call("GET", "/rate_limit", optional=True) is None:
+                return None
+            return _github_expiry(
+                api.last_headers.get("github-authentication-token-expiration", "")
+            )
+        api = _Api(
+            "gitlab",
+            base + "/api/v4",
+            {"PRIVATE-TOKEN": token, "Accept": "application/json"},
+            pin=base != GITLAB_COM and not allow_private,
+            rights=GITLAB_RIGHTS,
+            deadline=deadline,
+        )
+        day = _gitlab_expiry(api.call("GET", "/personal_access_tokens/self", optional=True))
+        return datetime.combine(day, datetime.min.time(), UTC) if day else None
+    except SynaptaneError as error:
+        log.info("Expiry of the token for %s not read: %s", host, error.message)
+    except Exception as error:  # noqa: BLE001 — saving the token never depends on it
+        log.warning("Expiry of the token for %s not read: %s", host, type(error).__name__)
+    return None
+
+
+def save_https_token(
+    session: Session,
+    actor: Actor,
+    box: SecretBox,
+    space: Space,
+    token: str,
+    username: str = "",
+    *,
+    allow_private: bool = False,
+) -> GitCredentials:
+    """An HTTPS token saved by an organization admin (web, REST), with its expiry date when the
+    provider gives it (`token_expiry`): the Health page and the alerts then know it.
+
+    Rights and the token's form are checked first, before any call; the transaction is
+    committed before the call (no database connection held while the provider answers).
+    `allow_private`: a host of the local network may be asked (development; always for the
+    super admin)."""
+    require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    credentials = GitCredentials.https(token, username)
+    repo_url = space.repo_url or ""
+    # A password that is not plain ASCII (Basic, another Git host) cannot go in an HTTP header.
+    if repo_url and credentials.matches(repo_url) and credentials.token.isascii():
+        session.commit()
+        expiry = token_expiry(
+            repo_url, credentials.token, allow_private=allow_private or actor.access.is_superadmin
+        )
+        if expiry is not None:
+            # GitLab: the day (its tokens stop working at 00:00 UTC); GitHub: the moment.
+            midnight = expiry == datetime.combine(expiry.date(), datetime.min.time(), UTC)
+            credentials = credentials.expiring(expiry.date() if midnight else expiry)
+    git_sync.set_credentials(session, actor, box, space, credentials)
+    return credentials
 
 
 # --- Use case ---------------------------------------------------------------------------------

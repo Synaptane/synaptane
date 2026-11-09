@@ -38,6 +38,7 @@ from synaptane.services import (
     backup_schedule,
     changes,
     freshness,
+    git_expiry,
     git_sync,
     instance,
     jobs,
@@ -84,8 +85,10 @@ class Worker:
         self.database = database
         self.ctx = ctx
         self.stopping = False
-        self._last_maintenance = 0.0
-        self._last_backlog_check = 0.0
+        # -inf, not 0: the monotonic clock starts near the machine's boot, so a worker started
+        # less than an hour after it would otherwise skip its first hourly checks.
+        self._last_maintenance = float("-inf")
+        self._last_backlog_check = float("-inf")
         self._current: dict[str, tuple[UUID, int]] = {}  # lane → (current job, attempt)
         self._pulses: dict[str, float] = {}  # lane → last sign of life (monotonic clock)
         self._touched = 0.0
@@ -332,14 +335,29 @@ class Worker:
         backup_schedule.schedule(self.database, self.settings)
         backup_schedule.check_abandoned(self.database, self.ctx.box, self.settings.public_url)
         alerts.check_abandoned_jobs(self.database, self.ctx)  # attempts exhausted: notify
-        if now - self._last_backlog_check > 3600:  # inbox backlog: once an hour
+        if now - self._last_backlog_check > 3600:  # once an hour
             self._last_backlog_check = now
-            self.advance_idle_watermarks()
-            alerts.check_backlogs(self.database, self.ctx)
-            try:  # pages to review: one grouped email per week to their owner
-                freshness.send_reminders(self.database, self.ctx)
-            except Exception:  # noqa: BLE001 — a missed reminder must not stop the worker
-                log.warning("Verification reminders not sent", exc_info=True)
+            # Each check on its own: a lasting error in one does not skip the others.
+            hourly: tuple[tuple[str, Callable[[], object]], ...] = (
+                ("Change watermarks not moved", self.advance_idle_watermarks),
+                # Inbox backlog.
+                (
+                    "Inbox backlog not checked",
+                    lambda: alerts.check_backlogs(self.database, self.ctx),
+                ),
+                # Pages to review: one grouped email per week to their owner.
+                (
+                    "Verification reminders not sent",
+                    lambda: freshness.send_reminders(self.database, self.ctx),
+                ),
+                # Git tokens: 30, 7 and 1 day before their expiry, then on the day.
+                ("Git token expiry not checked", lambda: git_expiry.check(self.database, self.ctx)),
+            )
+            for failure, check in hourly:
+                try:
+                    check()
+                except Exception:  # noqa: BLE001 — a missed check must not stop the worker
+                    log.warning(failure, exc_info=True)
         self.remove_orphan_clones()
         with self.database.session() as session:
             jobs.prune(session)

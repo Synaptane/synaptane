@@ -10,7 +10,7 @@ import os
 import shutil
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, joinedload
 from synaptane.config import Settings
 from synaptane.core.errors import Label, SynaptaneError
 from synaptane.git.repo import GitError
-from synaptane.services import alerts, jobs, mail, secrets, tidy
+from synaptane.services import alerts, git_expiry, jobs, mail, secrets, tidy
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database, pending_migrations
 from synaptane.storage.models import AuditEvent, Job, Organization, Space, TidyRun
@@ -50,6 +50,8 @@ ALERT_TITLES = {
     "tidy_interrupted": Label("A tidy-up was interrupted"),
     "job_abandoned": Label("A background task was given up"),
     "routine_failed": Label("A routine failed"),
+    "git_token_expiring": Label("A Git access token expires soon"),
+    "git_token_expired": Label("A Git access token expired"),
     "webhook_disabled": Label("A webhook was turned off"),
     "backup_failed": Label("A backup failed"),
 }
@@ -69,6 +71,7 @@ class Check:
     guide: str = ""  # page of the documentation that explains it ("backup")
     run: Label | None = None  # the worker's backup: waiting, in progress, or its last outcome
     run_at: datetime | None = None
+    tokens: tuple[git_expiry.Expiry, ...] = ()  # Git tokens expiring or expired
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,7 @@ class Alert:
     space: Space | None
     organization: Organization | None
     error: str
+    date: date | str | None = None  # a Git token's expiry day (written out when shown)
 
 
 @dataclass(frozen=True)
@@ -337,6 +341,26 @@ def _https(settings: Settings) -> Check:
     return Check(title, WARN, Label("The public address does not use HTTPS."))
 
 
+def _git_tokens(session: Session, ws: Workspace) -> Check:
+    """Spaces whose Git access token expires within `git_expiry.WARN_DAYS` days (warning) or
+    has expired (problem), each with a link to its Git page."""
+    title = Label("Git access tokens")
+    found = tuple(git_expiry.expiries(session, ws.box))
+    note = Label(
+        "Create a new token on the Git host (GitLab: Settings → Access tokens, read_repository "
+        "and write_repository scopes, Maintainer role; GitHub: a fine-grained token limited to "
+        "the repository, “Contents” read and write), then save it on the space's Git page, "
+        "under “Repository access”."
+    )
+    if expired := sum(1 for e in found if e.expired):
+        message = Label("Expired tokens: {count}. Their spaces no longer sync.", count=expired)
+        return Check(title, ERROR, message, note=note, guide="git", tokens=found)
+    if found:
+        message = Label("Tokens expiring within 30 days: {count}.", count=len(found))
+        return Check(title, WARN, message, note=note, guide="git", tokens=found)
+    return Check(title, OK, Label("None expires within 30 days."))
+
+
 def _space_state(session: Session, ws: Workspace, space: Space, run: TidyRun | None) -> SpaceState:
     waiting = None
     if space.repo_url and space.sync_status != "never":
@@ -368,9 +392,18 @@ def _alerts(session: Session, now: datetime) -> list[Alert]:
                 space,
                 org,
                 str(event.details.get("error") or event.details.get("reason") or "")[:300],
+                _day(str(event.details.get("date") or "")),
             )
         )
     return found
+
+
+def _day(value: str) -> date | str | None:
+    """A day kept in ISO form; an older form as it is."""
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return value[:100]
 
 
 def report(session: Session, database: Database, ws: Workspace, settings: Settings) -> Report:
@@ -394,6 +427,7 @@ def report(session: Session, database: Database, ws: Workspace, settings: Settin
             _disk(settings),
             _mail(session),
             _https(settings),
+            _git_tokens(session, ws),
         ],
         spaces=sorted(states, key=lambda s: s.state != ERROR),  # stable: names stay in order
         alerts=_alerts(session, now),

@@ -14,7 +14,9 @@ rules (CHANGELOG):
 - 0029: existing organizations give no default role in their spaces, and no space is
   restricted: nobody gains access;
 - 0031: groups start empty, and the database keeps them within their organization (members
-  of the organization only, spaces of the organization only), with cascading deletions.
+  of the organization only, spaces of the organization only), with cascading deletions;
+- 0032: pending invitations keep their roles and join no group; an invitation only names
+  groups of its organization, and deleting the group or the invitation removes the link.
 
 Same principle for every future migration that touches data.
 """
@@ -280,6 +282,96 @@ def test_groups_migration_keeps_groups_within_their_organization(
                 text("SELECT conname FROM pg_constraint WHERE conname = 'uq_spaces_id'")
             ).all()
         assert tables == [] and constraints == []
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_invitation_groups_migration_keeps_them_within_the_organization(
+    new_database: Callable[[], str],
+) -> None:
+    """0032 on an instance in service: the pending invitation is untouched and names no group;
+    the composite foreign keys refuse a group of another organization, under either
+    organization; deleting the group or the invitation removes the link; the migration goes
+    down and up again."""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0031")
+    acme, globex, rh, globex_rh = uuid4(), uuid4(), uuid4(), uuid4()
+    pending, other = uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def rows(sql: str) -> list[tuple[object, ...]]:
+        with engine.connect() as connection:
+            return [tuple(row) for row in connection.execute(text(sql))]
+
+    invite = (
+        "INSERT INTO invitations (id, token_hash, email, org_id, org_role, space_roles, "
+        "created_at, expires_at) VALUES (:id, :hash, :email, :org, 'member', "
+        "'{\"s\": \"reader\"}', now(), now() + interval '14 days')"
+    )
+    try:
+        for org, slug in ((acme, "acme"), (globex, "globex")):
+            run(
+                "INSERT INTO organizations (id, slug, name, description, created_at) "
+                "VALUES (:id, :slug, :slug, '', now())",
+                id=org,
+                slug=slug,
+            )
+        for group, org in ((rh, acme), (globex_rh, globex)):
+            run(
+                "INSERT INTO groups (id, org_id, name, created_at) VALUES (:id, :org, 'RH', now())",
+                id=group,
+                org=org,
+            )
+        run(invite, id=pending, hash="a" * 64, email="zoe@example.com", org=acme)
+        command.upgrade(config, "0032")
+        assert rows("SELECT email, org_role, space_roles::text FROM invitations") == [
+            ("zoe@example.com", "member", '{"s": "reader"}')
+        ]
+        assert rows("SELECT * FROM invitation_groups") == []
+
+        link = (
+            "INSERT INTO invitation_groups (invitation_id, group_id, org_id) "
+            "VALUES (:invitation, :group, :org)"
+        )
+        run(link, invitation=pending, group=rh, org=acme)
+        for org in (acme, globex):  # Globex's group, under either organization
+            with pytest.raises(IntegrityError):
+                run(link, invitation=pending, group=globex_rh, org=org)
+        with pytest.raises(IntegrityError):  # twice the same group
+            run(link, invitation=pending, group=rh, org=acme)
+
+        # Cascades: the group, the invitation, the organization.
+        run(invite, id=other, hash="b" * 64, email="ada@example.com", org=acme)
+        run(link, invitation=other, group=rh, org=acme)
+        run("DELETE FROM groups WHERE id = :rh", rh=rh)
+        assert rows("SELECT * FROM invitation_groups") == []
+        run(
+            "INSERT INTO groups (id, org_id, name, created_at) VALUES (:id, :org, 'RH', now())",
+            id=rh,
+            org=acme,
+        )
+        run(link, invitation=pending, group=rh, org=acme)
+        run(link, invitation=other, group=rh, org=acme)
+        run("DELETE FROM invitations WHERE id = :pending", pending=pending)
+        assert rows("SELECT invitation_id FROM invitation_groups") == [(other,)]
+        run("DELETE FROM organizations WHERE id = :acme", acme=acme)
+        assert rows("SELECT * FROM invitation_groups") == []
+
+        command.downgrade(config, "0031")
+        assert (
+            rows(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name = 'invitation_groups'"
+            )
+            == []
+        )
+        assert rows("SELECT conname FROM pg_constraint WHERE conname = 'uq_invitations_id'") == []
         command.upgrade(config, "head")
     finally:
         engine.dispose()

@@ -32,6 +32,7 @@ from synaptane.git.repo import (
     PushRejected,
     Repository,
     describe_error,
+    expired_error,
 )
 from synaptane.services import Actor, alerts, audit, changes, jobs, vocation, webhooks
 from synaptane.services.inbox import CONTENT_DIR, INBOX_DIR, parse_front_matter, skeleton
@@ -61,9 +62,15 @@ def credential_kind(session: Session, box: SecretBox, space: Space) -> str | Non
 
 
 def credential_expiry(session: Session, box: SecretBox, space: Space) -> date | None:
-    """Expiry of the access token Synaptane created (GitLab project access token), if any."""
+    """Expiry of the saved access token, when known (see `GitCredentials.expires`)."""
     value = get_space_secret(session, box, space.id, GIT_CREDENTIALS)
     return GitCredentials.from_json(value).expiry if value else None
+
+
+def credential_expires_at(session: Session, box: SecretBox, space: Space) -> datetime | None:
+    """The moment the saved access token stops working, when known."""
+    value = get_space_secret(session, box, space.id, GIT_CREDENTIALS)
+    return GitCredentials.from_json(value).expires_at if value else None
 
 
 def set_credentials(
@@ -341,7 +348,7 @@ def alert_text(error: str, hours: int | None = None) -> Callable[[str], str]:
         from synaptane.web.i18n import translator
 
         translate = translator(locale)
-        described = describe_error(error, translate)
+        described = describe_error(error, translate, locale)
         if hours is None:
             return described
         return translate("{error} (transient error for {hours} h)", error=described, hours=hours)
@@ -665,11 +672,21 @@ def _exchange(
         else:
             raise GitError(REMOTE_TOO_FAST, transient=True)
     except GitError as error:
-        _record(database, space_id, outcome, str(error), ctx, error.transient)
+        text = _with_expiry(str(error), snapshot.credentials)
+        _record(database, space_id, outcome, text, ctx, error.transient)
         raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)  # interrupted clone
     _record(database, space_id, outcome, None)
+
+
+def _with_expiry(error: str, credentials: GitCredentials | None) -> str:
+    """Authentication refused, and the token's known expiry has passed (GitLab: from 00:00
+    UTC on its day): the error says the token expired rather than "requires authentication"."""
+    expires_at = credentials.expires_at if credentials else None
+    if expires_at is None or expires_at > datetime.now(UTC):
+        return error
+    return expired_error(error, expires_at.date())
 
 
 def run_sync(database: Database, ctx: Workspace, space_id: UUID) -> None:

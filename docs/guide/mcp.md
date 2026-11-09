@@ -223,6 +223,9 @@ Follow our template: {{include templates/meeting-notes.md}}
   most), read with the rights of the person who runs the prompt and framed as untrusted, like
   any page an assistant reads.
 - 30 prompts at most per space; `tidy.md` is the tidy-up rules, not a prompt.
+- **Preview**, above each prompt's text (and with the button under it, without JavaScript),
+  shows its Markdown rendered, without saving: the front matter left out, `{{name}}` and
+  `{{include …}}` shown as written (no page is read).
 
 
 ## The inbox

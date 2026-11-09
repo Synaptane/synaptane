@@ -3,6 +3,7 @@ keeps working as before and, once its archive is checked and in place, tells Syn
 made the backup of the day (the worker's automatic backup then steps aside); a deployment's
 backup (with a label), or a failed one, does not."""
 
+import gzip
 import io
 import os
 import shutil
@@ -36,13 +37,15 @@ exit "${FAKE_STATUS:-0}"
 
 
 def archive_bytes() -> bytes:
+    """Always the same bytes: the gzip header holds no time (`mtime=0`), else two calls a
+    second apart differ."""
     data = io.BytesIO()
-    with tarfile.open(fileobj=data, mode="w:gz") as tar:
+    with tarfile.open(fileobj=data, mode="w") as tar:
         for name in ("manifest.json", "database.dump"):
             entry = tarfile.TarInfo(name)
             entry.size = 2
             tar.addfile(entry, io.BytesIO(b"{}"))
-    return data.getvalue()
+    return gzip.compress(data.getvalue(), mtime=0)
 
 
 def run(tmp_path: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
