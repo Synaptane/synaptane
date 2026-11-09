@@ -26,6 +26,21 @@ ENVELOPE_HEADERS = (
     "X-Envelope-To",
 )
 RECIPIENT_HEADERS = ("To", "Cc")
+# Headers RFC 5322 allows once (§3.6). Twice means someone added one above the original: a
+# replayed, DKIM-signed email whose added header Python would read (the first) while the
+# signature covers the other (the last).
+SINGLE_HEADERS = (
+    "From",
+    "Sender",
+    "Reply-To",
+    "To",
+    "Cc",
+    "Subject",
+    "Date",
+    "Message-ID",
+    "In-Reply-To",
+    "References",
+)
 # An inline image (in the HTML, `cid:`) smaller than this is decoration: a logo, a signature.
 INLINE_MIN = 16 * 1024
 MAX_NAME = 120
@@ -49,6 +64,8 @@ class Parsed:
     recipients: list[str]  # addresses of To and Cc, lowercase
     auth_results: list[str]  # Authentication-Results headers, topmost first
     automatic: bool  # auto-reply, bounce, mailing list: never answered, never dropped
+    duplicated: tuple[str, ...] = ()  # SINGLE_HEADERS present more than once
+    received: list[str] = field(default_factory=list)  # Received headers, topmost first
     body: str = ""
     attachments: list[tuple[str, bytes]] = field(default_factory=list)
     has_content: bool = False  # body and attachments read (`parse(with_content=True)`)
@@ -118,11 +135,30 @@ def parse(raw: bytes, *, with_content: bool = True) -> Parsed:
         recipients=_addresses(message, RECIPIENT_HEADERS),
         auth_results=_header(message, "Authentication-Results"),
         automatic=_automatic(message),
+        duplicated=_duplicated(message),
+        received=_header(message, "Received"),
     )
     if with_content and isinstance(message, EmailMessage):
         parsed.body, parsed.attachments = _content(message)
         parsed.has_content = True
     return parsed
+
+
+def _duplicated(message: Message) -> tuple[str, ...]:
+    names = [name.lower() for name in message]  # every header, repeated ones included
+    return tuple(h for h in SINGLE_HEADERS if names.count(h.lower()) > 1)
+
+
+def received_at(received: list[str]) -> datetime | None:
+    """Date of the topmost `Received` header (after its last ";"): when the receiving server
+    of the mailbox took the email."""
+    if not received:
+        return None
+    try:
+        found = parsedate_to_datetime(received[0].rpartition(";")[2].strip())
+    except (TypeError, ValueError, IndexError):
+        return None
+    return found if found.tzinfo else found.replace(tzinfo=UTC)
 
 
 def too_complex(raw: bytes) -> bool:

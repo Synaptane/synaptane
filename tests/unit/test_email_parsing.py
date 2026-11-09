@@ -1,21 +1,24 @@
 """Capture by email, without a database: who sent an email (`core.authres`), what it says
 (`core.email_message`) and which space it aims at (`services.email_capture.targets`)."""
 
+from datetime import UTC, datetime
 from email.message import EmailMessage
 
 import pytest
 
 from synaptane.core import authres
 from synaptane.core.email_message import (
+    SINGLE_HEADERS,
     Parsed,
     clean_name,
     defuse,
     html_to_markdown,
     parse,
     read_content,
+    received_at,
     too_complex,
 )
-from synaptane.services.email_capture import find_space, targets
+from synaptane.services.email_capture import addressed, find_space, targets
 from tests.fakeimap import CAPTURE, TRUSTED, message
 
 GMAIL = (
@@ -432,24 +435,57 @@ def _parsed(**headers: str) -> Parsed:
     return parse(mail.as_bytes())
 
 
-def test_targets_from_the_envelope_then_to_and_cc() -> None:
-    envelope = _parsed(
-        Delivered_To="Brain+Acme.Infra@Capture.test", To="brain+acme.autre@capture.test"
+def test_targets_are_read_from_to_and_cc_only() -> None:
+    """To and Cc name the spaces (what the sender wrote, signed with the email); the envelope
+    only picks, among them, the space of this copy."""
+    only_envelope = _parsed(Delivered_To="brain+acme.infra@capture.test", To="team@acme.test")
+    assert targets(only_envelope, CAPTURE) == []  # blind copy: aims at nothing
+    assert not addressed(only_envelope, CAPTURE)
+    this_copy = _parsed(
+        Delivered_To="Brain+Acme.Autre@Capture.test",
+        To="brain+acme.infra@capture.test",
+        Cc="brain+acme.autre@capture.test",
     )
-    assert targets(envelope, CAPTURE) == ["acme.infra"]  # the copy received: case ignored
+    assert targets(this_copy, CAPTURE) == ["acme.autre"]  # the copy received: case ignored
+    elsewhere = _parsed(
+        Delivered_To="brain+acme.secret@capture.test", To="brain+acme.infra@capture.test"
+    )
+    assert targets(elsewhere, CAPTURE) == ["acme.infra"]  # an envelope not in To/Cc: ignored
     several = _parsed(
         To="Équipe <team@acme.test>, brain+acme.infra@capture.test",
         Cc="brain+globex.ventes@capture.test, brain+acme.infra@capture.test",
     )
     assert targets(several, CAPTURE) == ["acme.infra", "globex.ventes"]
     bare = _parsed(To="brain@capture.test")
-    assert targets(bare, CAPTURE) == []  # no space named
+    assert targets(bare, CAPTURE) == [] and addressed(bare, CAPTURE)  # no space named
     other_domain = _parsed(To="brain+acme.infra@elsewhere.test")
-    assert targets(other_domain, CAPTURE) == []
+    assert targets(other_domain, CAPTURE) == [] and not addressed(other_domain, CAPTURE)
     prefix = _parsed(To="brainy+acme.infra@capture.test")
     assert targets(prefix, CAPTURE) == []
     many = _parsed(To=", ".join(f"brain+acme.s{i}@capture.test" for i in range(9)))
     assert len(targets(many, CAPTURE)) == 5
+
+
+@pytest.mark.parametrize("name", SINGLE_HEADERS)
+def test_headers_allowed_once_are_reported_when_repeated(name: str) -> None:
+    raw = message(
+        cc="bob@acme.test", headers={"Sender": "alice@acme.test", "Reply-To": "alice@acme.test"}
+    )
+    raw = f"{name}: added@evil.test\r\n".encode() + raw
+    if name in ("In-Reply-To", "References"):
+        raw = f"{name}: <a@x>\r\n".encode() + raw  # twice even when the email has none
+    assert name in parse(raw, with_content=False).duplicated
+    assert parse(message(), with_content=False).duplicated == ()
+
+
+def test_received_at_reads_the_topmost_received_header() -> None:
+    received = [
+        "from mail.acme.test by mx.capture.test with ESMTPS id x; Mon, 9 Nov 2026 10:33:00 +0100",
+        "from laptop by mail.acme.test; Mon, 1 Jan 2024 00:00:00 +0000",
+    ]
+    assert received_at(received) == datetime(2026, 11, 9, 9, 33, tzinfo=UTC)
+    assert received_at([]) is None
+    assert received_at(["from x by y"]) is None
 
 
 @pytest.mark.parametrize(

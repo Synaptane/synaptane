@@ -10,6 +10,9 @@ no webhook, no incoming SMTP server. Each email is accepted only if all of this 
 - the address names a space (`+org.space`, see `targets`) where this account may drop notes
   (same rules as the web form and `inbox_add`: restricted spaces and groups included; a super
   admin only where they are a member);
+- it is not a signed email replayed by someone else: no header allowed once (RFC 5322) appears
+  twice, its `Date` is within MAX_CLOCK_GAP of its reception, and the capture address is in
+  To or Cc (`targets`, `addressed`);
 - it passes the checks of every deposit (`deposits.deposit`): size, attachments, secrets, rate.
 
 Emails handled are moved out of the read folder, to `Synaptane/Processed` or
@@ -25,7 +28,9 @@ import hashlib
 import imaplib
 import logging
 import re
+import socket
 import ssl
+import threading
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -38,7 +43,13 @@ from sqlalchemy.orm import Session
 
 from synaptane.core import authres, names
 from synaptane.core.access import Action, Limits, can, require
-from synaptane.core.email_message import Parsed, parse, read_content, too_complex
+from synaptane.core.email_message import (
+    Parsed,
+    parse,
+    read_content,
+    received_at,
+    too_complex,
+)
 from synaptane.core.errors import ErrorCode, Label, SynaptaneError, invalid
 from synaptane.core.security import SecretBox
 from synaptane.git.repo import GitError
@@ -69,6 +80,13 @@ MAX_PER_POLL = 25  # emails handled per poll: the others wait for the next one
 # back the others.
 MAX_EXAMINED = 100
 POLL_BUDGET = 240.0  # seconds: no new email taken after that
+# Seconds after which a poll's connection is cut, whatever each operation does: every one is
+# bounded by TIMEOUT and by what is left, and a watchdog closes the socket at the deadline (a
+# server that sends a byte every 29 seconds keeps no poll alive).
+POLL_DEADLINE = 300.0
+# An email dated more than this away from its reception is refused: an authentic, signed
+# email replayed later by someone else keeps its old date (signed).
+MAX_CLOCK_GAP = timedelta(hours=48)
 # An email that still cannot be dropped after this long (space unavailable) is refused: it
 # would otherwise be read again at every poll, forever.
 MAX_DEFERRAL = timedelta(hours=24)
@@ -88,6 +106,9 @@ ACCEPTED, REFUSED_STATUS, DEFERRED = "accepted", "refused", "deferred"
 REASONS: dict[str, Label] = {
     "automatic": Label("Automatic message (auto-reply, bounce, mailing list)"),
     "malformed": Label("No single sender address"),
+    "duplicate_headers": Label("A header that may appear once appears twice (replayed email?)"),
+    "stale_date": Label("Date missing, or more than 48 hours away from the reception"),
+    "not_in_recipients": Label("Capture address neither in To nor in Cc"),
     "not_authenticated": Label("Sender not authenticated (neither DMARC nor aligned DKIM)"),
     "unknown_sender": Label("No active account with this verified address"),
     "no_space": Label("No space in the address"),
@@ -104,7 +125,7 @@ REASONS: dict[str, Label] = {
 # Refusals told to the sender (authenticated, with an account): the others are silent.
 _TOLD = frozenset(
     {"no_space", "no_access", "space_not_ready", "too_large", "too_many_attachments", "secret"}
-    | {"invalid", "unavailable", "too_complex"}
+    | {"invalid", "unavailable", "too_complex", "stale_date", "not_in_recipients"}
 )
 
 
@@ -275,6 +296,20 @@ def remove(session: Session, actor: Actor) -> None:
         audit(session, actor, "instance.capture_removed", address=row.address)
 
 
+def address_shown(session: Session, user: User, space: Space) -> str | None:
+    """The capture address of a space, for this person: only where their emails would be
+    accepted (verified address of an active account, right to drop notes there as the capture
+    checks it: a super admin only where they are a member). None otherwise."""
+    if not user.is_active or not user.email or user.email_verified_at is None:
+        return None
+    address = address_for(session, space)
+    if address is None:
+        return None
+    actor = load_actor(session, user, limits=Limits(members_only=True))
+    allowed = can(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
+    return address if allowed else None
+
+
 def address_for(session: Session, space: Space) -> str | None:
     """The capture address of a space, or None if the capture is not configured."""
     row = session.get(CaptureSettings, 1)
@@ -305,18 +340,25 @@ MAX_TARGETS = 5
 
 
 def targets(parsed: Parsed, capture: str) -> list[str]:
-    """The spaces aimed at, as written (`org.space`). The envelope (Delivered-To,
-    X-Original-To…: the copy received by this mailbox) wins over To and Cc; several spaces in
-    To and Cc each get the note. At most MAX_TARGETS."""
-    for addresses in (parsed.envelope, parsed.recipients):
-        found: list[str] = []
-        for address in addresses:
-            tag = _tag(address, capture)
-            if tag and tag not in found:
-                found.append(tag)
-        if found:
-            return found[:MAX_TARGETS]
-    return []
+    """The spaces aimed at, as written (`org.space`), from To and Cc only: those the sender
+    wrote, signed by DKIM with the rest of the email (Gmail, most servers; not Microsoft 365).
+    A blind copy, or an address only in the envelope (Delivered-To, X-Original-To…), aims at
+    nothing: a signed email replayed to the capture by someone else is not dropped there. The
+    envelope only chooses, when To and Cc name several spaces, the one of this copy (each
+    space gets its own copy). At most MAX_TARGETS."""
+    named: list[str] = []
+    for address in parsed.recipients:
+        tag = _tag(address, capture)
+        if tag and tag not in named:
+            named.append(tag)
+    envelope = {_tag(address, capture) for address in parsed.envelope} - {None, ""}
+    this_copy = [tag for tag in named if tag in envelope]
+    return (this_copy or named)[:MAX_TARGETS]
+
+
+def addressed(parsed: Parsed, capture: str) -> bool:
+    """The capture address, with or without a space, is in To or Cc."""
+    return any(_tag(address, capture) is not None for address in parsed.recipients)
 
 
 def find_space(session: Session, tag: str) -> Space | None:
@@ -392,29 +434,70 @@ class Mailbox:
     """An IMAP connection, opened with `with`: encrypted (TLS or STARTTLS) unless the
     instance allows otherwise, every operation bounded by `timeout`."""
 
-    def __init__(self, conf: Conf, *, allow_plain: bool = False, timeout: float = TIMEOUT):
+    def __init__(
+        self,
+        conf: Conf,
+        *,
+        allow_plain: bool = False,
+        timeout: float = TIMEOUT,
+        deadline: float | None = None,
+    ):
+        """`deadline`: moment (`time.monotonic`) the connection is cut at, at the latest."""
         self.conf, self.allow_plain, self.timeout = conf, allow_plain, timeout
+        self.deadline = deadline
+        self._watchdog: threading.Timer | None = None
         self.imap: imaplib.IMAP4 | None = None
         self.capabilities: set[str] = set()
         self.delimiter = "/"
         self._known: set[str] = set()
 
+    def _left(self) -> float:
+        """Seconds an operation may take now: TIMEOUT, or less near the deadline. Raises
+        TimeoutError once the deadline has passed."""
+        if self.deadline is None:
+            return self.timeout
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("poll deadline reached")
+        return min(self.timeout, left)
+
+    def _arm(self) -> None:
+        """Before each operation: the socket waits at most what is left."""
+        left = self._left()
+        sock = getattr(self.imap, "sock", None)
+        if sock is not None:
+            with suppress(OSError):
+                sock.settimeout(left)
+
+    def _cut(self) -> None:
+        """The watchdog, at the deadline: whatever is waiting on the socket fails now."""
+        sock = getattr(self.imap, "sock", None)
+        if sock is not None:
+            with suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
     def __enter__(self) -> "Mailbox":
         conf = self.conf
         context = ssl.create_default_context()
+        left = self._left()
         if conf.security == "ssl":
-            self.imap = imaplib.IMAP4_SSL(
-                conf.host, conf.port, ssl_context=context, timeout=self.timeout
-            )
+            self.imap = imaplib.IMAP4_SSL(conf.host, conf.port, ssl_context=context, timeout=left)
         elif conf.security == "starttls":
-            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=self.timeout)
+            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=left)
+            self._arm()
             self.imap.starttls(ssl_context=context)
         elif self.allow_plain:
-            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=self.timeout)
+            self.imap = imaplib.IMAP4(conf.host, conf.port, timeout=left)
         else:
             raise CaptureError(Label("Unencrypted connection refused."))
+        if self.deadline is not None:
+            self._watchdog = threading.Timer(max(self.deadline - time.monotonic(), 0), self._cut)
+            self._watchdog.daemon = True
+            self._watchdog.start()
         try:
+            self._arm()
             self._ok(self.imap.login(conf.username, conf.password))
+            self._arm()
             typ, data = self.imap.capability()
             self._ok((typ, data))
             words = b" ".join(d for d in data if isinstance(d, bytes)).decode("ascii", "replace")
@@ -428,6 +511,9 @@ class Mailbox:
         self._close()
 
     def _close(self) -> None:
+        if self._watchdog is not None:
+            self._watchdog.cancel()
+            self._watchdog = None
         if self.imap is not None:
             with suppress(Exception):
                 self.imap.logout()
@@ -447,25 +533,38 @@ class Mailbox:
         return data
 
     def select(self, folder: str, *, readonly: bool = False) -> int:
+        self._arm()
         data = self._ok(self._imap.select(_quote(folder), readonly=readonly))
         first = data[0] if data else b"0"
         return int(first) if isinstance(first, bytes) and first.isdigit() else 0
 
     def uids(self) -> list[str]:
+        self._arm()
         # Not those flagged as deleted: copied already by a move cut short (without MOVE).
         data = self._ok(self._imap.uid("SEARCH", "UNDELETED"))
         first = data[0] if data else b""
         return first.decode().split() if isinstance(first, bytes) else []
 
-    def size(self, uid: str) -> int:
-        data = self._ok(self._imap.uid("FETCH", uid, "(RFC822.SIZE)"))
+    def size(self, uid: str) -> tuple[int, datetime | None]:
+        """Size of the email and when the server received it (INTERNALDATE)."""
+        self._arm()
+        data = self._ok(self._imap.uid("FETCH", uid, "(RFC822.SIZE INTERNALDATE)"))
+        size, received = 0, None
         for item in data:
             raw = item[0] if isinstance(item, tuple) else item
-            if isinstance(raw, bytes) and (found := re.search(rb"RFC822\.SIZE (\d+)", raw)):
-                return int(found.group(1))
-        return 0
+            if not isinstance(raw, bytes):
+                continue
+            if found := re.search(rb"RFC822\.SIZE (\d+)", raw):
+                size = int(found.group(1))
+            if found := re.search(rb'INTERNALDATE "([^"]+)"', raw):
+                with suppress(ValueError):
+                    received = datetime.strptime(
+                        found.group(1).decode().strip(), "%d-%b-%Y %H:%M:%S %z"
+                    )
+        return size, received
 
     def fetch(self, uid: str, part: str = "BODY.PEEK[]") -> bytes:
+        self._arm()
         data = self._ok(self._imap.uid("FETCH", uid, f"({part})"))
         for item in data:
             if isinstance(item, tuple) and len(item) > 1 and isinstance(item[1], bytes):
@@ -473,6 +572,7 @@ class Mailbox:
         return b""
 
     def _delimiter(self) -> str:
+        self._arm()
         data = self._ok(self._imap.list('""', '""'))
         first = data[0] if data else b""
         if isinstance(first, bytes) and (found := re.search(rb'\) "(.)"', first)):
@@ -487,6 +587,7 @@ class Mailbox:
         if full in self._known:
             return full
         for wanted in (PARENT, full):
+            self._arm()
             found = self._ok(self._imap.list('""', _quote(wanted)))
             if not any(found):
                 typ, data = self._imap.create(_quote(wanted))
@@ -496,6 +597,7 @@ class Mailbox:
         return full
 
     def move(self, uid: str, folder: str) -> None:
+        self._arm()
         if "MOVE" in self.capabilities:
             self._ok(self._imap.uid("MOVE", uid, _quote(folder)))
             return
@@ -639,7 +741,8 @@ def poll(
             conf = _conf(row, ws.box)
         started = time.monotonic()
         try:
-            with Mailbox(conf, allow_plain=allow_plain) as mailbox:
+            deadline = started + POLL_DEADLINE
+            with Mailbox(conf, allow_plain=allow_plain, deadline=deadline) as mailbox:
                 mailbox.select(conf.folder)
                 for uid in mailbox.uids()[:MAX_EXAMINED]:
                     if (
@@ -685,7 +788,7 @@ def _finish(database: Database, summary: Summary, moment: datetime) -> None:
 def _one(database: Database, ws: Workspace, conf: Conf, mailbox: Mailbox, uid: str) -> str:
     """One email of the mailbox: ACCEPTED, REFUSED_STATUS or DEFERRED. Mailbox errors go up
     (the connection is lost); anything else refuses this email only."""
-    size = mailbox.size(uid)
+    size, received = mailbox.size(uid)
     if size > MAX_MESSAGE:
         raw = mailbox.fetch(uid, "BODY.PEEK[HEADER]")  # the headers are enough to answer
         too_large = True
@@ -695,7 +798,7 @@ def _one(database: Database, ws: Workspace, conf: Conf, mailbox: Mailbox, uid: s
     try:
         # Headers only: the parts are read once the sender is known to have an account.
         parsed = parse(raw, with_content=False)
-        return handle(database, ws, conf, parsed, raw, too_large=too_large)
+        return handle(database, ws, conf, parsed, raw, too_large=too_large, received=received)
     except Exception:  # noqa: BLE001 — one broken email must not stop the others
         log.exception("Capture by email: email %s not handled", uid)
         with database.session() as session:
@@ -805,15 +908,20 @@ def handle(
     raw: bytes,
     *,
     too_large: bool = False,
+    received: datetime | None = None,
 ) -> str:
     """Decides on one email and drops it (see the module's rules). ACCEPTED if at least one
-    space got it, DEFERRED if one must be tried again later, REFUSED_STATUS otherwise."""
+    space got it, DEFERRED if one must be tried again later, REFUSED_STATUS otherwise.
+    `received`: when the mailbox's server took it (IMAP INTERNALDATE); otherwise the date of
+    its topmost `Received` header."""
     sender = parsed.sender
     first = parsed.from_addresses[0] if parsed.from_addresses else ""
     domain = (sender or first).rpartition("@")[2][:255]
     silent = None
     if parsed.automatic:
         silent = "automatic"
+    elif parsed.duplicated:  # a header added above the signed one: never told, never read
+        silent = "duplicate_headers"
     elif not sender:
         silent = "malformed"
     else:
@@ -842,7 +950,11 @@ def handle(
         actor = load_actor(session, user, limits=Limits(members_only=True))
         aimed = targets(parsed, conf.address)
         outcomes: list[_Outcome] = []
-        if not aimed:
+        if not _timely(parsed, received):
+            outcomes.append(_refusal(session, parsed, raw, domain, user, "", "stale_date"))
+        elif not addressed(parsed, conf.address):
+            outcomes.append(_refusal(session, parsed, raw, domain, user, "", "not_in_recipients"))
+        elif not aimed:
             outcomes.append(_refusal(session, parsed, raw, domain, user, "", "no_space"))
         elif too_large:
             outcomes.append(_refusal(session, parsed, raw, domain, user, "", "too_large"))
@@ -861,6 +973,12 @@ def handle(
     if DEFERRED in statuses:
         return DEFERRED
     return ACCEPTED if ACCEPTED in statuses else REFUSED_STATUS
+
+
+def _timely(parsed: Parsed, received: datetime | None) -> bool:
+    """The email's date (signed with it) is within MAX_CLOCK_GAP of its reception."""
+    reference = received or received_at(parsed.received) or datetime.now(UTC)
+    return parsed.date is not None and abs(reference - parsed.date) <= MAX_CLOCK_GAP
 
 
 def _refusal(
@@ -900,6 +1018,14 @@ def _told(reason: str) -> Label:
         ),
         "too_many_attachments": Label(
             "Too many attachments: {limit} at most.", limit=deposits.MAX_ATTACHMENTS
+        ),
+        "stale_date": Label(
+            "Its date is missing, or more than 48 hours away from when it arrived: an older "
+            "email is not dropped (it could be replayed by someone else). Forward it instead: "
+            "the forward gets today's date."
+        ),
+        "not_in_recipients": Label(
+            "The capture address must be in To or Cc, not in a blind copy (Bcc)."
         ),
         "too_complex": Label(
             "The email has too many parts, or parts nested too deep, to be read: send its "

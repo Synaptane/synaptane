@@ -314,15 +314,18 @@ time to extract it. You never see a result from a space you do not have access t
 
 ## Inbox and activity
 
-- **By email**: when the super admin has set up the [capture by email](../admin/email-capture.md),
-  the **Inbox** page of a space shows its address to those who may drop notes, for example
-  `brain+acme.infra@example.com`, with a **Copy** button (and so do the first steps of the
-  space). Send or forward an email to it **from the verified address of your account**: it
-  becomes a note in your name, its subject as the title, with its attachments (10 at most),
-  and the tidy-up files it. The receiving server must have authenticated your email (DKIM or
-  DMARC of your domain, see the admin guide): a forged sender is refused in silence. An email
-  can name several spaces (in To or Cc). Depending on the settings, you get an answer when the
-  email is refused (why) or each time (with the link to the note).
+- **By email**: when the super admin has set up the [capture by
+  email](../admin/email-capture.md), the **Inbox** page of a space shows its address to those
+  whose emails would be accepted there (a verified address, the right to drop notes; a super
+  admin only in their spaces), for example `brain+acme.infra@example.com`, with a **Copy**
+  button (and so do the first steps of the space). Send or forward an email to it **from the
+  verified address of your account**: it becomes a note in your name, its subject as the title,
+  with its attachments (10 at most), and the tidy-up files it. The receiving server must have
+  authenticated your email (DKIM or DMARC of your domain, see the admin guide): a forged sender
+  is refused in silence. An email can name several spaces, in To or Cc (never in Bcc), and must
+  be dated within 48 hours of its arrival (forward an older one: the forward is dated today).
+  Depending on the settings, you get an answer when the email is refused (why) or each time
+  (with the link to the note).
 - **Inbox** (left bar): filter by text or by type (notes, changes, items left by the tidy-up).
   On a note, a contributor can **edit** it (if the tidy-up had left it, it goes back to "to
   process"), **move** it to the inbox of another space where they contribute, or **delete** it

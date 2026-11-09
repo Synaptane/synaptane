@@ -128,7 +128,7 @@ def _wiki(
         raw_url=lambda p: raw_url(space, p),
         first_steps=steps,
         # Capture by email, among the ways of adding content (the steps are for contributors).
-        capture_address=email_capture.address_for(page.db, space) if steps else None,
+        capture_address=email_capture.address_shown(page.db, actor.user, space) if steps else None,
         **extra,
     )
 

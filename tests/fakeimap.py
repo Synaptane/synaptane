@@ -8,12 +8,30 @@ it received and can be told to fail (`refuse_login`, `drop_after`).
 
 import imaplib
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
 
 import pytest
+
+# When the fake server received an email, by default: a minute after the default `Date`.
+RECEIVED = datetime(2026, 11, 9, 9, 33, tzinfo=UTC)
+
+
+class Socket:
+    """What the code may do with an IMAP connection's socket: bound and cut it."""
+
+    def __init__(self) -> None:
+        self.timeouts: list[float] = []
+        self.shut = False
+
+    def settimeout(self, value: float) -> None:
+        self.timeouts.append(value)
+
+    def shutdown(self, how: int) -> None:
+        self.shut = True
 
 
 @dataclass
@@ -29,11 +47,17 @@ class Server:
     refuse_login: bool = False
     refuse_create: set[str] = field(default_factory=set)
     drop_after: int | None = None  # commands before the connection is lost
+    delay: float = 0.0  # seconds each command takes (a slow server)
+    internaldates: dict[int, datetime | None] = field(default_factory=dict)
 
-    def deliver(self, raw: bytes, folder: str = "INBOX") -> int:
+    def deliver(
+        self, raw: bytes, folder: str = "INBOX", received: datetime | None = RECEIVED
+    ) -> int:
+        """`received`: the INTERNALDATE of the email (None: the server gives none)."""
         uid = self.next_uid
         self.next_uid += 1
         self.folders.setdefault(folder, {})[uid] = raw
+        self.internaldates[uid] = received
         return uid
 
     def inbox(self) -> list[bytes]:
@@ -66,11 +90,16 @@ class FakeIMAP:
         self.selected: str | None = None
         self.readonly = False
         self.logged_in = False
+        self.sock = Socket()
         self.server.connections.append(self)
 
     def _log(self, command: str) -> None:
         server = self.server
         server.commands.append(command)
+        if server.delay:
+            time.sleep(server.delay)
+        if self.sock.shut:
+            raise OSError("socket shut down")
         if server.drop_after is not None and len(server.commands) > server.drop_after:
             raise imaplib.IMAP4.abort("connection lost")
 
@@ -135,7 +164,9 @@ class FakeIMAP:
         if command == "FETCH":
             part = args[1]
             if "RFC822.SIZE" in part:
-                return "OK", [f"1 (UID {uid} RFC822.SIZE {len(raw)})".encode()]
+                when = self.server.internaldates.get(uid)
+                date = f' INTERNALDATE "{when:%d-%b-%Y %H:%M:%S %z}"' if when else ""
+                return "OK", [f"1 (UID {uid} RFC822.SIZE {len(raw)}{date})".encode()]
             head, _, _ = (
                 raw.partition(b"\r\n\r\n") if b"\r\n\r\n" in raw else raw.partition(b"\n\n")
             )
@@ -206,6 +237,8 @@ def message(
     headers: dict[str, str] | None = None,
     attachments: list[tuple[str, str, bytes]] = (),  # type: ignore[assignment]
     message_id: str | None = None,
+    date: datetime = datetime(2026, 11, 9, 9, 32, tzinfo=UTC),
+    cc: str | None = None,
 ) -> bytes:
     """An email as the capture mailbox receives it: the receiving server's
     Authentication-Results header on top (`auth`: one or several, topmost first)."""
@@ -217,7 +250,9 @@ def message(
     mail["From"] = sender
     mail["To"] = to
     mail["Subject"] = subject
-    mail["Date"] = format_datetime(datetime(2026, 11, 9, 9, 32, tzinfo=UTC))
+    if cc:
+        mail["Cc"] = cc
+    mail["Date"] = format_datetime(date)
     mail["Message-ID"] = message_id or make_msgid(domain="acme.test")
     mail.set_content(body)
     if html is not None:

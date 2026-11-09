@@ -116,6 +116,34 @@ sender's DKIM signature, SPF and DMARC policy, and writes the results in an
 - never answers an email that is not authenticated, and never one whose sender has no
   account: no "backscatter" to a forged address.
 
+**The topmost header must be the receiving server's.** This model assumes that the receiving
+server adds its `Authentication-Results` header to **every** email it delivers to the mailbox,
+internal mail of the same domain included (between two people of the same Google Workspace,
+say, some servers skip the checks). Check it: have a colleague of your domain write to the
+capture address, then **Test the connection**: the server you trust must be named for that
+email too. If it is not, internal emails carry no header of the receiving server: they are
+refused as not authenticated (nothing is let through), and a header the sender wrote would be
+the topmost one, which is why a header is only read when its identifier is trusted. With your
+own MTA, make it add the header for internal mail too.
+
+**Replayed emails.** A DKIM signature stays valid when the signed email is sent again by
+someone else, possibly with headers of their own added above the signed ones (Python, like
+most readers, reads the first of two headers, DKIM the last). So, besides authentication:
+
+- an email where a header RFC 5322 allows once appears twice (`From`, `Sender`, `Reply-To`,
+  `To`, `Cc`, `Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`) is refused in
+  silence ("A header that may appear once appears twice");
+- an email whose `Date` (signed) is missing or more than **48 hours** away from its reception
+  (the IMAP `INTERNALDATE`, otherwise the date of the topmost `Received` header) is refused: an
+  older email is to be forwarded, which gives it today's date;
+- the capture address must be in **To or Cc**, which the sender wrote and DKIM signs: a blind
+  copy (Bcc), or an address only in the envelope (`Delivered-To`, `X-Original-To`), aims at
+  nothing. The envelope only chooses, when To and Cc name several spaces, the space of this
+  copy. **Microsoft 365 does not sign To and Cc**: for senders on Microsoft 365, someone who
+  has one of their emails could replay it, within 48 hours, to another capture address where
+  the sender may drop notes; the note would still be in the sender's name, with their
+  content, and the same email is never dropped twice in the same space.
+
 **Internal domains accepted on SPF alone (less safe).** For a domain that signs nothing
 (neither DKIM nor DMARC), you may list it: an `spf=pass` whose envelope domain is aligned with
 the `From` is then enough. SPF only proves which server sent the email: anyone allowed to send
@@ -141,8 +169,11 @@ and its rights, is checked for every email, without any secret to keep.
 - Every **interval** (2 minutes by default) the worker queues a poll, in its own lane: a slow
   mail server does not delay the syncs. A single poll runs at a time on the instance, even
   with several workers (PostgreSQL advisory lock).
-- A poll handles at most 25 emails, oldest first, for at most 4 minutes; the rest waits for
-  the next one. Every network operation is bounded (30 seconds). The parts of an email are
+- A poll handles at most 25 emails, oldest first, and takes no new one after 4 minutes; the
+  rest waits for the next one. Every network operation is bounded (30 seconds, or what is left
+  of the poll), and the connection is cut after **5 minutes** whatever the server does (a
+  server answering just before each timeout cannot hold the worker): the email being handled
+  at that moment stays in the folder, and is not dropped twice. The parts of an email are
   only read once its sender is authenticated and has an account; an email of more than 50
   nested parts or 2,000 parts is refused as too complex (Python's parser would take minutes).
 - Each email handled is **moved**: to `Synaptane/Processed` once dropped, to
@@ -158,9 +189,9 @@ and its rights, is checked for every email, without any secret to keep.
   folder after a poll was cut off) is dropped once. To retry a refused email (once the
   person got the right to drop notes, say), move it back from `Synaptane/Refused` to the
   folder read.
-- **Routing**: the space is read from the recipient of this very copy (`Delivered-To`,
-  `X-Original-To`…), otherwise from `To` and `Cc`: an email to two space addresses goes to
-  both (5 at most). Case does not matter (`Brain+Acme.Infra@…`); slugs hold neither dots
+- **Routing**: the spaces are read from `To` and `Cc` (an email to two space addresses goes
+  to both, 5 at most); the recipient of this very copy (`Delivered-To`, `X-Original-To`…)
+  only chooses among them. Case does not matter (`Brain+Acme.Infra@…`); slugs hold neither dots
   nor capitals, so `organization.space` cannot be read two ways. The bare address
   (`brain@…`) names no space: refused, since an account has no default space.
 

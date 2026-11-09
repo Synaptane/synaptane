@@ -7,6 +7,7 @@ neither; root is super admin, member of nothing. Each has a verified address at 
 
 import re
 import threading
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from email.header import decode_header, make_header
@@ -197,14 +198,112 @@ def test_html_email_and_several_spaces(
     assert reasons(db) == ["", ""]
 
 
-def test_envelope_header_names_the_space_of_a_bcc_copy(
-    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server
+def test_a_blind_copy_is_refused_and_the_envelope_picks_the_copy(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server, smtp: Inbox
 ) -> None:
+    """The capture address must be in To or Cc: a signed email replayed in blind copy to the
+    capture is not dropped. When To and Cc name two spaces, each copy goes to its own."""
     server.deliver(
         message(to="equipe@acme.test", headers={"Delivered-To": "brain+acme.infra@capture.test"})
     )
-    assert poll(database, ctx).accepted == 1
-    assert len(notes(wiki, ctx)) == 1
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["not_in_recipients"] and notes(wiki, ctx) == []
+    [answer] = smtp.messages  # Alice may have used Bcc by mistake: told how to write
+    assert "copie cachée" in body_of(answer)
+    spaces.set_member(db, wiki.root, wiki.other, wiki.alice.user, SpaceRole.CONTRIBUTOR)
+    db.commit()
+    raw = message(
+        message_id="<deux@acme.test>",
+        to="brain+acme.infra@capture.test",
+        cc="brain+acme.autre@capture.test",
+    )
+    for copy in ("acme.infra", "acme.autre"):
+        server.deliver(f"Delivered-To: brain+{copy}@capture.test\r\n".encode() + raw)
+    assert poll(database, ctx).accepted == 2
+    assert len(notes(wiki, ctx)) == 1 and len(notes(wiki, ctx, wiki.other)) == 1
+
+
+@pytest.mark.parametrize(
+    "name", ["Subject", "To", "Cc", "Date", "Message-ID", "Reply-To", "References"]
+)
+def test_a_replayed_email_with_a_header_added_on_top_is_refused_in_silence(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    smtp: Inbox,
+    name: str,
+) -> None:
+    """Someone resends Alice's authentic, signed email, with a header of theirs added above
+    the original (Python reads the first, DKIM the last)."""
+    original = {"Reply-To": "alice@acme.test", "References": "<fil@acme.test>"}
+    raw = message(cc="bob@acme.test", headers=original)
+    added = {
+        "To": "brain+acme.autre@capture.test",
+        "Cc": "brain+acme.autre@capture.test",
+        "Date": "Mon, 9 Nov 2026 09:33:00 +0000",
+    }.get(name, "<x@evil.test>" if name in ("Message-ID", "References") else "Remplacé")
+    after_auth = raw.index(b"\nFrom:") + 1  # below the receiving server's header
+    forged = raw[:after_auth] + f"{name}: {added}\r\n".encode() + raw[after_auth:]
+    server.deliver(forged)
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["duplicate_headers"] and notes(wiki, ctx) == []
+    assert smtp.messages == []
+
+
+def test_an_old_email_is_refused(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server, smtp: Inbox
+) -> None:
+    """An authentic email replayed days later keeps its signed date: refused. The reception is
+    the IMAP INTERNALDATE, otherwise the topmost Received header."""
+    old = datetime(2026, 11, 6, 9, 32, tzinfo=UTC)
+    server.deliver(message(date=old, subject="Ancien"))
+    later = datetime(2026, 11, 7, 9, 0, tzinfo=UTC)  # 47 h 28 after its date: accepted
+    server.deliver(message(date=old, subject="Encore bon"), received=later)
+    received = (
+        "Received: from mail.acme.test by mx.capture.test; Fri, 6 Nov 2026 10:00:00 +0000\r\n"
+    )
+    server.deliver(
+        received.encode() + message(date=old, subject="Sans INTERNALDATE"), received=None
+    )
+    no_date = message().replace(b"Date: ", b"X-Old-Date: ", 1)
+    server.deliver(no_date)
+    poll(database, ctx)
+    assert reasons(db) == ["stale_date", "", "", "stale_date"]
+    assert sorted(n.title for n in notes(wiki, ctx)) == ["Encore bon", "Sans INTERNALDATE"]
+    told = [body_of(m) for m in smtp.messages]
+    assert len(told) == 2 and all("48 heures" in t for t in told)
+
+
+def test_the_poll_never_lasts_beyond_its_deadline(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every operation answers just in time: the poll still stops at POLL_DEADLINE, its socket
+    bounded by what is left and cut by the watchdog."""
+    monkeypatch.setattr(email_capture, "POLL_DEADLINE", 1.0)
+    monkeypatch.setattr(email_capture, "POLL_BUDGET", 60.0)
+    server.delay = 0.12
+    for index in range(10):
+        server.deliver(message(subject=f"Note {index}"))
+    started = time.monotonic()
+    summary = email_capture.poll(database, ctx)
+    assert time.monotonic() - started < 5.0  # 1 s, give or take a loaded machine
+    assert "deadline" in summary.error or "shut down" in summary.error
+    [connection] = server.connections
+    assert connection.sock.timeouts and max(connection.sock.timeouts) <= 1.0
+    assert connection.sock.timeouts[-1] < connection.sock.timeouts[0]  # shrinks over time
+    assert len(server.inbox()) > 0  # the rest waits for the next poll
+    server.delay = 0
+    monkeypatch.setattr(email_capture, "POLL_DEADLINE", 300.0)
+    waiting = len(server.inbox())
+    assert poll(database, ctx).accepted == waiting
+    assert len(notes(wiki, ctx)) == 10
 
 
 def test_the_same_email_is_dropped_once(
@@ -338,7 +437,8 @@ def test_forged_authentication_results_are_refused(
 @pytest.mark.parametrize(
     ("raw", "reason"),
     [
-        (message().replace(b"From: ", b"From: eve@evil.test\nFrom: ", 1), "malformed"),
+        # Two From headers: refused before even reading them (a header added above).
+        (message().replace(b"From: ", b"From: eve@evil.test\nFrom: ", 1), "duplicate_headers"),
         (message(sender="g: alice@acme.test, eve@evil.test;"), "malformed"),
         (message(sender="\u0430lice@acme.test"), "unknown_sender"),  # Cyrillic "а"
         (message(sender="alice+capture@acme.test"), "unknown_sender"),
@@ -360,16 +460,15 @@ def test_the_sender_is_exactly_the_verified_address(
     assert reasons(db) == [reason] and smtp.messages == []
 
 
-def test_an_envelope_header_written_by_the_sender_only_aims_at_spaces_they_may_drop_in(
+def test_an_envelope_header_written_by_the_sender_aims_at_nothing(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server
 ) -> None:
-    """Anyone can write `Delivered-To` in their own email: it names the space like the real
-    one, so the right to drop notes is checked for the space it names, as for any other."""
+    """Anyone can write `Delivered-To` in their own email: it only picks among the spaces of
+    To and Cc, never adds one."""
     forged = {"Delivered-To": "brain+acme.autre@capture.test"}
     server.deliver(message(headers=forged))
-    assert poll(database, ctx).refused == 1
-    assert reasons(db) == ["no_access"] and notes(wiki, ctx) == []
-    assert notes(wiki, ctx, wiki.other) == []
+    assert poll(database, ctx).accepted == 1
+    assert len(notes(wiki, ctx)) == 1 and notes(wiki, ctx, wiki.other) == []
 
 
 def test_a_space_unavailable_for_a_day_refuses_the_email(
@@ -997,3 +1096,34 @@ def test_folders_created_even_if_the_parent_is_refused(
     server.deliver(message(auth=None))
     summary = email_capture.poll(database, ctx)
     assert "CANNOT" in summary.error and len(server.inbox()) == 1
+
+
+def test_the_address_is_shown_only_where_emails_would_be_accepted(
+    db: Session, ctx: Workspace, wiki: Wiki, server: Server
+) -> None:
+    """Same rule as the capture: verified address of an active account that may drop notes
+    there; a super admin only in the spaces they belong to."""
+    address = "brain+acme.infra@capture.test"
+    shown = email_capture.address_shown
+    assert shown(db, wiki.alice.user, wiki.infra) == address
+    assert shown(db, wiki.bob.user, wiki.infra) is None  # reader
+    assert shown(db, wiki.alice.user, wiki.other) is None  # not a member
+    assert shown(db, wiki.root.user, wiki.infra) is None  # super admin, member of nothing
+    spaces.set_member(db, wiki.root, wiki.infra, wiki.root.user, SpaceRole.CONTRIBUTOR)
+    db.commit()
+    assert shown(db, wiki.root.user, wiki.infra) == address
+    wiki.alice.user.email_verified_at = None  # their emails would be refused
+    db.commit()
+    assert shown(db, wiki.alice.user, wiki.infra) is None
+    verify(db, wiki.alice.user, "alice@acme.test")
+    wiki.alice.user.is_active = False
+    db.commit()
+    assert shown(db, wiki.alice.user, wiki.infra) is None
+
+
+def test_super_admin_pages_follow_the_same_rule(
+    client: TestClient, db: Session, ctx: Workspace, wiki: Wiki, server: Server
+) -> None:
+    db.commit()
+    login(client, "root")
+    assert "brain+acme.infra@capture.test" not in client.get("/o/acme/infra/inbox").text

@@ -2211,5 +2211,10 @@
  "The username and password may only hold characters without accents: use an app password.": "L'identifiant et le mot de passe ne peuvent contenir que des caractères sans accents : utilisez un mot de passe d'application.",
  "Unexpected error while reading the mailbox: {kind}": "Erreur inattendue en relevant la boîte : {kind}",
  "The space could not take it for 24 hours (busy or unavailable): send it again later, or tell an administrator.": "L'espace n'a pas pu le recevoir pendant 24 heures (occupé ou indisponible) : renvoyez-le plus tard, ou prévenez un administrateur.",
- "The email has too many parts, or parts nested too deep, to be read: send its text and attachments in a new email.": "L'e-mail a trop de parties, ou des parties imbriquées trop profondément, pour être lu : envoyez son texte et ses pièces jointes dans un nouvel e-mail."
+ "The email has too many parts, or parts nested too deep, to be read: send its text and attachments in a new email.": "L'e-mail a trop de parties, ou des parties imbriquées trop profondément, pour être lu : envoyez son texte et ses pièces jointes dans un nouvel e-mail.",
+ "A header that may appear once appears twice (replayed email?)": "Un en-tête permis une seule fois apparaît deux fois (e-mail rejoué ?)",
+ "Capture address neither in To nor in Cc": "Adresse de capture ni en À ni en Cc",
+ "Date missing, or more than 48 hours away from the reception": "Date absente, ou à plus de 48 heures de la réception",
+ "Its date is missing, or more than 48 hours away from when it arrived: an older email is not dropped (it could be replayed by someone else). Forward it instead: the forward gets today's date.": "Sa date est absente, ou à plus de 48 heures de son arrivée : un e-mail plus ancien n'est pas déposé (quelqu'un d'autre pourrait le rejouer). Transférez-le plutôt : le transfert prend la date du jour.",
+ "The capture address must be in To or Cc, not in a blind copy (Bcc).": "L'adresse de capture doit être en À ou en Cc, pas en copie cachée (Cci)."
 }

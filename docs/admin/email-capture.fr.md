@@ -123,6 +123,38 @@ en-tête `Authentication-Results` (RFC 8601) **en haut** de l'e-mail. La capture
 - ne répond jamais à un e-mail non authentifié, ni à un expéditeur sans compte : pas de
   « backscatter » vers une adresse usurpée.
 
+**L'en-tête le plus haut doit être celui du serveur de réception.** Ce modèle suppose que le
+serveur de réception ajoute son en-tête `Authentication-Results` à **chaque** e-mail qu'il
+remet à la boîte, courrier interne d'un même domaine compris (entre deux personnes d'un même
+Google Workspace, par exemple, certains serveurs sautent les vérifications). Vérifiez-le :
+demandez à un collègue de votre domaine d'écrire à l'adresse de capture, puis **Tester la
+connexion** : le serveur de confiance doit être nommé pour cet e-mail aussi. Sinon, les
+e-mails internes ne portent aucun en-tête du serveur de réception : ils sont refusés comme non
+authentifiés (rien ne passe), et un en-tête écrit par l'expéditeur serait le plus haut, d'où
+l'exigence d'un identifiant de confiance. Avec votre propre MTA, faites-lui ajouter l'en-tête
+au courrier interne aussi.
+
+**E-mails rejoués.** Une signature DKIM reste valide quand l'e-mail signé est renvoyé par
+quelqu'un d'autre, éventuellement avec des en-têtes à lui ajoutés au-dessus des en-têtes
+signés (Python, comme la plupart des lecteurs, lit le premier de deux en-têtes, DKIM le
+dernier). Donc, en plus de l'authentification :
+
+- un e-mail où un en-tête que la RFC 5322 permet une seule fois apparaît deux fois (`From`,
+  `Sender`, `Reply-To`, `To`, `Cc`, `Subject`, `Date`, `Message-ID`, `In-Reply-To`,
+  `References`) est refusé en silence (« Un en-tête permis une seule fois apparaît deux
+  fois ») ;
+- un e-mail dont la `Date` (signée) est absente ou à plus de **48 heures** de sa réception
+  (l'`INTERNALDATE` IMAP, sinon la date de l'en-tête `Received` le plus haut) est refusé : un
+  e-mail plus ancien se transfère, ce qui lui donne la date du jour ;
+- l'adresse de capture doit être en **À ou en Cc**, que l'expéditeur a écrits et que DKIM
+  signe : une copie cachée (Cci), ou une adresse présente seulement dans l'enveloppe
+  (`Delivered-To`, `X-Original-To`), ne vise rien. L'enveloppe ne sert qu'à choisir, quand À
+  et Cc nomment plusieurs espaces, l'espace de cette copie. **Microsoft 365 ne signe pas À et
+  Cc** : pour des expéditeurs sur Microsoft 365, quelqu'un qui détient un de leurs e-mails
+  pourrait le rejouer, dans les 48 heures, vers une autre adresse de capture où l'expéditeur
+  peut déposer ; la note resterait au nom de l'expéditeur, avec son contenu, et le même e-mail
+  n'est jamais déposé deux fois dans le même espace.
+
 **Domaines internes acceptés sur SPF seul (moins sûr).** Pour un domaine qui ne signe rien (ni
 DKIM ni DMARC), vous pouvez l'indiquer : un `spf=pass` dont le domaine d'enveloppe est aligné
 sur le `From` suffit alors. SPF ne prouve que le serveur qui a envoyé l'e-mail : quiconque peut
@@ -150,8 +182,12 @@ vérifiée pour chaque e-mail, sans aucun secret à garder.
 - Toutes les **N minutes** (2 par défaut), le worker met une relève en file, dans sa propre
   voie : un serveur de messagerie lent ne retarde pas les synchronisations. Une seule relève à
   la fois sur l'instance, même avec plusieurs workers (verrou consultatif PostgreSQL).
-- Une relève traite au plus 25 e-mails, du plus ancien au plus récent, pendant 4 minutes au
-  plus ; le reste attend la suivante. Chaque opération réseau est bornée (30 secondes). Les
+- Une relève traite au plus 25 e-mails, du plus ancien au plus récent, et n'en prend plus de
+  nouveau après 4 minutes ; le reste attend la suivante. Chaque opération réseau est bornée
+  (30 secondes, ou ce qui reste de la relève), et la connexion est coupée au bout de
+  **5 minutes** quoi que fasse le serveur (un serveur qui répond juste avant chaque délai ne
+  peut pas retenir le worker) : l'e-mail en cours reste dans le dossier, et n'est pas déposé
+  deux fois. Les
   parties d'un e-mail ne sont lues qu'une fois son expéditeur authentifié et doté d'un compte ;
   un e-mail de plus de 50 parties imbriquées ou de 2 000 parties est refusé comme trop complexe
   (l'analyseur de Python y passerait des minutes).
@@ -168,9 +204,9 @@ vérifiée pour chaque e-mail, sans aucun secret à garder.
   dossier après une relève interrompue) n'est déposé qu'une fois. Pour réessayer un e-mail
   refusé (une fois que la personne a reçu le droit de déposer, par exemple), remettez-le de
   `Synaptane/Refused` dans le dossier relevé.
-- **Routage** : l'espace est lu sur le destinataire de cette copie-là (`Delivered-To`,
-  `X-Original-To`…), sinon sur `To` et `Cc` : un e-mail adressé à deux espaces va dans les deux
-  (5 au plus). La casse ne compte pas (`Brain+Acme.Infra@…`) ; les identifiants ne contiennent
+- **Routage** : les espaces sont lus sur `To` et `Cc` (un e-mail adressé à deux espaces va
+  dans les deux, 5 au plus) ; le destinataire de cette copie-là (`Delivered-To`,
+  `X-Original-To`…) sert seulement à choisir parmi eux. La casse ne compte pas (`Brain+Acme.Infra@…`) ; les identifiants ne contiennent
   ni point ni majuscule, donc `organisation.espace` ne peut pas se lire de deux façons.
   L'adresse nue (`brain@…`) ne nomme aucun espace : refusée, puisqu'un compte n'a pas d'espace
   par défaut.
