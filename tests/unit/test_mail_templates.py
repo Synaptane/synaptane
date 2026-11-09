@@ -35,7 +35,12 @@ CALLERS: dict[str, dict[str, object]] = {
         "link": "https://brain.example.com/invite/jeton",
     },
     # web/invite_pages.py, _notify_added: existing account added to the organization
-    "added": {"inviter": "Alice", "org": "Acme", "link": "https://brain.example.com"},
+    "added": {
+        "inviter": "Alice",
+        "org": "Acme",
+        "access": "- Groupe rejoint : « RH »\n\n",
+        "link": "https://brain.example.com",
+    },
     # web/invite_pages.py, forgotten password
     "reset": {"link": "https://brain.example.com/reset/jeton"},
     # services/budget.py, check_alerts

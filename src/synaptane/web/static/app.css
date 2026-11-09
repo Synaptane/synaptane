@@ -150,6 +150,9 @@ fieldset.choice-list{display:flex;flex-direction:column}
 .choice-list>div .checkbox{margin:0}
 .choice-list .checkbox:hover,.choice-list>div:hover{background:var(--hover)}
 .choice-list>p{padding:10px 12px;color:var(--ink-3);border:1px dashed var(--border);border-radius:var(--radius)}
+/* Choix sur deux lignes : un nom, puis ce qu'il donne (groupes d'une invitation). */
+.checkbox-detail{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.checkbox-detail>.muted{line-height:1.4}
 .segmented{display:inline-flex;gap:2px;padding:3px;border:0;border-radius:var(--radius);background:var(--hover)}
 .segmented button{width:28px;height:26px;border:0;border-radius:calc(var(--radius) - 2px);background:none;color:var(--ink-3);display:grid;place-items:center;padding:0}
 .segmented button:hover{color:var(--ink)}

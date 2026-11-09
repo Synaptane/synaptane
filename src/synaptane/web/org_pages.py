@@ -102,6 +102,7 @@ def organization_members_page(page: WebPage, org_slug: str) -> Response:
     manage = can(actor.access, Action.MANAGE_ORG, org_id=org.id)
     members = organizations.list_members(page.db, actor, org) if manage else []
     joined = groups.memberships(page.db, actor, org) if manage else {}
+    pending = invitations.pending(page.db, actor, org) if manage else []
     notes: dict[str, Label] = {}
     removal: dict[str, Label] = {}
     for user, _ in members:
@@ -122,7 +123,9 @@ def organization_members_page(page: WebPage, org_slug: str) -> Response:
         member_notes=notes,
         remove_notes=removal,
         people=accounts.directory(page.db, actor) if manage else [],
-        invitations=invitations.pending(page.db, actor, org) if manage else [],
+        invitations=pending,
+        invitation_groups=invitations.invited_groups(page.db, (i.id for i in pending)),
+        org_groups=groups.details(page.db, actor, org) if manage else [],
         org_spaces=spaces.list_spaces(page.db, actor, org),
         mail_ready=mail.configured(page.db),
     )

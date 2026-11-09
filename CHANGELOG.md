@@ -10,6 +10,27 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Invite someone straight into groups**. The invitation form of the organization's
+  **Members** tab lists its groups, each with what it gives ("Contributor on HR"): the
+  administrator checks those the person joins. On acceptance, the person becomes a member of
+  the organization, then of these groups, in the same transaction as the rest of their access;
+  an existing account joins them at once, and its notice email now lists the roles given in
+  spaces and the groups joined. The invitation page says the real access before the
+  account is created, groups included ("HR: contributor, through the group “Management”", "You
+  also join the group “Management”"; names are quoted, a name may hold a comma), and **Pending invitations** shows each invitation's groups.
+  A group deleted before the acceptance is simply not joined, a renamed group is joined under its
+  new name, canceling or renewing the invitation drops its groups, and a group of another
+  organization, or one deleted while the invitation is being sent, is refused, by the service
+  and by the database. REST: `"groups": [<id>, …]` (200 at most) in
+  `POST /organizations/{org}/invitations` (404 for an unknown group or one of another
+  organization), and `groups` (`id`, `name`) in the invitations listed and created. The audit
+  log keeps the groups, as a list of their names at the time, in the **Invitation sent** and
+  **Existing account added by invitation** events (for the latter, only the groups actually
+  joined), and the acceptance writes one `group.member_added` per group,
+  by the system, like the other accesses it grants. One migration (`0032`), applied at startup:
+  it creates the table linking invitations to groups, empty, so no pending invitation changes.
+
 ### Changed
 - Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
   2.5.0, an overloaded (529) or unavailable (503) Claude API raises a subclass of its server

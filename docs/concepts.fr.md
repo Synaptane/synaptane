@@ -84,6 +84,9 @@ la recherche.
 - Ajouter quelqu'un à un espace (ou l'inviter) en fait un membre de son organisation : avec un
   rôle par défaut, il le reçoit alors aussi sur chaque espace non restreint de l'organisation.
   Le retirer d'un espace non restreint lui laisse le rôle par défaut.
+- Une invitation peut aussi nommer des groupes de son organisation : en acceptant, la personne
+  devient membre de l'organisation, puis de ces groupes. Un groupe supprimé entre-temps n'est
+  pas rejoint ; un groupe d'une autre organisation ne peut jamais être nommé.
 - Un jeton personnel ou une connexion OAuth n'a jamais plus de droits que son propriétaire.
   Il peut être limité à la lecture et à certains espaces ; un jeton limité n'administre rien.
 - Par le MCP, un super-admin n'atteint que les espaces dont il est réellement membre (ou dont

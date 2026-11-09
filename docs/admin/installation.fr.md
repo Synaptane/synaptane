@@ -362,9 +362,10 @@ test » vérifie le réglage, vers l'adresse de votre compte.
 
 Avec l'envoi d'e-mails :
 - un admin d'organisation **invite** depuis l'onglet **Membres**. Il choisit l'adresse, le
-  rôle dans l'organisation et, au choix, un rôle par espace. La personne reçoit un lien
-  valable 14 jours et crée son compte. Si l'adresse est celle, **vérifiée**, d'un compte
-  existant, les accès sont donnés aussitôt ;
+  rôle dans l'organisation et, au choix, un rôle par espace et des **groupes** à rejoindre
+  (voir [Rôles](#rôles) plus bas). La personne reçoit un lien valable 14 jours et crée son
+  compte. Si l'adresse est celle, **vérifiée**, d'un compte existant, les accès sont donnés
+  aussitôt ;
 - **« Mot de passe oublié ? »** sur la page de connexion envoie un lien valable 30 minutes.
 
 Sans envoi d'e-mails, les invitations marchent aussi : le lien est montré une fois à la
@@ -582,8 +583,9 @@ défaut compris.
 **Groupes : une équipe, plusieurs espaces.** Pour donner d'un coup à certains membres l'accès
 à plusieurs espaces, au-delà du rôle par défaut, créez un **groupe** dans l'onglet **Groupes**
 de l'organisation (ressources humaines, direction, équipe projet) : ajoutez ses membres
-(membres de l'organisation seulement : invitez d'abord les autres), puis donnez-lui un rôle,
-lecteur ou contributeur, sur chaque espace qu'il ouvre. Chaque membre du groupe a alors le plus
+(membres de l'organisation seulement : invitez les autres en cochant le groupe dans le
+formulaire d'invitation), puis donnez-lui un rôle, lecteur ou contributeur, sur chaque espace
+qu'il ouvre. Chaque membre du groupe a alors le plus
 élevé de ce rôle, de celui qui lui est donné dans l'espace et du rôle par défaut. **Un groupe
 ouvre aussi un espace restreint** : restreignez l'espace des ressources humaines, puis donnez
 l'accès au seul groupe « RH », et personne d'autre dans l'organisation ne le voit. Vous pouvez
@@ -597,6 +599,25 @@ l'organisation le retire de ses groupes (la confirmation dit lesquels). Supprime
 retire l'accès qu'il donnait, sauf si ses membres l'ont autrement ; supprimer un espace retire
 les rôles des groupes sur lui. Les groupes se gèrent aussi par l'API REST
 (`/organizations/{org}/groups`), et chaque changement est inscrit au journal d'audit.
+
+**Inviter quelqu'un directement dans des groupes.** Le formulaire d'invitation de l'onglet
+**Membres** liste les groupes de l'organisation, chacun avec ce qu'il donne (« Contributeur sur
+RH ») : cochez ceux que la personne rejoint. Quand elle accepte, elle devient membre de
+l'organisation, puis des groupes cochés, d'un seul coup ; un compte existant les rejoint
+aussitôt, et l'e-mail qui le prévient liste les rôles donnés dans les espaces et les groupes
+rejoints. Avant de créer son compte, la personne voit son accès réel sur la page
+d'invitation, groupes compris (par exemple RH : contributeur, par le groupe « Direction »), et la liste des
+**Invitations en attente** montre les groupes de chaque invitation. Un groupe supprimé avant
+l'acceptation n'est tout simplement pas rejoint, et un groupe renommé est rejoint sous son
+nouveau nom. Annuler une invitation abandonne ses groupes ; inviter de nouveau la même adresse
+les remplace par le nouveau choix. Seuls les groupes de l'organisation peuvent être choisis :
+la base de données refuse tout autre, de même qu'un groupe supprimé pendant l'envoi de
+l'invitation. Le journal d'audit garde les groupes, sous leurs noms d'alors, dans l'événement
+**Invitation envoyée** et dans l'événement **Compte existant ajouté par invitation** (là,
+seulement les groupes réellement rejoints, pas ceux dont le compte était déjà membre) ;
+l'acceptation inscrit un événement **Ajout à un groupe** par groupe, par le système, comme les
+autres accès qu'elle donne. Par l'API REST : `"groups": [<id>, …]` (200 au plus) dans
+`POST /organizations/{org}/invitations`.
 
 ## Premiers pas
 
