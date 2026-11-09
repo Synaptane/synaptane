@@ -11,7 +11,7 @@
     <div>
       <strong>{{ _(provider_labels.get(ai.provider, ai.provider)) }}{% if ai.model %} · {{ ai.model }}{% endif %}</strong>
       {% if not ai.has_key and ai.provider not in keyless %}<p><span class="status status-warn">{{ _("No key: the tidy-up cannot run") }}</span></p>
-      {% elif ai.test_pending %}<p data-test-pending="/o/{{ org.slug }}/-/ai/test-status"><span class="status">{{ _("Test in progress…") }}</span> <span class="muted">{{ _("in the worker, the only container with access to the CLI; this page updates itself.") }}</span> <a href="/o/{{ org.slug }}/-/ai">{{ _("Refresh") }}</a></p>
+      {% elif ai.test_pending %}<p data-test-pending="/o/{{ org.slug }}/-/ai/test-status"><span class="status">{{ _("Test in progress…") }}</span> <span class="muted">{% if agents_container %}{{ _("through the worker, in the agents container, the only one with access to the CLI; this page updates itself.") }}{% else %}{{ _("in the worker, the only container with access to the CLI; this page updates itself.") }}{% endif %}</span> <a href="/o/{{ org.slug }}/-/ai">{{ _("Refresh") }}</a></p>
       {% elif ai.test_ok is none %}<p><span class="status">{{ _("Not tested yet") }}</span></p>
       {% elif ai.test_ok %}<p><span class="status status-ok">{{ _("Reachable") }}</span> <span class="muted">{{ _("tested") }} {{ when(ai.tested_at) }}</span></p>
       {% else %}<p><span class="status status-error">{{ _("Unreachable") }}</span> <span class="muted">{{ when(ai.tested_at) }}</span></p><p class="muted">{{ _(ai.test_message) }}</p>{% endif %}
@@ -61,11 +61,11 @@
   {% set worker_ok = ai and ai.provider in ('claude_code', 'codex') and ai.test_ok and not ai.test_pending %}
   <div class="notice notice-warning section-gap-small" role="alert">
     {% if worker_ok %}
-    <p><strong>{{ _("Last step: delete the old login.") }}</strong> {{ _("The worker's login works") }} ({{ _("tested", context="connection") }} {{ when(ai.tested_at) }}). {{ _("An old copy remains in the data volume, visible to the web container:") }} {{ legacy_logins|join(", ") }}</p>
+    <p><strong>{{ _("Last step: delete the old login.") }}</strong> {% if agents_container %}{{ _("The agents container's login works") }}{% else %}{{ _("The worker's login works") }}{% endif %} ({{ _("tested", context="connection") }} {{ when(ai.tested_at) }}). {{ _("An old copy remains in the data volume, visible to the web container:") }} {{ legacy_logins|join(", ") }}</p>
     <p>{{ _("Synaptane does not delete it itself: only the official CLI handles these credentials. On the server, run:") }}</p>
     {% else %}
     <p><strong>{{ _("An old subscription login is still in the data volume, visible to the web container:") }}</strong> {{ legacy_logins|join(", ") }}</p>
-    <p>{{ _("Synaptane does not move it: only the official CLI handles these credentials. Log the CLI in again inside the worker (steps below), test the connection, then delete the old folder yourself:") }}</p>
+    <p>{% if agents_container %}{{ _("Synaptane does not move it: only the official CLI handles these credentials. Log the CLI in again in the agents container (steps below), test the connection, then delete the old folder yourself:") }}{% else %}{{ _("Synaptane does not move it: only the official CLI handles these credentials. Log the CLI in again inside the worker (steps below), test the connection, then delete the old folder yourself:") }}{% endif %}</p>
     {% endif %}
     <p>{{ copyable("legacy-cleanup", legacy_cleanup, block=true) }}</p>
     <p class="muted">{{ _("This message disappears as soon as the old folder is gone.") }}</p>
@@ -86,7 +86,8 @@
       {% endif %}
       <li>{{ _("Save this provider above, then click “Test the connection”.") }}</li>
     </ol>
-    {% if docker %}<p class="muted">{{ _("The login is kept in a volume of its own, mounted only in the worker, not in the web container: it survives updates and image rebuilds, but “docker compose down -v” erases it. The connection test therefore runs in the worker.") }}</p>{% endif %}
+    {% if docker and agents_container %}<p class="muted">{{ _("The login is kept in a volume of its own, mounted only in the agents container: it runs the CLI apart from the worker, without the data, the database or any secret of the instance. The login survives updates and image rebuilds, but “docker compose down -v” erases it.") }}</p>
+    {% elif docker %}<p class="muted">{{ _("The login is kept in a volume of its own, mounted only in the worker, not in the web container: it survives updates and image rebuilds, but “docker compose down -v” erases it. The connection test therefore runs in the worker.") }}</p>{% endif %}
   </section>
   {% endfor %}
   {% endif %}

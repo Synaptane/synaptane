@@ -21,7 +21,8 @@
 #   4. `git checkout --detach`, build with GIT_SHA (compose.build.yaml), image also named
 #      `synaptane:<sha>`, then `docker compose up -d --no-build`;
 #   5. checks, for at most DEPLOY_TIMEOUT seconds (180 by default): /readyz at 200,
-#      `synaptane --version` at the right commit, worker `healthy`, `synaptane doctor`;
+#      `synaptane --version` at the right commit, worker `healthy` (and the agents
+#      container, when the Compose files have it), `synaptane doctor`;
 #   6. on failure, automatic rollback: previous commit and image, and restore of the
 #      backup **only if** the database revision changed (a migration ran: the old code
 #      could not read the new database);
@@ -94,7 +95,7 @@ running_commit() {
 
 # One round of checks. Returns 1 with the reason in `why`.
 check_once() {
-  local expected=$1 address code cid health
+  local expected=$1 address code cid health services
   address="$(docker compose port app 8000 2>/dev/null || true)"
   if [ -z "$address" ]; then why="app container missing"; return 1; fi
   code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://$address/readyz" || true)"
@@ -107,6 +108,14 @@ check_once() {
   health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' \
     "$cid" 2>/dev/null || true)"
   if [ "$health" != healthy ]; then why="worker ${health:-stopped}"; return 1; fi
+  # Agents container (subscription CLIs, since 1.15), when the Compose files have it.
+  services="$(docker compose config --services 2>/dev/null || true)"
+  if grep -qx agents <<<"$services"; then
+    cid="$(docker compose ps -q agents 2>/dev/null || true)"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' \
+      "$cid" 2>/dev/null || true)"
+    if [ "$health" != healthy ]; then why="agents ${health:-stopped}"; return 1; fi
+  fi
   if ! docker compose exec -T app synaptane doctor > "$state/doctor.txt" 2>&1; then
     why="synaptane doctor failed (see $state/doctor.txt)"
     return 1
@@ -117,7 +126,7 @@ check_once() {
 verify() {
   local expected=$1 deadline
   if dry; then
-    echo "[dry run] checks: /readyz, version ${expected:-?}, worker, doctor"
+    echo "[dry run] checks: /readyz, version ${expected:-?}, worker, agents, doctor"
     return 0
   fi
   deadline=$((SECONDS + ${DEPLOY_TIMEOUT:-180}))
@@ -179,7 +188,10 @@ rollback() {
   else
     echo "Database unchanged (${now:-?}): no restore."
   fi
-  run docker compose up -d --no-build || return 1
+  # --remove-orphans: services the failed version added and the previous one does not know
+  # (the agents container when going back below 1.15) are stopped and removed; their volumes
+  # stay, and the profiles of .env (proxy) are known to Compose, so nothing else goes.
+  run docker compose up -d --no-build --remove-orphans || return 1
   verify "$prev_running"
 }
 

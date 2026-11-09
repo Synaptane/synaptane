@@ -33,7 +33,8 @@ Markdown pages, with the documents that go with them, in your own Git repository
 don't just read it, they feed it, and an AI agent keeps it organized every night.
 
 - **Compared with Notion AI, Confluence or Slite:** no lock-in. It is self-hosted, works with
-  the model of your choice, and your data is a Git repository.
+  the model of your choice, and your data is a Git repository. A Notion or Confluence export
+  comes in as Markdown pages, with their tree and links.
 - **Compared with Outline, Wiki.js, BookStack or Docmost:** it is built around AI assistants,
   and the wiki is maintained for you.
 - **Compared with Obsidian, Logseq or Basic Memory:** it is multi-user and server-side: one
@@ -143,8 +144,9 @@ tools and the configuration only change in a compatible way. Every change is lis
 - **Claude and ChatGPT subscriptions (Claude Code, Codex).** The published image does not
   include these CLIs: to use a subscription, build the image yourself (see
   [installation](docs/admin/installation.md)). The quota display relies on an undocumented
-  Claude Code event and may stop working after a CLI update. The CLI runs under the same
-  system account as the worker; running it under a separate account is planned.
+  Claude Code event and may stop working after a CLI update. The CLI runs in a container of
+  its own, without the data, the database or any secret of the instance; it can still read its
+  own login (see [the agents container](docs/admin/ai.md#the-agents-container)).
 
   > [!WARNING]
   > **Check the terms of your AI provider.** As of October 2026, Anthropic allows a

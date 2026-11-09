@@ -17,6 +17,7 @@ from synaptane.core.errors import BackupError, SynaptaneError
 from synaptane.core.security import SecretBox
 
 if TYPE_CHECKING:
+    from synaptane.ai.agents_client import State
     from synaptane.services.backup import BackupInfo
 
 Command = Callable[[argparse.Namespace], int]
@@ -604,12 +605,45 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _doctor_subscriptions(settings: Settings, check: Callable[..., None]) -> None:
-    """Subscription CLIs: installed, isolated (contract), signed in outside the shared volume."""
-    from synaptane.ai import cli_agents, cli_contract
+    """Subscription CLIs: where they run (agents container or worker), installed, isolated
+    (contract), signed in outside the shared volume."""
+    from synaptane.ai import agents_client, cli_agents
 
-    labels = {"claude": "Claude subscription (claude)", "codex": "ChatGPT subscription (codex)"}
-    for report in cli_contract.check_all():
-        label = labels.get(report.binary, report.label)
+    # In the worker, the agents container is asked directly; elsewhere (web container, which
+    # does not reach it), what the worker last reported.
+    if cli_agents.agents_url():
+        state: agents_client.State | None = agents_client.probe_state()
+    else:
+        state = agents_client.read_state(settings.data_dir)
+    if state is not None and state.container:
+        _doctor_agents_container(state, check)
+    else:
+        _doctor_local_clis(check)
+    legacy = cli_agents.legacy_logins(settings.data_dir)
+    check(
+        "Subscription sign-ins outside the data volume",
+        not legacy,
+        f"{', '.join(map(str, legacy))}: visible from the web container. Sign the CLI in again "
+        f"(`{cli_agents.login_command('claude_code', container=bool(state and state.container))}`"
+        f" or `{cli_agents.login_command('codex', container=bool(state and state.container))}`),"
+        f" then delete the old folder (`{cli_agents.legacy_cleanup(settings.data_dir)}`)",
+        optional=True,
+    )
+
+
+SUBSCRIPTION_LABELS = {
+    "claude": "Claude subscription (claude)",
+    "codex": "ChatGPT subscription (codex)",
+}
+
+
+def _doctor_local_clis(check: Callable[..., None]) -> None:
+    """The CLIs run in the worker: their contract is checked here, in the same image."""
+    from synaptane.ai import cli_contract
+
+    reports = cli_contract.check_all()
+    for report in reports:
+        label = SUBSCRIPTION_LABELS.get(report.binary, report.label)
         if not report.installed:
             check(label, False, "optional: CLI not installed", optional=True)
             continue
@@ -619,16 +653,81 @@ def _doctor_subscriptions(settings: Settings, check: Callable[..., None]) -> Non
             "; ".join(report.problems) + " — details: `synaptane check-clis`",
             optional=True,
         )
-    legacy = cli_agents.legacy_logins(settings.data_dir)
+    if any(report.installed for report in reports):
+        check(
+            "Subscription CLIs apart from the worker",
+            False,
+            "they run in the worker, which can read the data folder (master key, "
+            "repositories): run them in the agents container of compose.yaml "
+            "(SYNAPTANE_AGENTS_URL, docs/admin/ai.md)",
+            optional=True,
+        )
+
+
+def _doctor_agents_container(state: "State", check: Callable[..., None]) -> None:
+    from datetime import UTC, datetime
+
+    from synaptane.ai import agents_client
+
+    seen = state.checked_at.isoformat(timespec="minutes") if state.checked_at else "?"
     check(
-        "Subscription sign-ins outside the data volume",
-        not legacy,
-        f"{', '.join(map(str, legacy))}: visible from the web container. Sign the CLI in again "
-        f"in the worker (`{cli_agents.login_command('claude_code')}` or "
-        f"`{cli_agents.login_command('codex')}`), then delete the old folder "
-        f"(`{cli_agents.legacy_cleanup(settings.data_dir)}`)",
+        f"Agents container (subscription CLIs, {state.url})",
+        state.reachable,
+        f"unreachable: {state.error} (seen {seen}; `docker compose ps agents`, "
+        "`docker compose logs agents`)",
         optional=True,
     )
+    if state.checked_at and datetime.now(UTC) - state.checked_at > agents_client.STALE:
+        check(
+            "Agents container: recent report from the worker",
+            False,
+            f"last report {seen}: is the worker running?",
+            optional=True,
+        )
+    if not state.reachable:
+        return
+    check(
+        "Agents container isolated",
+        not state.exposures,
+        "it can reach: " + ", ".join(state.exposures) + " (compose.yaml, service agents)",
+        optional=True,
+    )
+    if state.contract_pending:
+        check("Agents container: isolation contract", False, "not checked yet", optional=True)
+    for cli in state.clis:
+        label = SUBSCRIPTION_LABELS.get(cli.binary, cli.label)
+        if not cli.installed:
+            check(label, False, "optional: CLI not installed in the image", optional=True)
+            continue
+        check(
+            f"{label}: agent isolation ({cli.version}, agents container)",
+            not cli.problems,
+            "; ".join(cli.problems)
+            + " — details: `docker compose exec agents synaptane check-clis`",
+            optional=True,
+        )
+
+
+def cmd_agents_runner(args: argparse.Namespace) -> int:
+    """Agents container: runs the subscription CLIs for the worker (docs/admin/ai.md)."""
+    from synaptane.ai import agents_client, agents_runner
+    from synaptane.ai.base import AIError
+    from synaptane.core import logs
+
+    logs.configure()
+    try:
+        key_file = agents_client.key_file()
+    except AIError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+    max_runs = str(args.max_runs if args.max_runs is not None else "")
+    default = str(agents_runner.DEFAULT_MAX_RUNS)
+    max_runs = max_runs or os.environ.get("SYNAPTANE_AGENTS_MAX_RUNS", "").strip() or default
+    if not max_runs.isdigit() or int(max_runs) < 1:
+        print(f"Error: CLIs at a time (--max-runs): {max_runs!r}, 1 at least.", file=sys.stderr)
+        return 2
+    agents_runner.serve(args.host, args.port, key_file, int(max_runs))
+    return 0
 
 
 def cmd_check_clis(args: argparse.Namespace) -> int:
@@ -733,6 +832,21 @@ def build_parser() -> argparse.ArgumentParser:
         "built with AGENT_CLIS=true; the published image has neither)",
     )
     clis.set_defaults(handler=cmd_check_clis)
+    runner = commands.add_parser(
+        "agents-runner",
+        help="agents container: run the subscription CLIs for the worker, apart from it "
+        "(key: $SYNAPTANE_AGENTS_KEY_FILE)",
+    )
+    runner.add_argument("--host", default="127.0.0.1")
+    runner.add_argument("--port", type=int, default=8700)
+    runner.add_argument(
+        "--max-runs",
+        type=int,
+        default=None,
+        help="CLIs running at the same time, at most (default 1: they share an account, "
+        "$SYNAPTANE_AGENTS_MAX_RUNS)",
+    )
+    runner.set_defaults(handler=cmd_agents_runner)
 
     save = commands.add_parser(
         "backup",

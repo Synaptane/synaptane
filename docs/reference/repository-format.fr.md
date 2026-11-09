@@ -68,7 +68,8 @@ serveur, et reconstruit par `synaptane reindex`. Détails :
 - **Diagrammes** : un bloc de code ` ```mermaid ` est dessiné à la lecture. S'il ne peut pas
   l'être, le code reste affiché. Le dessin se fait dans le navigateur, dans un cadre isolé.
 - **Front matter** : facultatif. Synaptane lit trois champs de vérification ; les autres
-  champs sont gardés tels quels.
+  champs sont gardés tels quels (les propriétés d'une ligne de base Notion, par exemple, que
+  l'[import](../guide/wiki.fr.md#depuis-notion) y écrit).
 
 ```markdown
 ---

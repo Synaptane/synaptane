@@ -128,6 +128,24 @@ RULES = (
         "settings",
         technical=False,
     ),
+    # Agents container (subscription CLIs apart from the worker): its own cause, on
+    # Synaptane's side, before the generic "unreachable" or "refused".
+    _rule(
+        "agents_busy",
+        r"agents container is already running|conteneur des agents fait déjà tourner",
+        "agents container busy",
+        "The agents container was already running as many CLIs as it may: the run will be retried.",
+        "wait",
+        technical=False,
+    ),
+    _rule(
+        "agents",
+        r"agents container|conteneur des agents",
+        "agents container unavailable",
+        "The agents container, where the subscription CLIs run, does not answer the worker or "
+        "refuses it: check that it is running (docker compose ps agents) and see its logs.",
+        "",
+    ),
     _rule(
         "cli_missing",
         r"n'est pas installé sur le serveur|not installed on the server",
@@ -267,7 +285,16 @@ RULES = (
 )
 UNKNOWN = "Unknown cause: details are in the worker logs."
 # Causes on Synaptane's side: the AI connection has nothing to do with them.
-SYNAPTANE_SIDE = ("not_synced", "busy", "conflict", "interrupted", "run_timeout", "internal")
+SYNAPTANE_SIDE = (
+    "not_synced",
+    "busy",
+    "conflict",
+    "interrupted",
+    "run_timeout",
+    "internal",
+    "agents_busy",
+    "agents",
+)
 # Templates produced here: the French catalog must know them all (test).
 MESSAGES = tuple(
     text for rule in RULES for text in (rule.label, rule.message, rule.with_address) if text

@@ -1,5 +1,5 @@
-"""Import of a zip of Markdown files: send, check what would happen, confirm
-(`services.imports`)."""
+"""Import of a zip (Obsidian vault, Markdown files, Notion or Confluence export): send, check
+what would happen, confirm (`services.imports`)."""
 
 from typing import Annotated
 from urllib.parse import urlencode
@@ -19,11 +19,16 @@ router = APIRouter()
 SHOWN = 200  # lines per list on the check page
 
 
-def _url(space: Space, token: str = "", folder: str = "") -> str:
+def _url(space: Space, token: str = "", folder: str = "", format: str = "") -> str:
     url = f"/o/{space.organization.slug}/{space.slug}/-/import"
     if token:
         url += f"/{token}"
-    return url + (f"?{urlencode({'folder': folder})}" if folder else "")
+    query = {key: value for key, value in (("folder", folder), ("format", format)) if value}
+    return url + (f"?{urlencode(query)}" if query else "")
+
+
+def _format(value: str) -> str:
+    return value if value in imports.FORMATS else ""
 
 
 @router.get("/o/{org_slug}/{space_slug}/-/import", response_class=HTMLResponse)
@@ -37,6 +42,7 @@ def import_form(page: WebPage, org_slug: str, space_slug: str, folder: str = "")
         space=space,
         folder=folder,
         plan=None,
+        formats=imports.FORMATS,
         max_archive=imports.MAX_ARCHIVE // 1024 // 1024,
     )
 
@@ -49,6 +55,7 @@ def import_send(
     csrf: Csrf,
     archive: Annotated[UploadFile, File()],
     folder: Annotated[str, Form()] = "",
+    format: Annotated[str, Form()] = "",
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
@@ -56,17 +63,17 @@ def import_send(
         token = imports.receive(actor, page.workspace, space, archive.file)
     except SynaptaneError as error:
         return failure(_url(space, folder=folder), page, error)
-    return redirect(_url(space, token, folder), page)
+    return redirect(_url(space, token, folder, _format(format)), page)
 
 
 @router.get("/o/{org_slug}/{space_slug}/-/import/{token}", response_class=HTMLResponse)
 def import_check(
-    page: WebPage, org_slug: str, space_slug: str, token: str, folder: str = ""
+    page: WebPage, org_slug: str, space_slug: str, token: str, folder: str = "", format: str = ""
 ) -> Response:
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
     try:
-        plan = imports.plan(actor, page.workspace, space, token, folder)
+        plan = imports.plan(actor, page.workspace, space, token, folder, _format(format))
     except SynaptaneError as error:
         return failure(_url(space, folder=folder), page, error)
     return page.render(
@@ -75,6 +82,9 @@ def import_check(
         space=space,
         folder=plan.folder,
         plan=plan,
+        formats=imports.FORMATS,
+        converted=plan.format in imports.CONVERTED,
+        chosen=_format(format),
         shown=SHOWN,
         describe=describe,
     )
@@ -88,6 +98,7 @@ def import_confirm(
     token: str,
     csrf: Csrf,
     folder: Annotated[str, Form()] = "",
+    format: Annotated[str, Form()] = "",
     keep: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
     actor = page.check_csrf(csrf)
@@ -102,9 +113,10 @@ def import_confirm(
             token,
             folder,
             frozenset(keep or ()),
+            _format(format),
         )
     except SynaptaneError as error:
-        return failure(_url(space, token, folder), page, error)
+        return failure(_url(space, token, folder, _format(format)), page, error)
     return redirect(page_url(space, folder), page, "{count} files imported.", count=written)
 
 

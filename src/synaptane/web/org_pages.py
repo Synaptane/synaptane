@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
 
-from synaptane.ai import cli_agents, pricing
+from synaptane.ai import agents_client, cli_agents, pricing
 from synaptane.ai.base import DEFAULT_MODELS, EFFORTS
 from synaptane.ai.embeddings import DEFAULT_EMBEDDING_MODELS, EMBEDDING_PROVIDERS
 from synaptane.core.access import Action, OrgRole, can
@@ -137,6 +137,8 @@ def organization_ai_page(page: WebPage, org_slug: str) -> Response:
     org = organizations.get_organization(page.db, actor, org_slug)
     manage = can(actor.access, Action.MANAGE_ORG, org_id=org.id)
     view = ai_settings.view(page.db, actor, page.box, org) if manage else None
+    state = agents_client.read_state(page.settings.data_dir)
+    container = state is not None and state.container
     return _org_page(
         page,
         actor,
@@ -153,7 +155,9 @@ def organization_ai_page(page: WebPage, org_slug: str) -> Response:
             else pricing.tariff("anthropic", DEFAULT_MODELS["anthropic"])
         ),
         docker=cli_agents.in_docker(),
-        cli_login={p: cli_agents.login_command(p) for p in cli_agents.LOGIN},
+        # Where the CLIs run: the agents container, or the worker (as the worker last said).
+        agents_container=container,
+        cli_login={p: cli_agents.login_command(p, container=container) for p in cli_agents.LOGIN},
         # Old sign-in in the data volume (before the worker's volume): only the folders'
         # existence is tested, Synaptane reads nothing there and does not move them.
         legacy_logins=[str(p) for p in cli_agents.legacy_logins(page.settings.data_dir)],

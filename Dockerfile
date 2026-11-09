@@ -50,10 +50,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=agents /out/ /
 
-# /agents: HOME of the subscription CLIs, a volume of the worker only (compose.yaml). Created
-# here so that the volume inherits the owner; empty and read-only in the web container.
+# /agents: HOME of the subscription CLIs, a volume of the agents container only
+# (compose.yaml); /run/synaptane-agents: the key it shares with the worker. Created here so
+# that the volumes inherit the owner; empty and read-only in the other containers.
 RUN useradd --uid 1000 --create-home --home-dir /home/synaptane synaptane \
- && install -d -o synaptane -g synaptane /data /backups /agents
+ && install -d -o synaptane -g synaptane /data /backups /agents /run/synaptane-agents
 
 COPY --from=build /app/.venv /app/.venv
 # Licenses, also at the usual place (texts of the Debian packages: /usr/share/doc/*/copyright,
@@ -65,7 +66,7 @@ COPY examples /app/examples
 
 # Configuration through SYNAPTANE_* environment variables (see compose.yaml).
 # The subscription CLIs keep their login in SYNAPTANE_AGENT_HOME, outside the data volume
-# that the web container shares (docs/admin/ai.md).
+# that the web container shares; they run in the agents container (docs/admin/ai.md).
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     SYNAPTANE_DATA_DIR=/data \

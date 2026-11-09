@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 530" width="960" height="530" role="img" aria-labelledby="t d">
+<title id="t">Worker and agents container</title>
+<desc id="d">The web container (app), the worker and PostgreSQL share the default network; app and worker share the data volume. The worker alone also sits on a second, internal network, shared with the agents container, which runs Claude Code and Codex. The agents container mounts only the CLI logins (volume synaptane-agents) and, read-only, the volume synaptane-agents-key, which holds the key it shares with the worker (the worker writes it); it reaches Anthropic and OpenAI through a network of its own. For a run, the worker sends the run with the shared key (1); the CLI calls back the run's tools at the worker's address with a single-use token (2). There is no route from the agents container to app, PostgreSQL or the data volume.</desc>
+<style>
+  :root { --bg: #ffffff; --ink: #1f2328; --muted: #59636e; --line: #868990; --box: #f6f8fa; --zone: #eef3f9; --zone2: #f3effb; --accent: #3b5bdb; --warn: #b35900; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --ink: #e6edf3; --muted: #9198a1; --line: #6e7681; --box: #161b22; --zone: #12233a; --zone2: #241b36; --accent: #8fa6ff; --warn: #e3a35a; }
+  }
+  .bg { fill: var(--bg); }
+  .zone { fill: var(--zone); stroke: var(--line); stroke-dasharray: 5 4; }
+  .zone2 { fill: var(--zone2); fill-opacity: 0.85; stroke: var(--line); stroke-dasharray: 5 4; }
+  .box { fill: var(--box); stroke: var(--line); stroke-width: 1.4; }
+  .strong { fill: var(--box); stroke: var(--accent); stroke-width: 2; }
+  text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+  .title { font-size: 15px; font-weight: 600; }
+  .vol { font-size: 14px; font-weight: 600; }
+  .small { font-size: 12px; fill: var(--muted); }
+  .net { font-size: 12px; font-weight: 600; fill: var(--muted); }
+  .arrow { stroke: var(--line); stroke-width: 1.6; fill: none; }
+  .call { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+  .no { stroke: var(--warn); stroke-width: 1.6; fill: none; stroke-dasharray: 4 3; }
+  .label { font-size: 12px; font-weight: 600; fill: var(--accent); }
+  .nolabel { font-size: 12px; fill: var(--warn); }
+  .head { fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .grey { stroke: var(--line); }
+  .blue { stroke: var(--accent); }
+</style>
+<rect class="bg" width="960" height="530" rx="12"/>
+
+<!-- Network "default": app, worker, postgres -->
+<rect class="zone" x="20" y="36" width="460" height="356" rx="10"/>
+<text class="net" x="36" y="58">network "default"</text>
+<!-- Network "agents": worker and agents only, without Internet -->
+<rect class="zone2" x="440" y="36" width="340" height="356" rx="10"/>
+<text class="net" x="620" y="58">network "agents"</text>
+<text class="small" x="620" y="74">internal, no Internet</text>
+
+<rect class="box" x="40" y="90" width="170" height="70" rx="8"/>
+<text class="title" x="56" y="117">app</text>
+<text class="small" x="56" y="136">web, REST API, MCP</text>
+<text class="small" x="56" y="151">faces the Internet</text>
+
+<rect class="box" x="290" y="90" width="210" height="86" rx="8"/>
+<text class="title" x="306" y="117">worker</text>
+<text class="small" x="306" y="136">sync, tidy-up, routines;</text>
+<text class="small" x="306" y="151">tool server of a run,</text>
+<text class="small" x="306" y="166">for that run only</text>
+
+<rect class="box" x="40" y="220" width="170" height="66" rx="8"/>
+<text class="title" x="56" y="247">postgres</text>
+<text class="small" x="56" y="266">database</text>
+
+<rect class="box" x="236" y="220" width="190" height="66" rx="8"/>
+<text class="vol" x="252" y="246">synaptane-data</text>
+<text class="small" x="252" y="266">master key, repositories</text>
+
+<path class="arrow" d="M125 160V214"/><path class="head grey" d="M120 208 125 215 130 208"/>
+<path class="arrow" d="M330 176V214"/><path class="head grey" d="M325 208 330 215 335 208"/>
+
+<rect class="strong" x="600" y="90" width="160" height="98" rx="8"/>
+<text class="title" x="616" y="117">agents</text>
+<text class="small" x="616" y="136">Claude Code, Codex</text>
+<text class="small" x="616" y="151">non-root, read-only,</text>
+<text class="small" x="616" y="166">no capability</text>
+
+<rect class="box" x="624" y="220" width="146" height="66" rx="8"/>
+<text class="vol" x="638" y="246">synaptane-agents</text>
+<text class="small" x="638" y="266">CLI logins (its HOME)</text>
+<path class="arrow" d="M697 188V214"/><path class="head grey" d="M692 208 697 215 702 208"/>
+
+<!-- The key: written by the worker, read-only in the agents container -->
+<rect class="box" x="450" y="306" width="190" height="74" rx="8"/>
+<text class="vol" x="466" y="332">synaptane-agents-key</text>
+<text class="small" x="466" y="351">shared key: worker writes,</text>
+<text class="small" x="466" y="366">agents reads only</text>
+<path class="arrow" d="M470 176V300"/><path class="head grey" d="M465 294 470 301 475 294"/>
+<path class="arrow" d="M610 188V300"/><path class="head grey" d="M605 294 610 301 615 294"/>
+
+<!-- 1: the worker sends the run, with the shared key; 2: the CLI calls the run's tools -->
+<path class="call" d="M502 112H594"/><path class="head blue" d="M588 107 595 112 588 117"/>
+<text class="label" x="514" y="104">1. run</text>
+<path class="call" d="M598 160H506"/><path class="head blue" d="M512 155 505 160 512 165"/>
+<text class="label" x="514" y="180">2. tools</text>
+
+<!-- Network "agents-internet": its own, outgoing -->
+<rect class="zone" x="800" y="36" width="140" height="356" rx="10"/>
+<text class="net" x="812" y="58">"agents-internet"</text>
+<rect class="box" x="814" y="100" width="112" height="66" rx="8"/>
+<text class="title" x="828" y="127">Anthropic</text>
+<text class="title" x="828" y="147">OpenAI</text>
+<path class="arrow" d="M762 133H808"/><path class="head grey" d="M802 128 809 133 802 138"/>
+
+<!-- No route from the agents container to app, postgres or the data volume -->
+<path class="no" d="M697 288 C 697 500, 150 500, 120 288"/>
+<text class="nolabel" x="250" y="470">no route from agents to app, postgres or the data volume</text>
+<text class="small" x="24" y="500">1: with the key shared by the worker and the agents container alone (synaptane-agents-key).</text>
+<text class="small" x="24" y="516">2: at the worker's address, with the run's single-use token. Only the worker is on both networks.</text>
+</svg>

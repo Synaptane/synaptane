@@ -100,7 +100,8 @@ Lisez le [journal des modifications](../../CHANGELOG.md) avant une nouvelle vers
 3. construit l'image avec le commit inscrit (`synaptane --version` l'affiche), aussi
    nommée `synaptane:<commit>`, puis redémarre (`docker compose up -d --no-build`) ;
 4. contrôle pendant 3 minutes au plus : `/readyz` à 200, `synaptane --version` au bon
-   commit, worker `healthy`, `synaptane doctor` ;
+   commit, worker `healthy` (et conteneur des agents des abonnements, depuis la 1.15),
+   `synaptane doctor` ;
 5. **en cas d'échec, revient seul en arrière** : commit et image précédents, et
    restauration de la sauvegarde **seulement si** une migration a changé la base ;
 6. note une ligne `date commit résultat` dans `~/.local/state/synaptane/deploy.log`.

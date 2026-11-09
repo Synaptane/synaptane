@@ -66,7 +66,8 @@ server's cache, and rebuilt by `synaptane reindex`. Details:
 - **Diagrams**: a ` ```mermaid ` code block is drawn as a diagram when reading. If it cannot be
   drawn, the code stays on the page. The drawing happens in your browser, in an isolated frame.
 - **Front matter**: optional. Synaptane reads three verification fields; other fields are
-  kept as they are.
+  kept as they are (the properties of a Notion database row, for instance, written there by
+  the [import](../guide/wiki.md#from-notion)).
 
 ```markdown
 ---

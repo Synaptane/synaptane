@@ -67,12 +67,18 @@ Les services :
 - `migrate` : applique les migrations, puis s'arrête ;
 - `app` : web, API REST et MCP ;
 - `worker` : synchronisation Git, indexation, rangement, routines, webhooks et sauvegarde de
-  la nuit.
+  la nuit ;
+- `agents` : les CLI des abonnements Claude et ChatGPT, à l'écart du worker, sans les données
+  ni la base (voir [Le conteneur des agents](ai.fr.md#le-conteneur-des-agents)). Avec
+  l'image publiée, qui n'a aucun CLI, il tourne au repos.
 
 Les données sont dans des volumes Docker :
 - `postgres-data` ;
 - `synaptane-data` : clé maître, copies des dépôts, texte extrait ;
-- `synaptane-agents` : connexions des CLI pour les abonnements, monté dans le seul worker ;
+- `synaptane-agents` : connexions des CLI pour les abonnements, monté dans le seul conteneur
+  des agents (dans le worker jusqu'à la 1.14 : même volume, les connexions restent valables) ;
+- `synaptane-agents-key` : la clé que partagent le worker et le conteneur des agents, créée
+  par le worker ;
 - `synaptane-backups` : les sauvegardes de la nuit (7 jours gardés), et `synaptane backup`
   sans `--output`. Il est sur le même disque et **`docker compose down -v` l'efface** avec
   les autres : la copie chiffrée hors serveur protège de cela (voir [Sauvegarde](backup.fr.md)).
@@ -180,7 +186,7 @@ deploy/host/deploy.sh v1.14.0      # une étiquette, une branche ou un commit
 
 Le script fait une sauvegarde, garde l'image en service, construit la nouvelle avec son
 commit, redémarre, puis contrôle pendant 3 minutes au plus (`/readyz`, version, worker,
-`doctor`). **En cas d'échec, il revient seul en arrière** : commit et image précédents, et
+conteneur des agents, `doctor`). **En cas d'échec, il revient seul en arrière** : commit et image précédents, et
 restauration de la sauvegarde si une migration a changé la base. Chaque déploiement laisse
 une ligne `date commit résultat` dans `~/.local/state/synaptane/deploy.log`.
 `DRY_RUN=1` montre ce qui serait fait ; `--check-ci` refuse un commit dont la CI n'est pas
@@ -211,7 +217,10 @@ Pour revenir à une version antérieure **sans migration entre les deux** : avec
 publiée, remettez son numéro dans `SYNAPTANE_VERSION` (`.env`), puis `docker compose up -d` ;
 avec une image construite par vos soins, déployez son étiquette ou son commit (il est dans le
 journal) : `deploy/host/deploy.sh <commit>`. `deploy.sh` revient déjà seul en arrière quand
-ses contrôles échouent.
+ses contrôles échouent. Revenir sous la 1.15 laisse tourner le conteneur `agents`, inutilisé
+(les CLI tournent de nouveau dans le worker, avec les mêmes connexions) :
+`docker compose up -d --remove-orphans` l'arrête (le retour arrière automatique de
+`deploy.sh` le fait).
 
 Si une migration a changé la base entre-temps, l'ancien code ne démarre pas sur la base
 migrée : il faut aussi restaurer la sauvegarde faite juste avant la mise à jour fautive
@@ -232,19 +241,20 @@ compris) ; les dépôts Git restent la référence pour le contenu.
 
 ### Journaux
 
-`docker compose logs -f app worker` : une ligne par événement, avec l'heure. Le worker
+`docker compose logs -f app worker agents` : une ligne par événement, avec l'heure. Le worker
 écrit une ligne par tâche (synchronisation, indexation, rangement : durée, résultat).
 `SYNAPTANE_LOG_LEVEL=DEBUG` dans `.env` donne plus de détail ; `WARNING` en donne moins.
 
 ### Abonnements Claude et ChatGPT
 
 Il faut une [image construite par vos soins](#construire-limage-vous-même), avec les CLI.
-Ils se connectent une fois, dans le conteneur du worker. Leur connexion est rangée dans le
-volume `synaptane-agents`, donc elle survit aux mises à jour.
+Ils tournent dans le conteneur `agents`, à l'écart du worker, et s'y connectent une fois.
+Leur connexion est rangée dans le volume `synaptane-agents`, donc elle survit aux mises à
+jour (une connexion faite dans le worker jusqu'à la 1.14 reste valable : rien à refaire).
 
 ```sh
-docker compose exec worker claude auth login         # abonnement Claude
-docker compose exec worker codex login --device-auth # abonnement ChatGPT
+docker compose exec agents claude auth login         # abonnement Claude
+docker compose exec agents codex login --device-auth # abonnement ChatGPT
 ```
 
 Vérifiez d'abord les conditions de l'éditeur : voir [Intelligence artificielle](ai.fr.md).

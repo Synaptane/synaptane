@@ -21,7 +21,8 @@ fournisseur d'IA de l'organisation.
 - **Adresse de l'API** personnalisée (Ollama, compatible OpenAI, passerelle) : seul le
   super-admin peut la changer, car elle fait appeler le serveur vers l'adresse choisie.
 - **Tester la connexion** fait un vrai appel d'outil. Pour une clé d'API, le test se fait
-  aussitôt ; pour un abonnement, dans le worker (voir plus bas).
+  aussitôt ; pour un abonnement, le worker le fait passer par le conteneur des agents (voir
+  plus bas).
 - Chaque espace peut choisir un autre modèle (**Paramètres → Rangement** de l'espace).
 
 ## Utiliser un abonnement Claude ou ChatGPT
@@ -30,52 +31,55 @@ Au lieu d'une clé d'API facturée à l'usage, l'agent peut tourner sur un abonn
 alors le **CLI officiel** de l'éditeur (`claude` ou `codex`) qui fait tourner l'agent, et
 Synaptane ne voit jamais les identifiants.
 
-1. Installez le CLI sur la machine du worker. L'image publiée
+1. Installez le CLI là où il tourne (le conteneur des agents, voir plus bas). L'image publiée
    (`ghcr.io/synaptane/synaptane`) n'en contient aucun, car Claude Code ne peut pas être
    redistribué. Une image que vous construisez vous-même contient les deux
    (`AGENT_CLIS=true`, valeur par défaut du Dockerfile) : dans `.env`,
    `COMPOSE_FILE=compose.yaml:compose.build.yaml` et `SYNAPTANE_IMAGE=synaptane:local`, puis
    `GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build`. Voir
    [Construire l'image vous-même](installation.fr.md#construire-limage-vous-même).
-2. Connectez-le une fois, **dans le worker**, par le flux de l'éditeur :
-   - avec Docker : `docker compose exec worker claude auth login`, ou
-     `docker compose exec worker codex login --device-auth` ;
-   - sans Docker : `claude auth login`, ou `codex login`, avec le compte système qui lance
-     `synaptane worker` (précédé de `HOME=…` si `SYNAPTANE_AGENT_HOME` est réglée : la
-     page Intelligence artificielle affiche la commande exacte).
+2. Connectez-le une fois, **dans le conteneur des agents**, par le flux de l'éditeur :
+   - avec Docker : `docker compose exec agents claude auth login`, ou
+     `docker compose exec agents codex login --device-auth` ;
+   - sans Docker : `claude auth login`, ou `codex login`, avec le compte système qui fait
+     tourner le CLI (`synaptane agents-runner`, ou `synaptane worker` sans lui), précédé de
+     `HOME=…` si `SYNAPTANE_AGENT_HOME` est réglée : la page Intelligence artificielle
+     affiche la commande exacte.
 3. En super-admin, choisissez « Abonnement Claude » ou « Abonnement ChatGPT » pour
    l'organisation, puis **Tester la connexion**.
 
-`synaptane doctor` indique si les CLI sont installés et s'ils respectent le contrat
-d'isolation (voir « Sécurité »).
+`synaptane doctor` et la page de santé (**Administration → Santé**, « Agents des
+abonnements ») indiquent où tournent les CLI, s'ils sont installés et s'ils respectent le
+contrat d'isolation (voir « Sécurité »).
 
 **Où vit la connexion.** Le CLI la garde dans son propre `HOME`, donné par
 `SYNAPTANE_AGENT_HOME` :
 - avec Docker, `/agents`, sur le volume `synaptane-agents`, monté **seulement** dans
-  `worker` (dont c'est aussi le `HOME`, d'où la commande simple ci-dessus). Le conteneur
-  `app`, exposé à Internet, ne la voit pas ; elle n'est pas non plus dans le volume des
-  données ni dans les sauvegardes : après une restauration sur un autre serveur, reconnectez
-  le CLI. `docker compose down -v` l'efface ;
-- sans Docker, sans cette variable, le `HOME` du compte qui lance le worker.
+  `agents` (dont c'est aussi le `HOME`, d'où la commande simple ci-dessus). Ni le conteneur
+  `app`, exposé à Internet, ni le worker ne la voient ; elle n'est pas non plus dans le
+  volume des données ni dans les sauvegardes : après une restauration sur un autre serveur,
+  reconnectez le CLI. `docker compose down -v` l'efface ;
+- sans Docker, sans cette variable, le `HOME` du compte qui fait tourner le CLI.
 
 Synaptane ne lit, ne copie, ne déplace ni ne stocke jamais ces identifiants : seul le CLI
 officiel les manipule.
 
-**Tester la connexion** se fait **dans le worker**, seul à avoir le CLI connecté : la page
-affiche « Test en cours… » et se met à jour seule (ou `POST …/organizations/{org}/ai/test`
-répond 202, et `GET …/ai` donne `test_pending`, puis `test_ok` et `test_message`). Le test
-passe par la file rapide et dure au plus quelques minutes. Si « Test en cours… » ne change
-pas, vérifiez que le worker tourne (`docker compose ps`). Pour Claude, c'est un vrai
-mini-appel au plus petit modèle : une session expirée est ainsi détectée, même quand
-`claude auth status` se dit connecté.
+**Tester la connexion** est lancé par le worker, **dans le conteneur des agents**, seul à
+avoir le CLI connecté : la page affiche « Test en cours… » et se met à jour seule (ou
+`POST …/organizations/{org}/ai/test` répond 202, et `GET …/ai` donne `test_pending`, puis
+`test_ok` et `test_message`). Le test passe par la file rapide et dure au plus quelques
+minutes. Si « Test en cours… » ne change pas, vérifiez que le worker et le conteneur des
+agents tournent (`docker compose ps`). Pour Claude, c'est un vrai mini-appel au plus petit
+modèle : une session expirée est ainsi détectée, même quand `claude auth status` se dit
+connecté.
 
 **Mise à jour depuis une version où la connexion était dans `/data/home`.** Elle était
 alors dans le volume des données, partagé avec le conteneur web. Synaptane ne la déplace pas
 (seul le CLI manipule les identifiants) ; `synaptane doctor` et la page Intelligence
 artificielle signalent l'ancien dossier tant qu'il existe (sans rien y lire). Une fois pour
 toutes :
-1. reconnectez le CLI dans le worker : `docker compose exec worker claude auth login`
-   (ou `codex login --device-auth`) ;
+1. reconnectez le CLI dans le conteneur des agents :
+   `docker compose exec agents claude auth login` (ou `codex login --device-auth`) ;
 2. **Tester la connexion** sur la page Intelligence artificielle ;
 3. supprimez vous-même l'ancienne connexion :
    `docker compose exec app rm -rf /data/home/.claude /data/home/.claude.json /data/home/.codex`.
@@ -93,9 +97,10 @@ de 5 heures et de 7 jours :
 Avec ChatGPT (Codex), le quota n'est pas encore relevé.
 
 **Sécurité.** Pendant un passage, le CLI ne dispose que des outils de rangement de
-Synaptane, fournis par un serveur MCP local éphémère protégé par un jeton à usage unique.
-Il n'a ni shell, ni accès aux fichiers, ni web : un contenu malveillant déposé dans l'inbox
-ne peut pas lire le serveur.
+Synaptane, fournis par un serveur MCP éphémère du worker protégé par un jeton à usage
+unique. Il n'a ni shell, ni accès aux fichiers, ni web : un contenu malveillant déposé dans
+l'inbox ne peut pas lire le serveur. Et il tourne dans un conteneur à part, qui n'a de toute
+façon rien à lire (voir « Le conteneur des agents » plus bas).
 
 Cette garantie tient à des options de ligne de commande (`--tools ""` et
 `--strict-mcp-config` pour Claude Code, avec le chargement différé des outils coupé par
@@ -116,11 +121,158 @@ modèle, et sans réseau :
 
 Ce contrat tourne dans la CI à chaque construction de l'image (avec les CLI), et chaque
 lundi avant que le workflow de montée des CLI n'ouvre sa PR : s'il échoue, la PR le dit en
-tête (« contrat d'isolation rompu »). `synaptane doctor` le signale aussi (en avertissement).
+tête (« contrat d'isolation rompu »). Il tourne aussi là où tournent les CLI : le conteneur
+des agents vérifie ses propres CLI à son démarrage
+(`docker compose exec agents synaptane check-clis` en donne le détail), et
+`synaptane doctor` et la page de santé en signalent le résultat (en avertissement).
 
-Limite connue : le CLI tourne sous le même compte système que le worker, qui peut lire
-`/data` (clé maître, dépôts). Une faille dans le CLI lui-même pourrait donc suffire à lire
-le serveur. Le lancer sous un compte distinct, sans ce droit de lecture, est prévu.
+### Le conteneur des agents
+
+Depuis la 1.15, les CLI des abonnements ne tournent plus dans le worker mais dans un
+conteneur à eux, `agents` dans `compose.yaml`. Même image, mais il ne reçoit rien de
+l'instance :
+
+![Worker et conteneur des agents](../assets/agents-container.svg)
+
+- **Ni données, ni secret.** Il ne monte que les connexions des CLI (`synaptane-agents`, son
+  `HOME`) et, en lecture seule, la clé qu'il partage avec le worker. Ni le volume des données
+  (clé maître, dépôts, texte extrait), ni les sauvegardes, ni le socket Docker. Son
+  environnement ne contient aucun secret de l'instance : ni adresse ni mot de passe de la
+  base, ni jeton des métriques, ni réglage des sauvegardes.
+- **Deux réseaux.** `agents`, interne (sans Internet), qu'il partage avec le seul worker ;
+  `agents-internet`, à lui seul, pour son accès sortant à Anthropic et OpenAI. Ni la base ni
+  le conteneur web ne sont sur un réseau où il se trouve : leurs noms n'y sont même pas
+  résolus.
+- **Durci.** Compte non root (celui de l'image, UID 1000), système de fichiers en lecture
+  seule avec un `/tmp` de 512 Mo en mémoire, toutes les capacités Linux retirées,
+  `no-new-privileges`, mémoire plafonnée (`SYNAPTANE_AGENTS_MEMORY`, 2 Go par défaut) et
+  512 processus au plus.
+
+**Un passage, pas à pas.**
+1. Le worker lance le serveur d'outils MCP du passage sur sa propre adresse du réseau
+   `agents`, et sur elle seule, avec un nouveau jeton aléatoire (32 octets) valable pour ce
+   seul passage : le serveur s'arrête à la fin du passage.
+2. Il envoie le passage à `http://agents:8700` (`SYNAPTANE_AGENTS_URL`) : fournisseur,
+   modèle, instructions, prompt, port et jeton du serveur d'outils.
+3. Le conteneur des agents (`synaptane agents-runner`) lance `claude -p` ou `codex exec`
+   exactement comme le faisait le worker : mêmes options, même environnement minimal, dans
+   un dossier de travail jetable. Le CLI joint les outils à l'adresse d'où vient la requête :
+   un appelant ne peut pas le diriger ailleurs.
+4. Il renvoie ce que lit le worker (résultat final, consommation, relevés du quota, erreurs,
+   fin de la sortie d'erreur), gardé au fil de l'eau : 4 Mo au plus, au-delà desquels le CLI
+   est arrêté ; le reste de la sortie du CLI (la conversation, les pages lues) n'est même pas
+   gardé.
+
+**Qui peut lancer un passage.** Le worker seul. Le conteneur des agents refuse toute requête
+sans la clé qu'il partage avec le worker (`SYNAPTANE_AGENTS_KEY_FILE`) : 48 octets aléatoires,
+créés par le worker à son premier appel dans le volume `synaptane-agents-key`, monté dans ces
+deux conteneurs seulement (en lecture seule dans `agents`). La clé n'est jamais journalisée,
+affichée ni envoyée ailleurs ; une requête refusée est journalisée avec sa seule adresse
+d'origine. Le réseau s'y ajoute : le conteneur web, celui qui est exposé à Internet, n'est
+pas sur le réseau `agents`. L'un ou l'autre suffirait ; ensemble, une erreur sur l'un (un
+fichier Compose personnalisé qui met `app` sur ce réseau, un fichier de clé copié là où il
+ne devrait pas) n'ouvre pas le conteneur des agents.
+
+**Délais, annulation, concurrence.**
+- Un passage dure au plus 45 minutes (3 pour un test de connexion) ; au-delà, le CLI et tout
+  ce qu'il a lancé sont arrêtés (SIGTERM, puis SIGKILL 5 secondes plus tard).
+- Si le worker abandonne (il s'arrête, ou son propre délai expire), la connexion se ferme et
+  le conteneur des agents arrête le CLI en quelques secondes : aucun passage ne continue seul
+  à consommer le quota.
+- **Un CLI à la fois** par défaut (`SYNAPTANE_AGENTS_MAX_RUNS=1`). Les CLI du conteneur des
+  agents partagent son compte : deux qui tourneraient ensemble pourraient lire l'environnement
+  et la configuration MCP l'un de l'autre, donc le jeton de passage de l'autre (voir plus bas).
+  Un passage qui arrive pendant un autre attend son tour dans le worker, en réessayant toutes
+  les 10 à 15 secondes, aussi longtemps que peut durer un passage (3 minutes pour un test de
+  connexion) ; ce n'est pas compté comme un échec. Passé ce délai, il est relancé plus tard
+  comme toute erreur passagère : rien n'est perdu. Le prix : un test de connexion ou une
+  routine demandés pendant un rangement de 30 minutes l'attendent. Monter la valeur supprime
+  cette attente, au prix de la séparation entre passages (et chaque CLI prend quelques
+  centaines de Mo). Sans conteneur des agents, le CLI tourne dans le worker, qui ne sépare de
+  toute façon rien : aucune limite ne s'y applique.
+- Instructions et prompt : 16 Mo au plus par requête.
+
+**Mise à jour depuis la 1.14 ou avant.** Rien à faire : le nouveau `compose.yaml` ajoute le
+service `agents` et y monte le volume `synaptane-agents` existant, au même endroit
+(`/agents`, son `HOME`), avec le même compte (UID 1000). Les connexions faites dans le
+worker restent valables : inutile de reconnecter les CLI. La clé est créée par le worker à
+son premier appel. Avec `deploy/host/deploy.sh`, la mise à jour attend aussi que le
+conteneur des agents soit en bonne santé avant de déclarer le déploiement réussi (et revient
+en arrière sinon). Après la mise à jour, **Tester la connexion** sur la page Intelligence
+artificielle, ou `docker compose exec worker synaptane doctor`, confirme que le worker le
+joint.
+
+**Sans Docker, ou avec un fichier Compose sans le service `agents`.** Sans
+`SYNAPTANE_AGENTS_URL`, le CLI tourne dans le worker, comme avant la 1.15, avec les mêmes
+options et le même contrat. Il est moins isolé : le CLI tourne alors sous le compte du
+worker, qui peut lire le dossier des données. `synaptane doctor` (« Subscription CLIs apart
+from the worker ») et la page de santé le signalent. Pour l'isoler sans Docker, lancez
+`synaptane agents-runner --host 127.0.0.1 --port 8700` sous un autre compte système, qui ne
+peut pas lire le dossier des données, avec `SYNAPTANE_AGENTS_KEY_FILE` pointant vers un
+fichier d'un dossier où le worker peut écrire et que ce compte peut lire (la clé est créée
+lisible par le groupe), et donnez au worker `SYNAPTANE_AGENTS_URL=http://127.0.0.1:8700` et
+le même `SYNAPTANE_AGENTS_KEY_FILE`.
+
+**Ce que le conteneur des agents protège, et ce qu'il ne protège pas.**
+- Il protège le reste du serveur du CLI : une faille de Claude Code ou de Codex, ou une
+  injection de prompt qui passerait leurs options, ne trouve ni la clé maître, ni les dépôts,
+  ni la base, ni les secrets de l'instance, et ne peut joindre par le réseau ni le conteneur
+  web ni la base.
+- Il ne protège pas les connexions des CLI : elles sont dans le conteneur des agents, le CLI
+  peut les lire, et qui contrôle le CLI peut se servir de l'abonnement.
+- Il ne limite pas ce que fait l'agent **par les outils de Synaptane** pendant un passage :
+  écrire et déplacer des pages de l'espace rangé, dans les garde-fous habituels (seuil de
+  suppressions, un commit par passage qu'on peut annuler). Le serveur d'outils ne vit que le
+  temps du passage, et seul le jeton de ce passage l'ouvre.
+- Il ne sépare pas des passages qui tourneraient en même temps : ils partageraient le
+  conteneur et son compte, si bien qu'un CLI compromis pourrait lire le jeton d'un autre
+  passage en cours (un rangement d'une autre organisation, par exemple) et se servir de ses
+  outils jusqu'à la fin de ce passage. C'est pourquoi `SYNAPTANE_AGENTS_MAX_RUNS` vaut 1 par
+  défaut : les passages s'attendent. Ne le montez que si vos organisations peuvent
+  s'atteindre ainsi.
+- Ce qu'un passage laisse dans le `HOME` des CLI (`/agents`) reste pour les suivants. Ce qui
+  pourrait les orienter est coupé : Claude Code tourne avec `--setting-sources ""` (ni les
+  hooks, l'environnement et les permissions de `~/.claude/settings.json`, ni
+  `~/.claude/CLAUDE.md`, les skills ou les agents), Codex avec `--ignore-user-config`, ses
+  hooks coupés et sans la description des skills de son dossier (`~/.codex/skills`,
+  `~/.agents/skills`) ; le contrat d'isolation plante un hook, des instructions et des skills
+  dans le `HOME` de sa vérification et échoue s'ils ont un effet. Codex n'a pas d'option pour écarter
+  `~/.codex/AGENTS.md` (ou `AGENTS.override.md`), qu'il ajoute à chaque passage : Synaptane
+  n'en écrit jamais, donc un passage Codex est refusé tant qu'il y en a un. Reste qu'un CLI
+  compromis pourrait remplacer les fichiers de connexion eux-mêmes (connecter le CLI à un
+  autre compte, qui recevrait alors les prompts suivants) ou d'autres fichiers que le CLI lit
+  pour lui-même. En cas de doute, déconnectez puis reconnectez les CLI
+  (`docker compose exec agents claude auth logout`, puis `login`), ou videz le volume.
+- Son accès sortant n'est pas filtré : il peut joindre Internet (il lui faut Anthropic et
+  OpenAI), l'adresse de métadonnées de l'hébergeur (`169.254.169.254`) s'il y en a une, et
+  tout ce qui écoute sur toutes les adresses du serveur : les ports publiés par Docker (qu'un
+  pare-feu comme ufw ne filtre pas) et les services du serveur lui-même (une base de données,
+  un Redis sans mot de passe…). Gardez le port de l'application lié à `127.0.0.1` (`APP_BIND`,
+  la valeur par défaut), et liez ces services à `127.0.0.1` ou filtrez le trafic des réseaux
+  Docker vers l'hôte.
+- Le prompt de chaque passage (notes de l'inbox, pages) va bien au conteneur des agents, puis
+  au fournisseur : c'est l'objet du passage.
+- L'image est la même que celle des autres services : une faille du moteur Docker ou du
+  noyau reste hors de sa portée.
+
+**Dépannage.**
+- « Le conteneur des agents est injoignable » : `docker compose ps agents`, puis
+  `docker compose logs --tail 50 agents`. Une image publiée sans CLI n'est pas une erreur :
+  le conteneur tourne, au repos.
+- « a refusé la clé du worker » : les deux conteneurs doivent lire le même fichier ;
+  vérifiez le volume `synaptane-agents-key` dans les deux (`docker compose config`). Supprimer
+  le fichier de clé (`docker compose exec worker rm /run/synaptane-agents/key`) fait créer
+  une nouvelle clé par le worker, que le conteneur des agents lit à sa requête suivante.
+- « fait déjà tourner autant de CLI qu'il le peut » : un passage a attendu son tour plus
+  longtemps que son propre délai ; il est relancé plus tard de lui-même. Si cela revient
+  souvent, étalez les rangements dans la nuit, ou montez `SYNAPTANE_AGENTS_MAX_RUNS` en
+  sachant ce que cela coûte (plus haut).
+- « Codex ajouterait les instructions de … » : supprimez le fichier cité
+  (`docker compose exec agents rm /agents/.codex/AGENTS.md`), après l'avoir lu : quelque chose
+  l'a mis là.
+- « atteint ce qu'il ne devrait pas » (page de santé, doctor) : le conteneur des agents voit
+  un secret de l'instance, la clé maître, le socket Docker ou la base. Retirez ce que votre
+  fichier Compose lui ajoute (`docker compose config`).
 
 Conditions des éditeurs (octobre 2026) :
 - **OpenAI** autorise l'usage de l'abonnement ChatGPT dans des outils tiers.
