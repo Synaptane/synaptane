@@ -533,7 +533,7 @@ Relis les pages modifiées depuis le dernier passage…
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
-de 20 dossiers au plus, et au moins une sortie.
+de 20 dossiers au plus, au moins une sortie, et un fichier de 64 000 octets au plus.
 
 - **À chaque synchronisation**, Synaptane lit les fichiers au commit courant de l'espace. Un
   nouveau fichier crée la routine, qui attend son prochain créneau. Un fichier modifié change

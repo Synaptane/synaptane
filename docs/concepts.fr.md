@@ -235,10 +235,11 @@ informations périmées, doublons) et un **résumé hebdomadaire** de ce que l'�
 décidé, en anglais et en français (la langue de la personne qui crée la routine).
 
 Chaque routine est un fichier du dépôt de l'espace, `.synaptane/routines/<nom>.md` : Git fait
-foi, la base ne garde que l'état de ses passages. Les administrateurs de l'organisation créent,
-modifient, lancent et suppriment les routines depuis Synaptane ; quiconque peut pousser sur le
-dépôt peut aussi les modifier. Les contributeurs de l'espace les voient, ainsi que leur
-journal. Le rangement nocturne n'est pas une routine.
+foi ; la base garde une copie de ses réglages, remise à jour à chaque synchronisation, et l'état
+de ses passages. Les administrateurs de l'organisation créent, modifient, lancent et suppriment
+les routines depuis Synaptane ; quiconque peut pousser sur le dépôt peut aussi les modifier. Les
+contributeurs de l'espace les voient, ainsi que leur journal. Le rangement nocturne n'est pas
+une routine.
 
 ## Recherche
 

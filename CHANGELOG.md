@@ -14,14 +14,14 @@ of the target version.
 - **Agent routines are files of the repository.** Each routine of a space is now
   `.synaptane/routines/<name>.md`, versioned like the purpose and the tidy-up rules: a header
   (`title`, `description`, `schedule` such as `weekly monday 06:00`, `scope`, `report`,
-  `inbox`, `email`, `webhook`, `enabled`, `template`), then the instructions. Git is the
-  source of truth; the database only keeps the state of the runs. At each synchronization,
-  Synaptane reads the files at the space's current commit: a new file creates the routine
-  (which waits for its next slot), a changed file updates its settings without making it run
-  again, a removed file removes it (its log and its cost stay in the month's budget). An
-  invalid file does not run, and its error shows in **Settings → Routines** and in the REST
-  API (`error`); a field this version does not know is reported (`warnings`), ignored, and
-  kept when Synaptane rewrites the file. **Settings → Routines**, the provided templates
+  `inbox`, `email`, `webhook`, `enabled`, `template`), then the instructions. Git is the source
+  of truth; the database keeps a copy of the settings and the state of the runs. At each
+  synchronization, Synaptane reads the files at the space's current commit: a new file creates
+  the routine (which waits for its next slot), a changed file updates its settings without
+  making it run again, a removed file removes it (its log and its cost stay in the month's
+  budget). An invalid file does not run, and its error shows in **Settings → Routines** and in
+  the REST API (`error`); a field this version does not know is reported (`warnings`), ignored,
+  and kept when Synaptane rewrites the file. **Settings → Routines**, the provided templates
   (**Enable**, **Customize first**) and the REST API keep working and write the file: a commit
   in the administrator's name, under the space lock, then a synchronization; a file changed
   since the form was opened is refused, with the choice to replace it, as for the purpose.

@@ -505,7 +505,7 @@ Read the pages changed since the last run…
 
 The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
 characters at most. 20 routines at most per space, instructions of 20,000 characters at most,
-scope of 20 folders at most, at least one output.
+scope of 20 folders at most, at least one output, and a file of 64,000 bytes at most.
 
 - **At each synchronization**, Synaptane reads the files at the space's current commit. A new
   file creates the routine, which waits for its next slot. A changed file updates the
