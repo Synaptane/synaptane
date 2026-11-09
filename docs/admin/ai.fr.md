@@ -216,9 +216,19 @@ le même `SYNAPTANE_AGENTS_KEY_FILE`.
   écrire et déplacer des pages de l'espace rangé, dans les garde-fous habituels (seuil de
   suppressions, un commit par passage qu'on peut annuler). Le serveur d'outils ne vit que le
   temps du passage, et seul le jeton de ce passage l'ouvre.
+- Il ne sépare pas les passages les uns des autres : les CLI qui tournent en même temps
+  partagent le conteneur et son compte, si bien qu'un CLI compromis pourrait lire le jeton
+  d'un autre passage en cours (un rangement d'une autre organisation, par exemple) et se
+  servir de ses outils jusqu'à la fin de ce passage. Si vos organisations ne doivent pas
+  pouvoir s'atteindre même ainsi, réglez `SYNAPTANE_AGENTS_MAX_RUNS=1` : les passages
+  s'attendent alors les uns les autres.
 - Son accès sortant n'est pas filtré : il peut joindre Internet (il lui faut Anthropic et
-  OpenAI) et les ports publiés du serveur lui-même. Gardez le port de l'application lié à
-  `127.0.0.1` (`APP_BIND`, la valeur par défaut).
+  OpenAI), l'adresse de métadonnées de l'hébergeur (`169.254.169.254`) s'il y en a une, et
+  tout ce qui écoute sur toutes les adresses du serveur : les ports publiés par Docker (qu'un
+  pare-feu comme ufw ne filtre pas) et les services du serveur lui-même (une base de données,
+  un Redis sans mot de passe…). Gardez le port de l'application lié à `127.0.0.1` (`APP_BIND`,
+  la valeur par défaut), et liez ces services à `127.0.0.1` ou filtrez le trafic des réseaux
+  Docker vers l'hôte.
 - Le prompt de chaque passage (notes de l'inbox, pages) va bien au conteneur des agents, puis
   au fournisseur : c'est l'objet du passage.
 - L'image est la même que celle des autres services : une faille du moteur Docker ou du

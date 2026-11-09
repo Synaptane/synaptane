@@ -206,9 +206,17 @@ readable by that account (the key is created group-readable), and give the worke
   and moving pages of the space being tidied, within the usual safeguards (deletion
   threshold, one commit per run that can be reverted). The tool server only lives for the
   run, and only that run's token opens it.
+- It does not separate the runs from one another: the CLIs running at the same time share
+  the container and its account, so a compromised CLI could read the token of another run in
+  progress (a tidy-up of another organization, for instance) and use its tools until that
+  run ends. If your organizations must not be able to reach each other even then, set
+  `SYNAPTANE_AGENTS_MAX_RUNS=1`: runs then wait for each other.
 - Its outgoing access is not filtered: it can reach the Internet (it needs Anthropic and
-  OpenAI) and the server's own published ports. Keep the application's port bound to
-  `127.0.0.1` (`APP_BIND`, the default).
+  OpenAI), the cloud provider's metadata address (`169.254.169.254`) where there is one, and
+  whatever listens on all the server's addresses: ports published by Docker (which a firewall
+  such as ufw does not filter) and services of the server itself (a database, a Redis without
+  password…). Keep the application's port bound to `127.0.0.1` (`APP_BIND`, the default), and
+  bind such services to `127.0.0.1` or filter the Docker networks' traffic to the host.
 - The prompt of each run (inbox notes, pages) does go to the agents container, then to the
   provider: that is the point of the run.
 - The image is the same as the other services': a flaw in the Docker runtime or the kernel
