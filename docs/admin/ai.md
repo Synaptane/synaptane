@@ -379,6 +379,7 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
   | Pages created without a level-1 heading, empty | form | complete the page |
   | Items filed without a page given | item closed without saying where it was merged: a legitimate duplicate, or lost information | check the item in the inbox history |
   | Pages heavily shortened, text removed | content removed from kept pages (a move is compared with the old path) and from deleted pages | reread the commit diff |
+  | Team checks broken | violations of the space's [team checks](../guide/wiki.md#team-checks) (`warn` level) that the run introduced, already sent back to the agent once to fix; a `block` rule refuses the write itself | fix the pages listed, or adjust the rule |
   | Items left | share of items left in the inbox | a high, lasting share points to unclear instructions |
   | Per filed item | tokens, turns and cost per filed item | compare two models or two sets of instructions |
 
@@ -393,7 +394,9 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
 
 The second brain of an infrastructure team, a marketing team or a family is not tidied the
 same way. So each space can describe, in **Settings → Purpose** (organization
-administrators), two Markdown texts versioned in its repository:
+administrators), two Markdown texts versioned in its repository. A third file, the
+[team checks](../guide/wiki.md#team-checks) (`.synaptane/checks.md`), is given to the agent as
+configuration data: what every page must follow, checked without AI.
 
 | | Purpose | Tidy-up instructions |
 |---|---|---|

@@ -16,6 +16,7 @@ content/                          visible : wiki, recherche, MCP
   vocation.md                     vocation de l'espace (facultatif)
   prompts/tidy.md                 consignes de rangement (facultatif)
   prompts/<nom>.md                prompts d'équipe pour les assistants (facultatif)
+  checks.md                       contrôles de l'équipe : règles que chaque page doit suivre (facultatif)
   routines/<nom>.md               routines d'agent de l'espace (facultatif)
   inbox/
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a.md   une note
@@ -116,6 +117,47 @@ L'ancien nom de ce fichier, `.synaptane/prompts/rangement.md`, est encore lu qua
 seul ; le premier enregistrement depuis Synaptane écrit `tidy.md` à la place.
 
 Voir [IA et rangement](../admin/ai.fr.md).
+
+## `.synaptane/checks.md`
+
+Les **contrôles de l'équipe** : des règles que chaque page Markdown de `content/` doit suivre,
+vérifiées sans IA dans **Santé**, à chaque écriture et par le rangement (voir
+[Contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe)). Ils s'écrivent dans
+**Paramètres → Vocation** (administrateurs de l'organisation), par l'API REST ou par un push ;
+20 000 caractères au plus depuis Synaptane.
+
+Chaque titre de niveau 2 (`## Titre`) est une règle ; les éléments de liste `- clé: valeur`
+juste en dessous la décrivent. Tout autre texte (paragraphes, titres de niveau 1 ou 3,
+commentaires HTML, blocs de code) est un commentaire. Une valeur entre accents graves est
+prise telle quelle (```` `` a`b `` ```` pour une valeur qui contient un accent grave). Les clés
+sont en anglais.
+
+| Clé | Sens |
+|---|---|
+| `pattern` | Expression régulière ([syntaxe RE2](https://github.com/google/re2/wiki/Syntax), en temps linéaire), sur le texte de la page, front matter compris ; `^` et `$` valent pour chaque ligne. Avec `field` : sur la valeur du champ |
+| `field` | Champ du front matter (clé de premier niveau) |
+| `expect` | Ce que `field` doit être, séparé par des virgules : `present` (présent et non vide), `list` (une liste YAML : `[a, b]` ou un `- élément` par ligne), `date` (`AAAA-MM-JJ`, sans heure). `list` et `date` ne s'appliquent que si le champ est présent |
+| `preset` | Données personnelles : `email`, `phone` (formats international, français et nord-américain), `card` (13 à 19 chiffres qui passent la vérification de Luhn), `iban` (longueur de son pays et clé de contrôle, en majuscules ou en minuscules). Les espaces insécables, les tirets et les caractères invisibles entre les chiffres ne les arrêtent pas. S'emploie seul : ni `pattern` ni `field` |
+| `allow` | Valeurs jamais signalées, séparées par des virgules. Pour `email` : des domaines (`acme.com`, sous-domaines compris) ou des adresses. Les domaines `example.com`, `.org` et `.net`, et `.example`, `.invalid`, `.test` et `.localhost`, sont toujours autorisés |
+| `paths` | Dossiers ou globs relatifs à `content/`, séparés par des virgules : `clients/` (tout ce qu'il contient), `notes/*.md` (`*` dans un dossier), `**/reunions/*.md` (`**` à travers les dossiers). Sans elle : toutes les pages |
+| `except` | Dossiers ou globs écartés, même forme |
+| `level` | `warn` (par défaut) : signalé. `block` : une écriture qui enfreint la règle est refusée |
+| `message` | Ce qu'il faut faire, affiché avec chaque infraction et avec un refus |
+| `mask` | `yes` : l'extrait d'un `pattern` est masqué, comme pour les préréglages |
+
+Limites : 50 règles, 500 caractères par motif, 3 000 étapes RE2 par motif compilé et 15 000
+pour tout le fichier (une répétition comptée comme `.{0,1000}` en coûte autant : RE2 reste
+linéaire, mais son coût par octet augmente avec elles), 64 000 caractères du fichier lus.
+**Santé** examine le premier Mo de chaque page et montre 20 infractions par règle et par page ;
+une écriture est vérifiée en entier. Une règle fautive (clé inconnue, motif invalide, motif
+trop complexe, motif qui correspond à un texte vide, deux règles du même titre) est ignorée et sa ligne apparaît dans **Santé** ; les autres règles s'appliquent. Un
+enregistrement depuis Synaptane refuse un fichier qui a une règle fautive.
+
+Une règle `block` refuse les écritures de l'interface web, de l'API REST, de MCP, de l'import,
+du rangement, de la page de rapport d'une routine et de l'annulation d'un rangement ou du
+passage d'un assistant, quand elles ajoutent une infraction : une page qui enfreignait déjà la règle
+reste modifiable, et une page déplacée dans un dossier que couvre une règle compte comme
+nouvelle. Un push ne peut pas être refusé.
 
 ## `.synaptane/prompts/<nom>.md`
 

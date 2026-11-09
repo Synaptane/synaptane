@@ -1,9 +1,12 @@
-"""A space's settings: its purpose and its tidy-up rules (two files of the repository).
+"""A space's settings: its purpose, its tidy-up rules and its team checks (three files of
+the repository).
 
 Reserved for the organization's admins. A template pre-fills the purpose without saving anything
 (with JS, in place after confirmation; without JS, through `?template=…`); "Preview" renders the
 typed text, without saving it: with JS, in place (`/-/vocation/preview`, for the purpose, the
-filing instructions and the team prompts); without JS, by reloading the page.
+filing instructions and the team prompts); without JS, by reloading the page. The preview of
+the team checks lists the rules understood, the file's errors, and the current pages that
+break each rule.
 """
 
 from datetime import datetime
@@ -17,7 +20,9 @@ from synaptane.core.access import Action, can
 from synaptane.core.errors import ErrorCode, SynaptaneError, invalid, not_found
 from synaptane.core.markdown import WikiIndex
 from synaptane.services import Actor, team_prompts, vocation
+from synaptane.services import checks as team_checks
 from synaptane.storage.models import Space
+from synaptane.web.i18n import translator
 from synaptane.web.pages import (
     ERROR_STATUS,
     Csrf,
@@ -28,6 +33,7 @@ from synaptane.web.pages import (
     redirect,
     render_space_settings,
     space_settings_url,
+    templates,
 )
 from synaptane.web.wiki import (
     MAX_PREVIEW,
@@ -44,6 +50,7 @@ router = APIRouter()
 SAVED = {
     "vocation": "Purpose saved.",
     "tidy-rules": "Filing instructions saved.",
+    "checks": "Team checks saved.",
 }
 PENDING = (
     "Text put on hold: it will be written to the repository at the space's first synchronization."
@@ -67,10 +74,32 @@ def _document_html(base: str, key: str, text: str, paths: list[str] | None) -> M
     return render_at(base, shown, "README.md", names)
 
 
+def _checks_html(page: Page, space: Space, text: str) -> Markup:
+    """Preview of a checks file: the rules understood, the faulty lines, and for each rule
+    the number of current pages that break it (`services.checks.preview`)."""
+    try:
+        repo = page.workspace.local_repository(space)
+    except SynaptaneError:
+        repo = None  # not synced yet: the rules alone
+    result = team_checks.preview(repo, text)
+    html = templates.env.get_template("checks-preview.html").render(
+        _=translator(page.locale),
+        locale=page.locale,
+        preview=result,
+        rules=list(zip(result.checks.rules, result.pages, strict=True)),
+        synced=repo is not None,
+    )
+    return Markup(html)  # noqa: S704 — rendered by an autoescaping template
+
+
 def _shown(page: Page, actor: Actor, space: Space, key: str, text: str) -> Markup:
     """The preview without JS, under the same limits as the one in place."""
     if len(text) > MAX_PREVIEW:
         raise invalid(TOO_LONG)
+    if key == vocation.CHECKS.key:
+        with one_preview(actor.user.id):
+            page.db.commit()
+            return _checks_html(page, space, text)
     with one_preview(actor.user.id):
         try:
             paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
@@ -92,9 +121,9 @@ def space_document_preview(
     text: Annotated[str, Form()] = "",
     kind: Annotated[str, Form()] = "vocation",
 ) -> Response:
-    """The preview in place of the purpose, the filing instructions or a team prompt being
-    written (`kind`: `vocation`, `tidy-rules`, `prompt`): for the organization's admins, as their
-    editing; see `wiki.preview_response`."""
+    """The preview in place of the purpose, the filing instructions, the team checks or a team
+    prompt being written (`kind`: `vocation`, `tidy-rules`, `checks`, `prompt`): for the
+    organization's admins, as their editing; see `wiki.preview_response`."""
 
     def check(actor: Actor, space: Space) -> PreviewRender:
         _require_admin(actor, space)
@@ -103,6 +132,8 @@ def space_document_preview(
         section = "prompts" if kind == PROMPT else "vocation"
 
         def render(base: str, paths: list[str] | None) -> tuple[Markup, str]:
+            if kind == vocation.CHECKS.key:
+                return _checks_html(page, space, text), f"{base}/-/{section}"
             return _document_html(base, kind, text, paths), f"{base}/-/{section}"
 
         return render
@@ -161,11 +192,15 @@ def _render(
 
 @router.get("/o/{org_slug}/{space_slug}/-/vocation", response_class=HTMLResponse)
 def space_vocation_page(
-    page: WebPage, org_slug: str, space_slug: str, template: str = ""
+    page: WebPage, org_slug: str, space_slug: str, template: str = "", checks_example: bool = False
 ) -> Response:
+    """`checks_example`: the editor of the team checks starts from the example, in the
+    page's language (nothing is saved)."""
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
     drafts: dict[str, str] = {}
+    if checks_example:
+        drafts[vocation.CHECKS.key] = team_checks.example(page.locale)
     if template:
         try:
             drafts["vocation"] = vocation.template(template).text_for(page.locale)
@@ -288,6 +323,32 @@ def space_rules_save(
         org_slug,
         space_slug,
         "tidy-rules",
+        csrf,
+        text,
+        base_sha,
+        action,
+        overwrite_sha,
+        allow_secrets,
+    )
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/vocation/checks", response_class=HTMLResponse)
+def space_checks_save(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    text: Annotated[str, Form()] = "",
+    base_sha: Annotated[str, Form()] = "",
+    action: Annotated[str, Form()] = "save",
+    overwrite_sha: Annotated[str, Form()] = "",
+    allow_secrets: Annotated[bool, Form()] = False,
+) -> Response:
+    return _save(
+        page,
+        org_slug,
+        space_slug,
+        vocation.CHECKS.key,
         csrf,
         text,
         base_sha,

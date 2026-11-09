@@ -388,7 +388,7 @@ Une destination hors serveur en échec garde l'archive locale, se note au journa
 
 Pour être prévenu quand plus aucune sauvegarde ne tourne (serveur éteint), ajoutez un moniteur
 de type « dead man's switch » (Healthchecks.io, Uptime Kuma…), ou l'alerte Prometheus sur
-`synaptane_backup_last_timestamp_seconds` (voir [Supervision](installation.fr.md#supervision)).
+`synaptane_backup_last_timestamp_seconds` (voir [Supervision](configuration.fr.md#supervision)).
 
 ## Sauvegarde à la main : `synaptane backup`
 

@@ -376,7 +376,7 @@ server.
 
 To be warned when no backup runs at all anymore (server down), add a "dead man's switch"
 monitor (Healthchecks.io, Uptime Kuma…), or the Prometheus alert on
-`synaptane_backup_last_timestamp_seconds` (see [Monitoring](installation.md#monitoring)).
+`synaptane_backup_last_timestamp_seconds` (see [Monitoring](configuration.md#monitoring)).
 
 ## Backup by hand: `synaptane backup`
 

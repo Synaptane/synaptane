@@ -44,6 +44,20 @@ class DriftOut(BaseModel):
     second: CellOut
 
 
+class CheckOut(BaseModel):
+    rule: str = Field(description="Title of the team check")
+    level: str = Field(description="`warn` (reported) or `block` (writes refused)")
+    page: str
+    line: int = Field(description="Line in the page (from 1)")
+    excerpt: str = Field(description="What breaks the rule; personal data masked")
+    message: str = Field(description="What to do, written by the team")
+
+
+class CheckErrorOut(BaseModel):
+    line: int = Field(description="Line of .synaptane/checks.md (0: the whole file)")
+    message: str
+
+
 class Counts(BaseModel):
     broken: int
     orphans: int
@@ -54,6 +68,7 @@ class Counts(BaseModel):
     unowned: int = Field(description="Verified pages without an owner")
     verified: int = Field(description="Verified and up-to-date pages")
     drifts: int = Field(description="Values that disagree between tables")
+    checks: int = Field(default=0, description="Team checks broken")
 
 
 class HealthOut(BaseModel):
@@ -71,6 +86,13 @@ class HealthOut(BaseModel):
     drifts: list[DriftOut] = Field(
         description="Same row, different value in two aligned tables of two pages"
     )
+    check_rules: int = Field(default=0, description="Rules of .synaptane/checks.md")
+    checks: list[CheckOut] = Field(
+        default_factory=list, description="Team checks broken, by rule, then page and line"
+    )
+    check_errors: list[CheckErrorOut] = Field(
+        default_factory=list, description="Faulty lines of .synaptane/checks.md (rule ignored)"
+    )
 
 
 @router.get(SPACE + "/health", tags=["content"])
@@ -84,7 +106,8 @@ def space_health(
     limit: Annotated[int, Query(ge=1, le=10_000, description="Items per list")] = 500,
 ) -> HealthOut:
     """Wiki health (reader): broken links, orphan, empty, untitled and old pages, stale pages
-    (verification overdue), verified pages without an owner and tables that disagree.
+    (verification overdue), verified pages without an owner, tables that disagree and team
+    checks broken.
     Deterministic computation, no AI, at the latest commit."""
     found = find_space(session, actor, org, space)
     report = health.space_health(actor, _ws(request), found, months)
@@ -102,6 +125,7 @@ def space_health(
             unowned=len(report.unowned),
             verified=report.verified,
             drifts=len(report.drifts),
+            checks=report.checks_total,
         ),
         broken=[
             BrokenLinkOut(page=b.page, link=b.link, suggestion=b.suggestion)
@@ -124,5 +148,20 @@ def space_health(
                 second=CellOut(page=d.second.page, line=d.second.line, value=d.second.value),
             )
             for d in report.drifts[:limit]
+        ],
+        check_rules=report.check_rules,
+        checks=[
+            CheckOut(
+                rule=c.rule,
+                level=c.level,
+                page=c.page,
+                line=c.line,
+                excerpt=c.excerpt,
+                message=c.message,
+            )
+            for c in report.checks[:limit]
+        ],
+        check_errors=[
+            CheckErrorOut(line=e.line, message=str(e.message)) for e in report.check_errors
         ],
     )

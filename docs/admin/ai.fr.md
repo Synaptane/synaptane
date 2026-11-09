@@ -400,6 +400,7 @@ maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet I
   | Pages créées sans titre de niveau 1, vides | forme | compléter la page |
   | Éléments rangés sans page indiquée | élément clos sans dire où il est intégré : doublon légitime, ou information perdue | vérifier l'élément dans l'historique de l'inbox |
   | Pages fortement réduites, texte retiré | contenu supprimé des pages gardées (un déplacement compare à l'ancien chemin) et des pages supprimées | relire le diff du commit |
+  | Contrôles de l'équipe enfreints | infractions aux [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) de l'espace (niveau `warn`) introduites par le passage, déjà renvoyées une fois à l'agent pour correction ; une règle `block` refuse l'écriture elle-même | corriger les pages listées, ou ajuster la règle |
   | Éléments laissés | part des éléments laissés dans l'inbox | une part élevée et durable signale des consignes floues |
   | Par élément rangé | jetons, tours et coût par élément rangé | comparer deux modèles ou deux consignes |
 
@@ -415,7 +416,9 @@ maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet I
 On ne range pas de la même façon le second cerveau d'une équipe d'infrastructure, d'une
 équipe marketing ou d'une famille. Chaque espace peut donc décrire, dans **Paramètres →
 Vocation** (administrateurs de l'organisation), deux textes Markdown versionnés dans son
-dépôt :
+dépôt. Un troisième fichier, les [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe)
+(`.synaptane/checks.md`), est donné à l'agent comme donnée de configuration : ce que chaque
+page doit suivre, vérifié sans IA.
 
 | | Vocation | Consignes de rangement |
 |---|---|---|

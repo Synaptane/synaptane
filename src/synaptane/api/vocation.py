@@ -1,8 +1,10 @@
-"""REST API for a space's purpose and its tidy-up rules (files in the repository).
+"""REST API for a space's purpose, its tidy-up rules and its team checks (files in the
+repository).
 
-The purpose can be read by any member of the space; the rules, and any write, are reserved
-to organization admins. Same rules as the web UI: sha read before modifying (`base_sha`),
-likely secret refused, text pending until the space is synced.
+The purpose can be read by any member of the space; the rules, the checks and any write are
+reserved to organization admins. Same rules as the web UI: sha read before modifying
+(`base_sha`), likely secret refused, faulty checks refused, text pending until the space is
+synced.
 """
 
 from fastapi import APIRouter, Request
@@ -149,3 +151,28 @@ def put_tidy_rules(
 ) -> SavedOut:
     found = find_space(session, actor, org, space)
     return _save(request, session, actor, found, vocation.RULES, body)
+
+
+@router.get(SPACE + "/checks", tags=["spaces"])
+def get_checks(
+    org: str, space: str, request: Request, session: DbSession, actor: CurrentActor
+) -> DocumentOut:
+    """Team checks of the space (`.synaptane/checks.md`): same shape as `GET …/vocation`. The
+    pages that break them are in `GET …/health`."""
+    found = find_space(session, actor, org, space)
+    return DocumentOut.of(vocation.document(actor, _ws(request), found, vocation.CHECKS))
+
+
+@router.put(SPACE + "/checks", tags=["spaces"])
+def put_checks(
+    org: str,
+    space: str,
+    body: DocumentIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> SavedOut:
+    """Same fields and rules as `PUT …/vocation`; a file with a faulty rule is refused (400,
+    each faulty line named)."""
+    found = find_space(session, actor, org, space)
+    return _save(request, session, actor, found, vocation.CHECKS, body)

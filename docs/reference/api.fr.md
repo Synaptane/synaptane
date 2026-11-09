@@ -51,6 +51,7 @@ correspondant. Le code ne change jamais ; le message est en anglais, ou en fran�
 | `not_found` | 404 |
 | `conflict` | 409 |
 | `secret_detected` | 422 |
+| `check_failed` | 422 (un contrôle de l'équipe refuse le contenu : voir plus bas) |
 | `too_many_requests` | 429 (limite de débit d'un compte ou d'une organisation : réessayer plus tard) |
 | `unavailable` | 503 (base, dépôt ou serveur momentanément indisponible ; en-tête `Retry-After`) |
 
@@ -71,6 +72,12 @@ Limites `too_many_requests`, sur une fenêtre glissante :
 (mot de passe, clé d'API, clé privée…). Rien n'est commité. Retirez-le, ou renvoyez la requête
 avec `"allow_secrets": true` si ce n'en est pas un. Pour une page existante, seules les lignes
 ajoutées sont examinées.
+
+`check_failed` : le contenu enfreint un des [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe)
+de l'espace dont le niveau est `block` (un e-mail de personne, un chemin local…). Rien n'est
+commité ; le `message` donne la règle, la page, la ligne et ce qu'il faut faire. Contrairement
+à un secret, il ne se confirme pas : corrigez le contenu. Pour une page existante, seul ce que
+la modification ajoute compte.
 
 Une ressource invisible pour l'appelant renvoie 404, comme une ressource inexistante.
 
@@ -215,7 +222,7 @@ Les chemins sont relatifs à `content/` :
 | `DELETE …/spaces/{space}/reports/{path}` | lecteur | Retire votre signalement ; `?all=true` les écarte tous (contributeur). Une vérification de la page les clôt aussi |
 | `GET …/spaces/{space}/history/{path}` | lecteur | Commits qui ont touché le fichier (même supprimé) : `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributeur | Remet un fichier tel qu'il était dans une version passée, un fichier supprimé aussi : `{"path": …, "commit": …}` (`commit` : un `sha` de l'historique), avec `message`, `base_sha` (le `sha` actuel, 409 si le fichier a changé depuis ; `""` pour un fichier supprimé) et `allow_secrets`, facultatifs. Renvoie `commit` (`null` si cette version est déjà l'actuelle). Une page garde ses champs de vérification actuels |
-| `GET …/spaces/{space}/health?months=12&limit=500` | lecteur | Santé du wiki : `broken` (page, lien, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages à revoir : `path`, `owner`, `verified`, `due`), `unowned` (vérifiées sans propriétaire), `drifts` (tableaux qui divergent : `key`, `column`, `first` et `second` avec `page`, `line`, `value`) et leurs totaux `counts` (avec `verified` : pages vérifiées et à jour) |
+| `GET …/spaces/{space}/health?months=12&limit=500` | lecteur | Santé du wiki : `broken` (page, lien, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages à revoir : `path`, `owner`, `verified`, `due`), `unowned` (vérifiées sans propriétaire), `drifts` (tableaux qui divergent : `key`, `column`, `first` et `second` avec `page`, `line`, `value`), `checks` (contrôles de l'équipe enfreints : `rule`, `level`, `page`, `line`, `excerpt` avec les données personnelles masquées, `message`), `check_rules` (règles de `.synaptane/checks.md`), `check_errors` (ses lignes en erreur : `line`, `message`) et leurs totaux `counts` (avec `verified` : pages vérifiées et à jour, et `checks`) |
 
 `freshness` (lecture d'une page, résultats de recherche, vérification) : `state` (`verified`,
 `stale` ou `never`), `verified` et `stale` (booléens), `verified_at`, `owner`, `review_due`
@@ -271,6 +278,8 @@ anciennes.
 | `POST /organizations/{org}/ai/test` | admin | Appel d'essai : `{"message": …}` |
 | `GET …/spaces/{space}/tidy-rules` | admin | Consignes de rangement de l'espace (`.synaptane/prompts/tidy.md`, ou son ancien nom `.synaptane/prompts/rangement.md` s'il est seul ; `path` dit lequel) : même forme que `GET …/vocation` |
 | `PUT …/spaces/{space}/tidy-rules` | admin | Mêmes champs et mêmes règles que `PUT …/vocation` |
+| `GET …/spaces/{space}/checks` | admin | [Contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) de l'espace (`.synaptane/checks.md`) : même forme que `GET …/vocation`. Les pages qui les enfreignent sont dans `GET …/health` |
+| `PUT …/spaces/{space}/checks` | admin | Mêmes champs et mêmes règles que `PUT …/vocation` ; 400 si une règle est en erreur (le `message` nomme chaque ligne fautive) |
 | `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, heure locale), `timezone` (`Europe/Paris`), `model` (`""` : celui de l'organisation), `delay` (minutes entre un dépôt et le rangement au fil de l'eau, `0` : éteint) (204) |
 | `POST …/spaces/{space}/tidy` | contributeur | Lance un rangement (202) ; 429 au-delà de la limite de passages manuels (voir [Erreurs](#erreurs)) |
 | `GET …/spaces/{space}/tidy/runs` | lecteur | Passages : `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, jetons consommés, `cost`, `error`, `reverted_at` |
