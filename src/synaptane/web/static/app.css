@@ -445,6 +445,8 @@ td .inline-form input:not([type=checkbox]){min-height:30px;flex:1 1 140px}
 .import-list{list-style:none;margin:10px 0 0;padding:0;font-size:13px;overflow-wrap:anywhere}
 .import-list li{padding:3px 0}
 .import-list .checkbox{padding:0;display:inline-flex}
+.import-format{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+.import-format select{width:auto;max-width:100%}
 .upload-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .upload-form input[type=file]{width:auto;max-width:260px;padding:5px 8px}
 .file-title{margin-bottom:16px;font-size:24px}

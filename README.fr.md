@@ -35,7 +35,8 @@ propre dépôt Git. Les assistants ne se contentent pas de la lire, ils l'alimen
 IA la tient en ordre chaque nuit.
 
 - **Par rapport à Notion AI, Confluence ou Slite :** aucun enfermement. C'est auto-hébergé,
-  cela marche avec le modèle de votre choix, et vos données sont un dépôt Git.
+  cela marche avec le modèle de votre choix, et vos données sont un dépôt Git. Un export de
+  Notion ou de Confluence entre en pages Markdown, avec son arborescence et ses liens.
 - **Par rapport à Outline, Wiki.js, BookStack ou Docmost :** c'est pensé pour les assistants
   IA, et le wiki est entretenu pour vous.
 - **Par rapport à Obsidian, Logseq ou Basic Memory :** c'est multi-utilisateur et côté
