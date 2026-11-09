@@ -23,6 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
     false,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -148,6 +149,11 @@ class Space(Base):
     tidy_last_date: Mapped[date | None]  # last (local) day the scheduled pass ran
     # Continuous: a pass N minutes after a drop (None: at the scheduled time only).
     tidy_delay: Mapped[int | None] = mapped_column(Integer)
+    # Nightly maintenance (`services.maintenance`): the problems people introduced since the
+    # last run are fixed even without an inbox item; the watermark is where they are counted
+    # from (None: set to the head at the next computation, without catching up the past).
+    tidy_maintain: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    maintain_watermark: Mapped[str | None] = mapped_column(String(64))
     ai_model: Mapped[str | None] = mapped_column(String(200))  # otherwise the organization's
     embeddings_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # hybrid search
     # Default review period of pages (`6m`, `1y`…); empty: never due for review
@@ -836,6 +842,27 @@ class ChangeMark(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     __table_args__ = (CheckConstraint("status IN ('done', 'left', 'pending')", name="status"),)
+
+
+class MaintenanceMark(Base):
+    """A wiki problem the tidy-up agent left during the nightly maintenance, with its reason
+    (`services.maintenance`). Bound to the content of the page concerned at that moment: the
+    problem is not proposed again as long as the page has not changed. Erased once the
+    problem has gone."""
+
+    __tablename__ = "maintenance_marks"
+
+    space_id: Mapped[UUID] = mapped_column(
+        ForeignKey("spaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(Text, primary_key=True)  # `maintenance.Problem.key`
+    source: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(64))
+    page: Mapped[str] = mapped_column(Text)  # relative to content/
+    detail: Mapped[str] = mapped_column(Text, default="")
+    sha: Mapped[str | None] = mapped_column(String(64))  # the page's content then
+    reason: Mapped[str] = mapped_column(Text, default="")
+    decided_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class PageReport(Base):

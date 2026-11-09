@@ -180,10 +180,12 @@ def measure(overlay: Overlay, state: RunState) -> dict[str, Any]:
             )
     deleted_chars = sum(len(overlay.repo.blob(PREFIX + p, overlay.base) or b"") for p in deleted)
 
-    notes_done = [n for n in state.done if n not in state.changes]
+    # Inbox items only: the maintenance item (`state.synthetic`) is measured by its own log.
+    notes_done = [n for n in state.done if n not in state.changes and n not in state.synthetic]
     silent = sorted(state.items[n].title for n in notes_done if not state.integrated.get(n))
     reduced = sorted(str(op["path"]) for op in state.operations if op.get("op") == Op.REDUCED)
-    done, left = len(state.done), len(state.left)
+    done = sum(1 for n in state.done if n not in state.synthetic)
+    left = sum(1 for n in state.left if n not in state.synthetic)
     result: dict[str, Any] = {
         "version": VERSION,
         "pages": {

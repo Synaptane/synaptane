@@ -10,6 +10,30 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Nightly wiki maintenance**. The scheduled tidy-up (and **Tidy now**) also fixes the
+  problems people introduced since the last run, through the web, REST, MCP, imports or
+  pushes, even when the inbox is empty: broken links introduced in the pages they changed (or
+  in pages that pointed to a page they deleted or moved), and their new pages that nothing
+  links to, missing from their folder's index, untitled or empty. A check without AI finds
+  them; they reach the agent as one "Wiki maintenance (N)" item listing each problem (page,
+  link, suggestion), framed as data. The agent fixes what is safe (a link to the right page,
+  a link from the topic's page or the index, a line in the index), adds no content, never
+  deletes or moves a page for it, and leaves the rest with a reason; its tools, deletion cap,
+  alerts and undo do not change. At most 10 problems a night; Synaptane's own commits never
+  count (the tidy-up's end-of-run check already covers them); a problem left is not proposed
+  again until its page changes; runs after a drop and chained runs do not maintain; nothing is
+  computed without an AI provider or once the month's budget is used up. Each problem gets a
+  line in the run's log (fixed, or left with the reason); contributors get no notice for it.
+  The **Maintain the wiki every night** box (Settings → Tidy-up, `maintain` in
+  `PATCH …/tidy-settings`) is **on by default**: a night without problems costs nothing. See
+  [Wiki maintenance](docs/admin/ai.md#wiki-maintenance).
+
+### Upgrade
+- One migration (`0035`), applied at startup: two columns on spaces and an empty table of the
+  problems left. No existing row changes. Maintenance starts from each space's head at its
+  first sync after the upgrade: the past is not caught up.
+
 ## [1.15.0] - 2026-11-09
 
 Send or forward an email to a space's inbox; import a Notion or Confluence export; and run the

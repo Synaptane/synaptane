@@ -23,6 +23,7 @@ from synaptane.core.errors import SynaptaneError, invalid
 from synaptane.services import (
     ai_settings,
     budget,
+    maintenance,
     organizations,
     semantic,
     tidy,
@@ -176,6 +177,7 @@ def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> R
         "space-tidy-settings.html",
         ai_configured=ai_settings.config_for(page.db, page.box, space) is not None,
         timezones=TIMEZONES,
+        max_problems=maintenance.MAX_PROBLEMS,
     )
 
 
@@ -206,6 +208,7 @@ def space_tidy_settings(
     ai_model: Annotated[str, Form()] = "",
     tidy_soon: Annotated[bool, Form()] = False,
     tidy_delay: Annotated[str, Form()] = "15",
+    tidy_maintain: Annotated[bool, Form()] = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
@@ -229,6 +232,7 @@ def space_tidy_settings(
             timezone=tidy_timezone,
             model=ai_model,
             delay=minutes,
+            maintain=tidy_maintain,
         )
     except SynaptaneError as error:
         return failure(space_settings_url(space, "tidy-settings"), page, error)

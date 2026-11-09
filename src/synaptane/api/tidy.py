@@ -72,6 +72,12 @@ class TidySettingsIn(BaseModel):
         default=None,
         description="Minutes between a drop and the continuous tidy-up; 0: off",
     )
+    maintain: bool | None = Field(
+        default=None,
+        description="Nightly maintenance: fix the problems people introduced since the last "
+        "run (broken links, new pages isolated, missing from their folder's index, untitled or "
+        "empty), even with an empty inbox",
+    )
 
 
 class RunOut(BaseModel):
@@ -191,6 +197,7 @@ def tidy_settings(
         timezone=body.timezone,
         model=body.model,
         delay=body.delay,
+        maintain=body.maintain,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

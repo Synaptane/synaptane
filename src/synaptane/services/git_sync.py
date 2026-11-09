@@ -34,7 +34,7 @@ from synaptane.git.repo import (
     describe_error,
     expired_error,
 )
-from synaptane.services import Actor, alerts, audit, changes, jobs, vocation, webhooks
+from synaptane.services import Actor, alerts, audit, changes, jobs, maintenance, vocation, webhooks
 from synaptane.services.inbox import CONTENT_DIR, INBOX_DIR, parse_front_matter, skeleton
 from synaptane.services.secrets import delete_space_secret, get_space_secret, put_space_secret
 from synaptane.services.workspace import Workspace, author_identity
@@ -381,6 +381,7 @@ def _apply(session: Session, space: Space, outcome: Outcome) -> None:
     if outcome.status == "ok":
         # Watermark of the changes for the tidy run to review (first clone).
         changes.start(session, space, outcome.remote_head)
+        maintenance.start(session, space, outcome.remote_head)  # nightly maintenance
 
 
 log = logging.getLogger("synaptane.git")

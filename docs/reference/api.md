@@ -265,7 +265,7 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `POST /organizations/{org}/ai/test` | admin | Test call: `{"message": …}` |
 | `GET …/spaces/{space}/tidy-rules` | admin | Tidy-up rules of the space (`.synaptane/prompts/tidy.md`, or its former name `.synaptane/prompts/rangement.md` if it is the only one; `path` says which): same shape as `GET …/vocation` |
 | `PUT …/spaces/{space}/tidy-rules` | admin | Same fields and same rules as `PUT …/vocation` |
-| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off) (204) |
+| `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off), `maintain` (nightly [wiki maintenance](../admin/ai.md#wiki-maintenance), `true` by default) (204) |
 | `POST …/spaces/{space}/tidy` | contributor | Starts a tidy-up (202); 429 beyond the manual run limit (see [Errors](#errors)) |
 | `GET …/spaces/{space}/tidy/runs` | reader | Runs: `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, tokens used, `cost`, `error`, `reverted_at` |
 | `POST …/spaces/{space}/tidy/runs/{id}/revert` | admin | Reverts a run with an inverse commit |

@@ -289,7 +289,7 @@ Les réglages sont dans **Paramètres → Rangement** de l'espace ; le journal e
 maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet Inbox).
 
 - **Rangement quotidien** (heure et fuseau) : 02:00 à Paris par défaut. Le passage n'a lieu que s'il y a des
-  éléments dans l'inbox. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
+  éléments dans l'inbox, ou si l'[entretien du wiki](#entretien-du-wiki) trouve des problèmes. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
   espace sur 24 heures, 20 pour un admin de l'organisation : voir
   [Coût et budget](#coût-et-budget)).
 - **Rangement au fil de l'eau** (case « Ranger aussi au fil de l'eau, peu après chaque
@@ -409,6 +409,47 @@ maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet I
   modèle sans saut dans le noir, voir le [banc d'évaluation](../dev/eval.fr.md).
 - Sans fournisseur d'IA configuré, le rangement planifié ne tourne pas (pas d'échec inscrit
   chaque nuit).
+
+### Entretien du wiki
+
+On modifie aussi le wiki directement : une modification sur le web, un import, un push. Ces
+changements peuvent casser un lien ou laisser une nouvelle page vers laquelle rien ne mène.
+L'onglet **Santé** voit ces problèmes, mais personne ne les corrigeait tant qu'aucune note
+n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Rangement,
+**cochée par défaut**), le passage planifié les corrige, même si l'inbox est vide.
+
+- **Ce qui est vérifié**, sans IA, à l'heure planifiée et avec **Ranger maintenant** : les
+  problèmes apparus **depuis le dernier passage** par les commits des membres (web, REST,
+  MCP, imports, push) :
+  - les liens cassés introduits dans les pages qu'ils ont modifiées, ou dans les pages qui
+    menaient à une page qu'ils ont supprimée ou déplacée ;
+  - leurs nouvelles pages vers lesquelles aucune page ne mène, absentes de l'index de leur
+    dossier (`README.md`, si le dossier en a un), sans titre ou vides.
+  Les commits de Synaptane ne comptent pas : ce que casse le rangement est déjà repris par
+  sa vérification de fin de passage.
+- **Ce que fait l'agent** : les problèmes arrivent comme un élément de plus, « Entretien du
+  wiki (N) », avec la liste précise (page, lien, suggestion du contrôle de santé), présentée
+  comme une donnée. L'agent ne corrige que ce qui est sûr : il fait pointer un lien vers la
+  bonne page, relie une page isolée depuis la page de son sujet ou depuis l'index, complète
+  l'index. Il n'ajoute aucun contenu, et ne supprime ni ne déplace jamais une page pour
+  corriger un problème. Sinon, il laisse le problème, avec une raison. Ses pouvoirs ne
+  changent pas : mêmes outils, même plafond de suppressions, mêmes alertes et même
+  annulation que pour tout passage.
+- **Ni déluge ni répétition** :
+  - pas de rattrapage du passé : les problèmes sont comptés depuis la fin du dernier passage,
+    ou depuis l'activation de l'entretien (ou la mise à jour) ;
+  - **10 problèmes au plus par nuit** : assez pour une journée ordinaire de modifications,
+    une petite part des limites d'un passage, et une liste facile à vérifier dans le journal.
+    Les autres attendent les nuits suivantes ;
+  - un problème laissé par l'agent n'est pas reproposé tant que sa page ne change pas ;
+  - les passages lancés après un dépôt et les passages enchaînés n'entretiennent pas.
+- **Coût** : rien n'est calculé ni lancé sans fournisseur d'IA, ni quand le budget du mois
+  est épuisé. Une nuit sans problème ne coûte rien.
+- **Journal** : chaque problème a sa ligne, **Problème du wiki corrigé** ou **Problème du
+  wiki laissé** avec la raison de l'agent. Les déposants ne reçoivent pas d'avis pour lui. Le
+  commit dit combien de problèmes ont été corrigés. Un passage arrêté avant la fin redonne
+  les problèmes la nuit suivante.
+- **REST** : `maintain` dans `PATCH …/spaces/{space}/tidy-settings`.
 
 ## Vocation et consignes de rangement
 

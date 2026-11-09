@@ -79,6 +79,7 @@ def test_agent_move_rewrites_links_and_the_end_check_asks_once(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
+    tidy.update_settings(db, wiki.root, wiki.infra, maintain=False)  # test_maintenance
     content.write_file(db, database, wiki.alice, ctx, wiki.infra, "stockage/ceph.md", CEPH.encode())
     db.commit()
     [change] = [i.name for i in deposits.inbox(db, wiki.alice, ctx, wiki.infra)]

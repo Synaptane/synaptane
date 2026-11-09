@@ -275,7 +275,7 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
 **Tidy-up** tab (the button is also in the Inbox tab).
 
 - **Daily tidy-up** (time and time zone): 02:00 Paris time by default. A run only happens if the inbox has
-  items. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
+  items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
   20 for an organization admin: see [Cost and budget](#cost-and-budget)).
 - **Tidy-up as you go** (the "Also tidy as you go, shortly after each drop" box, off by
   default): a run starts N minutes after a note is dropped (**Delay after a drop**, 15 minutes
@@ -388,6 +388,43 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
   the [evaluation bench](../dev/eval.md).
 - Without a configured AI provider, scheduled tidy-up does not run (no failure is recorded
   every night).
+
+### Wiki maintenance
+
+People change the wiki directly too: an edit on the web, an import, a push. These changes
+can break a link or leave a new page that nothing leads to. The **Health** tab sees these
+problems, but nobody fixed them as long as no note arrived. With the **Maintain the wiki
+every night** box (Settings → Tidy-up, **on by default**), the scheduled run fixes them, even
+with an empty inbox.
+
+- **What is checked**, without AI, at the scheduled time and with **Tidy now**: the problems
+  that appeared **since the last run** through commits of people (web, REST, MCP, imports,
+  pushes):
+  - broken links introduced in the pages they changed, or in the pages that pointed to a page
+    they deleted or moved;
+  - their new pages that no page links to, missing from their folder's index (`README.md`,
+    when the folder has one), untitled or empty.
+  Synaptane's own commits do not count: what the tidy-up breaks is already handled by its
+  end-of-run check.
+- **What the agent does**: the problems come as one more item, "Wiki maintenance (N)", with
+  the precise list (page, link, suggestion of the health check), presented as data. The agent
+  only fixes what is safe: it points a link to the right page, links an isolated page from
+  its topic's page or from the index, completes the index. It adds no content, and never
+  deletes or moves a page to fix a problem. Otherwise it leaves the problem, with a reason.
+  Its powers do not change: same tools, deletion cap, alerts and undo as for any run.
+- **No flood, no repetition**:
+  - no catching up on the past: problems are counted from the end of the last run, or from
+    the moment maintenance was turned on (or the upgrade);
+  - **at most 10 problems a night**: enough for a normal day of edits, a small share of a
+    run's limits, and a list easy to check in the log. The others wait for the next nights;
+  - a problem left by the agent is not proposed again as long as its page does not change;
+  - runs started after a drop and chained runs do not maintain.
+- **Cost**: nothing is computed or started without an AI provider, nor once the month's
+  budget is used up. A night without problems costs nothing.
+- **Log**: each problem has its line, **Wiki problem fixed** or **Wiki problem left** with
+  the agent's reason. Contributors get no notice for it. The commit says how many problems
+  were fixed. A run stopped before the end gives the problems again the next night.
+- **REST**: `maintain` in `PATCH …/spaces/{space}/tidy-settings`.
 
 ## Purpose and tidy-up instructions
 

@@ -52,6 +52,7 @@ from synaptane.services import (
     audit,
     budget,
     jobs,
+    maintenance,
     tidy_commit,
     tidy_metrics,
     tidy_notices,
@@ -142,6 +143,7 @@ class Outcome:
     given_up: list[str] = field(default_factory=list)  # left after MAX_ITEM_ATTEMPTS tries
     notices: list[tidy_notices.Notice] = field(default_factory=list)  # notices to depositors
     metrics: dict[str, Any] | None = None  # quality of the run (tidy_metrics), without the cost
+    maintenance: "maintenance.Closure | None" = None  # wiki problems given to the run
 
 
 REDUCED_SHARE = 0.3  # existing page reduced by at least 30 %…
@@ -226,6 +228,8 @@ def _commit_message(outcome: Outcome) -> str:
         title += f", {outcome.items_left} left"
     if outcome.untreated:
         title += f", {outcome.untreated} not processed"
+    if outcome.maintenance and (outcome.maintenance.fixed or outcome.maintenance.left):
+        title += f", {len(outcome.maintenance.fixed)} wiki problem(s) fixed"
     lines = [title, ""]
     if outcome.summary:
         lines += [outcome.summary, ""]
@@ -342,6 +346,7 @@ def tidy_space(
     scheduled: bool = False,
     spent: Usage | None = None,
     limit: Limit = lambda _: None,
+    maintain: bool = False,
 ) -> Outcome:
     """Runs a complete pass over a space. Does not record the log (see `run`).
 
@@ -353,6 +358,10 @@ def tidy_space(
     Items never processed come before those the agent already left: otherwise, MAX_ITEMS
     left items would be enough to block the inbox. A scheduled run without any new item does
     not run (it does not retry the same left items every night).
+
+    `maintain`: the wiki problems people introduced since the last run (`services.maintenance`)
+    are given as one more item, if the space wants it and the month's budget allows it; the run
+    then happens even with an empty inbox.
     """
     repo = ws.local_repository(space)
     base = repo.head()
@@ -364,15 +373,24 @@ def tidy_space(
         refused = budget.refusal(session, space.org_id)
     every = list_items(system_reader(space), ws, space) + [item for item, _ in pending_changes]
     fresh = [i for i in every if i.status != "left"]
-    if not fresh and (scheduled or not every):
+    found: maintenance.Found | None = None
+    if maintain and space.tidy_maintain and not refused:
+        with database.session() as session:
+            found_space = session.get(Space, space.id)
+            assert found_space is not None
+            found = maintenance.pending(session, ws, found_space, Overlay(repo, base))
+    if not fresh and found is None and (scheduled or not every):
         return Outcome("nothing", summary="Nothing new to tidy up.")
     if refused:
         raise TidyFailure(refused)
     items = (fresh + [i for i in every if i.status == "left"])[:MAX_ITEMS]
+    if found is not None:
+        items.append(found.item)
     overlay = Overlay(repo, base)
     state = RunState(
         items={i.name: i for i in items},
         changes={item.name: change for item, change in pending_changes},
+        synthetic={maintenance.NAME: found.describe()} if found is not None else {},
     )
 
     reader = system_reader(space)
@@ -435,7 +453,10 @@ def tidy_space(
     if not overlay.changes and not closing.notes:
         _record_changes(database, ws, space, closing.decisions, base)
         outcome = _outcome(state, usage, closing, interruption, [], overlay)
-        outcome.status = "nothing" if not closing.decisions else outcome.status
+        kept = _maintained(outcome, found, state, overlay, interruption)
+        decided = closing.decisions or (kept is not None and kept.decided)
+        outcome.status = "nothing" if not decided else outcome.status
+        _settle(database, ws, space, found, kept, base, None)
         return outcome
     with try_space_lock(
         database.engine, space.id, timeout=tidy_commit.COMMIT_WAIT.total_seconds()
@@ -458,6 +479,8 @@ def tidy_space(
             if demoted or touched_notes:
                 closing = _close(repo, base, state, untreated, tried, touched_notes)
         outcome = _outcome(state, usage, closing, interruption, _conflict_ops(merged), overlay)
+        # A page left in conflict keeps its human version: its problems are given again.
+        kept = _maintained(outcome, found, state, overlay, interruption, merged.conflicts)
         files = {**overlay.changes, **closing.notes}
         for path in files:
             safe_path(path)
@@ -466,11 +489,47 @@ def tidy_space(
                 files, _agent_identity(ws), _commit_message(outcome)
             )
     _record_changes(database, ws, space, closing.decisions, base)
+    _settle(database, ws, space, found, kept, base, outcome.commit)
     if outcome.commit and closing.filed:  # a routine's problem handled: not reported again
         with database.session() as session:
             for item, summary in closing.filed:
                 verdicts.record(session, ws, space, item, "filed", summary)
     return outcome
+
+
+def _maintained(
+    outcome: Outcome,
+    found: "maintenance.Found | None",
+    state: RunState,
+    overlay: Overlay,
+    interruption: str | None,
+    conflicts: set[str] | frozenset[str] = frozenset(),
+) -> "maintenance.Closure | None":
+    """What became of the wiki problems given to the run (measured on its final state), with
+    their log lines (one per problem: fixed, or left with the reason)."""
+    if found is None:
+        return None
+    kept = maintenance.close(found, state, overlay, interruption=interruption, conflicts=conflicts)
+    outcome.operations += kept.operations
+    outcome.maintenance = kept
+    return kept
+
+
+def _settle(
+    database: Database,
+    ws: Workspace,
+    space: Space,
+    found: "maintenance.Found | None",
+    kept: "maintenance.Closure | None",
+    base: str,
+    commit: str | None,
+) -> None:
+    if found is None or kept is None:
+        return
+    with database.session() as session:
+        found_space = session.get(Space, space.id)
+        if found_space is not None:
+            maintenance.settle(session, ws, found_space, found, kept, base, commit)
 
 
 MAX_ITEM_ATTEMPTS = 3  # interrupted runs before an item is left, with an alert
@@ -518,6 +577,8 @@ def _close(
     taken up as it is by the next run."""
     closing = Closing()
     for name, item in state.items.items():
+        if name in state.synthetic:  # computed by Synaptane: see `_maintained`
+            continue
         note = [item.path, *(f"{attachments_dir(item.path)}/{a}" for a in item.attachments)]
         if item.path and touched & set(note):
             closing.untreated += 1
@@ -807,6 +868,7 @@ def _run(
             scheduled=background,
             spent=spent,
             limit=limit,
+            maintain=trigger in ("schedule", "manual"),
         )
     except TidyFailure as failure:
         error, retry, explained = str(failure), failure.transient, failure.label
@@ -929,7 +991,15 @@ def _run(
                         str(op["path"])
                         for op in outcome.operations
                         if op["op"]
-                        not in (Op.FILED, Op.LEFT, Op.UNTREATED, Op.CONFLICT, Op.ATTENTION)
+                        not in (
+                            Op.FILED,
+                            Op.LEFT,
+                            Op.UNTREATED,
+                            Op.CONFLICT,
+                            Op.ATTENTION,
+                            Op.FIXED,
+                            Op.PROBLEM_LEFT,
+                        )
                     }
                 )
                 if paths:
@@ -1144,18 +1214,22 @@ def update_settings(
     timezone: str | None = None,
     model: str | None = None,
     delay: int | None = None,
+    maintain: bool | None = None,
 ) -> None:
-    """`delay`: minutes between a deposit and the as-you-go run; 0 turns it off."""
+    """`delay`: minutes between a deposit and the as-you-go run; 0 turns it off. `maintain`:
+    the nightly wiki maintenance (`services.maintenance`), which starts again from the head
+    when turned back on."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     if model is not None:  # before any change: a refusal leaves nothing half done
         check_space_model(session, space, model.strip())
-    fields = ("enabled", "schedule", "timezone", "model", "delay")
+    fields = ("enabled", "schedule", "timezone", "model", "delay", "maintain")
     before = (
         space.tidy_enabled,
         space.tidy_time,
         space.tidy_timezone,
         space.ai_model,
         space.tidy_delay,
+        space.tidy_maintain,
     )
     if delay is not None:
         if not 0 <= delay <= MAX_DELAY:
@@ -1170,12 +1244,17 @@ def update_settings(
         space.tidy_enabled = enabled
     if model is not None:
         space.ai_model = model.strip() or None
+    if maintain is not None:
+        if maintain and not space.tidy_maintain:
+            maintenance.turned_on(space)
+        space.tidy_maintain = maintain
     after = (
         space.tidy_enabled,
         space.tidy_time,
         space.tidy_timezone,
         space.ai_model,
         space.tidy_delay,
+        space.tidy_maintain,
     )
     changed = [field for field, old, new in zip(fields, before, after, strict=True) if old != new]
     audit(session, actor, "space.tidy_settings", space=space, fields=" ".join(changed))
