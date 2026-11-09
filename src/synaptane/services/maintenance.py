@@ -478,8 +478,12 @@ def close(
     conflicts: Iterable[str] = (),
 ) -> Closure:
     """Fixed problems (gone from `view`, the run's final state), left ones (with the reason the
-    agent gave for each, otherwise its summary), or untreated (run interrupted, page left in
-    conflict: given again later). Log lines: the page and the problem in words."""
+    agent gave for each, otherwise its summary), or untreated (run interrupted, or some write
+    left in conflict: given again later). Log lines: the page and the problem in words.
+
+    A write dropped by a conflict may have been the fix of a problem in another page (the
+    folder's index for a page missing from it): the problems still there are then not taken
+    as left, which would remember them as decided and never give them again."""
     if NAME in state.done:
         closure, general = Closure("done"), state.done[NAME]
     elif NAME in state.left:
@@ -498,7 +502,7 @@ def close(
             closure.operations.append(
                 {"op": Op.FIXED, "path": problem.page, "detail": problem.describe()}
             )
-        elif not closure.decided or problem.page in stuck:
+        elif not closure.decided or stuck:
             closure.blocked = True
         else:
             reason = given.get(number) or general or "not fixed by the agent"

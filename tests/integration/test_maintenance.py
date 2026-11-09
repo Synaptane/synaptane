@@ -303,3 +303,40 @@ def test_a_very_long_link_left_does_not_make_every_run_fail(
     mark = db.scalars(select(MaintenanceMark)).one()
     assert (mark.detail, mark.reason) == (target, "page à écrire plus tard")
     assert pending(db, ctx, wiki) is None  # left, page unchanged: not asked again
+
+
+def test_a_fix_lost_in_a_conflict_is_not_taken_for_a_problem_left(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """The fix is in another page (the index), which someone changes during the run: the
+    problem is given again, not remembered as left by the agent."""
+    configure_ai(db, ctx, wiki)
+    watermark = space(db, wiki).maintain_watermark
+    write(db, database, ctx, wiki, "nouveau.md", "# Nouveau\n\nTexte.\n")
+    reviewed(db, ctx, wiki)
+
+    def human_edit(step: int) -> None:
+        if step == 1:
+            with database.session() as session:
+                content.write_file(
+                    session, database, wiki.alice, ctx, wiki.infra, "README.md", b"# Humain\n"
+                )
+
+    index = {"path": "README.md", "old": "# Infra", "new": "# Infra\n\n[Nouveau](nouveau.md)"}
+    script = Scripted(
+        [
+            [("read_page", {"path": "README.md"}), ("read_inbox_item", {"item": NAME})],
+            [
+                ("edit_page", index),
+                ("mark_done", {"item": NAME, "summary": "Index complété"}),  # no pages given
+            ],
+            [("finish", {"summary": "Entretien fait"})],
+        ],
+        on_step=human_edit,
+    )
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="schedule", factory=script.factory)
+    assert record is not None and any(op["op"] == Op.CONFLICT for op in record.operations)
+    assert not any(op["op"] == Op.PROBLEM_LEFT for op in record.operations)
+    assert db.scalars(select(MaintenanceMark)).all() == []
+    assert space(db, wiki).maintain_watermark == watermark
+    assert problems(pending(db, ctx, wiki)) == [("not_in_index", "nouveau.md", "README.md")]

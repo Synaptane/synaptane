@@ -479,7 +479,7 @@ def tidy_space(
             if demoted or touched_notes:
                 closing = _close(repo, base, state, untreated, tried, touched_notes)
         outcome = _outcome(state, usage, closing, interruption, _conflict_ops(merged), overlay)
-        # A page left in conflict keeps its human version: its problems are given again.
+        # A write left in conflict may have been a fix: the problems still there come again.
         kept = _maintained(outcome, found, state, overlay, interruption, merged.conflicts)
         files = {**overlay.changes, **closing.notes}
         for path in files:
