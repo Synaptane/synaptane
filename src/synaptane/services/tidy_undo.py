@@ -20,6 +20,7 @@ from synaptane.core.access import Action, require
 from synaptane.core.errors import conflict, invalid, not_found
 from synaptane.git.repo import Repository
 from synaptane.services import Actor, audit, jobs, tidy_journal
+from synaptane.services import checks as team_checks
 from synaptane.services.content import writable
 from synaptane.services.inbox import CONTENT_DIR, INBOX_DIR, attachments_dir, parse_front_matter
 from synaptane.services.tidy_tools import Op
@@ -69,6 +70,12 @@ def find_run(session: Session, space: Space, run_id: UUID) -> TidyRun:
 def _shas(repo: Repository, rev: str) -> dict[str, str]:
     """Digest of each file of content/ and of the inbox at `rev`, in one call each."""
     return {b.path: b.sha for prefix in (CONTENT_DIR, INBOX_DIR) for b in repo.files(prefix, rev)}
+
+
+def moves(pages: list[RunPage]) -> dict[str, str]:
+    """Paths of the repository an undo puts moved pages back to, and where they are now (what
+    the team checks compare them with)."""
+    return {PREFIX + p.old: PREFIX + p.path for p in pages if p.old}
 
 
 def _pages(repo: Repository, commit: str) -> list[RunPage]:
@@ -186,6 +193,8 @@ def undo_pages(
                 back.append(note.title)
             else:
                 kept.append((note.title, tuple(p for p in note.pages if p not in undone)))
+        # As a restore: a team `block` check refuses what the undo would bring back.
+        team_checks.guard(repo, files, moves(todo))
         started = record.started_at.astimezone(UTC)
         message = (
             f"Undo the tidy-up of {started:%Y-%m-%d %H:%M} for "

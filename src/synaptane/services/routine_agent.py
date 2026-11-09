@@ -67,6 +67,7 @@ from synaptane.services import (
     vocation,
     webhooks,
 )
+from synaptane.services import checks as team_checks
 from synaptane.services import related as related_service
 from synaptane.services import search as search_service
 from synaptane.services import spaces as spaces_service
@@ -455,6 +456,21 @@ class RoutineTools:
             kinds = ", ".join(sorted({f.kind for f in found}))
             raise ToolFailure(f"Likely secret in {where} ({kinds}): copy no secret, remove it.")
 
+    def _follows_checks(self, text: str) -> None:
+        """The report page is a write like any other: a team `block` check refuses it, and
+        the agent fixes its text (`services.checks`)."""
+        checks = team_checks.load(self.overlay.repo, self.overlay.base)
+        if not any(rule.blocks for rule in checks.rules):
+            return
+        page = self.spec.output_page
+        found = checks.introduced(
+            page,
+            _report_page(self.spec, text, datetime.now(UTC)),
+            self.overlay.read(f"{CONTENT_DIR}/{page}"),
+        )
+        if blocked := [v for v in found if v.blocks]:
+            raise ToolFailure(team_checks.tool_refusal(blocked))
+
     def t_write_report(self, content: str) -> str:
         text = self._unwrap(content).strip()
         if not text:
@@ -462,6 +478,8 @@ class RoutineTools:
         if len(text) > MAX_REPORT:
             raise ToolFailure(f"Text too long ({MAX_REPORT} characters at most): tighten it.")
         self._no_secret(text, "the output text")
+        if self.spec.output_page:
+            self._follows_checks(text)
         self.report = text
         where = []
         if self.spec.output_page:

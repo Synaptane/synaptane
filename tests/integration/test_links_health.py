@@ -207,6 +207,7 @@ def test_wiki_health_on_a_small_space(
         "unowned": 0,
         "verified": 0,
         "drifts": 0,
+        "checks": 0,
     }
     assert body["broken"] == [
         {"page": "a.md", "link": "serveur/proxmox.md", "suggestion": "serveurs/proxmox.md"}

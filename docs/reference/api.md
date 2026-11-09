@@ -50,6 +50,7 @@ The code never changes; the message is in English, or in French with
 | `not_found` | 404 |
 | `conflict` | 409 |
 | `secret_detected` | 422 |
+| `check_failed` | 422 (a team check refuses the content: see below) |
 | `too_many_requests` | 429 (rate limit of an account or an organization: try again later) |
 | `unavailable` | 503 (database, repository or server temporarily unavailable; `Retry-After` header) |
 
@@ -70,6 +71,11 @@ as well.
 key, private key…). Nothing is committed. Remove it, or send the request again with
 `"allow_secrets": true` if it is not one. For an existing page, only the added lines are
 checked.
+
+`check_failed`: the content breaks one of the space's [team checks](../guide/wiki.md#team-checks)
+whose level is `block` (a personal email, a local path…). Nothing is committed; the
+`message` gives the rule, the page, the line and what to do. Unlike a secret, it cannot be
+confirmed: fix the content. For an existing page, only what the change adds counts.
 
 A resource the caller cannot see returns 404, like a resource that does not exist.
 
@@ -212,7 +218,7 @@ Paths are relative to `content/`:
 | `DELETE …/spaces/{space}/reports/{path}` | reader | Withdraws your report; `?all=true` dismisses them all (contributor). A verification of the page closes them too |
 | `GET …/spaces/{space}/history/{path}` | reader | Commits that touched the file (a deleted one too): `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributor | Puts a file back as it was in a past version, a deleted file too: `{"path": …, "commit": …}` (`commit`: a `sha` from the history), with `message`, `base_sha` (the current `sha`, 409 if the file changed since; `""` for a deleted file) and `allow_secrets`, optional. Returns `commit` (`null` if this version is already the current one). A page keeps its current verification fields |
-| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner), `drifts` (tables that disagree: `key`, `column`, `first` and `second` with `page`, `line`, `value`) and their totals `counts` (with `verified`: verified, up-to-date pages) |
+| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner), `drifts` (tables that disagree: `key`, `column`, `first` and `second` with `page`, `line`, `value`), `checks` (team checks broken: `rule`, `level`, `page`, `line`, `excerpt` with personal data masked, `message`), `check_rules` (rules of `.synaptane/checks.md`), `check_errors` (its faulty lines: `line`, `message`) and their totals `counts` (with `verified`: verified, up-to-date pages, and `checks`) |
 
 `freshness` (page read, search results, verification): `state` (`verified`, `stale` or
 `never`), `verified` and `stale` (booleans), `verified_at`, `owner`, `review_due` (due date,
@@ -265,6 +271,8 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `POST /organizations/{org}/ai/test` | admin | Test call: `{"message": …}` |
 | `GET …/spaces/{space}/tidy-rules` | admin | Tidy-up rules of the space (`.synaptane/prompts/tidy.md`, or its former name `.synaptane/prompts/rangement.md` if it is the only one; `path` says which): same shape as `GET …/vocation` |
 | `PUT …/spaces/{space}/tidy-rules` | admin | Same fields and same rules as `PUT …/vocation` |
+| `GET …/spaces/{space}/checks` | admin | [Team checks](../guide/wiki.md#team-checks) of the space (`.synaptane/checks.md`): same shape as `GET …/vocation`. The pages that break them are in `GET …/health` |
+| `PUT …/spaces/{space}/checks` | admin | Same fields and same rules as `PUT …/vocation`; 400 if a rule is faulty (the `message` names each faulty line) |
 | `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off) (204) |
 | `POST …/spaces/{space}/tidy` | contributor | Starts a tidy-up (202); 429 beyond the manual run limit (see [Errors](#errors)) |
 | `GET …/spaces/{space}/tidy/runs` | reader | Runs: `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, tokens used, `cost`, `error`, `reverted_at` |

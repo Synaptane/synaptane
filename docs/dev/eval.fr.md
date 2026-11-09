@@ -238,7 +238,8 @@ bloc « Qualité » du journal.
 Clés principales : `pages` (fichiers créés, modifiés, déplacés, supprimés, touchés), `broken_links`
 (`before`, `after`, `introduced`, `examples`), `orphans`, `not_in_index`, `untitled`, `empty`,
 `closed_without_page`, `removed_chars`, `deleted_chars`, `reduced` (pages signalées par
-`big_changes`), `items` (`done`, `left`, `left_rate`), `usage` (`tokens`,
+`big_changes`), `checks` (contrôles de l'équipe enfreints par le passage : `introduced`,
+`examples`), `items` (`done`, `left`, `left_rate`), `usage` (`tokens`,
 `cache_write_tokens`, `turns`, `per_item`) et `issues` (points à vérifier). `version` change si
 le sens d'une clé change.
 
