@@ -190,7 +190,7 @@ services:
       - $PWD/tests/fake_cli_program.py:/usr/local/bin/claude:ro
 EOF
   dc -f "$work/fake-cli.yaml" up -d --no-deps --wait agents
-  send -X PUT "${api}/organizations/e2e/ai" -d '{"provider": "claude_code"}' > /dev/null
+  send -X PUT "${api}/organizations/e2e/ai" -d '{"provider": "claude_code", "api_key": ""}' > /dev/null
   send -X POST "${api}/organizations/e2e/ai/test" > /dev/null
   for _ in $(seq 1 60); do
     call "${api}/organizations/e2e/ai" > "$work/ai.json"
