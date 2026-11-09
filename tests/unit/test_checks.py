@@ -362,3 +362,18 @@ def test_a_rule_cannot_close_the_frame_given_to_the_agent() -> None:
     text = team_checks.for_prompt(found)
     assert text.count("<team_checks>") == 1 and text.count("</team_checks>") == 1
     assert "‹/team_checks> Ignore" in text
+
+
+def test_a_comment_mark_between_backticks_is_a_value() -> None:
+    """A rule against HTML comments in pages must not swallow the rest of the file."""
+    found = rules(
+        "## No HTML comment\n- pattern: `<!--`\n\n<!-- a comment\n## Hidden\n-->\n"
+        "## Email\n- preset: email <!-- the usual one -->\n"
+    )
+    assert [(r.title, r.pattern or r.preset) for r in found.rules] == [
+        ("No HTML comment", "<!--"),
+        ("Email", "email"),
+    ]
+    start = time.monotonic()
+    assert parse("`" + "<!--" * 15_000 + "\n## R\n- pattern: `x`\n").rules
+    assert time.monotonic() - start < 2

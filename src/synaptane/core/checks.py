@@ -318,15 +318,24 @@ def _items(value: str) -> tuple[str, ...]:
 
 
 def _without_comments(text: str) -> str:
-    """HTML comments blanked out, line numbers kept (an unclosed one runs to the end). By
-    hand: a lazy expression would be quadratic on a file full of `<!--`."""
-    parts, position = [], 0
+    """HTML comments blanked out, line numbers kept (an unclosed one runs to the end). A
+    `<!--` inside backticks is a value (`- pattern: `<!--``), not a comment. By hand, in one
+    pass: a lazy expression would be quadratic on a file full of `<!--`."""
+    parts, copied, position = [], 0, 0
+    seen, ticks = 0, 0  # backticks on the current line, before `seen`
     while (start := text.find("<!--", position)) >= 0:
+        if (newline := text.rfind("\n", seen, start)) >= 0:
+            seen, ticks = newline + 1, 0
+        ticks += text.count("`", seen, start)
+        seen = position = start + 4
+        if ticks % 2:
+            continue
         end = text.find("-->", start + 4)
         stop = len(text) if end < 0 else end + 3
-        parts += [text[position:start], "\n" * text.count("\n", start, stop)]
-        position = stop
-    return "".join(parts) + text[position:]
+        parts += [text[copied:start], "\n" * text.count("\n", start, stop)]
+        copied = seen = position = stop
+        ticks = 0
+    return "".join(parts) + text[copied:]
 
 
 def parse(text: str) -> Checks:
