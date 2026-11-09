@@ -465,3 +465,14 @@ def test_a_routines_folder_replaced_by_a_file_gives_a_clear_refusal(
     db.rollback()
     assert rows(db) == []
 
+
+def test_the_warnings_of_a_file_are_capped(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Thousands of unknown fields: the file is read, a few warnings are kept (not one per line,
+    in the database and on the page)."""
+    many = "".join(f"champ{i}: x\n" for i in range(3000))
+    wiki.remote.push({PATH: FILE.replace("---\ntitle", "---\n" + many + "title", 1)})
+    sync(database, ctx, wiki.infra.id)
+    [routine] = rows(db)
+    assert routine.error is None and 1 <= len(routine.warnings) <= 20

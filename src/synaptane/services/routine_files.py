@@ -79,6 +79,7 @@ MAX_ROUTINES = 20  # per space: each routine costs, proliferation is paid for
 MAX_DESCRIPTION = 500
 MAX_FILE_SIZE = 64_000  # bytes: instructions, header and a margin
 FILES_READ = 2 * MAX_ROUTINES  # files beyond are not even shown (log only)
+MAX_WARNINGS = 10  # per file: enough to fix it, never one per line of a large file
 # Fields of the header. Any other one is a newer version's: reported, kept, ignored.
 KNOWN = (
     "title",
@@ -545,7 +546,7 @@ def parse(data: bytes, name: str) -> Parsed:
         config = _config(header, name)
     except SynaptaneError as error:
         return Parsed(None, Label(error.template, **error.params))
-    return Parsed(config, None, header.warnings, header.extra)
+    return Parsed(config, None, header.warnings[:MAX_WARNINGS], header.extra)
 
 
 def extra_lines(data: bytes | None) -> list[str]:
