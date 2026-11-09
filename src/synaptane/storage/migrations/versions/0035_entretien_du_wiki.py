@@ -4,8 +4,8 @@
 problems); `spaces.maintain_watermark` is the commit the problems are counted from: the last
 synchronized head (no catching up on the past), or, for a space never synchronized, its first
 head; `spaces.maintain_attempts` counts the runs interrupted in a row before the agent decided.
-`maintenance_marks` remembers the problems the agent left, with their reason and the content
-of the page then. No existing column changes.
+`maintenance_marks` remembers the problems the agent left, with their reason and the commit
+the decision was made on. No existing column changes.
 
 Revision ID: 0035
 Revises: 0033
@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(length=64), nullable=False),
         sa.Column("page", sa.Text(), nullable=False),
         sa.Column("detail", sa.Text(), nullable=False),
-        sa.Column("sha", sa.String(length=64), nullable=True),
+        sa.Column("until", sa.String(length=64), nullable=False),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(

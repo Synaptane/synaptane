@@ -4,7 +4,7 @@ The health check (`services.health`) sees broken links and isolated, empty or un
 the run metrics (`services.tidy_metrics`) see pages missing from their folder's index. Yet
 nobody fixed them as long as no note arrived. So the scheduled run (and "Tidy up now")
 computes, without AI, the problems that appeared since the last run through changes made by
-people (web, REST, MCP, imports, pushes), and gives them to the agent as one synthetic item,
+people (web, REST, MCP, pushes), and gives them to the agent as one synthetic item,
 on the model of the "Import: N pages" item: the run happens even with an empty inbox. The
 agent fixes what is safe and leaves the rest, with a reason.
 
@@ -13,19 +13,24 @@ No flood, no repetition:
   of the last run that was given all of them, or the last synchronized head when maintenance
   was turned on (or at the upgrade). The past is never caught up;
 - only the commits of people count: Synaptane's own (tidy-up, routines…) are left out, since
-  the tidy-up already fixes what it breaks (its end-of-run check);
+  the tidy-up already fixes what it breaks (its end-of-run check); so are imports (a commit
+  of more than `changes.BULK` pages), already reviewed as a whole by the "Import: N pages"
+  item: only what people change after them counts;
 - at most MAX_PROBLEMS per night; the others wait for the next nights (the watermark only moves
   once every problem of its window was given);
-- a problem the agent leaves is remembered with its reason (`MaintenanceMark`), bound to the
-  content of its page, as `services.verdicts` does for routines: it comes back only once the
-  page has changed, and is forgotten once the problem has gone.
+- a problem the agent leaves is remembered with its reason (`MaintenanceMark`), and forgotten
+  once it has gone. It comes back only if it is introduced again: it went away and came back,
+  or a commit of people wrote it again (`Source.reintroduced`: the same broken link added
+  once more, the page created anew). Editing its page is not enough: a log page edited every
+  day, with a link broken on purpose, must not cost a run every night.
 
 Nothing is computed without an AI provider, nor once the month's budget is used up: the
 caller (`tidy.tidy_space`) only asks then.
 
 Extension point: `SOURCES`, the sources of problems. The built-in one (`WikiChecks`) reports
 what the health check would; another source (the team's own checks, for one) only has to
-return `Problem`s for a `Window` and say which of them are still there.
+return `Problem`s for a `Window`, say which of them are still there, and which were
+introduced again.
 """
 
 import hashlib
@@ -40,9 +45,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
 from synaptane.core.errors import Label
-from synaptane.core.markdown import broken_among, broken_links, link_targets
+from synaptane.core.markdown import WikiIndex, broken_among, broken_links, link_targets
 from synaptane.git.repo import GitError, Repository
-from synaptane.services import health
+from synaptane.services import changes, health
 from synaptane.services import links as links_service
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
 from synaptane.services.tidy_tools import FOLDER_INDEXES, Op, Overlay, RunState, _broken_keys
@@ -57,7 +62,7 @@ INDEX = "README.md"
 # Problems given to the agent per night. Each one costs a few tool calls (read the page,
 # search, one edit): ten stay a small share of a run's 120 steps, beside up to 25 inbox items,
 # cost about as much as two or three notes, and make a list that someone can check in the log
-# the next morning. A normal day of edits introduces fewer; an import waits a few nights.
+# the next morning. A normal day of edits introduces fewer.
 MAX_PROBLEMS = 10
 
 # Runs interrupted in a row before the problems given are left, as for an inbox item
@@ -112,7 +117,10 @@ class Window:
     created: set[str] = field(default_factory=set)  # new pages, still there
     touched: set[str] = field(default_factory=set)  # created, modified or moved here, still there
     gone: set[str] = field(default_factory=set)  # deleted, or the old path of a move
-    origins: dict[str, str] = field(default_factory=dict)  # moved page → path at `since`
+    origins: dict[str, str] = field(default_factory=dict)  # moved page → path at its baseline
+    # Page last written by an import (`changes.bulk`) → that commit: its problems are the
+    # import's, reviewed as a whole by the tidy-up; only what people did after counts.
+    baselines: dict[str, str] = field(default_factory=dict)
 
     @property
     def empty(self) -> bool:
@@ -131,6 +139,22 @@ class Source(Protocol):
     def present(self, view: Overlay, problems: list[Problem]) -> set[str]:
         """Keys of those problems (from this source) still there in `view`."""
         ...
+
+    def reintroduced(
+        self, repo: Repository, touches: list["Touch"], problems: list[Problem]
+    ) -> set[str]:
+        """Keys of those problems (left by the agent) that people introduced again in the
+        commits `touches`, made after the decision. Editing their page is not enough."""
+        ...
+
+
+@dataclass(frozen=True)
+class Touch:
+    """A page (relative to content/) touched by a commit of people (status A, M or R)."""
+
+    commit: str
+    status: str
+    page: str
 
 
 def _rel(path: str) -> str:
@@ -186,17 +210,27 @@ class WikiChecks:
                 for src, targets in before.items()
                 if targets & window.gone and _rel(src) in current
             }
-        before_view = Overlay(window.repo, window.since)
-        before_names, after_names = before_view.names(), view.names()
+        after_names = view.names()
         pages = sorted(p for p in candidates if p in current and _is_page(p))
         texts = _read(view, pages)
-        olds = _read(before_view, [window.origins.get(p, p) for p in pages])
+        # State each page is compared with: the watermark, or the import that last wrote it.
+        befores: dict[str, tuple[Overlay, dict[str, bytes]]] = {}
+        for commit in {window.baselines.get(p, window.since) for p in pages}:
+            before_view = Overlay(window.repo, commit)
+            group = [p for p in pages if window.baselines.get(p, window.since) == commit]
+            befores[commit] = (
+                before_view,
+                _read(before_view, [window.origins.get(p, p) for p in group]),
+            )
+        names_at = {commit: v.names() for commit, (v, _) in befores.items()}
         for page in pages:
             text = _text(texts.get(page))
             origin = window.origins.get(page, page)
+            commit = window.baselines.get(page, window.since)
+            olds = befores[commit][1]
             known: set[str] = set()
-            if origin in olds:  # the page existed at the watermark
-                known = _broken_keys(_text(olds[origin]), origin, before_names)
+            if origin in olds:  # the page existed at its baseline
+                known = _broken_keys(_text(olds[origin]), origin, names_at[commit])
             targets = link_targets(text, page, after_names)
             keys = {w: t or w for w, t in targets}
             for written, suggestion in broken_among(targets, page, after_names):
@@ -263,6 +297,46 @@ class WikiChecks:
                 still.add(problem.key)
         return still
 
+    def reintroduced(
+        self, repo: Repository, touches: list[Touch], problems: list[Problem]
+    ) -> set[str]:
+        """A page created again (deleted, then written anew) brings its form problems back; a
+        commit that adds a copy of a broken link (more occurrences of it in the page than
+        before the commit) brings that link back. Rewording the line that holds the link, or
+        writing elsewhere in the page (a log edited every day), does not."""
+        found: set[str] = set()
+        by_page: dict[str, list[Touch]] = {}
+        for touch in touches:
+            by_page.setdefault(touch.page, []).append(touch)
+        for problem in problems:
+            mine = by_page.get(problem.page, [])
+            if problem.kind != "broken_link":
+                if any(t.status == "A" for t in mine):
+                    found.add(problem.key)
+                continue
+            for touch in mine:
+                after = repo.blob(PREFIX + problem.page, touch.commit)
+                before = (
+                    None
+                    if touch.status != "M"
+                    else repo.blob(PREFIX + problem.page, f"{touch.commit}^")
+                )
+                if _count(after, problem) > _count(before, problem):
+                    found.add(problem.key)
+                    break
+        return found
+
+
+_NO_INDEX = WikiIndex()  # wiki links counted as written, without resolving them
+
+
+def _count(data: bytes | None, problem: Problem) -> int:
+    """Occurrences of a link, as written, in a page."""
+    if data is None:
+        return 0
+    targets = link_targets(_text(data), problem.page, _NO_INDEX)
+    return sum(1 for written, _ in targets if written == problem.detail)
+
 
 SOURCES: list[Source] = [WikiChecks()]
 
@@ -273,7 +347,7 @@ def _source(name: str) -> Source | None:
 
 def _read(view: Overlay, pages: Iterable[str]) -> dict[str, bytes]:
     """Contents of pages (relative to content/) in `view`, the missing ones left out. In one
-    Git call: one process per page would make the nightly computation of an import of
+    Git call: one process per page would make the nightly computation of a window of
     thousands of pages, done again every night until its problems are all given, last
     minutes."""
     found: dict[str, bytes] = {}
@@ -303,6 +377,9 @@ def window(repo: Repository, since: str, view: Overlay, own_email: str) -> Windo
     for commit, entries in repo.changes_since(since, CONTENT_DIR, until=view.base):
         if commit.author.email == own_email:
             continue
+        if changes.bulk(entries):
+            _imported(found, commit.sha, entries)
+            continue
         for status, path, old in entries:
             if not path.startswith(PREFIX):
                 continue
@@ -311,10 +388,13 @@ def window(repo: Repository, since: str, view: Overlay, own_email: str) -> Windo
                 found.gone.add(here)
                 found.created.discard(here)
                 found.touched.discard(here)
+                found.baselines.pop(here, None)
                 continue
             if status == "R" and old:
                 before = _rel(old)
                 found.gone.add(before)
+                if before in found.baselines:
+                    found.baselines[here] = found.baselines.pop(before)
                 origin = found.origins.pop(before, before)
                 if before in found.created:
                     found.created.discard(before)
@@ -325,9 +405,32 @@ def window(repo: Repository, since: str, view: Overlay, own_email: str) -> Windo
             elif status == "A":
                 found.created.add(here)
                 found.gone.discard(here)
+                found.baselines.pop(here, None)
             found.touched.add(here)
     found.gone -= found.touched
     return found
+
+
+def _imported(found: Window, commit: str, entries: list[tuple[str, str, str]]) -> None:
+    """An import (or bulk reorganization) commit: what it wrote becomes the baseline of those
+    pages, nothing of it counts as people's change."""
+    for status, path, old in entries:
+        if not path.startswith(PREFIX):
+            continue
+        here = _rel(path)
+        if old and status == "R":
+            before = _rel(old)
+            found.created.discard(before)
+            found.touched.discard(before)
+            found.baselines.pop(before, None)
+            found.origins.pop(before, None)
+        found.created.discard(here)
+        found.touched.discard(here)
+        found.origins.pop(here, None)
+        if status == "D":
+            found.baselines.pop(here, None)
+        else:
+            found.baselines[here] = commit
 
 
 @dataclass
@@ -359,7 +462,7 @@ class Found:
             f"# Wiki maintenance: {len(self.problems)} problem(s)",
             "",
             "Problems that appeared since the last tidy-up run, in pages changed by people "
-            "(edits, imports, pushes). Found by a check without AI.",
+            "(edits, pushes). Found by a check without AI.",
             "",
         ]
         for number, problem in enumerate(self.problems, start=1):
@@ -423,26 +526,26 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
             select(MaintenanceMark).where(MaintenanceMark.space_id == space.id)
         )
     }
-    shas = {_rel(b.path): b.sha for b in repo.files(CONTENT_DIR, head)}
-    # Left problems: forgotten once gone, given again once their page has changed.
-    again: list[Problem] = []
+    current = {_rel(p) for p in view.current() if p.startswith(PREFIX)}
+    # Left problems: forgotten once gone (so one that comes back later is new), given again
+    # only if people introduced them again since the decision; an edit of the page is not
+    # enough, or a page edited every day would cost a run every night.
+    standing: list[MaintenanceMark] = []
     by_source: dict[str, list[MaintenanceMark]] = {}
     for mark in marks.values():
         by_source.setdefault(mark.source, []).append(mark)
     for name, group in by_source.items():
         checker = _source(name)
-        alive = [m for m in group if m.page in shas]
+        alive = [m for m in group if m.page in current]
         still = checker.present(view, [_problem(m) for m in alive]) if checker else set()
         for mark in group:
             if mark.key not in still:
                 session.delete(mark)
-            elif shas.get(mark.page) != mark.sha and mark.key not in candidates:
-                again.append(_problem(mark))
-    fresh = [
-        p
-        for p in candidates.values()
-        if (left := marks.get(p.key)) is None or shas.get(p.page) != left.sha
-    ]
+            else:
+                standing.append(mark)
+    back = _reintroduced(repo, head, ws.committer.email, standing)
+    again = [_problem(m) for m in standing if m.key in back and m.key not in candidates]
+    fresh = [p for p in candidates.values() if p.key not in marks or p.key in back]
     if not fresh and watermark != head:
         _move(session, space, watermark, head)
         watermark = head
@@ -452,6 +555,35 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
         return None
     keys = {p.key for p in given}
     return Found(given, len(everything), watermark, all(p.key in keys for p in fresh), attempts)
+
+
+def _reintroduced(
+    repo: Repository, head: str, own_email: str, marks: list[MaintenanceMark]
+) -> set[str]:
+    """Keys of the left problems that people introduced again after their decision: one
+    `git log` per decision commit (one per run, in practice), imports aside like elsewhere."""
+    found: set[str] = set()
+    by_until: dict[str, list[MaintenanceMark]] = {}
+    for mark in marks:
+        by_until.setdefault(mark.until, []).append(mark)
+    for until, group in by_until.items():
+        if until == head or repo.rev(until) is None or not repo.is_ancestor(until, head):
+            continue  # nothing since, or history rewritten: the decision stands
+        pages = {m.page for m in group}
+        touches = [
+            Touch(commit.sha, status, _rel(path))
+            for commit, entries in repo.changes_since(until, CONTENT_DIR, until=head)
+            if commit.author.email != own_email and not changes.bulk(entries)
+            for status, path, _ in entries
+            if status in ("A", "M", "R") and _rel(path) in pages
+        ]
+        if not touches:
+            continue
+        for name in {m.source for m in group}:
+            if (source := _source(name)) is not None:
+                problems = [_problem(m) for m in group if m.source == name]
+                found |= source.reintroduced(repo, touches, problems)
+    return found
 
 
 @dataclass
@@ -590,14 +722,14 @@ def settle(
     space.maintain_attempts = 0
     repo = ws.local_repository(space)
     at = commit or base
-    for problem, reason in closure.left:
+    for problem, reason in closure.left:  # decided on the run's starting state
         mark = session.get(MaintenanceMark, (space.id, problem.key))
         if mark is None:
             mark = MaintenanceMark(space_id=space.id, key=problem.key)
             session.add(mark)
         mark.source, mark.kind, mark.page = problem.source, problem.kind, problem.page
         mark.detail, mark.reason = problem.detail, " ".join(reason.split())[:500]
-        mark.sha = repo.blob_sha(PREFIX + problem.page, at)
+        mark.until = base
         mark.decided_at = datetime.now(UTC)
     if not found.complete or closure.blocked:
         return

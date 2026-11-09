@@ -133,7 +133,22 @@ def test_an_empty_inbox_still_gets_the_new_problems_fixed(
     )
 
 
-def test_a_left_problem_comes_back_only_once_its_page_changed(
+def leave_all(db: Session, ctx: Workspace, wiki: Wiki, reason: str) -> None:
+    """What the agent would do: leave every problem given, with a reason."""
+    found = pending(db, ctx, wiki)
+    assert found is not None
+    repo = ctx.local_repository(wiki.infra)
+    head = repo.head()
+    assert head is not None
+    state = RunState(items={}, left={NAME: reason})
+    closure = maintenance.close(found, state, Overlay(repo, head))
+    assert len(closure.left) == len(found.problems)
+    maintenance.settle(db, ctx, space(db, wiki), found, closure, head, None)
+    db.commit()
+    assert space(db, wiki).maintain_watermark == head
+
+
+def test_a_left_problem_comes_back_only_if_introduced_again(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     write(db, database, ctx, wiki, "brouillon.md", "# Brouillon\n")
@@ -149,15 +164,62 @@ def test_a_left_problem_comes_back_only_once_its_page_changed(
     maintenance.settle(db, ctx, space(db, wiki), found, closure, head, None)
     db.commit()
     assert space(db, wiki).maintain_watermark == head
-    assert pending(db, ctx, wiki) is None  # left, page unchanged: not asked again
+    assert pending(db, ctx, wiki) is None  # left: not asked again
 
+    # Edited: not enough, the problem was not introduced again.
     write(db, database, ctx, wiki, "brouillon.md", "# Brouillon\n\nSuite.\n")
+    assert pending(db, ctx, wiki) is None
+    # Deleted then created anew by someone: introduced again.
+    content.delete_file(db, database, wiki.alice, ctx, wiki.infra, "brouillon.md")
+    db.commit()
+    write(db, database, ctx, wiki, "brouillon.md", "# Brouillon\n\nDe retour.\n")
     assert problems(pending(db, ctx, wiki)) == [("not_in_index", "brouillon.md", "README.md")]
 
     # Fixed by hand: the problem has gone, and so has its memory.
     write(db, database, ctx, wiki, "README.md", "# Infra\n\n[Brouillon](brouillon.md)\n")
     assert pending(db, ctx, wiki) is None
     assert db.scalars(select(MaintenanceMark)).all() == []
+
+
+def test_a_log_edited_every_day_with_a_link_broken_on_purpose_costs_nothing(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    journal = "# Journal\n\nVoir [la suite](suite.md), à écrire.\n"
+    write(db, database, ctx, wiki, "README.md", "# Infra\n\n[Journal](journal.md)\n")
+    write(db, database, ctx, wiki, "journal.md", journal)
+    assert problems(pending(db, ctx, wiki)) == [("broken_link", "journal.md", "suite.md")]
+    leave_all(db, ctx, wiki, "P1: page à venir")
+    for day in range(3):  # written around the link, the link's own line reworded
+        journal = journal.replace("à écrire", f"à écrire (jour {day})") + f"\n- jour {day}\n"
+        write(db, database, ctx, wiki, "journal.md", journal)
+        assert pending(db, ctx, wiki) is None
+    # The same broken link written once more: introduced again.
+    write(db, database, ctx, wiki, "journal.md", journal + "\nEncore [la suite](suite.md).\n")
+    assert problems(pending(db, ctx, wiki)) == [("broken_link", "journal.md", "suite.md")]
+    leave_all(db, ctx, wiki, "P1: toujours à venir")
+    # Removed, then written again in a later commit, between two runs: introduced again.
+    write(db, database, ctx, wiki, "journal.md", "# Journal\n\nRien.\n")
+    write(db, database, ctx, wiki, "journal.md", "# Journal\n\n[La suite](suite.md)\n")
+    assert problems(pending(db, ctx, wiki)) == [("broken_link", "journal.md", "suite.md")]
+
+
+def test_imports_are_left_to_their_own_item(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """A commit of more than 20 pages is reviewed as one "Import: N pages" item: its problems
+    are not the maintenance's; only what people change afterwards counts."""
+    batch: dict[str, str | None] = {
+        f"content/import/p{n}.md": f"# P{n}\n\n[Ailleurs](x{n}.md)\n" for n in range(25)
+    }
+    wiki.remote.push(batch, "Import Notion")
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    assert [i.title for i, _ in changes.pending(db, ctx, wiki.infra)] == [
+        "Import: 25 pages (Import Notion)"
+    ]
+    assert pending(db, ctx, wiki) is None
+    page = "import/p3.md"
+    write(db, database, ctx, wiki, page, "# P3\n\n[Ailleurs](x3.md) et [là](y.md)\n")
+    assert problems(pending(db, ctx, wiki)) == [("broken_link", page, "y.md")]
 
 
 def test_what_counts_is_what_people_broke(
@@ -378,15 +440,19 @@ def test_the_first_edit_after_turning_it_on_counts(
     ]
 
 
-def test_a_big_import_is_read_in_a_few_git_calls(
+def test_a_big_window_is_read_in_a_few_git_calls(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Its window is computed again every night until all its problems are given: one Git
-    process per page (thousands for an import) took most of a minute each night."""
+    """A window is computed again every night until all its problems are given: one Git
+    process per page (thousands of pages) took most of a minute each night."""
     batch: dict[str, str | None] = {
         f"content/lot/p{n}.md": f"# P{n}\n\n[Ailleurs](x{n}.md)\n" for n in range(40)
     }
-    wiki.remote.push({"content/lot/README.md": "# Lot\n", **batch}, "Import")
+    pages = sorted(batch)
+    # Twenty files a commit: not an import (`changes.BULK`), counted page by page.
+    wiki.remote.push({"content/lot/README.md": "# Lot\n", **{p: batch[p] for p in pages[:19]}})
+    wiki.remote.push({p: batch[p] for p in pages[19:39]})
+    wiki.remote.push({pages[39]: batch[pages[39]]})
     git_sync.run_sync(database, ctx, wiki.infra.id)
     blob = Repository.blob
     calls: list[str] = []

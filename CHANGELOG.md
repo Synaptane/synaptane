@@ -12,8 +12,8 @@ of the target version.
 
 ### Added
 - **Nightly wiki maintenance**. The scheduled tidy-up (and **Tidy now**) also fixes the
-  problems people introduced since the last run, through the web, REST, MCP, imports or
-  pushes, even when the inbox is empty: broken links introduced in the pages they changed (or
+  problems people introduced since the last run, through the web, REST, MCP or pushes, even
+  when the inbox is empty: broken links introduced in the pages they changed (or
   in pages that pointed to a page they deleted or moved), and their new pages that nothing
   links to, missing from their folder's index, untitled or empty. A check without AI finds
   them; they reach the agent as one "Wiki maintenance (N)" item listing each problem (page,
@@ -21,8 +21,11 @@ of the target version.
   a link from the topic's page or the index, a line in the index), adds no content, never
   deletes or moves a page for it, and leaves the rest with a reason; its tools, deletion cap,
   alerts and undo do not change. At most 10 problems a night; Synaptane's own commits never
-  count (the tidy-up's end-of-run check already covers them); a problem left is not proposed
-  again until its page changes; runs after a drop and chained runs do not maintain; nothing is
+  count (the tidy-up's end-of-run check already covers them), nor do imports (more than 20
+  pages in a commit, already reviewed as one "Import: N pages" item); a problem left is not
+  proposed again unless it is introduced again (gone and back, the same broken link written
+  once more, the page created anew), so a page edited every day with a link broken on purpose
+  costs nothing; runs after a drop and chained runs do not maintain; nothing is
   computed without an AI provider or once the month's budget is used up. Each problem gets a
   line in the run's log (fixed, or left with the reason); contributors get no notice for it.
   A run stopped before the end gives the problems again; after three interrupted runs in a

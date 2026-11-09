@@ -848,9 +848,8 @@ class ChangeMark(Base):
 
 class MaintenanceMark(Base):
     """A wiki problem the tidy-up agent left during the nightly maintenance, with its reason
-    (`services.maintenance`). Bound to the content of the page concerned at that moment: the
-    problem is not proposed again as long as the page has not changed. Erased once the
-    problem has gone."""
+    (`services.maintenance`). Not proposed again unless someone introduces it again after
+    `until` (editing the page is not enough); erased once the problem has gone."""
 
     __tablename__ = "maintenance_marks"
 
@@ -862,7 +861,7 @@ class MaintenanceMark(Base):
     kind: Mapped[str] = mapped_column(String(64))
     page: Mapped[str] = mapped_column(Text)  # relative to content/
     detail: Mapped[str] = mapped_column(Text, default="")
-    sha: Mapped[str | None] = mapped_column(String(64))  # the page's content then
+    until: Mapped[str] = mapped_column(String(64))  # commit the decision was made on
     reason: Mapped[str] = mapped_column(Text, default="")
     decided_at: Mapped[datetime] = mapped_column(default=utcnow)
 

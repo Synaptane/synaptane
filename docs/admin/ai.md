@@ -391,21 +391,23 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
 
 ### Wiki maintenance
 
-People change the wiki directly too: an edit on the web, an import, a push. These changes
+People change the wiki directly too: an edit on the web, a push. These changes
 can break a link or leave a new page that nothing leads to. The **Health** tab sees these
 problems, but nobody fixed them as long as no note arrived. With the **Maintain the wiki
 every night** box (Settings → Tidy-up, **on by default**), the scheduled run fixes them, even
 with an empty inbox.
 
 - **What is checked**, without AI, at the scheduled time and with **Tidy now**: the problems
-  that appeared **since the last run** through commits of people (web, REST, MCP, imports,
-  pushes):
+  that appeared **since the last run** through commits of people (web, REST, MCP, pushes):
   - broken links introduced in the pages they changed, or in the pages that pointed to a page
     they deleted or moved;
   - their new pages that no page links to, missing from their folder's index (`README.md`,
     when the folder has one), untitled or empty.
   Synaptane's own commits do not count: what the tidy-up breaks is already handled by its
-  end-of-run check.
+  end-of-run check. Nor do imports, that is any commit that touches more than 20 pages (an
+  Obsidian, Notion or Confluence import, a reorganization): the tidy-up already reviews them as
+  a whole, with its "Import: N pages" item. Only what people change in those pages afterwards
+  counts. A smaller import is reviewed page by page, like any edit.
 - **What the agent does**: the problems come as one more item, "Wiki maintenance (N)", with
   the precise list (page, link, suggestion of the health check), presented as data. The agent
   only fixes what is safe: it points a link to the right page, links an isolated page from
@@ -417,7 +419,10 @@ with an empty inbox.
     the moment maintenance was turned on (or the upgrade);
   - **at most 10 problems a night**: enough for a normal day of edits, a small share of a
     run's limits, and a list easy to check in the log. The others wait for the next nights;
-  - a problem left by the agent is not proposed again as long as its page does not change;
+  - a problem left by the agent is not proposed again unless it is **introduced again**: it
+    went away and came back, or someone writes it again (the same broken link added once
+    more, the page created anew). Editing the page is not enough: a log page edited every
+    day, with a link broken on purpose, does not cost a run every night;
   - runs started after a drop and chained runs do not maintain.
 - **Cost**: nothing is computed or started without an AI provider, nor once the month's
   budget is used up. A night without problems costs nothing.

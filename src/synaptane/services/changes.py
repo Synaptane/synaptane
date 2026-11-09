@@ -58,6 +58,12 @@ def _relative(path: str) -> str:
     return path[len(PREFIX) :] if path.startswith(PREFIX) else path
 
 
+def bulk(entries: list[tuple[str, str, str]]) -> bool:
+    """A commit that touches more than BULK pages: an import or a reorganization, reviewed as
+    a whole ("Import: N pages"), and left out of the nightly maintenance."""
+    return sum(1 for _, path, _ in entries if path.startswith(PREFIX)) > BULK
+
+
 def collect(repo: Repository, since: str, own_email: str) -> dict[str, Change]:
     """Pages changed since `since`, except Synaptane's commits (author `own_email`)."""
     found: dict[str, Change] = {}
@@ -65,7 +71,7 @@ def collect(repo: Repository, since: str, own_email: str) -> dict[str, Change]:
         if commit.author.email == own_email:
             continue
         touched = [path for _, path, _ in entries if path.startswith(PREFIX)]
-        if len(touched) > BULK:  # bulk import: one item, not one per page
+        if bulk(entries):  # bulk import: one item, not one per page
             key = IMPORT + commit.sha[:12]
             found[key] = Change(
                 key, "import", commits=[commit], pages=[_relative(p) for p in touched]
