@@ -768,6 +768,8 @@ def save(
 
     Returns the routine as saved (None once removed)."""
     path = file_path(name)
+    if config is not None:
+        _fits(render(config).encode())
     if config is not None and not allow_secrets:  # scanned outside the space lock
         repo = _synced(ws, space)
         old = repo.blob(path) if repo is not None else None
@@ -812,7 +814,7 @@ def save(
                 )
             data = None
             if config is not None:
-                data = render(config, extra_lines(repo.blob(path))).encode()
+                data = _fits(render(config, extra_lines(repo.blob(path))).encode())
             verb = "updated" if data is not None else "removed"
             subject = f"Routine {verb}: {name}" + trailers(source, actor.via)
             if repo.commit_changes({path: data}, author, subject):
@@ -825,6 +827,19 @@ def save(
             saved.created_by = actor.user.id
         session.commit()  # under the lock: the next synchronization sees it
     return saved
+
+
+def _fits(data: bytes) -> bytes:
+    """Each field may be within its limits and the file larger than the reader accepts
+    (characters of 3 or 4 bytes, long folder names): written, the routine would be invalid
+    at once."""
+    if len(data) > MAX_FILE_SIZE:
+        raise invalid(
+            "The routine's file would be too large ({n} bytes at most): shorten the "
+            "instructions or the scope.",
+            n=MAX_FILE_SIZE,
+        )
+    return data
 
 
 def _save_pending(

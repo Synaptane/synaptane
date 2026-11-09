@@ -1212,6 +1212,7 @@
  "The routine writes nowhere else. Fixes to the wiki go through the inbox, which the tidy-up handles with its safeguards.": "La routine n'écrit nulle part ailleurs. Les corrections du wiki passent par l'inbox, que le rangement traite avec ses garde-fous.",
  "The routine's file is invalid: fix it before changing the routine.": "Le fichier de la routine est invalide : corrigez-le avant de modifier la routine.",
  "The routine's file is invalid: fix it before running the routine.": "Le fichier de la routine est invalide : corrigez-le avant de lancer la routine.",
+ "The routine's file would be too large ({n} bytes at most): shorten the instructions or the scope.": "Le fichier de la routine serait trop gros ({n} octets au plus) : raccourcissez les consignes ou le périmètre.",
  "The routine's file is invalid: {error}": "Le fichier de la routine est invalide : {error}",
  "The run exceeded the maximum time.": "Le passage a dépassé le temps maximal.",
  "The run exceeded the time limit: it will resume at the next tidy-up.": "Le passage a dépassé le temps maximal : il reprendra au prochain rangement.",

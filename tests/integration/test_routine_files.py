@@ -424,3 +424,28 @@ def test_a_request_locked_by_a_reconciliation_is_not_left_without_a_task(
     found = db.get(Routine, routine.id)
     assert found is not None and found.requested == "manual"
     assert routine_agent.run_pending(database, ctx, wiki.infra.id, factory=script.factory) == 1
+
+
+def test_a_file_too_large_to_be_read_back_is_refused(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Every field within its limits, but a file larger than the reader accepts (instructions
+    of 4-byte characters, long folder names): saved, the routine would be invalid at once."""
+    with pytest.raises(SynaptaneError, match="would be too large"):
+        routines.create(
+            db,
+            database,
+            wiki.root,
+            ctx,
+            wiki.infra,
+            routines.Fields(
+                title="Grande",
+                instructions="🙂" * 19_000,
+                frequency="daily",
+                at="06:00",
+                output_inbox=True,
+            ),
+        )
+    db.rollback()
+    assert rows(db) == []
+    assert ctx.local_repository(wiki.infra).blob(".synaptane/routines/grande.md") is None
