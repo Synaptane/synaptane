@@ -7,7 +7,6 @@ changes, busy space, repaired copy, and reverting a pass. The simulated models a
 
 import json
 import logging
-import subprocess
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from decimal import Decimal
@@ -26,6 +25,7 @@ from synaptane.services.inbox import InboxItem
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import AuditEvent, ChangeMark, Job, Space, TidyRun
+from tests.fake_cli import Fake, fake  # noqa: F401 — shared fixture
 from tests.integration.test_tidy import CloseAll, Scripted, configure_ai
 from tests.integration.test_tidy_robustness import note
 from tests.integration.wikidata import Wiki
@@ -322,21 +322,17 @@ def claude_code_output(*, is_error: bool) -> str:
 
 
 def test_claude_code_error_result_still_reports_usage_and_quota(
-    db: Session, database: Database, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    fake: Fake,  # noqa: F811
 ) -> None:
     """Quota exhausted mid-pass: Claude Code answers `is_error`, but has used tokens and
     read the quota. The journal must keep them, and notify the admins."""
     subscription(db, ctx, wiki)
     note(db, database, ctx, wiki, "Une note")
-    real_run = subprocess.run
-
-    def fake_subprocess(command: list[str], *args: Any, **kwargs: Any) -> Any:
-        if command[0] != "/fake/claude":
-            return real_run(command, *args, **kwargs)  # Git, on the other hand, runs for real
-        return subprocess.CompletedProcess(command, 1, claude_code_output(is_error=True), "")
-
-    monkeypatch.setattr(cli_agents, "_binary", lambda name: f"/fake/{name}")
-    monkeypatch.setattr(subprocess, "run", fake_subprocess)
+    fake.configure(behavior="script", stdout=claude_code_output(is_error=True), exit=1)
     record = tidy.run(database, ctx, wiki.infra.id, trigger="manual")
     assert record is not None and "usage limit" in (record.error or "")
     assert (record.input_tokens, record.output_tokens) == (4000, 300)

@@ -17,13 +17,22 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, joinedload
 
+from synaptane.ai import agents_client
+from synaptane.ai.base import SUBSCRIPTION_PROVIDERS
 from synaptane.config import Settings
 from synaptane.core.errors import Label, SynaptaneError
 from synaptane.git.repo import GitError
 from synaptane.services import alerts, git_expiry, jobs, mail, secrets, tidy
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database, pending_migrations
-from synaptane.storage.models import AuditEvent, Job, Organization, Space, TidyRun
+from synaptane.storage.models import (
+    AuditEvent,
+    Job,
+    OrgAISettings,
+    Organization,
+    Space,
+    TidyRun,
+)
 
 OK, WARN, ERROR = "ok", "warn", "error"
 
@@ -58,6 +67,8 @@ ALERT_TITLES = {
 # What to run, on the server, to set up or check the backups (docs/admin/backup.md).
 SETUP_COMMAND = "docker compose exec -it app synaptane backup setup"
 CHECK_COMMAND = "docker compose exec app synaptane backup check"
+AGENTS_LOGS = "docker compose logs --tail 50 agents"
+AGENTS_CHECK = "docker compose exec agents synaptane check-clis"
 
 
 @dataclass(frozen=True)
@@ -341,6 +352,94 @@ def _https(settings: Settings) -> Check:
     return Check(title, WARN, Label("The public address does not use HTTPS."))
 
 
+def _agents(session: Session, settings: Settings, now: datetime) -> Check | None:
+    """Where the subscription CLIs run, as the worker last reported it (the web container
+    does not reach the agents container). Shown when an organization uses a subscription,
+    or when the agents container has a CLI."""
+    title = Label("Subscription agents")
+    used = bool(
+        session.scalar(
+            select(func.count())
+            .select_from(OrgAISettings)
+            .where(OrgAISettings.provider.in_(SUBSCRIPTION_PROVIDERS))
+        )
+    )
+    state = agents_client.read_state(settings.data_dir)
+    installed = (
+        [f"{cli.label} {cli.version}".strip() for cli in state.clis if cli.installed]
+        if state
+        else []
+    )
+    if state is None or not state.container:
+        if not used:
+            return None
+        if state is None:
+            return Check(title, WARN, Label("The worker has not said yet where the CLIs run."))
+        return Check(
+            title,
+            WARN,
+            Label(
+                "The CLIs run in the worker, which can read the data folder (master key, "
+                "repositories): less isolated than in the agents container."
+            ),
+            guide="ai",
+        )
+    if state.checked_at and now - state.checked_at > agents_client.STALE:
+        return Check(
+            title, WARN, Label("No recent news from the worker. Last report:"), state.checked_at
+        )
+    if not state.reachable:
+        return Check(
+            title,
+            ERROR if used else WARN,
+            Label("The agents container cannot be reached: {error}", error=state.error),
+            state.checked_at,
+            command=AGENTS_LOGS,
+            guide="ai",
+        )
+    if state.exposures:
+        return Check(
+            title,
+            ERROR if used else WARN,
+            Label(
+                "The agents container can reach what it should not: {what}.",
+                what=", ".join(state.exposures),
+            ),
+            guide="ai",
+        )
+    if state.contract_broken:
+        return Check(
+            title,
+            WARN,
+            Label(
+                "Isolation contract broken: {clis}.",
+                clis=", ".join(c.label for c in state.clis if c.installed and c.problems),
+            ),
+            command=AGENTS_CHECK,
+            guide="ai",
+        )
+    if not installed and not state.contract_pending:
+        if not used:
+            return None
+        return Check(
+            title,
+            WARN,
+            Label("The agents container has no CLI: build the image yourself to use them."),
+            guide="ai",
+        )
+    if state.contract_pending:
+        return Check(title, OK, Label("Agents container reachable; its CLIs are being checked."))
+    return Check(
+        title,
+        OK,
+        Label(
+            "In their own container, reachable: {clis}, isolation contract met. Checked:",
+            clis=", ".join(installed),
+        ),
+        state.checked_at,
+    )
+
+
 def _git_tokens(session: Session, ws: Workspace) -> Check:
     """Spaces whose Git access token expires within `git_expiry.WARN_DAYS` days (warning) or
     has expired (problem), each with a link to its Git page."""
@@ -428,6 +527,7 @@ def report(session: Session, database: Database, ws: Workspace, settings: Settin
             _mail(session),
             _https(settings),
             _git_tokens(session, ws),
+            *filter(None, [_agents(session, settings, now)]),
         ],
         spaces=sorted(states, key=lambda s: s.state != ERROR),  # stable: names stay in order
         alerts=_alerts(session, now),

@@ -2,8 +2,8 @@ import asyncio
 import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
-from typing import Any
 
 import httpx2
 import pytest
@@ -12,6 +12,8 @@ from mcp.client.streamable_http import streamable_http_client
 
 from synaptane.ai import cli_agents
 from synaptane.ai.base import AIConfig, AIError, ToolSpec
+from tests import fake_cli
+from tests.fake_cli import Fake, fake  # noqa: F401 — shared fixture
 
 CLAUDE = AIConfig(provider="claude_code", model="")
 CODEX = AIConfig(provider="codex", model="gpt-5.6")
@@ -51,19 +53,47 @@ def test_environment_never_carries_api_keys(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.parametrize("config", [CLAUDE, CODEX])
-def test_claude_runs_without_tool_search(monkeypatch: pytest.MonkeyPatch, config: AIConfig) -> None:
+def test_claude_runs_without_tool_search(
+    fake: Fake,  # noqa: F811
+    config: AIConfig,
+) -> None:
     """Since 2.1.310, Claude Code offers the model a placeholder tool while it is active."""
-    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
-    seen: dict[str, str] = {}
+    cli_agents.run_agent(config, "System.", "Prompt.", [PING], lambda name, arguments: "ok")
+    env = fake.last("env")
+    assert isinstance(env, dict)
+    assert env.get("ENABLE_TOOL_SEARCH") == ("false" if config is CLAUDE else None)
 
-    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        seen.update(kwargs["env"])
-        return subprocess.CompletedProcess(command, 1, "", "stop")
 
-    monkeypatch.setattr(subprocess, "run", run)
-    with pytest.raises(AIError):
-        cli_agents.run_agent(config, "System.", "Prompt.", [PING], lambda name, arguments: "ok")
-    assert seen.get("ENABLE_TOOL_SEARCH") == ("false" if config is CLAUDE else None)
+@pytest.mark.parametrize("config", [CLAUDE, CODEX])
+def test_without_agents_container_the_cli_runs_here(
+    fake: Fake,  # noqa: F811
+    config: AIConfig,
+) -> None:
+    """Installation without Docker, or Compose file without the agents container: the CLI
+    runs in the worker, as before, with the same options."""
+    calls: list[str] = []
+
+    def handler(name: str, arguments: dict[str, object]) -> str:
+        calls.append(name)
+        return "ok"
+
+    run = cli_agents.run_agent(config, "System.", "Prompt.", [PING], handler)
+    assert run.text == "Done: ok" and calls == ["report"]
+    args = fake.last("args")
+    assert isinstance(args, list)
+    if config is CLAUDE:  # MCP configuration (with the token) and instructions: deleted
+        assert not Path(args[args.index("--mcp-config") + 1]).exists()
+        assert not Path(args[args.index("--system-prompt-file") + 1]).exists()
+    else:
+        assert 'mcp_servers.synaptane_tidy.url="http://127.0.0.1:' in " ".join(args)
+    [pid] = fake.pids()
+    assert not fake_cli.alive(pid)
+
+
+def test_a_cli_that_cannot_start_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: f"/nonexistent/{name}")
+    with pytest.raises(AIError, match="could not be started"):
+        cli_agents.run_agent(CLAUDE, "System.", "Prompt.", [PING], lambda name, arguments: "ok")
 
 
 def test_usage_parsing() -> None:
@@ -232,3 +262,24 @@ def test_claude_stream_gives_the_subscription_quota() -> None:
     assert quota.highest(run.usage.quota) == 29.5
     plain = cli_agents._claude_usage(json.dumps(events[-1]))
     assert plain.usage.quota is None and quota.summary(None) == ""
+
+
+def test_clis_do_not_outlive_the_worker(fake: Fake) -> None:  # noqa: F811
+    """Each CLI runs in its own session (stopped as a whole at the end of a run): if the
+    worker exits during a run, it stops its CLIs on its way out."""
+    fake.configure(behavior="sleep", seconds=60)
+    done: list[cli_agents.Completed] = []
+    command = [str(Path(shutil.which("claude") or "claude")), "-p"]
+    thread = threading.Thread(
+        target=lambda: done.append(
+            cli_agents.execute(
+                command, cwd=fake.home, env=cli_agents._environment(), given="", timeout=120
+            )
+        )
+    )
+    thread.start()
+    assert fake_cli.wait_for(lambda: bool(fake.pids()) and bool(cli_agents._RUNNING))
+    cli_agents._stop_running()
+    thread.join(timeout=20)
+    assert done and done[0].returncode < 0 and not done[0].timed_out
+    assert not fake_cli.alive(fake.pids()[0]) and not cli_agents._RUNNING
