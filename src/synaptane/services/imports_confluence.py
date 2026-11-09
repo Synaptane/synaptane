@@ -286,16 +286,19 @@ class Confluence:
         """The page in Markdown, its links leading to the new paths."""
         page = self.pages[path]
 
-        def written(match: re.Match[str]) -> str:
+        def written(match: re.Match[str], inside: bool = False) -> str:
             image, text, href, in_table = page.links[int(match.group(1))]
+            # The text of a link may hold the tokens of its images (`<a><img></a>`), made
+            # before it: written here, `|` escaped once, by the outer link.
+            text = _TOKEN.sub(lambda inner: written(inner, inside=True), text)
             target = self.target(href, path, new, image)
             if not target:
-                return "" if image else text
-            if image:
+                link = "" if image else text
+            elif image:
                 link = f"![{text}]({destination(target)})"
             else:
                 link = f"[{text or escape(target)}]({destination(target)})"
-            return link.replace("|", "\\|") if in_table else link
+            return link.replace("|", "\\|") if in_table and not inside else link
 
         body = _TOKEN.sub(written, page.body)
         return (

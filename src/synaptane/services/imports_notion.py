@@ -19,6 +19,7 @@ import io
 import json
 import posixpath
 import re
+import threading
 import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -258,8 +259,7 @@ class Notion:
         assert unit.table is not None
         data = self.read(self.entry[unit.table])
         text = data.decode("utf-8", "replace").lstrip("﻿")
-        rows, cut = _csv_rows(text)
-        rows = [row for row in rows if any(cell.strip() for cell in row)]
+        rows, cut = _csv_rows(text, MAX_ROWS + 1)  # the header, then the rows
         if cut:  # imported all the same, the long cells shortened: said at the check
             self.skipped.append(unit.table)
             self.reasons[self.entry[unit.table].filename] = Label(
@@ -472,51 +472,35 @@ def _key(text: str) -> str:
     return "".join(char for char in text.lower() if char.isalnum())
 
 
-_CSV_FIELD = re.compile(r'"([^"]*(?:""[^"]*)*)"|([^,"\r\n]*)')
-_CSV_REST = re.compile(r"[^,\r\n]*")
+_CSV_LIMIT = threading.Lock()  # the csv module's limit is shared by the whole process
 
 
-def _csv_rows(text: str) -> tuple[list[list[str]], bool]:
-    """Rows of a CSV, and whether cells were shortened. The csv module refuses a cell longer
-    than its limit (128 KiB), a limit shared by the whole process: such a file is read again
-    here, its long cells shortened to MAX_CELL characters."""
-    try:
-        return list(csv.reader(io.StringIO(text))), False
-    except csv.Error:
-        return _csv_fallback(text)
+def _csv_rows(text: str, limit: int) -> tuple[list[list[str]], bool]:
+    """The first `limit` rows of a CSV that are not empty, and whether cells were shortened.
 
-
-def _csv_fallback(text: str) -> tuple[list[list[str]], bool]:
-    """Like the csv module (its default dialect), long cells shortened."""
+    The csv module refuses a cell longer than its limit (128 KiB), a limit shared by the whole
+    process: it is raised while this file is read (raising it changes nothing for another
+    reader), then the long cells are shortened to MAX_CELL characters. Rows are kept as they
+    come, so that a file of empty lines is never held in memory."""
     rows: list[list[str]] = []
-    row: list[str] = []
-    position, line, cut = 0, 0, False
-    while True:
-        match = _CSV_FIELD.match(text, position)
-        assert match is not None  # the second branch matches the empty string
-        if match.group(1) is not None:
-            value, position = match.group(1).replace('""', '"'), match.end()
-        elif text.startswith('"', position):  # a quote never closed: the rest of the text
-            value, position = text[position + 1 :], len(text)
-        else:
-            value, position = match.group(2), match.end()
-        # Text after a closing quote, up to the next separator, belongs to the cell.
-        extra = _CSV_REST.match(text, position)
-        if extra is not None and extra.group():
-            value += extra.group()
-            position = extra.end()
-        if len(value) > MAX_CELL:
-            value, cut = value[:MAX_CELL] + "…", True
-        row.append(value)
-        if position < len(text) and text[position] == ",":
-            position += 1
-            continue
-        rows.append([] if row == [""] and position == line else row)  # an empty line
-        row = []
-        position += 2 if text.startswith("\r\n", position) else 1
-        line = position
-        if position >= len(text):
-            return rows, cut
+    cut = False
+    with _CSV_LIMIT:
+        before = csv.field_size_limit(max(len(text) + 1, csv.field_size_limit()))
+        try:
+            for row in csv.reader(io.StringIO(text, newline="")):
+                if not any(cell.strip() for cell in row):
+                    continue
+                for index, cell in enumerate(row):
+                    if len(cell) > MAX_CELL:
+                        row[index], cut = cell[:MAX_CELL] + "…", True
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+        except csv.Error:  # with the default dialect, not strict: hardly anything
+            pass
+        finally:
+            csv.field_size_limit(before)
+    return rows, cut
 
 
 def _without_properties(text: str, keys: set[str]) -> str:

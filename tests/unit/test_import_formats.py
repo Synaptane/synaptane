@@ -20,7 +20,7 @@ from synaptane.services.imports_common import (
 from synaptane.services.imports_notion import (
     MAX_CELL,
     _cleaned,
-    _csv_fallback,
+    _csv_rows,
     _match_rows,
     named,
     notion_id,
@@ -383,10 +383,19 @@ def test_a_csv_with_cells_too_long_for_the_csv_module() -> None:
     assert f"Base {TASKS}.csv" in layout.skipped
     assert "shortened" in str(layout.reasons[f"Base {TASKS}.csv"])
     assert page(out, "Base/A.md").startswith('---\nNotes: "' + "é" * 100)
-    odd = 'a,"b\r\nc"\r\n"d""e",f"g\n"h,"i"j,,\n\n'
-    assert _csv_fallback(odd) == (list(csv.reader(io.StringIO(odd))), False)
-    rows, cut = _csv_fallback('x,"' + "y" * (MAX_CELL + 1) + '"\n"ouvert,jamais fermé')
+    # Read by the csv module itself (its limit raised while it reads): the same cells, malformed
+    # quotes included, long ones shortened; the module's limit is put back.
+    odd = 'a,"b\r\nc"\r\n"d""e",f"g\n"h,"i"j,,\n\n"x""y""\n'
+    expected = [row for row in csv.reader(io.StringIO(odd, newline="")) if any(row)]
+    assert _csv_rows(odd + "y" * (MAX_CELL + 1), 100) == (
+        [*expected[:-1], [(expected[-1][0] + "y" * MAX_CELL)[:MAX_CELL] + "…"]],
+        True,
+    )
+    assert csv.field_size_limit() == 128 * 1024
+    rows, cut = _csv_rows('x,"' + "y" * (MAX_CELL + 1) + '"\n"ouvert,jamais fermé', 100)
     assert cut and rows[0][1] == "y" * MAX_CELL + "…" and rows[1] == ["ouvert,jamais fermé"]
+    # Empty lines are not kept, and reading stops at the rows shown.
+    assert _csv_rows("\n" * 100_000 + ",,\r\n" * 1000 + "a\nb\nc\n", 2) == ([["a"], ["b"]], False)
 
 
 def test_a_shortened_notion_name_takes_the_title_of_its_page() -> None:
@@ -414,6 +423,8 @@ def test_names_reserved_by_windows_are_renamed() -> None:
         "Console.md",
     ]
     assert windows_safe("LPT9") == "LPT9_" and windows_safe("prn.") == "prn_."
+    assert windows_safe("COM¹.txt") == "COM¹_.txt" and windows_safe("conout$") == "conout$_"
+    assert windows_safe("CON .md") == "CON _.md" and windows_safe("COM0") == "COM0"
     out, _, _ = converted({"con.md": "# Con", "Aux/notes.md": "# N", "lpt1.png": b"x"})
     assert set(out) == {"con_.md", "Aux_/notes.md", "lpt1_.png"}
     out, _, _ = converted({f"CON {WIKI}.md": "# CON\n", f"Nul {TASKS}.csv": "Name\n"})
@@ -433,3 +444,26 @@ def test_empty_property_lines_leave_the_page_too() -> None:
     }
     out, _, _ = converted(files)
     assert page(out, "Base/Relire.md") == "# Relire\n\nÀ relire.\n"
+
+
+def test_a_linked_image_of_confluence_is_written_inside_its_link() -> None:
+    """A link's text may hold an image (`<a><img></a>`, a thumbnail leading to a page): both
+    are written once the tree is known, and nothing of their placeholders is left."""
+    home = [("index.html", "Ops")]
+    files: dict[str, bytes | str] = {
+        **confluence_export(),
+        "OPS/Gallery_70001.html": confluence_page(
+            "Gallery",
+            home,
+            "<p><a href='FAQ_65542.html'><img src='attachments/65541/65601.png'> FAQ</a></p>"
+            "<table><tr><th>x</th></tr><tr><td><a href='FAQ_65542.html'>"
+            "<img src='https://x.org/a|b.png'>t|u</a></td></tr></table>"
+            "<p>&#0;1&#0; <a href='Gone_9.html'><img src='https://x.org/i.png'></a></p>",
+        ),
+    }
+    out, _, _ = converted(files)
+    gallery = page(out, "Gallery.md")
+    assert "\x00" not in gallery
+    assert "[![](<Ops Home/Procédures/Backup/schéma réseau.png>) FAQ](<Ops Home/FAQ.md>)" in gallery
+    assert "| [![](https://x.org/a\\|b.png)t\\|u](<Ops Home/FAQ.md>) |" in gallery
+    assert "[![](https://x.org/i.png)](Gone_9.html)" in gallery
