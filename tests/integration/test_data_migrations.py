@@ -581,3 +581,87 @@ def test_routines_migration_gives_each_routine_a_file_name_and_keeps_its_state(
         command.upgrade(config, "head")
     finally:
         engine.dispose()
+
+
+def test_routines_migration_goes_down_with_long_twin_titles(
+    new_database: Callable[[], str],
+) -> None:
+    """Titles need not be unique since 0034: going down, two routines of a space with the same
+    long title (or a title that reads like another one with its file name) still get names
+    unique in their space, within 120 characters. Going up, titles without a single Latin
+    letter get `routine`, `routine-2`…"""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0034")
+    org, infra = uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def names() -> list[str]:
+        with engine.connect() as connection:
+            return [
+                row[0]
+                for row in connection.execute(text("SELECT name FROM routines ORDER BY created_at"))
+            ]
+
+    long = "Revue " + "très " * 21 + "longue"  # 117 characters
+    try:
+        run(
+            "INSERT INTO organizations (id, slug, name, description, created_at) "
+            "VALUES (:id, 'acme', 'Acme', '', now())",
+            id=org,
+        )
+        run(
+            "INSERT INTO spaces (id, org_id, slug, name, description, branch, created_at, "
+            "sync_status, conflict_paths, tidy_enabled, tidy_time, tidy_timezone) VALUES "
+            "(:id, :org, 'infra', 'infra', '', 'main', now(), 'never', '[]', true, '02:00', "
+            "'Europe/Paris')",
+            id=infra,
+            org=org,
+        )
+        for index, (name, title) in enumerate(
+            (
+                ("revue-tres-tres-tres-longue", long),
+                ("revue-tres-tres-tres-longue-2", long),
+                ("revue-tres-tres-tres-longue-3", long),
+                ("autre", "Veille (veille-2)"),
+                ("veille", "Veille"),
+                ("veille-2", "Veille"),
+            )
+        ):
+            run(
+                "INSERT INTO routines (id, space_id, name, title, description, template, "
+                "instructions, frequency, weekday, at, scope, output_page, output_inbox, "
+                "output_email, output_webhook, enabled, warnings, created_at, updated_at) "
+                "VALUES (:id, :space, :name, :title, '', '', 'Relis.', 'weekly', 0, '06:00', "
+                "'[]', 'r.md', true, '', false, true, '[]', :created, now())",
+                id=uuid4(),
+                space=infra,
+                name=name,
+                title=title,
+                created=f"2026-10-0{index + 1}",
+            )
+        command.downgrade(config, "0033")
+        found = names()
+        assert len(set(found)) == 6 and all(len(n) <= 120 for n in found)
+        assert found[0] == long and found[3:5] == ["Veille (veille-2)", "Veille"]
+
+        run("DELETE FROM routines")
+        for index, name in enumerate(("日報", "!!!", "週報")):
+            run(
+                "INSERT INTO routines (id, space_id, name, template, instructions, frequency, "
+                "weekday, at, scope, output_page, output_inbox, output_email, output_webhook, "
+                "enabled, created_at, updated_at) VALUES (:id, :space, :name, '', 'Relis.', "
+                "'weekly', 0, '06:00', '[]', 'r.md', true, '', false, true, :created, now())",
+                id=uuid4(),
+                space=infra,
+                name=name,
+                created=f"2026-10-0{index + 1}",
+            )
+        command.upgrade(config, "0034")
+        assert names() == ["routine", "routine-2", "routine-3"]
+    finally:
+        engine.dispose()

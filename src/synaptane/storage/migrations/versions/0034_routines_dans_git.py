@@ -86,9 +86,13 @@ def downgrade() -> None:
     connection.execute(sa.text("UPDATE routines SET name = id::text"))
     for routine_id, space_id, name, title in rows:
         used = taken.setdefault(space_id, set())
-        chosen = title or name
-        if chosen in used:
-            chosen = f"{chosen[:100]} ({name})"
+        base = title or name
+        chosen, number = base, 1
+        # Titles need not be unique: the file name, then a number, within 120 characters.
+        while chosen in used:
+            suffix = f" ({name})" if number == 1 else f" ({name} {number})"
+            chosen = base[: 120 - len(suffix)].rstrip() + suffix
+            number += 1
         used.add(chosen)
         connection.execute(
             sa.text("UPDATE routines SET name = :name WHERE id = :id"),
