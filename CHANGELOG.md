@@ -100,6 +100,9 @@ of the target version.
 - Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
 
 ### Fixed
+- **Worker**: its hourly checks (inbox backlog, change watermarks, Git token expiry) now run
+  right after it starts, also on a machine booted less than an hour before; they used to wait
+  for the first hour.
 - After **Preview** (without JavaScript) or an error, saving the purpose or the filing
   instructions no longer replaces, without a conflict, a version saved by someone else in the
   meantime: the form keeps the version the text started from.

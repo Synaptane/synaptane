@@ -85,8 +85,10 @@ class Worker:
         self.database = database
         self.ctx = ctx
         self.stopping = False
-        self._last_maintenance = 0.0
-        self._last_backlog_check = 0.0
+        # -inf, not 0: the monotonic clock starts near the machine's boot, so a worker started
+        # less than an hour after it would otherwise skip its first hourly checks.
+        self._last_maintenance = float("-inf")
+        self._last_backlog_check = float("-inf")
         self._current: dict[str, tuple[UUID, int]] = {}  # lane → (current job, attempt)
         self._pulses: dict[str, float] = {}  # lane → last sign of life (monotonic clock)
         self._touched = 0.0

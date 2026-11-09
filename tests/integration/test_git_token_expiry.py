@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import time
+import types
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -284,6 +285,11 @@ def test_the_worker_checks_every_hour(
         raise RuntimeError("lasting failure")
 
     monkeypatch.setattr(git_expiry, "check", check)
+    # A machine booted a few seconds ago: the monotonic clock is near 0, the first
+    # maintenance still makes its hourly checks.
+    clock = [5.0]
+    fake_time = types.SimpleNamespace(monotonic=lambda: clock[0], time=time.time, sleep=time.sleep)
+    monkeypatch.setattr("synaptane.worker.runner.time", fake_time)  # the worker's clock only
     # The checks run before it fail too: each one on its own, they do not skip it.
     monkeypatch.setattr(alerts, "check_backlogs", broken)
     monkeypatch.setattr(runner.Worker, "advance_idle_watermarks", broken)
@@ -294,9 +300,12 @@ def test_the_worker_checks_every_hour(
     assert "Git token expiry not checked" in caplog.text
     assert "Inbox backlog not checked" in caplog.text
     assert "Change watermarks not moved" in caplog.text
-    worker._last_maintenance = 0.0
+    clock[0] += 61
     worker.maintenance()  # a minute later: not again within the hour
     assert calls == [ctx]
+    clock[0] += 3600
+    worker.maintenance()  # an hour later: again
+    assert calls == [ctx, ctx]
 
 
 # --- Health page -------------------------------------------------------------------------------
