@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-09
+
+Describe the night in the repository: each agent routine of a space becomes a file of its
+repository, a team writes its own checks (patterns, front matter, personal data) that Health
+shows and the tidy-up follows, and the nightly tidy-up maintains the wiki even when the inbox
+is empty. Upgrading from 1.15.0: two migrations (`0034`, `0035`), applied at startup; at each
+space's next synchronization, Synaptane writes its routines to the repository in one commit
+(see Upgrade below). One new dependency, `google-re2`, comes with the image. Back up first:
+going back to 1.15.0 then means restoring that backup.
+
 ### Added
 - **Team checks**. A space can list, in its repository, the rules every page must follow:
   `.synaptane/checks.md`, readable and editable by hand. Each level-2 heading is a rule, the
@@ -1151,7 +1161,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/synaptane/synaptane/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/synaptane/synaptane/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/synaptane/synaptane/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/synaptane/synaptane/compare/v1.12.0...v1.13.0
