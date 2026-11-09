@@ -21,7 +21,7 @@ organization's AI provider.
 - Custom **API address** (Ollama, OpenAI-compatible, gateway): only the super admin can change
   it, because it makes the server send requests to the chosen address.
 - **Test the connection** makes a real tool call. With an API key, the test runs right away;
-  with a subscription, it runs in the worker (see below).
+  with a subscription, the worker runs it through the agents container (see below).
 - Each space can pick another model (the space's **Settings → Tidy-up**).
 
 ## Use a Claude or ChatGPT subscription
@@ -30,49 +30,53 @@ Instead of a pay-as-you-go API key, the agent can run on a subscription. The pro
 **official CLI** (`claude` or `codex`) then runs the agent, and Synaptane never sees the
 credentials.
 
-1. Install the CLI on the worker's machine. The published image
+1. Install the CLI where it runs (the agents container, see below). The published image
    (`ghcr.io/synaptane/synaptane`) contains neither, since Claude Code may not be
    redistributed. An image you build yourself contains both (`AGENT_CLIS=true`, the
    Dockerfile's default): in `.env`, `COMPOSE_FILE=compose.yaml:compose.build.yaml` and
    `SYNAPTANE_IMAGE=synaptane:local`, then
    `GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build`. See
    [Build the image yourself](installation.md#build-the-image-yourself).
-2. Sign it in once, **in the worker**, with the provider's flow:
-   - with Docker: `docker compose exec worker claude auth login`, or
-     `docker compose exec worker codex login --device-auth`;
+2. Sign it in once, **in the agents container**, with the provider's flow:
+   - with Docker: `docker compose exec agents claude auth login`, or
+     `docker compose exec agents codex login --device-auth`;
    - without Docker: `claude auth login`, or `codex login`, as the system account that runs
-     `synaptane worker` (prefixed with `HOME=…` if `SYNAPTANE_AGENT_HOME` is set: the
-     Artificial intelligence page shows the exact command).
+     the CLI (`synaptane agents-runner`, or `synaptane worker` without it), prefixed with
+     `HOME=…` if `SYNAPTANE_AGENT_HOME` is set: the Artificial intelligence page shows the
+     exact command.
 3. As super admin, choose "Claude subscription" or "ChatGPT subscription" for the
    organization, then **Test the connection**.
 
-`synaptane doctor` reports whether the CLIs are installed and whether they meet the isolation
+`synaptane doctor` and the health page (**Administration → Health**, "Subscription agents")
+report where the CLIs run, whether they are installed and whether they meet the isolation
 contract (see "Security").
 
 **Where the login lives.** The CLI keeps it in its own `HOME`, given by
 `SYNAPTANE_AGENT_HOME`:
-- with Docker, `/agents`, on the `synaptane-agents` volume, mounted **only** in `worker`
-  (where it is also the `HOME`, hence the simple command above). The `app` container, which
-  faces the Internet, cannot see it. It is not in the data volume or in backups either: after
-  restoring onto another server, sign the CLI in again. `docker compose down -v` erases it;
-- without Docker and without this variable, the `HOME` of the account that runs the worker.
+- with Docker, `/agents`, on the `synaptane-agents` volume, mounted **only** in `agents`
+  (where it is also the `HOME`, hence the simple command above). Neither the `app` container,
+  which faces the Internet, nor the worker can see it. It is not in the data volume or in
+  backups either: after restoring onto another server, sign the CLI in again.
+  `docker compose down -v` erases it;
+- without Docker and without this variable, the `HOME` of the account that runs the CLI.
 
 Synaptane never reads, copies, moves or stores these credentials: only the official CLI
 handles them.
 
-**Test the connection** runs **in the worker**, the only place where the CLI is signed in. The
-page shows "Test in progress…" and updates itself (or `POST …/organizations/{org}/ai/test`
-returns 202, and `GET …/ai` gives `test_pending`, then `test_ok` and `test_message`). The
-test goes through the fast queue and takes a few minutes at most. If "Test in progress…"
-does not change, check that the worker is running (`docker compose ps`). For Claude, it is a
-real tiny call to the smallest model: an expired session is caught this way, even when
-`claude auth status` says it is signed in.
+**Test the connection** is run by the worker, **in the agents container**, the only place
+where the CLI is signed in. The page shows "Test in progress…" and updates itself (or
+`POST …/organizations/{org}/ai/test` returns 202, and `GET …/ai` gives `test_pending`, then
+`test_ok` and `test_message`). The test goes through the fast queue and takes a few minutes
+at most. If "Test in progress…" does not change, check that the worker and the agents
+container are running (`docker compose ps`). For Claude, it is a real tiny call to the
+smallest model: an expired session is caught this way, even when `claude auth status` says
+it is signed in.
 
 **Upgrading from a version where the login was in `/data/home`.** It used to sit in the data
 volume, shared with the web container. Synaptane does not move it (only the CLI handles
 credentials); `synaptane doctor` and the Artificial intelligence page report the old folder
 as long as it exists (without reading anything in it). Once and for all:
-1. sign the CLI in again in the worker: `docker compose exec worker claude auth login`
+1. sign the CLI in again in the agents container: `docker compose exec agents claude auth login`
    (or `codex login --device-auth`);
 2. **Test the connection** on the Artificial intelligence page;
 3. delete the old login yourself:
@@ -91,8 +95,10 @@ windows:
 With ChatGPT (Codex), the quota is not read yet.
 
 **Security.** During a run, the CLI only has Synaptane's tidy-up tools, served by a
-short-lived local MCP server protected by a single-use token. It has no shell, no file access
-and no web: malicious content dropped into the inbox cannot read the server.
+short-lived MCP server of the worker protected by a single-use token. It has no shell, no file
+access and no web: malicious content dropped into the inbox cannot read the server. And it
+runs in a container of its own, which has nothing to read anyway (see "The agents container"
+below).
 
 This guarantee rests on command-line options (`--tools ""` and `--strict-mcp-config` for
 Claude Code, with deferred tool loading switched off by `ENABLE_TOOL_SEARCH=false`;
@@ -112,11 +118,147 @@ automatically**, with no login, no model call and no network:
 
 This contract runs in CI every time it builds the image (with the CLIs), and every Monday
 before the CLI upgrade workflow opens its PR: if it fails, the PR says so in its title
-("isolation contract broken"). `synaptane doctor` reports it too (as a warning).
+("isolation contract broken"). It also runs where the CLIs run: the agents container checks
+its own CLIs when it starts (`docker compose exec agents synaptane check-clis` shows the
+detail), and `synaptane doctor` and the health page report the result (as a warning).
 
-Known limitation: the CLI runs under the same system account as the worker, which can read
-`/data` (master key, repositories). A flaw in the CLI itself could therefore be enough to
-read the server. Running it under a separate account without that read access is planned.
+### The agents container
+
+Since 1.15, the subscription CLIs no longer run in the worker but in a container of their
+own, `agents` in `compose.yaml`. Same image, but it receives nothing of the instance:
+
+![Worker and agents container](../assets/agents-container.svg)
+
+- **No data, no secret.** It mounts only the CLIs' logins (`synaptane-agents`, its `HOME`)
+  and, read-only, the key it shares with the worker. Not the data volume (master key,
+  repositories, extracted text), not the backups, not the Docker socket. Its environment
+  holds no secret of the instance: no database address or password, no metrics token, no
+  backup setting.
+- **Two networks.** `agents`, internal (no Internet), which it shares with the worker
+  alone; `agents-internet`, its own, for its outgoing access to Anthropic and OpenAI. Neither
+  the database nor the web container are on a network it is on: their names do not even
+  resolve there.
+- **Hardened.** Non-root account (the image's, UID 1000), read-only file system with a
+  512 MB `/tmp` in memory, every Linux capability dropped, `no-new-privileges`, memory capped
+  (`SYNAPTANE_AGENTS_MEMORY`, 2 GB by default) and 512 processes at most.
+
+**A run, step by step.**
+1. The worker starts the run's MCP tool server on its own address on the `agents` network,
+   and on that address only, with a new random token (32 bytes) valid for that run alone:
+   the server stops when the run ends.
+2. It sends the run to `http://agents:8700` (`SYNAPTANE_AGENTS_URL`): provider, model,
+   instructions, prompt, port and token of the tool server.
+3. The agents container (`synaptane agents-runner`) launches `claude -p` or `codex exec`
+   exactly as the worker did: same options, same minimal environment, in a throwaway working
+   folder. The CLI reaches the tools at the address the request comes from: a caller cannot
+   point it anywhere else.
+4. It sends back what the worker reads (final result, consumption, quota readings, errors,
+   end of the error output), kept as it comes: at most 4 MB, beyond which the CLI is stopped;
+   the rest of the CLI's output (the conversation, the pages read) is not even kept.
+
+**Who may start a run.** Only the worker. The agents container refuses any request without
+the key it shares with the worker (`SYNAPTANE_AGENTS_KEY_FILE`): 48 random bytes, created by
+the worker on its first call in the `synaptane-agents-key` volume, mounted in these two
+containers only (read-only in `agents`). The key is never logged, shown or sent anywhere
+else; a refused request is logged with its source address only. The network adds to it:
+the web container, the one exposed to the Internet, is not on the `agents` network. Either
+alone would do; together, a mistake in one (a custom Compose file that puts `app` on that
+network, a key file copied where it should not be) does not open the agents container.
+
+**Time limits, cancellation, concurrency.**
+- A run lasts at most 45 minutes (3 for a connection test); beyond, the CLI and everything
+  it started are stopped (SIGTERM, then SIGKILL 5 seconds later).
+- If the worker gives up (it stops, or its own time limit passes), the connection closes
+  and the agents container stops the CLI within seconds: no run goes on alone using the
+  quota.
+- **One CLI at a time** by default (`SYNAPTANE_AGENTS_MAX_RUNS=1`). The CLIs of the agents
+  container share its account: two running together could read each other's environment
+  and MCP configuration, hence each other's run token (see below). A run that arrives
+  while another is in progress waits for its turn in the worker, a new try every 10 to 15
+  seconds, for as long as a run may last (3 minutes for a connection test); it is not
+  counted as a failure. Past that wait, it is retried later like any transient error,
+  nothing is lost. The price: a connection test or a routine requested during a 30-minute
+  tidy-up waits for it. Raising the value removes that wait at the cost of the separation
+  between runs (and each CLI takes a few hundred MB). Without the agents container, the CLI
+  runs in the worker, which separates nothing anyway: no limit applies there.
+- Instructions and prompt: 16 MB at most per request.
+
+**Upgrading from 1.14 or earlier.** Nothing to do: the new `compose.yaml` adds the `agents`
+service and mounts the existing `synaptane-agents` volume there, at the same path (`/agents`,
+its `HOME`), with the same account (UID 1000). The logins made in the worker stay valid: no
+need to sign in again. The key is created by the worker on its first call. With
+`deploy/host/deploy.sh`, the update also waits for the agents container to be healthy before
+declaring the deployment done (and rolls back otherwise). After the upgrade,
+**Test the connection** on the Artificial intelligence page, or
+`docker compose exec worker synaptane doctor`, confirms that the worker reaches it.
+
+**Without Docker, or with a Compose file without the `agents` service.** Without
+`SYNAPTANE_AGENTS_URL`, the CLI runs in the worker, as before 1.15, with the same options and
+the same contract. It is less isolated: the CLI then runs under the worker's account, which
+can read the data folder. `synaptane doctor` ("Subscription CLIs apart from the worker") and
+the health page say so. To isolate it without Docker, run `synaptane agents-runner --host
+127.0.0.1 --port 8700` under another system account, which cannot read the data folder, with
+`SYNAPTANE_AGENTS_KEY_FILE` pointing to a file of a folder writable by the worker and
+readable by that account (the key is created group-readable), and give the worker
+`SYNAPTANE_AGENTS_URL=http://127.0.0.1:8700` and the same `SYNAPTANE_AGENTS_KEY_FILE`.
+
+**What the agents container protects, and what it does not.**
+- It protects the rest of the server from the CLI: a flaw in Claude Code or Codex, or a
+  prompt injection that got past their options, finds neither the master key, nor the
+  repositories, nor the database, nor the secrets of the instance, and cannot reach the web
+  container or the database over the network.
+- It does not protect the CLIs' logins: they are in the agents container, the CLI can read
+  them, and whoever controls the CLI can use the subscription.
+- It does not limit what the agent does **through Synaptane's tools** during a run: writing
+  and moving pages of the space being tidied, within the usual safeguards (deletion
+  threshold, one commit per run that can be reverted). The tool server only lives for the
+  run, and only that run's token opens it.
+- It does not separate runs that run at the same time: they would share the container and
+  its account, so a compromised CLI could read the token of another run in progress (a
+  tidy-up of another organization, for instance) and use its tools until that run ends. That
+  is why `SYNAPTANE_AGENTS_MAX_RUNS` is 1 by default: runs wait for each other. Raise it only
+  if your organizations may reach each other that way.
+- What a run leaves in the CLIs' `HOME` (`/agents`) stays for the next ones. What could
+  steer them is cut off: Claude Code runs with `--setting-sources ""` (neither the hooks,
+  environment and permissions of `~/.claude/settings.json`, nor `~/.claude/CLAUDE.md`, skills
+  or agents), Codex with `--ignore-user-config`, its hooks turned off and the descriptions of
+  the skills of its home (`~/.codex/skills`, `~/.agents/skills`) left out; the isolation
+  contract plants a hook, instructions and skills in the `HOME` of its check and fails if they
+  have any effect. Codex has no option to leave out `~/.codex/AGENTS.md` (or
+  `AGENTS.override.md`), which it adds to every run: Synaptane never writes them, so a Codex
+  run is refused while one is there. What remains: a compromised CLI could replace the login
+  files themselves (sign the CLI in to another account, which would then receive the next
+  prompts) or other files the CLI reads for itself. If you suspect a compromise, sign the CLIs
+  out and in again (`docker compose exec agents claude auth logout`, then `login`), or empty
+  the volume.
+- Its outgoing access is not filtered: it can reach the Internet (it needs Anthropic and
+  OpenAI), the cloud provider's metadata address (`169.254.169.254`) where there is one, and
+  whatever listens on all the server's addresses: ports published by Docker (which a firewall
+  such as ufw does not filter) and services of the server itself (a database, a Redis without
+  password…). Keep the application's port bound to `127.0.0.1` (`APP_BIND`, the default), and
+  bind such services to `127.0.0.1` or filter the Docker networks' traffic to the host.
+- The prompt of each run (inbox notes, pages) does go to the agents container, then to the
+  provider: that is the point of the run.
+- The image is the same as the other services': a flaw in the Docker runtime or the kernel
+  remains out of its scope.
+
+**Troubleshooting.**
+- "The agents container cannot be reached": `docker compose ps agents`, then
+  `docker compose logs --tail 50 agents`. A published image without CLIs is not an error:
+  the container runs, idle.
+- "refused the worker's key": both containers must read the same file; check the
+  `synaptane-agents-key` volume in both (`docker compose config`). Deleting the key file
+  (`docker compose exec worker rm /run/synaptane-agents/key`) makes the worker create a new
+  one, which the agents container reads at its next request.
+- "already running as many CLIs as it may": a run waited for its turn longer than its own
+  time limit; it is retried later on its own. If it happens often, spread the tidy-ups over
+  the night, or raise `SYNAPTANE_AGENTS_MAX_RUNS` knowing what it costs (above).
+- "Codex would add the instructions of …": delete the file named
+  (`docker compose exec agents rm /agents/.codex/AGENTS.md`), after reading it: something put
+  it there.
+- "can reach what it should not" (health page, doctor): the agents container sees a secret
+  of the instance, the master key, the Docker socket or the database. Remove what your
+  Compose file adds to it (`docker compose config`).
 
 Provider terms (October 2026):
 - **OpenAI** allows using a ChatGPT subscription in third-party tools.

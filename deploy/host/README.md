@@ -99,7 +99,8 @@ Read the [changelog](../../CHANGELOG.md) before a new version. The script:
 3. builds the image with the commit recorded in it (`synaptane --version` shows it), also
    tagged `synaptane:<commit>`, then restarts (`docker compose up -d --no-build`);
 4. checks for up to 3 minutes: `/readyz` returns 200, `synaptane --version` shows the right
-   commit, the worker is `healthy`, `synaptane doctor` passes;
+   commit, the worker is `healthy` (and the agents container of the subscription CLIs, since
+   1.15), `synaptane doctor` passes;
 5. **if something fails, rolls back on its own**: previous commit and image, and restore of
    the backup **only if** a migration changed the database;
 6. writes a `date commit result` line to `~/.local/state/synaptane/deploy.log`.

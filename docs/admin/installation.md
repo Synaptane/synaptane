@@ -65,12 +65,18 @@ The services:
 - `postgres`: PostgreSQL 17 with pgvector;
 - `migrate`: applies the migrations, then stops;
 - `app`: web, REST API and MCP;
-- `worker`: Git sync, indexing, tidy-up, routines, webhooks and the nightly backup.
+- `worker`: Git sync, indexing, tidy-up, routines, webhooks and the nightly backup;
+- `agents`: the Claude and ChatGPT subscription CLIs, apart from the worker, without the data
+  or the database (see [The agents container](ai.md#the-agents-container)). With the
+  published image, which has no CLI, it runs idle.
 
 Data lives in Docker volumes:
 - `postgres-data`;
 - `synaptane-data`: master key, repository clones, extracted text;
-- `synaptane-agents`: CLI logins for subscriptions, mounted in the worker only;
+- `synaptane-agents`: CLI logins for subscriptions, mounted in the agents container only (in
+  the worker up to 1.14: same volume, the logins stay valid);
+- `synaptane-agents-key`: the key the worker and the agents container share, created by the
+  worker;
 - `synaptane-backups`: the nightly backups (7 days kept), and `synaptane backup` without
   `--output`. It is on the same disk and **`docker compose down -v` deletes it** with the
   others: the encrypted off-site copy protects against that (see [Backup](backup.md)).
@@ -175,7 +181,8 @@ deploy/host/deploy.sh v1.14.0      # a tag, a branch or a commit
 ```
 
 The script takes a backup, keeps the image in service, builds the new one with its commit,
-restarts, then checks for up to 3 minutes (`/readyz`, version, worker, `doctor`). **If
+restarts, then checks for up to 3 minutes (`/readyz`, version, worker, agents container,
+`doctor`). **If
 something fails, it rolls back on its own**: previous commit and image, and restore of the
 backup if a migration changed the database. Each deployment adds a line
 `date commit result` to `~/.local/state/synaptane/deploy.log`. `DRY_RUN=1` shows what would
@@ -205,7 +212,10 @@ rebuilds with `--pull`). Downloaded images (PostgreSQL, certbot) are updated sep
 To go back to an earlier version **with no migration in between**: with the published image,
 set `SYNAPTANE_VERSION` back to it in `.env` and run `docker compose up -d`; with a self-built
 image, deploy its tag or commit (it is in the log): `deploy/host/deploy.sh <commit>`.
-`deploy.sh` already rolls back on its own when its checks fail.
+`deploy.sh` already rolls back on its own when its checks fail. Going back below 1.15 leaves
+the `agents` container running, unused (the CLIs run in the worker again, with the same
+logins): `docker compose up -d --remove-orphans` stops it (the automatic rollback of
+`deploy.sh` does it).
 
 If a migration changed the database in between, the old code does not start on the migrated
 database: also restore the backup taken just before the faulty upgrade
@@ -226,19 +236,20 @@ included); the Git repositories remain the reference for content.
 
 ### Logs
 
-`docker compose logs -f app worker`: one line per event, with the time. The worker writes one
+`docker compose logs -f app worker agents`: one line per event, with the time. The worker writes one
 line per job (sync, indexing, tidy-up: duration, result). `SYNAPTANE_LOG_LEVEL=DEBUG` in
 `.env` gives more detail; `WARNING` gives less.
 
 ### Claude and ChatGPT subscriptions
 
-This requires a [self-built image](#build-the-image-yourself) with the CLIs. They log in once,
-in the worker container. The login is stored in the `synaptane-agents` volume, so it survives
-upgrades.
+This requires a [self-built image](#build-the-image-yourself) with the CLIs. They run in the
+`agents` container, apart from the worker, and log in once there. The login is stored in the
+`synaptane-agents` volume, so it survives upgrades (a login made in the worker up to 1.14
+stays valid: nothing to redo).
 
 ```sh
-docker compose exec worker claude auth login         # Claude subscription
-docker compose exec worker codex login --device-auth # ChatGPT subscription
+docker compose exec agents claude auth login         # Claude subscription
+docker compose exec agents codex login --device-auth # ChatGPT subscription
 ```
 
 Check the provider's terms first: see [AI and tidy-up](ai.md).

@@ -37,6 +37,8 @@ if [ "$1" = compose ]; then
   case "$*" in
     "ps -q app") echo cid-app ;;
     "ps -q worker") echo cid-worker ;;
+    "ps -q agents") echo cid-agents ;;
+    "config --services") printf 'app\nworker\n'; [ -z "${FAKE_AGENTS:-}" ] || echo agents ;;
     "config --images app") echo "${FAKE_IMAGE:-synaptane:local}" ;;
     "port app 8000") echo 127.0.0.1:8000 ;;
     "exec -T app synaptane --version") r=$(cat "$f/running"); echo "synaptane 1.0 (${r:0:7})" ;;
@@ -46,7 +48,7 @@ if [ "$1" = compose ]; then
     "exec -T postgres psql"*) cat "$f/revision" ;;
     "exec -T app sh -c"*) ;;  # marks of backup.sh in the data volume
     "build --pull") echo "$GIT_SHA" > "$f/tags/synaptane:local" ;;
-    "up -d --no-build")
+    "up -d --no-build" | "up -d --no-build --remove-orphans")
       r=$(cat "$f/tags/synaptane:local"); echo "$r" > "$f/running"
       if [ "$r" = "${FAKE_MIGRATES:-}" ]; then echo 0099 > "$f/revision"; fi ;;
     "stop app worker") ;;
@@ -60,7 +62,12 @@ case "$1" in
   inspect)
     case "$3" in
       *Config.Image*) echo synaptane:local ;;
-      *Health*) echo healthy ;;
+      *Health*)
+        if [ "$4" = cid-agents ] && [ "$(cat "$f/running")" = "${FAKE_AGENTS_BROKEN:-}" ]; then
+          echo unhealthy
+        else
+          echo healthy
+        fi ;;
       *) echo "sha256:img-$(cat "$f/running")" ;;
     esac ;;
   tag) tag_of "$2" > "$f/tags/$3" ;;
@@ -214,6 +221,25 @@ def test_failed_deploy_without_migration_keeps_the_base(server: Server) -> None:
     assert server.state("running") == server.old
     assert "restore" not in server.calls()  # nothing to restore: the database did not move
     assert "Database unchanged" in done.stdout
+
+
+def test_an_unhealthy_agents_container_rolls_the_deploy_back(server: Server) -> None:
+    """Since 1.15, the subscription CLIs run in the agents container: if it does not come up
+    healthy, the deployment is rolled back like for the worker."""
+    done = server.deploy(FAKE_AGENTS="1", FAKE_AGENTS_BROKEN=server.new)
+    assert done.returncode == 1
+    assert "agents unhealthy" in done.stderr
+    assert server.state("running") == server.old
+    assert server.journal()[-1].endswith(f"rolled back to {server.old[:7]}: ok")
+    # The rollback removes the containers the failed version added (orphans), not the deploy.
+    ups = [line for line in server.calls().splitlines() if " up -d " in line]
+    assert ups == [
+        "docker compose up -d --no-build",
+        "docker compose up -d --no-build --remove-orphans",
+    ]
+    healthy = server.deploy(FAKE_AGENTS="1")
+    assert healthy.returncode == 0, healthy.stdout + healthy.stderr
+    assert "docker inspect -f" in server.calls() and "ps -q agents" in server.calls()
 
 
 def test_dry_run_changes_nothing(server: Server) -> None:

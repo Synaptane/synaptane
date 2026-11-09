@@ -57,23 +57,32 @@ def _check_subscription(config: AIConfig) -> Label:
 
     The CLI and its login only exist in the worker: this test runs there, as a job
     (`ai_settings.AI_TEST`), never in the web process."""
-    from synaptane.ai import cli_agents
+    from synaptane.ai import agents_client, cli_agents
 
-    status = cli_agents.login_status(config.provider)
     called: list[bool] = []
 
     def handler(name: str, arguments: dict[str, object]) -> str:
         called.append(name == PING.name)
         return "ok"
 
-    run = cli_agents.run_agent(
-        config,
-        "You are checking a connection. Call the report tool with ok=true, then stop.",
-        "Connection test.",
-        [PING],
-        handler,
-        timeout=SUBSCRIPTION_TEST_TIMEOUT,
-    )
+    try:
+        status = cli_agents.login_status(config.provider)
+        run = cli_agents.run_agent(
+            config,
+            "You are checking a connection. Call the report tool with ok=true, then stop.",
+            "Connection test.",
+            [PING],
+            handler,
+            timeout=SUBSCRIPTION_TEST_TIMEOUT,
+            wait=agents_client.TEST_WAIT,
+        )
+    except agents_client.Busy:
+        # The test is not retried, and it does not hold the fast lane for a whole run.
+        raise AIError(
+            "The agents container is busy with another run (a tidy-up or a routine): test "
+            "the connection again in a few minutes.",
+            transient=True,
+        ) from None
     if not any(called):
         raise AIError("The CLI answers but does not call the tools of Synaptane.")
     return Label(

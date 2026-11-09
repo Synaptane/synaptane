@@ -150,8 +150,9 @@ avant chaque mise à jour.
   CLI : pour utiliser un abonnement, construisez l'image vous-même (voir
   [l'installation](docs/admin/installation.fr.md)). Le relevé du quota repose sur un événement
   non documenté de Claude Code et peut cesser de fonctionner après une mise à jour du CLI. Le
-  CLI tourne sous le même compte système que le worker ; le faire tourner sous un compte à
-  part est prévu.
+  CLI tourne dans un conteneur à lui, sans les données, la base ni aucun secret de
+  l'instance ; il peut toujours lire sa propre connexion (voir
+  [le conteneur des agents](docs/admin/ai.fr.md#le-conteneur-des-agents)).
 
   > [!WARNING]
   > **Vérifiez les conditions de votre fournisseur d'IA.** En octobre 2026, Anthropic

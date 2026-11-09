@@ -26,6 +26,7 @@ services:
   migrate: *build
   app: *build
   worker: *build
+  agents: *build
 
   # Proxy mode (COMPOSE_PROFILES=proxy): the profile comes from compose.yaml.
   nginx:

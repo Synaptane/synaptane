@@ -26,7 +26,7 @@ x-synaptane: &synaptane
   # Image published by .github/workflows/release.yml, without the subscription CLIs (Claude
   # Code, Codex): for those, build the image (compose.build.yaml, docs/admin/ai.md).
   # SYNAPTANE_IMAGE replaces it (synaptane:local for an image built here).
-  image: ${SYNAPTANE_IMAGE:-ghcr.io/synaptane/synaptane:${SYNAPTANE_VERSION:-1.14.0}}
+  image: &image ${SYNAPTANE_IMAGE:-ghcr.io/synaptane/synaptane:${SYNAPTANE_VERSION:-1.14.0}}
   restart: unless-stopped
   logging: *logging
   # Hardening: read-only file system (data in /data, temporary files in memory), no Linux
@@ -105,16 +105,18 @@ services:
   worker:
     <<: *synaptane
     command: ["synaptane", "worker"]
-    # Logins of the subscription CLIs (Claude Code, Codex): a volume of the worker only, which
-    # `app`, exposed to the Internet, does not mount. HOME points there too so that
-    # `docker compose exec worker claude auth login` stores the login there (docs/admin/ai.md).
+    # Subscription runs (Claude Code, Codex) go to the agents container below; the worker
+    # shares with it a network of their own and a key it creates in the synaptane-agents-key
+    # volume on its first call (docs/admin/ai.md).
     environment:
       <<: *environment
-      HOME: /agents
+      SYNAPTANE_AGENTS_URL: http://agents:8700
+      SYNAPTANE_AGENTS_KEY_FILE: /run/synaptane-agents/key
     volumes:
       - synaptane-data:/data
       - synaptane-backups:/backups
-      - synaptane-agents:/agents
+      - synaptane-agents-key:/run/synaptane-agents
+    networks: [default, agents]
     stop_grace_period: 60s  # lets a short task finish before stopping
     # Memory cap: a booby-trapped document or a huge tidying does not bring the server down
     # (the worker restarts on its own). Adjustable with SYNAPTANE_WORKER_MEMORY.
@@ -129,6 +131,51 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  # Subscription CLIs (Claude Code, Codex: docs/admin/ai.md), apart from the worker, which
+  # sends them each run. Same image, but neither the data volume (master key, repositories),
+  # nor the backups, nor the database, nor any secret of the instance: only the CLIs' logins
+  # (synaptane-agents, their HOME) and the key shared with the worker, read-only. Two
+  # networks: `agents`, shared with the worker alone and without Internet, and
+  # `agents-internet`, its own, to reach Anthropic and OpenAI. Signing in:
+  #   docker compose exec agents claude auth login
+  #   docker compose exec agents codex login --device-auth
+  # The published image has no CLI: this container then waits, idle, for an image built with
+  # compose.build.yaml.
+  agents:
+    image: *image
+    restart: unless-stopped
+    logging: *logging
+    entrypoint: ["tini", "--"]
+    command: ["synaptane", "agents-runner", "--host", "0.0.0.0", "--port", "8700"]
+    environment:
+      HOME: /agents
+      SYNAPTANE_AGENTS_KEY_FILE: /run/synaptane-agents/key
+      # CLIs running at the same time; beyond, a run waits for its turn in the worker. 1: they
+      # share this container's account, so two at once would not be kept from each other's
+      # run token (docs/admin/ai.md). More: less waiting, without that separation.
+      SYNAPTANE_AGENTS_MAX_RUNS: ${SYNAPTANE_AGENTS_MAX_RUNS:-1}
+      SYNAPTANE_LOG_LEVEL: ${SYNAPTANE_LOG_LEVEL:-INFO}
+      TZ: ${TZ:-Europe/Paris}
+    volumes:
+      - synaptane-agents:/agents
+      - synaptane-agents-key:/run/synaptane-agents:ro
+    networks: [agents, agents-internet]
+    # Hardening, as for the other containers, plus limits of its own: a CLI that runs away
+    # does not bring the server down.
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${SYNAPTANE_AGENTS_MEMORY:-2g}
+    pids_limit: 512
+    stop_grace_period: 20s  # the CLIs in progress are stopped; the worker retries the runs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8700/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
 
   # --- All-in-one mode (COMPOSE_PROFILES=proxy) ------------------------------------------------
 
@@ -166,10 +213,23 @@ services:
     depends_on:
       - nginx
 
+networks:
+  default:
+  # Worker and agents container only, without Internet access: the web container and the
+  # database are not on it.
+  agents:
+    internal: true
+  # Outgoing access of the agents container (Anthropic, OpenAI), shared with no one.
+  agents-internet:
+
 volumes:
   postgres-data:
   synaptane-data:
   synaptane-backups:
+  # Logins of the subscription CLIs: mounted only in the agents container (until 1.14, in the
+  # worker: same volume, same path, same account, the logins stay valid).
   synaptane-agents:
+  # Key shared by the worker (which writes it) and the agents container (read-only).
+  synaptane-agents-key:
   letsencrypt:
   acme-challenge:

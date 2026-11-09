@@ -71,6 +71,8 @@ def test_only_the_causes_on_the_ai_side_point_to_the_ai() -> None:
     assert not explain("This space has not been synchronized with its repository yet.").about_ai
     assert not explain("Passage interrompu (worker arrêté pendant le rangement).").about_ai
     assert explain("Clé refusée par le fournisseur.").about_ai
+    # The agents container is Synaptane's: testing the AI connection would go through it.
+    assert not explain("The agents container did not answer in time.").about_ai
     assert explain("Quelque chose d'imprévu").about_ai  # unknown: the AI stays a lead
 
 
@@ -221,6 +223,31 @@ def test_next_run_is_imminent_when_due_and_absent_when_off() -> None:
             "cli_login",
         ),
         (AIError("The run exceeded the maximum time."), "run_timeout"),
+        (
+            AIError(
+                "The agents container is already running as many CLIs as it may ({n}): "
+                "the run will be retried.",
+                n=1,
+            ),
+            "agents_busy",
+        ),
+        (
+            AIError(
+                "The agents container cannot be reached ({url}): {error}. Is it running (docker "
+                "compose ps agents)?",
+                url="http://agents:8700",
+                error="ConnectError",
+            ),
+            "agents",
+        ),
+        (
+            AIError(
+                "The agents container refused the worker's key: both must read the same file "
+                "({key}).",
+                key="SYNAPTANE_AGENTS_KEY_FILE",
+            ),
+            "agents",
+        ),
     ],
 )
 def test_the_providers_errors_are_recognized(error: AIError, code: str) -> None:

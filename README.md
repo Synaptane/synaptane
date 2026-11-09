@@ -144,8 +144,9 @@ tools and the configuration only change in a compatible way. Every change is lis
 - **Claude and ChatGPT subscriptions (Claude Code, Codex).** The published image does not
   include these CLIs: to use a subscription, build the image yourself (see
   [installation](docs/admin/installation.md)). The quota display relies on an undocumented
-  Claude Code event and may stop working after a CLI update. The CLI runs under the same
-  system account as the worker; running it under a separate account is planned.
+  Claude Code event and may stop working after a CLI update. The CLI runs in a container of
+  its own, without the data, the database or any secret of the instance; it can still read its
+  own login (see [the agents container](docs/admin/ai.md#the-agents-container)).
 
   > [!WARNING]
   > **Check the terms of your AI provider.** As of October 2026, Anthropic allows a

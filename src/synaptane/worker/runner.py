@@ -28,6 +28,7 @@ from uuid import UUID
 
 from sqlalchemy import or_, select
 
+from synaptane.ai import agents_client
 from synaptane.config import Settings
 from synaptane.core.errors import SynaptaneError
 from synaptane.git.repo import GitError
@@ -89,6 +90,7 @@ class Worker:
         # less than an hour after it would otherwise skip its first hourly checks.
         self._last_maintenance = float("-inf")
         self._last_backlog_check = float("-inf")
+        self._agents_due = float("-inf")  # next report of the agents container's state
         self._current: dict[str, tuple[UUID, int]] = {}  # lane → (current job, attempt)
         self._pulses: dict[str, float] = {}  # lane → last sign of life (monotonic clock)
         self._touched = 0.0
@@ -321,12 +323,28 @@ class Worker:
                 except (SynaptaneError, GitError) as error:
                     log.warning("Watermark of %s not moved: %s", space.id, error)
 
+    def report_agents(self) -> None:
+        """Records where the subscription CLIs run, and the state of the agents container,
+        for the web container (doctor, health page), which does not reach it: every 10
+        minutes, every minute while it is unreachable or still checking its CLIs."""
+        now = time.monotonic()
+        if now < self._agents_due:
+            return
+        state = agents_client.refresh(self.settings.data_dir)
+        settled = not state.container or (state.reachable and not state.contract_pending)
+        wait = agents_client.REFRESH if settled else agents_client.RETRY
+        self._agents_due = now + wait.total_seconds()
+
     def maintenance(self) -> None:
         now = time.monotonic()
         if now - self._last_maintenance < 60:
             return
         self._last_maintenance = now
         self.pulse(threading.current_thread().name)
+        try:
+            self.report_agents()
+        except Exception:  # noqa: BLE001 — a missed report must not stop the worker
+            log.warning("State of the agents container not recorded", exc_info=True)
         self.schedule_polls()
         tidy.schedule(self.database)
         tidy.close_orphans(self.database)
