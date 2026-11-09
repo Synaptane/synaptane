@@ -620,7 +620,10 @@ def reconcile(
     rows = {
         r.name: r
         for r in session.scalars(
-            select(Routine).where(Routine.space_id == space.id).with_for_update()
+            select(Routine)
+            .where(Routine.space_id == space.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)  # read again, never a stale copy
         )
     }
     seen: set[str] = set()
@@ -774,8 +777,14 @@ def save(
     with try_space_lock(database.engine, space.id, timeout=30) as acquired:
         if not acquired:
             raise conflict("The space is busy (synchronization in progress). Try again.")
+        # Read again under the lock (`populate_existing`): the copy loaded with the request
+        # predates it, and the synchronization that held the lock may have written the
+        # routine meanwhile (a stale `sha` None would keep the edit in the database only).
         row = session.scalar(
-            select(Routine).where(Routine.space_id == space.id, Routine.name == name)
+            select(Routine)
+            .where(Routine.space_id == space.id, Routine.name == name)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if creating and row is not None:
             raise conflict("A routine with this name already exists in the space.")

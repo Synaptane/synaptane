@@ -368,3 +368,31 @@ def test_no_other_write_path_reaches_the_routines(
         routines.create(
             db, database, wiki.alice, ctx, wiki.infra, routines.Fields(), template="digest"
         )
+
+
+def test_an_edit_waiting_for_the_lock_while_the_sync_writes_the_routine_reaches_the_file(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """The request read the routine before the space lock; the synchronization holding the
+    lock wrote it to the repository meanwhile. The edit must go to the file, not to the
+    database only (the copy would differ from Git for good), and a removal must remove the
+    file (the routine would come back at the next synchronization)."""
+    legacy(db, wiki, "revue", "Revue")
+    legacy(db, wiki, "veille", "Veille")
+    routine, edited = rows(db)  # as the requests read them (`routines.get`)
+    assert routine.sha is None and edited.sha is None
+    sync(database, ctx, wiki.infra.id)  # in another session: both written, `sha` set
+    path = ".synaptane/routines/veille.md"
+
+    routines.update(db, database, wiki.root, ctx, wiki.infra, edited, routines.Fields(at="17:00"))
+    text = (ctx.local_repository(wiki.infra).blob(path) or b"").decode()
+    assert "schedule: weekly monday 17:00" in text
+    found = {r.name: r for r in rows(db)}
+    assert found["veille"].at == "17:00"
+    assert found["veille"].sha == ctx.local_repository(wiki.infra).blob_sha(path)
+
+    routines.delete(db, database, wiki.root, ctx, wiki.infra, routine)
+    assert ctx.local_repository(wiki.infra).blob(".synaptane/routines/revue.md") is None
+    sync(database, ctx, wiki.infra.id)
+    assert [r.name for r in rows(db)] == ["veille"]
+
