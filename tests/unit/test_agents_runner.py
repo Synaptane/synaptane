@@ -471,6 +471,14 @@ def test_agents_runner_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("SYNAPTANE_AGENTS_MAX_RUNS", "3")
     assert main(["agents-runner", "--host", "0.0.0.0", "--port", "8701", "--max-runs", "4"]) == 0
     assert seen == [("0.0.0.0", 8701, tmp_path / "key", 4)]
+    assert main(["agents-runner"]) == 0  # SYNAPTANE_AGENTS_MAX_RUNS, read when it starts
+    assert seen[-1] == ("127.0.0.1", 8700, tmp_path / "key", 3)
+    # Zero would refuse every run, for ever: refused when it starts.
+    assert main(["agents-runner", "--max-runs", "0"]) == 2
+    monkeypatch.setenv("SYNAPTANE_AGENTS_MAX_RUNS", "two")
+    assert main(["agents-runner"]) == 2
+    assert main(["agents-runner", "--max-runs", "1"]) == 0  # the option wins
+    assert len(seen) == 3
 
 
 def test_unreadable_answers_of_the_agents_container() -> None:
@@ -486,3 +494,58 @@ def test_unreadable_answers_of_the_agents_container() -> None:
         {"error": {"template": "Busy {n}", "params": {"n": 2}}, "transient": True}, 503
     )
     assert str(error) == "Busy 2" and error.transient
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{name.__class__.__mro__}",  # attributes of a value
+        "{name[0]}",  # index
+        "{name!r}",  # conversion
+        "{name:>999999999}",  # a huge text wherever it is shown
+        "{0}",
+        "{}",
+        "unbalanced {",
+        "x" * (agents_client.MAX_TEMPLATE + 1),
+    ],
+)
+def test_a_message_of_the_agents_container_is_a_plain_template(template: str) -> None:
+    """The agents container runs the CLIs: its messages are formatted in the worker and the
+    web container with plain `{name}` fields only."""
+    answer = {"error": {"template": template, "params": {"name": "x"}}}
+    assert "answered with the error 500" in str(agents_client._error(answer, 500))
+    with pytest.raises(ValueError):
+        agents_client._label({"template": "a {name}", "params": {"name": {"nested": 1}}})
+
+
+def test_texts_of_the_agents_container_lose_their_control_characters(
+    agents: Agents, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    escape = "\x1b]8;;http://evil.example\x07click\x1b[2J"
+    report = cli_contract.Report("claude", "Claude Code", True, "2.1" + escape, [escape])
+    agents.runner.contract = [report]
+    monkeypatch.setattr(agents.runner, "exposures", ["Docker socket" + escape])
+    state = agents_client.refresh(tmp_path)
+    shown = [state.version, state.clis[0].version, *state.clis[0].problems, *state.exposures]
+    assert shown and not any("\x1b" in text or "\x07" in text for text in shown)
+    assert agents_client.read_state(tmp_path) == state
+    error = agents_client._error({"error": {"template": "Busy {n}", "params": {"n": escape}}}, 503)
+    assert "\x1b" not in str(error)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"mode": "container", "checked_at": None, "error": "not json"},
+        {"mode": "container", "checked_at": None, "error": '{"template": "{x.y}"}'},
+        {"mode": "container", "checked_at": None, "error": '{"template": "{x}", "params": {}}'},
+        {"mode": "container", "checked_at": "2026-11-09T10:00:00"},  # without a time zone
+        {"mode": "container", "checked_at": None, "clis": [{"problems": 3}], "exposures": 4},
+    ],
+)
+def test_a_damaged_state_file_is_ignored_or_cleaned(tmp_path: Path, record: object) -> None:
+    (tmp_path / agents_client.STATE_FILE).write_text(json.dumps(record))
+    state = agents_client.read_state(tmp_path)  # never an exception: the health page shows
+    assert state is None or (
+        all(cli.problems == () for cli in state.clis) and state.exposures == ()
+    )

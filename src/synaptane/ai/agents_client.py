@@ -22,8 +22,10 @@ web container and do not reach it, read it there (`read_state`).
 import json
 import logging
 import os
+import re
 import secrets
 import socket
+import string
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -128,15 +130,51 @@ def callback_host(base: str) -> str:
     return local
 
 
+MAX_TEMPLATE = 2000
+_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,49}")
+# Control characters (terminal escapes included), line breaks and tabs excepted.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _text(value: object, size: int) -> str:
+    """A text of the agents container, cut to `size` characters, without control characters
+    (`synaptane doctor` prints it in a terminal)."""
+    return _CONTROL.sub("", str(value))[:size]
+
+
+def _texts(value: object, size: int, count: int) -> tuple[str, ...]:
+    return tuple(_text(v, size) for v in value[:count]) if isinstance(value, list) else ()
+
+
+def _plain(template: str) -> bool:
+    """Only `{name}` fields: no attribute, index, conversion or format specification, which a
+    template coming from another container could use to read an object's attributes or to
+    make a huge text (`{x:>999999999}`) wherever it is shown."""
+    try:
+        fields = list(string.Formatter().parse(template))
+    except ValueError:
+        return False
+    return all(
+        name is None or (_FIELD.fullmatch(name) is not None and not spec and conversion is None)
+        for _, name, spec, conversion in fields
+    )
+
+
 def _label(data: object) -> Label:
-    """A message of the agents container (`Label.dumps` form); ValueError otherwise."""
+    """A message of the agents container (`Label.dumps` form); ValueError otherwise. Its
+    template is formatted here and in the web container: plain fields and values only."""
     if not isinstance(data, dict) or not isinstance(data.get("template"), str):
         raise ValueError("not a message")
-    params = data.get("params") or {}
-    if not isinstance(params, dict):
+    template, params = data["template"], data.get("params") or {}
+    if not isinstance(params, dict) or len(template) > MAX_TEMPLATE or not _plain(template):
         raise ValueError("not a message")
+    values: dict[str, object] = {}
+    for key, value in params.items():
+        if not isinstance(value, str | int | float):
+            raise ValueError("not a message")
+        values[str(key)] = _text(value, MAX_TEMPLATE) if isinstance(value, str) else value
     try:
-        return Label(data["template"], **{str(k): v for k, v in params.items()})
+        return Label(_text(template, MAX_TEMPLATE), **values)
     except (KeyError, IndexError, ValueError, TypeError):
         raise ValueError("not a message") from None
 
@@ -300,11 +338,11 @@ def _clis(value: object) -> tuple[CLIState, ...]:
         if isinstance(item, dict):
             found.append(
                 CLIState(
-                    binary=str(item.get("binary", ""))[:50],
-                    label=str(item.get("label", ""))[:100],
+                    binary=_text(item.get("binary", ""), 50),
+                    label=_text(item.get("label", ""), 100),
                     installed=bool(item.get("installed")),
-                    version=str(item.get("version", ""))[:100],
-                    problems=tuple(str(p)[:1000] for p in item.get("problems") or [])[:20],
+                    version=_text(item.get("version", ""), 100),
+                    problems=_texts(item.get("problems"), 1000, 20),
                 )
             )
     return tuple(found)
@@ -327,10 +365,10 @@ def probe_state() -> State:
         now,
         base,
         reachable=True,
-        version=str(data.get("version", ""))[:100],
+        version=_text(data.get("version", ""), 100),
         clis=_clis(contract),
         contract_pending=contract is None,
-        exposures=tuple(str(e)[:300] for e in data.get("exposures") or [])[:20],
+        exposures=_texts(data.get("exposures"), 300, 20),
     )
 
 
@@ -352,20 +390,22 @@ def read_state(data_dir: Path) -> State | None:
         data = json.loads((data_dir / STATE_FILE).read_text(encoding="utf-8"))
         checked = datetime.fromisoformat(data["checked_at"]) if data.get("checked_at") else None
         mode = data["mode"]
-    except (OSError, ValueError, KeyError, TypeError):
+        error = data.get("error") or ""
+        label = _label(json.loads(error)) if error else Label("")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
-    if mode not in (CONTAINER, LOCAL):
+    if mode not in (CONTAINER, LOCAL) or (checked is not None and checked.tzinfo is None):
         return None
     return State(
         mode,
         checked,
-        str(data.get("url", "")),
+        _text(data.get("url", ""), 300),
         bool(data.get("reachable")),
-        Label.loads(data["error"]) if data.get("error") else Label(""),
-        str(data.get("version", "")),
+        label,
+        _text(data.get("version", ""), 100),
         _clis(data.get("clis")),
         bool(data.get("contract_pending")),
-        tuple(str(e) for e in data.get("exposures") or []),
+        _texts(data.get("exposures"), 300, 20),
     )
 
 
