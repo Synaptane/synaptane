@@ -2130,7 +2130,6 @@
  "The agents container did not answer in time.": "Le conteneur des agents n'a pas répondu à temps.",
  "The agents container has no CLI: build the image yourself to use them.": "Le conteneur des agents n'a aucun CLI : construisez l'image vous-même pour les utiliser.",
  "The agents container has no key yet: the worker creates it ({path}) at its first call.": "Le conteneur des agents n'a pas encore de clé : le worker la crée ({path}) à son premier appel.",
- "The agents container is already running {n} CLIs: the run will be retried.": "Le conteneur des agents fait déjà tourner {n} CLI : le passage sera relancé.",
  "The agents container refused the worker's key: both must read the same file ({key}).": "Le conteneur des agents a refusé la clé du worker : tous deux doivent lire le même fichier ({key}).",
  "The agents container was already running as many CLIs as it may: the run will be retried.": "Le conteneur des agents faisait déjà tourner autant de CLI qu'il le peut : le passage sera relancé.",
  "The agents container's login works": "La connexion du conteneur des agents fonctionne",
@@ -2146,5 +2145,7 @@
  "agents container unavailable": "conteneur des agents indisponible",
  "through the worker, in the agents container, the only one with access to the CLI; this page updates itself.": "par le worker, dans le conteneur des agents, qui seul a accès au CLI ; la page se met à jour seule.",
  "{url} is not set.": "{url} n'est pas défini.",
- "{url} is set but {key} is not: the worker cannot authenticate to the agents container (compose.yaml).": "{url} est défini mais pas {key} : le worker ne peut pas s'authentifier auprès du conteneur des agents (compose.yaml)."
+ "{url} is set but {key} is not: the worker cannot authenticate to the agents container (compose.yaml).": "{url} est défini mais pas {key} : le worker ne peut pas s'authentifier auprès du conteneur des agents (compose.yaml).",
+ "The agents container is already running as many CLIs as it may ({n}): the run will be retried.": "Le conteneur des agents fait déjà tourner autant de CLI qu'il le peut ({n}) : le passage sera relancé.",
+ "Codex would add the instructions of {paths} to every run: delete them (Synaptane never writes them, a compromised run may have).": "Codex ajouterait les instructions de {paths} à chaque passage : supprimez-les (Synaptane n'en écrit jamais, un passage compromis a pu le faire)."
 }

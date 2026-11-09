@@ -94,6 +94,14 @@ CODEX_DISABLED = (
 # active with a placeholder tool offered to the model, and it can add its own search tool: the
 # model must see Synaptane's tools only, all of them upfront. Checked by `cli_contract`.
 CLAUDE_ENVIRONMENT = {"ENABLE_TOOL_SEARCH": "false"}
+# Claude Code: no setting source. Its login (`~/.claude/.credentials.json`, `~/.claude.json`) is
+# not a setting and is still read. Checked by `cli_contract` (a hook and instructions planted in
+# the HOME of the check must have no effect).
+NO_SETTINGS = ("--setting-sources", "")
+# Codex: instructions it adds to every run from its home (`--ignore-user-config` leaves out
+# `config.toml`, not these), with no option to leave them out. Synaptane never writes them: a
+# run is refused while one is there (`codex_instructions`).
+CODEX_INSTRUCTIONS = ("AGENTS.md", "AGENTS.override.md")
 AGENT_HOME = "SYNAPTANE_AGENT_HOME"
 # Address of the agents container (`agents_runner`); unset: the CLI runs in the worker.
 AGENTS_URL = "SYNAPTANE_AGENTS_URL"
@@ -316,6 +324,10 @@ def _claude_command(config: AIConfig, system_file: Path, mcp_file: Path) -> list
         str(system_file),
         "--tools",
         "",  # no built-in tool: no shell, no files, no web
+        # No setting source (user, project, local): neither the hooks, environment and
+        # permissions of `~/.claude/settings.json`, nor `~/.claude/CLAUDE.md`, skills or agents
+        # that a compromised run would have left in the CLI's HOME, kept from run to run.
+        *NO_SETTINGS,
         "--mcp-config",
         str(mcp_file),
         "--strict-mcp-config",
@@ -754,12 +766,25 @@ def run_cli(
             env.update(CLAUDE_ENVIRONMENT)
             command, given = _claude_command(config, system_file, mcp_file), prompt
         elif provider == "codex":
+            if found := codex_instructions(env):
+                raise AIError(
+                    "Codex would add the instructions of {paths} to every run: delete them "
+                    "(Synaptane never writes them, a compromised run may have).",
+                    paths=", ".join(map(str, found)),
+                )
             env["SYNAPTANE_TIDY_TOKEN"] = token
             command = _codex_command(config, url, "SYNAPTANE_TIDY_TOKEN", workdir)
             given = f"{system}\n\n---\n\n{prompt}"
         else:
             raise AIError("Unknown provider: {provider}", provider=provider)
         return execute(command, cwd=workdir, env=env, given=given, timeout=timeout, cancel=cancel)
+
+
+def codex_instructions(env: dict[str, str]) -> list[Path]:
+    """Instruction files of Codex's home (`CODEX_HOME`, otherwise `$HOME/.codex`) that it would
+    add to every run. Only their existence is tested: nothing is read."""
+    home = env.get("CODEX_HOME") or str(Path(env.get("HOME") or "~").expanduser() / ".codex")
+    return [Path(home) / name for name in CODEX_INSTRUCTIONS if (Path(home) / name).exists()]
 
 
 def run_agent(
@@ -827,6 +852,7 @@ def _claude_probe() -> Label:
         "haiku",
         "--tools",
         "",
+        *NO_SETTINGS,
         "--output-format",
         "stream-json",
         "--verbose",

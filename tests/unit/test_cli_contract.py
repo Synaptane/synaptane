@@ -39,6 +39,8 @@ CLAUDE_HELP = """Usage: claude [options] [command] [prompt]
   --permission-mode <mode>              Permission mode (choices: "acceptEdits", "auto",
                                         "bypassPermissions", "manual",
                                         "dontAsk", "plan")
+  --setting-sources <sources>           Comma-separated list of setting sources
+                                        to load (user, project, local).
   --strict-mcp-config                   Only use MCP servers from --mcp-config
   --tools <tools...>                    Specify the list of available tools from
                                         the built-in set. Use "" to disable all
@@ -58,9 +60,11 @@ def simulate(
     features: str | None = None,
     claude_tools: list[dict[str, Any]] | None = None,
     codex_tools: list[dict[str, Any]] | None = None,
+    obeys_home: bool = False,
 ) -> list[list[str]]:
     """Simulated CLIs: help, feature list, and a run that sends its tools to the fake
-    provider (as the real CLI would). Returns the commands that were run."""
+    provider (as the real CLI would). `obeys_home`: the run also follows the settings of its
+    HOME (instructions sent to the model, hook run). Returns the commands that were run."""
     features = FIXTURE.read_text() if features is None else features
     launched: list[list[str]] = []
     real_run = subprocess.run
@@ -94,7 +98,13 @@ def simulate(
                 found[1] + "/responses",
                 CODEX_TOOLS if codex_tools is None else codex_tools,
             )
-        httpx2.post(url, json={"model": "x", "tools": tools})
+        body: dict[str, Any] = {"model": "x", "tools": tools}
+        if obeys_home:
+            home = Path(env["HOME"])
+            planted = home / (".claude/CLAUDE.md" if name == "claude" else ".codex/config.toml")
+            body["system"] = planted.read_text()
+            (home / cli_contract.HOOK_TRACE).touch()
+        httpx2.post(url, json=body)
         return Done(stderr="erreur du faux fournisseur", returncode=1)
 
     monkeypatch.setattr(shutil, "which", lambda name: f"/usr/local/bin/{name}")
@@ -152,6 +162,7 @@ def test_contract_holds_with_the_expected_clis(
     # The probe runs the exact command of a run, pointed at the fake provider.
     claude = next(c for c in launched if "-p" in c)
     assert claude[claude.index("--tools") + 1] == "" and "--strict-mcp-config" in claude
+    assert claude[claude.index("--setting-sources") + 1] == ""  # no user setting
     codex = next(c for c in launched if "exec" in c)
     assert {"shell_tool", "view_image"} <= {
         codex[i + 1] for i, p in enumerate(codex) if p == "--disable"
@@ -212,3 +223,23 @@ def test_a_cli_that_cannot_run_is_reported(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(subprocess, "run", broken)
     reports = cli_contract.check_all()
     assert all("cannot run the check" in r.problems[0] for r in reports)
+
+
+def test_settings_left_in_the_home_break_the_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A compromised run could leave a hook or instructions in the CLI's HOME (the agents
+    container's /agents) for the next runs: the check plants some, which must have no
+    effect."""
+    simulate(monkeypatch, obeys_home=True)
+    for report in cli_contract.check_all():
+        assert any("reach the model" in p for p in report.problems), report
+        assert any("a hook of the CLI's HOME ran" in p for p in report.problems), report
+
+
+def test_planted_home(tmp_path: Path) -> None:
+    cli_contract.plant_home("claude_code", tmp_path)
+    cli_contract.plant_home("codex", tmp_path)
+    assert cli_contract.HOME_MARKER in (tmp_path / ".claude" / "CLAUDE.md").read_text()
+    assert "hooks" in (tmp_path / ".claude" / "settings.json").read_text()
+    assert cli_contract.HOME_MARKER in (tmp_path / ".codex" / "config.toml").read_text()
+    assert not (tmp_path / ".codex" / "AGENTS.md").exists()  # refused by the runs instead
+    assert cli_contract.judge_home([{"system": "nothing"}], tmp_path) == []
