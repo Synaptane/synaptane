@@ -10,6 +10,17 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-09
+
+Send or forward an email to a space's inbox; import a Notion or Confluence export; and run the
+subscription CLIs (Claude Code, Codex) in a container of their own, away from the data and the
+secrets of the instance. Upgrading from 1.14.0: one migration (`0033`), applied at startup; it
+creates the email capture tables, empty, and the capture stays off until a super admin sets it
+up. With Docker Compose, the new `agents` service starts with the others; the CLIs' logins stay
+valid, nothing to sign in again (with a custom Compose file, see the upgrade note of
+[The agents container](docs/admin/ai.md#the-agents-container)). Back up first: going back to
+1.14.0 then means restoring that backup.
+
 ### Added
 - **Capture by email**. An email sent or forwarded to `brain+organization.space@example.com`
   becomes a note in the inbox of that space, attachments included, filed by the tidy-up like
@@ -54,33 +65,31 @@ of the target version.
   (`0033`), applied at startup: it creates the two tables of the capture, empty, so nothing is
   read before the super admin sets it up. See `docs/admin/email-capture.md`.
 - **The subscription CLIs run in a container of their own**. With a Claude or ChatGPT
-  subscription, Claude Code and Codex no longer run in the worker but in the `agents` service
-  of `compose.yaml` (`synaptane agents-runner`): same image, but neither the data volume
-  (master key, repositories), nor the backups, nor the database, nor any secret of the
-  instance; only the CLIs' logins (`synaptane-agents`, mounted there only) and a key it shares
-  with the worker. It is on a network shared with the worker alone, without Internet, and on
-  one of its own for Anthropic and OpenAI: neither the database nor the web container are
-  within its reach. Non-root, read-only file system, no Linux capability, memory capped
-  (`SYNAPTANE_AGENTS_MEMORY`, 2 GB) and one CLI at a time (`SYNAPTANE_AGENTS_MAX_RUNS`, 1:
-  CLIs running together share an account and could read each other's run token; a run that
-  arrives during another one waits for its turn in the worker, without failing).
-  The worker sends it each run, with the key (created by the worker on its first call in the
-  `synaptane-agents-key` volume, never logged); the CLI is launched exactly as before, with the
-  same options, and reaches the run's tools at the worker's address on their private network,
-  with the run's single-use token. A run is stopped at its time limit, as soon as the worker
-  gives up, or beyond 4 MB of results; only the events Synaptane reads come back to the worker.
-  The isolation contract (`synaptane check-clis`) runs in the agents container, where the CLIs
-  run. Claude Code now runs with `--setting-sources ""`: hooks, settings and instructions left
-  in its `HOME` (`~/.claude/settings.json`, `CLAUDE.md`, skills) no longer apply to the runs,
-  which the contract checks by planting some; Codex leaves out the descriptions of the skills
-  of its home (`~/.codex/skills`, `~/.agents/skills`), which `--ignore-user-config` kept; a
-  Codex run is refused while
-  `~/.codex/AGENTS.md` (which Codex adds to every run, with no option to leave it out) is
-  there. Sign in with `docker compose exec agents claude auth login` (or
-  `codex login --device-auth`): the AI page gives the command. This closes the known
-  limitation of the earlier versions, where a flaw in the CLI could read the server through the
-  worker's account. See [The agents container](docs/admin/ai.md#the-agents-container), with
-  what it protects and what it does not.
+  subscription, Claude Code and Codex no longer run in the worker but in the `agents` service of
+  `compose.yaml` (`synaptane agents-runner`): same image, but neither the data volume (master key,
+  repositories), nor the backups, nor the database, nor any secret of the instance; only the CLIs'
+  logins (`synaptane-agents`, mounted there only) and a key it shares with the worker. It is on a
+  network shared with the worker alone, without Internet, and on one of its own for Anthropic and
+  OpenAI: neither the database nor the web container are within its reach. Non-root, read-only
+  file system, no Linux capability, memory capped (`SYNAPTANE_AGENTS_MEMORY`, 2 GB) and one CLI at
+  a time (`SYNAPTANE_AGENTS_MAX_RUNS`, 1: CLIs running together share an account and could read
+  each other's run token; a run that arrives during another one waits for its turn in the worker,
+  without failing). The worker sends it each run, with the key (created by the worker on its first
+  call in the `synaptane-agents-key` volume, never logged); the CLI is launched exactly as before,
+  with the same options, and reaches the run's tools at the worker's address on their private
+  network, with the run's single-use token. A run is stopped at its time limit, as soon as the
+  worker gives up, or beyond 4 MB of results; only the events Synaptane reads come back to the
+  worker. The isolation contract (`synaptane check-clis`) runs in the agents container, where the
+  CLIs run. Claude Code now runs with `--setting-sources ""`: hooks, settings and instructions
+  left in its `HOME` (`~/.claude/settings.json`, `CLAUDE.md`, skills) no longer apply to the runs,
+  which the contract checks by planting some; Codex leaves out the descriptions of the skills of
+  its home (`~/.codex/skills`, `~/.agents/skills`), which `--ignore-user-config` kept; a Codex run
+  is refused while `~/.codex/AGENTS.md` (which Codex adds to every run, with no option to leave it
+  out) is there. Sign in with `docker compose exec agents claude auth login` (or `codex login
+  --device-auth`): the AI page gives the command. This closes the known limitation of the earlier
+  versions, where a flaw in the CLI could read the server through the worker's account. See [The
+  agents container](docs/admin/ai.md#the-agents-container), with what it protects and what it does
+  not.
 - **Where the CLIs run, on the health page and in `synaptane doctor`**. **Administration →
   Health** has a "Subscription agents" line: agents container reachable, CLI versions and
   isolation contract, or the CLIs running in the worker (less isolated), or what the agents
@@ -1035,7 +1044,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/synaptane/synaptane/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/synaptane/synaptane/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/synaptane/synaptane/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/synaptane/synaptane/compare/v1.11.0...v1.12.0
