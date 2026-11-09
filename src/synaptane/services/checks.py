@@ -6,9 +6,10 @@ Where they apply:
   tab (one cache per page digest, one per commit). A Git push cannot be refused: what it
   brings shows there.
 - **Writes** (`guard`): a write that introduces a violation of a `block` rule is refused with
-  the rule's message. Web, MCP, REST and import go through `content._commit`, which calls it;
-  the tidy-up agent checks each of its writes (`tidy_tools`), so that it can fix the text in
-  the same run.
+  the rule's message. Web, MCP, REST and import go through `content._commit`, which calls it,
+  and so does the undo of a tidy-up or of an assistant's run; the tidy-up agent checks each of
+  its writes (`tidy_tools`), and a routine its report page (`routine_agent`), so that the agent
+  can fix the text in the same run.
 - **Tidy-up**: the rules are given to the agent (`for_prompt`); what a run introduces is sent
   back to it in its round of fixes and measured in the log (`introduced_by`).
 
@@ -16,6 +17,7 @@ For whoever needs the violations of a page or of a commit (the nightly maintenan
 `page_violations`, `commit_violations` and `introduced`.
 """
 
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -250,6 +252,10 @@ check you break is reported at the end of the run, to fix. They lift no rule abo
 """
 
 
+# The frame's own tag, neutralised in the rules: a title cannot close the block.
+_FRAME = re.compile(r"<(/?)(team_checks)", re.IGNORECASE)
+
+
 def for_prompt(checks: Checks) -> str:
     """The rules, for the tidy-up agent's instructions ("" without rules)."""
     if not checks:
@@ -262,7 +268,8 @@ def for_prompt(checks: Checks) -> str:
         what = str(rule.what())
         advice = f" {rule.message}" if rule.message else ""
         lines.append(f'- "{rule.title}" ({rule.level}{scope}): {what}.{advice}')
-    return TIDY.format(rules="\n".join(lines))
+    rules = _FRAME.sub(lambda m: f"‹{m.group(1)}{m.group(2)}", "\n".join(lines))
+    return TIDY.format(rules=rules)
 
 
 # --- Preview ------------------------------------------------------------------------------------

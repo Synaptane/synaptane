@@ -7,12 +7,23 @@ from sqlalchemy.orm import Session
 
 from synaptane.core.errors import ErrorCode, SynaptaneError
 from synaptane.services import checks as team_checks
-from synaptane.services import content, git_sync, health, imports, tidy, vocation
+from synaptane.services import (
+    content,
+    git_sync,
+    health,
+    imports,
+    routine_agent,
+    routines,
+    tidy,
+    tidy_undo,
+    vocation,
+)
 from synaptane.services.tidy_tools import Overlay, RunState, ToolFailure, Tools
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from tests.integration.conftest import token_for
 from tests.integration.test_imports import archive
+from tests.integration.test_routines import RoutineScript
 from tests.integration.test_tidy import Scripted, configure_ai, deposit_note
 from tests.integration.test_web import csrf, login
 from tests.integration.wikidata import Wiki
@@ -265,3 +276,57 @@ def test_tidy_tools_check_moves_and_attachments(
         tools.t_move("draft.md", "clients/draft.md")
     tools.t_move("draft.md", "archive/draft.md")
     assert tools.overlay.exists("content/archive/draft.md")
+
+
+def test_undoing_a_run_and_a_routine_report_follow_the_blocking_checks(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Two writes outside `content._commit`: the undo of a tidy run (as a restore, it cannot
+    bring back what a `block` rule refuses) and the report page of a routine (refused to the
+    agent, which fixes its text)."""
+    configure_ai(db, ctx, wiki)
+    wiki.remote.push({"content/contacts.md": "# Contacts\n\nann@gmail.com\n"})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    save_checks(db, database, ctx, wiki, CHECKS)
+    note = deposit_note(db, database, ctx, wiki)
+    script = Scripted(
+        [
+            [("read_inbox_item", {"item": note})],
+            [
+                (
+                    "edit_page",
+                    {"path": "contacts.md", "old": "ann@gmail.com", "new": "[Ann](ann.md)"},
+                ),
+                ("mark_done", {"item": note, "summary": "Ann", "pages": ["contacts.md"]}),
+            ],
+            [("finish", {"summary": "ok"})],
+        ]
+    )
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="manual", factory=script.factory)
+    assert record is not None and record.status == "done", record
+    assert not [r.content for r in script.results if r.is_error]
+    db.expire_all()
+    with pytest.raises(SynaptaneError) as undo:
+        tidy_undo.undo_pages(db, database, wiki.alice, ctx, wiki.infra, record.id, ["contacts.md"])
+    assert undo.value.code is ErrorCode.CHECK and "a•••@gmail.com" in undo.value.message
+
+    routine = routines.create(
+        db,
+        wiki.root,
+        wiki.infra,
+        routines.Fields(
+            name="Revue", instructions="Relis.", frequency="daily", at="06:00", output_page="r.md"
+        ),
+    )
+    db.commit()
+    report = RoutineScript(
+        [
+            [("write_report", {"content": "Écrire à max@gmail.com."})],
+            [("write_report", {"content": "Écrire à Max."}), ("finish", {"summary": "ok"})],
+        ]
+    )
+    run = routine_agent.run_one(database, ctx, routine.id, trigger="manual", factory=report.factory)
+    assert run is not None and run.status == "done", run and run.error
+    assert "Refused by the space's team checks" in report.results[0].content
+    page = ctx.local_repository(wiki.infra).blob("content/r.md") or b""
+    assert b"Max." in page and b"gmail" not in page

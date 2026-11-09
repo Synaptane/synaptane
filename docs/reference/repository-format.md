@@ -129,7 +129,7 @@ value that holds a backtick).
 | `pattern` | Regular expression ([RE2 syntax](https://github.com/google/re2/wiki/Syntax), linear time), on the text of the page, front matter included; `^` and `$` match at each line. With `field`: on the value of the field |
 | `field` | Front matter field (top-level key) |
 | `expect` | What `field` must be, separated by commas: `present` (there and not empty), `list` (a YAML list: `[a, b]` or one `- item` per line), `date` (`YYYY-MM-DD`, without a time). `list` and `date` only apply when the field is there |
-| `preset` | Personal data: `email`, `phone` (international, French and North American formats), `card` (13 to 19 digits that pass the Luhn check), `iban` (length of its country and check digits). Stands alone: no `pattern` or `field` |
+| `preset` | Personal data: `email`, `phone` (international, French and North American formats), `card` (13 to 19 digits that pass the Luhn check), `iban` (length of its country and check digits, upper or lower case). No-break spaces, dashes and zero-width characters between digits are seen through. Stands alone: no `pattern` or `field` |
 | `allow` | Values never reported, separated by commas. For `email`: domains (`acme.com`, its subdomains included) or addresses. The `example.com`, `.org` and `.net` domains and the `.example`, `.invalid`, `.test` and `.localhost` ones are always allowed |
 | `paths` | Folders or globs relative to `content/`, separated by commas: `clients/` (everything under it), `notes/*.md` (`*` within a folder), `**/meetings/*.md` (`**` across folders). Without it: every page |
 | `except` | Folders or globs left out, same form |
@@ -137,14 +137,18 @@ value that holds a backtick).
 | `message` | What to do, shown with each violation and with a refusal |
 | `mask` | `yes`: the excerpt of a `pattern` is masked, as for presets |
 
-Limits: 50 rules, 500 characters per pattern, 64,000 characters of the file read, the first
-1 MB of each page examined, 20 violations per rule and per page. A faulty rule (unknown key,
-invalid pattern, pattern that matches an empty text, two rules with the same title) is
+Limits: 50 rules, 500 characters per pattern, 3,000 RE2 steps per compiled pattern and 15,000
+for the whole file (a counted repetition such as `.{0,1000}` costs that many: RE2 stays
+linear, but its cost per byte grows with them), 64,000 characters of the file read. **Health**
+examines the first 1 MB of each page and shows 20 violations per rule and per page; a write
+is checked in full. A faulty rule (unknown key, invalid pattern, pattern too complex, pattern
+that matches an empty text, two rules with the same title) is
 ignored and its line is shown in **Health**; the other rules apply. A save from Synaptane
 refuses a file with a faulty rule.
 
-A `block` rule refuses the writes of the web UI, the REST API, MCP, the import and the
-tidy-up, when they add a violation: a page that already broke the rule stays editable, and a
+A `block` rule refuses the writes of the web UI, the REST API, MCP, the import, the tidy-up,
+the report page of a routine and the undo of a tidy-up or of an assistant's run, when they add
+a violation: a page that already broke the rule stays editable, and a
 page moved into a folder that a rule covers counts as new. A push cannot be refused.
 
 ## `.synaptane/prompts/<name>.md`

@@ -22,7 +22,8 @@ the excerpt). A value between backticks is taken as is.
 
 Patterns come from the team and pages from anyone: both are untrusted. Expressions run on
 RE2 (linear time, no backtracking: no catastrophic pattern), with a memory cap; the number
-of rules, the length of a pattern and the size of the text examined are capped. A file that
+of rules, the length of a pattern, the size of its compiled program (the cost per byte of
+text in the worst case) and the size of the text Health examines are capped. A file that
 does not parse never raises: each faulty rule is reported (`Checks.errors`) and left out, the
 others apply.
 """
@@ -42,8 +43,11 @@ from synaptane.core.errors import ErrorCode, Label, SynaptaneError
 MAX_RULES = 50
 MAX_PATTERN = 500  # characters of an expression
 MAX_FILE = 64_000  # characters of the file read (a push may bring more)
-MAX_TEXT = 1_000_000  # bytes of a page examined; the rest is not checked
+MAX_TEXT = 1_000_000  # bytes of a page examined by Health; a write is checked in full
 MAX_HITS = 20  # violations of one rule kept per page
+MAX_COMPARED = 10_000  # violations of one rule compared between two versions of a page
+MAX_PROGRAM = 3_000  # RE2 instructions of a pattern: `a.{0,1000}b` costs ~10 µs per byte
+MAX_PROGRAMS = 15_000  # RE2 instructions of all the patterns of a file
 MAX_EXCERPT = 80  # characters of an excerpt
 MAX_FRONT = 65_536  # bytes searched for the front matter
 RE2_MEMORY = 4 << 20  # bytes of memory for a compiled expression
@@ -199,30 +203,44 @@ class Checks:
     def __bool__(self) -> bool:
         return bool(self.rules)
 
-    def hits(self, data: bytes) -> tuple[Hit, ...]:
+    def hits(self, data: bytes, *, whole: bool = False) -> tuple[Hit, ...]:
         """Violations of every rule in a text, the rules' paths aside (a page's hits depend
-        only on its content: they can be cached per digest)."""
-        if not self.rules or b"\0" in data[:8192]:
+        only on its content: they can be cached per digest). Health reads the first MAX_TEXT
+        bytes and keeps MAX_HITS per rule; a write (`whole`) is read in full and keeps up to
+        MAX_COMPARED per rule, so that neither padding nor a page already full of violations
+        lets a new one through. A NUL byte changes nothing: a page is a page."""
+        if not self.rules:
             return ()
-        text = data[:MAX_TEXT]
+        text = data if whole else data[:MAX_TEXT]
+        limit = MAX_COMPARED if whole else MAX_HITS
         meta: _Front | None = None
+        spaced: bytes | None = None
         found: list[Hit] = []
         for index, rule in enumerate(self.rules):
             if rule.field_name:
                 if meta is None:
                     meta = _front(text)
                 found += _field_hits(index, rule, meta)
+            elif rule.preset:
+                if spaced is None:
+                    spaced = _spaced(text)
+                found += _text_hits(index, rule, spaced, limit)
             else:
-                found += _text_hits(index, rule, text)
+                found += _text_hits(index, rule, text, limit)
         return tuple(found)
 
     def violations(
-        self, path: str, data: bytes, hits: tuple[Hit, ...] | None = None
+        self,
+        path: str,
+        data: bytes,
+        hits: tuple[Hit, ...] | None = None,
+        *,
+        whole: bool = False,
     ) -> list[Violation]:
-        """Violations of a page at `path` (relative to `content/`)."""
+        """Violations of a page at `path` (relative to `content/`); `whole`: see `hits`."""
         if not self.rules or not is_page(path):
             return []
-        found = self.hits(data) if hits is None else hits
+        found = self.hits(data, whole=whole) if hits is None else hits
         return [self._violation(path, h) for h in found if self.rules[h.rule].covers(path)]
 
     def introduced(
@@ -231,17 +249,21 @@ class Checks:
         """Violations of the new version that the old one did not have (at `old_path` for a
         moved page): a page that already broke a rule stays editable, as with secrets. The
         same excerpt elsewhere in the page is the same violation (an edit above it does not
-        make it new)."""
-        now = self.violations(path, new)
-        if not now or old is None:
-            return now
-        before = Counter((v.index, v.key) for v in self.violations(old_path or path, old))
-        fresh = []
+        make it new). Both versions are read in full (`hits`); MAX_HITS per rule are kept."""
+        now = self.violations(path, new, whole=True)
+        if not now:
+            return []
+        before = Counter(
+            (v.index, v.key)
+            for v in (self.violations(old_path or path, old, whole=True) if old else ())
+        )
+        fresh, kept = [], Counter[int]()
         for violation in now:
             identity = (violation.index, violation.key)
             if before[identity]:
                 before[identity] -= 1
-            else:
+            elif kept[violation.index] < MAX_HITS:
+                kept[violation.index] += 1
                 fresh.append(violation)
         return fresh
 
@@ -339,6 +361,7 @@ def parse(text: str) -> Checks:
             sections[-1][2].append((number, item.group(1).lower(), item.group(2)))
     rules: list[Rule] = []
     titles: set[str] = set()
+    budget = MAX_PROGRAMS
     for title, line, items in sections:
         if not title:
             continue
@@ -354,6 +377,20 @@ def parse(text: str) -> Checks:
         if rule is not None and title.casefold() in titles:
             problems.append(FileError(line, Label("Two rules are named “{title}”.", title=title)))
             rule = None
+        cost = rule.compiled.programsize if rule is not None and rule.compiled is not None else 0
+        if cost > budget:
+            problems.append(
+                FileError(
+                    line,
+                    Label(
+                        "The patterns are too complex together ({limit} steps at most): "
+                        "simplify this one or the ones above.",
+                        limit=MAX_PROGRAMS,
+                    ),
+                )
+            )
+            rule = None
+        budget -= cost if rule is not None else 0
         errors += problems
         if rule is not None:
             titles.add(title.casefold())
@@ -439,7 +476,17 @@ def _rule(
                 )
                 fail("pattern", Label("Invalid pattern: {detail}.", detail=detail[:200]))
             else:
-                if compiled.search(b"") is not None:
+                if compiled.programsize > MAX_PROGRAM:
+                    fail(
+                        "pattern",
+                        Label(
+                            "Pattern too complex ({size} steps, {limit} at most): shorten its "
+                            "counted repetitions.",
+                            size=compiled.programsize,
+                            limit=MAX_PROGRAM,
+                        ),
+                    )
+                elif compiled.search(b"") is not None:
                     fail(
                         "pattern",
                         Label("The pattern matches an empty text: it would report every page."),
@@ -676,14 +723,14 @@ class _Lines:
         return self.line
 
 
-def _text_hits(index: int, rule: Rule, data: bytes) -> list[Hit]:
+def _text_hits(index: int, rule: Rule, data: bytes, limit: int = MAX_HITS) -> list[Hit]:
     found: list[Hit] = []
     lines = _Lines(data)
     if rule.preset:
         finder = PRESET_FINDERS[rule.preset]
         for start, value, shown in finder(data, rule.allow):
             found.append(Hit(index, lines.at(start), shown, value))
-            if len(found) >= MAX_HITS:
+            if len(found) >= limit:
                 break
         return found
     for match in rule.compiled.finditer(data):
@@ -692,28 +739,55 @@ def _text_hits(index: int, rule: Rule, data: bytes) -> list[Hit]:
             continue
         shown = _mask(text) if rule.mask else _cut(text)
         found.append(Hit(index, lines.at(match.start()), shown, text))
-        if len(found) >= MAX_HITS:
+        if len(found) >= limit:
             break
     return found
+
+
+# Characters a word processor puts between digits, read by the presets as an ASCII space or
+# hyphen (no-break, narrow, thin, figure spaces…; no-break hyphen, dashes, minus), or ignored
+# (zero-width ones, soft hyphen): `06 12 34 56 78` typed with no-break spaces is still a phone
+# number. Lines do not move: no line break is touched.
+_AS_SPACE = (
+    "\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000"
+)
+_AS_HYPHEN = "\u2010\u2011\u2012\u2013\u2212"
+_IGNORED = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+
+
+def _spaced(data: bytes) -> bytes:
+    """The text the presets read (see above)."""
+    if data.isascii():
+        return data
+    for chars, by in ((_AS_SPACE, b" "), (_AS_HYPHEN, b"-"), (_IGNORED, b"")):
+        for char in chars:
+            data = data.replace(char.encode(), by)
+    return data
 
 
 Finder = Callable[[bytes, tuple[str, ...]], Iterable[tuple[int, str, str]]]
 
 
-def _before(data: bytes, start: int) -> int:
-    return data[start - 1] if start > 0 else 0x20
+def _before(data: bytes, start: int) -> str:
+    """The character before `start` (a space at the start of the text), decoded: `°` or `«`
+    next to a number is not a letter."""
+    begin = start - 1
+    while begin > 0 and start - begin < 4 and 0x80 <= data[begin] < 0xC0:
+        begin -= 1
+    return data[max(begin, 0) : start].decode("utf-8", "replace")[-1:] or " "
 
 
-def _after(data: bytes, end: int) -> int:
-    return data[end] if end < len(data) else 0x20
+def _after(data: bytes, end: int) -> str:
+    """The character at `end` (a space at the end of the text), decoded."""
+    return data[end : end + 4].decode("utf-8", "replace")[:1] or " "
 
 
-def _alnum(byte: int) -> bool:
-    return chr(byte).isalnum() if byte < 0x80 else True
+def _alnum(char: str) -> bool:
+    return char.isalnum()
 
 
-def _digit(byte: int) -> bool:
-    return 0x30 <= byte <= 0x39
+def _digit(char: str) -> bool:
+    return "0" <= char <= "9"
 
 
 _EMAIL = _compile(
@@ -749,10 +823,10 @@ def _phones(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str
     for match in _PHONE.finditer(data):
         start, end = match.span()
         text = match.group(0).decode("ascii", "replace").rstrip(")")
-        if _alnum(_before(data, start)) or _before(data, start) == 0x2B:
+        if _alnum(_before(data, start)) or _before(data, start) == "+":
             continue
         if _digit(_after(data, end)) or (
-            _after(data, end) in b".-" and _digit(_after(data, end + 1))
+            _after(data, end) in (".", "-") and _digit(_after(data, end + 1))
         ):
             continue
         digits = re.sub(r"\D", "", text.replace("(0)", ""))
@@ -838,6 +912,7 @@ def _end_of(text: str, length: int) -> int | None:
 
 def _ibans(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]]:
     allowed = {a.replace(" ", "").upper() for a in allow}
+    data = data.upper()  # ASCII letters only: offsets do not move; `fr76 …` is an IBAN too
     for match in _IBAN.finditer(data):
         start = match.start()
         if _alnum(_before(data, start)):

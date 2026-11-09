@@ -2300,6 +2300,8 @@
  "Invalid field name “{field}”.": "Nom de champ invalide « {field} ».",
  "Unknown expectation “{expect}”: {expects}.": "Attente inconnue « {expect} » : {expects}.",
  "Pattern too long: {limit} characters at most.": "Motif trop long : {limit} caractères au plus.",
+ "Pattern too complex ({size} steps, {limit} at most): shorten its counted repetitions.": "Motif trop complexe ({size} étapes, {limit} au plus) : raccourcissez ses répétitions comptées.",
+ "The patterns are too complex together ({limit} steps at most): simplify this one or the ones above.": "Les motifs sont trop complexes ensemble ({limit} étapes au plus) : simplifiez celui-ci ou ceux du dessus.",
  "Invalid pattern: {detail}.": "Motif invalide : {detail}.",
  "The pattern matches an empty text: it would report every page.": "Le motif correspond à un texte vide : il signalerait toutes les pages.",
  "Invalid domain “{domain}”.": "Domaine invalide « {domain} ».",

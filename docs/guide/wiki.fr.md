@@ -450,14 +450,16 @@ est un commentaire. Les clés restent en anglais :
   (`expect: present`, `list`, ou `date` pour une date sans heure) ou ce qu'il ne doit pas
   contenir (`pattern`), ou un préréglage (`preset`) de données personnelles : `email` (avec
   les domaines autorisés dans `allow`), `phone`, `card` (numéros de carte, avec la
-  vérification de Luhn) et `iban` (avec sa clé de contrôle).
+  vérification de Luhn) et `iban` (avec sa clé de contrôle). Les préréglages lisent à
+  travers les espaces insécables, les tirets et les caractères invisibles entre les chiffres.
 - **Où** : toutes les pages Markdown par défaut ; `paths` limite la règle à des dossiers ou à
   des globs, relatifs à `content/` (`clients/`, `notes/**/*.md`), et `except` en retire.
 - **Avec quelle sévérité** : `level: warn` (par défaut) signale ; `level: block` refuse
   l'écriture qui enfreint la règle, avec son `message`, depuis l'éditeur web, MCP, l'API REST,
-  un import (le fichier est écarté, avec la raison) et le rangement. Comme pour le détecteur de
-  secrets, seul ce qu'une modification ajoute compte : une page qui enfreignait déjà une règle
-  reste modifiable.
+  un import (le fichier est écarté, avec la raison), le rangement, la page de rapport d'une
+  routine, et l'annulation d'un rangement ou du passage d'un assistant. Comme pour le
+  détecteur de secrets, seul ce qu'une modification ajoute compte : une page qui enfreignait
+  déjà une règle reste modifiable.
 - **Ce qu'on en voit** : l'onglet **Santé** liste chaque page qui enfreint une règle, avec la
   ligne et un extrait. Les données personnelles (préréglages, ou règle avec `mask: yes`) sont
   masquées : `j•••@gmail.com`, `••• 1111`.
@@ -471,7 +473,9 @@ Les expressions suivent la [syntaxe RE2](https://github.com/google/re2/wiki/Synt
 s'exécute en temps linéaire : aucun motif ne peut bloquer le serveur, quel que soit le texte.
 Les assertions avant ou arrière et les références arrière ne sont donc pas disponibles. `^` et
 `$` valent pour chaque ligne ; `(?i)` ignore la casse. Limites : 50 règles, 500 caractères
-par motif, le premier Mo de chaque page. Un fichier en erreur n'est jamais bloquant : la règle
+par motif, et un coût par motif : une longue répétition comptée comme `.{0,1000}` est refusée
+(écrivez `.{0,200}`). **Santé** lit le premier Mo de chaque page ; une écriture est vérifiée en
+entier. Un fichier en erreur n'est jamais bloquant : la règle
 fautive est ignorée, les autres s'appliquent, et **Santé** nomme la ligne (un enregistrement
 depuis Synaptane la refuse). Format complet :
 [Format du dépôt](../reference/repository-format.fr.md#synaptanechecksmd).

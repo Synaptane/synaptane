@@ -428,7 +428,7 @@ def _check(
             if len(data) > MAX_UPLOAD:
                 result.too_large.append(written)
                 continue
-            if blocked := [v for v in checks.violations(relative, data) if v.blocks]:
+            if blocked := [v for v in checks.introduced(relative, data, None) if v.blocks]:
                 # A team's `block` check: the file is not imported (`services.checks`).
                 result.skipped.append(item.name)
                 result.reasons[item.name] = Label(

@@ -415,13 +415,15 @@ a comment:
   backticks), a front matter `field` with what it must be (`expect: present`, `list` or
   `date` for a date without a time) or what it must not contain (`pattern`), or a `preset` for
   personal data: `email` (with the allowed domains in `allow`), `phone`, `card` (card numbers,
-  with the Luhn check) and `iban` (with its check digits).
+  with the Luhn check) and `iban` (with its check digits). Presets see through no-break
+  spaces, dashes and invisible characters between digits.
 - **Where**: every Markdown page by default; `paths` limits the rule to folders or globs,
   relative to `content/` (`clients/`, `notes/**/*.md`), and `except` leaves some out.
 - **How strictly**: `level: warn` (the default) reports; `level: block` refuses the write that
   breaks the rule, with its `message`, from the web editor, MCP, the REST API, an import (the
-  file is left out, with the reason) and the tidy-up. Like the secret detector, only what a
-  change adds counts: a page that already broke a rule stays editable.
+  file is left out, with the reason), the tidy-up, the report page of a routine, and the undo
+  of a tidy-up or of an assistant's run. Like the secret detector, only what a change adds
+  counts: a page that already broke a rule stays editable.
 - **What it shows**: the **Health** tab lists every page that breaks a rule, with the line and
   an excerpt. Personal data (presets, or a rule with `mask: yes`) is masked: `j•••@gmail.com`,
   `••• 1111`.
@@ -434,7 +436,9 @@ in the **Quality** block of its log.
 Expressions use the [RE2 syntax](https://github.com/google/re2/wiki/Syntax), which runs in
 linear time: no pattern can freeze the server, whatever the text. Lookarounds and
 backreferences are therefore not available. `^` and `$` match at each line; `(?i)` ignores
-case. Limits: 50 rules, 500 characters per pattern, the first 1 MB of each page. A file with
+case. Limits: 50 rules, 500 characters per pattern, and a cost per pattern: a long counted
+repetition such as `.{0,1000}` is refused (write `.{0,200}`). **Health** reads the first 1 MB
+of each page; a write is checked in full. A file with
 an error is never fatal: the faulty rule is ignored, the others apply, and **Health** names
 the line (a save from Synaptane refuses it). Full format:
 [Repository format](../reference/repository-format.md#synaptanechecksmd).

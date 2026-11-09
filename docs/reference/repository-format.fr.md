@@ -135,7 +135,7 @@ sont en anglais.
 | `pattern` | Expression régulière ([syntaxe RE2](https://github.com/google/re2/wiki/Syntax), en temps linéaire), sur le texte de la page, front matter compris ; `^` et `$` valent pour chaque ligne. Avec `field` : sur la valeur du champ |
 | `field` | Champ du front matter (clé de premier niveau) |
 | `expect` | Ce que `field` doit être, séparé par des virgules : `present` (présent et non vide), `list` (une liste YAML : `[a, b]` ou un `- élément` par ligne), `date` (`AAAA-MM-JJ`, sans heure). `list` et `date` ne s'appliquent que si le champ est présent |
-| `preset` | Données personnelles : `email`, `phone` (formats international, français et nord-américain), `card` (13 à 19 chiffres qui passent la vérification de Luhn), `iban` (longueur de son pays et clé de contrôle). S'emploie seul : ni `pattern` ni `field` |
+| `preset` | Données personnelles : `email`, `phone` (formats international, français et nord-américain), `card` (13 à 19 chiffres qui passent la vérification de Luhn), `iban` (longueur de son pays et clé de contrôle, en majuscules ou en minuscules). Les espaces insécables, les tirets et les caractères invisibles entre les chiffres ne les arrêtent pas. S'emploie seul : ni `pattern` ni `field` |
 | `allow` | Valeurs jamais signalées, séparées par des virgules. Pour `email` : des domaines (`acme.com`, sous-domaines compris) ou des adresses. Les domaines `example.com`, `.org` et `.net`, et `.example`, `.invalid`, `.test` et `.localhost`, sont toujours autorisés |
 | `paths` | Dossiers ou globs relatifs à `content/`, séparés par des virgules : `clients/` (tout ce qu'il contient), `notes/*.md` (`*` dans un dossier), `**/reunions/*.md` (`**` à travers les dossiers). Sans elle : toutes les pages |
 | `except` | Dossiers ou globs écartés, même forme |
@@ -143,14 +143,17 @@ sont en anglais.
 | `message` | Ce qu'il faut faire, affiché avec chaque infraction et avec un refus |
 | `mask` | `yes` : l'extrait d'un `pattern` est masqué, comme pour les préréglages |
 
-Limites : 50 règles, 500 caractères par motif, 64 000 caractères du fichier lus, le premier
-Mo de chaque page examiné, 20 infractions par règle et par page. Une règle fautive (clé
-inconnue, motif invalide, motif qui correspond à un texte vide, deux règles du même titre)
-est ignorée et sa ligne apparaît dans **Santé** ; les autres règles s'appliquent. Un
+Limites : 50 règles, 500 caractères par motif, 3 000 étapes RE2 par motif compilé et 15 000
+pour tout le fichier (une répétition comptée comme `.{0,1000}` en coûte autant : RE2 reste
+linéaire, mais son coût par octet augmente avec elles), 64 000 caractères du fichier lus.
+**Santé** examine le premier Mo de chaque page et montre 20 infractions par règle et par page ;
+une écriture est vérifiée en entier. Une règle fautive (clé inconnue, motif invalide, motif
+trop complexe, motif qui correspond à un texte vide, deux règles du même titre) est ignorée et sa ligne apparaît dans **Santé** ; les autres règles s'appliquent. Un
 enregistrement depuis Synaptane refuse un fichier qui a une règle fautive.
 
-Une règle `block` refuse les écritures de l'interface web, de l'API REST, de MCP, de l'import
-et du rangement quand elles ajoutent une infraction : une page qui enfreignait déjà la règle
+Une règle `block` refuse les écritures de l'interface web, de l'API REST, de MCP, de l'import,
+du rangement, de la page de rapport d'une routine et de l'annulation d'un rangement ou du
+passage d'un assistant, quand elles ajoutent une infraction : une page qui enfreignait déjà la règle
 reste modifiable, et une page déplacée dans un dossier que couvre une règle compte comme
 nouvelle. Un push ne peut pas être refusé.
 

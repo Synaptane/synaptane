@@ -16,12 +16,14 @@ of the target version.
   `- key: value` items under it describe it: a `pattern` on the text (regular expression), a
   front matter `field` with `expect` (`present`, a YAML `list`, a `date` without a time) or a
   `pattern` on its value, or a `preset` for personal data: `email` (with the domains allowed in
-  `allow`), `phone`, `card` (Luhn check) and `iban` (check digits); optional `paths` and
+  `allow`), `phone`, `card` (Luhn check) and `iban` (check digits), which see through no-break
+  spaces, dashes and zero-width characters between digits; optional `paths` and
   `except` (folders or globs), a `level` (`warn`: reported, `block`: the write is refused) and
   the `message` that says what to do. Patterns run on RE2 (the `google-re2` package), in linear
   time: no team pattern can freeze the server whatever the text of a page, and the number of
-  rules (50), the length of a pattern (500 characters) and the text examined (1 MB per page) are
-  capped. A faulty rule is ignored and named, never fatal. Organization admins write them in
+  rules (50), the length of a pattern (500 characters), its cost per byte (3,000 RE2 steps per
+  pattern, 15,000 per file: `.{0,1000}` is refused) and the text Health examines (1 MB per
+  page; a write is checked in full) are capped. A faulty rule is ignored and named, never fatal. Organization admins write them in
   **Settings → Purpose → Team checks**, next to the purpose and the filing instructions: a
   commit in their name, conflict detected, an example ready to adapt (English or French), and a
   **Preview** that lists the rules understood, the lines in error and the number of current
@@ -29,7 +31,9 @@ of the target version.
   `GET`/`PUT …/spaces/{space}/checks`. A `block` rule refuses the writes that add a violation,
   with the rule's message, wherever they come from: web editor, MCP, REST (`422`,
   `check_failed`, not lifted by `allow_secrets`), moves (a page moved into a folder a rule
-  covers), import (the file is left out, with the reason) and the tidy-up; as for secrets, a
+  covers), import (the file is left out, with the reason), the tidy-up, the report page of a
+  routine (refused to its agent, which fixes the text) and the undo of a tidy-up or of an
+  assistant's run (as a restore); as for secrets, a
   page that already broke a rule stays editable. A push cannot be refused: the **Health** tab
   gets a **Team checks** section (rule, page, line, excerpt with personal data masked:
   `j•••@gmail.com`, `••• 1111`), computed per page digest like the rest of the tab, and the
