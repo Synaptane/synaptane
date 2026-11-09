@@ -11,35 +11,6 @@ of the target version.
 ## [Unreleased]
 
 ### Added
-<<<<<<< HEAD
-- **Nightly wiki maintenance**. The scheduled tidy-up (and **Tidy now**) also fixes the
-  problems people introduced since the last run, through the web, REST, MCP or pushes, even
-  when the inbox is empty: broken links introduced in the pages they changed (or
-  in pages that pointed to a page they deleted or moved), and their new pages that nothing
-  links to, missing from their folder's index, untitled or empty. A check without AI finds
-  them; they reach the agent as one "Wiki maintenance (N)" item listing each problem (page,
-  link, suggestion), framed as data. The agent fixes what is safe (a link to the right page,
-  a link from the topic's page or the index, a line in the index), adds no content, never
-  deletes or moves a page for it, and leaves the rest with a reason; its tools, deletion cap,
-  alerts and undo do not change. At most 10 problems a night; Synaptane's own commits never
-  count (the tidy-up's end-of-run check already covers them), nor do imports (more than 20
-  pages in a commit, already reviewed as one "Import: N pages" item); a problem left is not
-  proposed again unless it is introduced again (gone and back, the same broken link written
-  once more, the page created anew), so a page edited every day with a link broken on purpose
-  costs nothing; runs after a drop and chained runs do not maintain; nothing is
-  computed without an AI provider or once the month's budget is used up. Each problem gets a
-  line in the run's log (fixed, or left with the reason); contributors get no notice for it.
-  A run stopped before the end gives the problems again; after three interrupted runs in a
-  row, they are left, as an inbox item would be.
-  The **Maintain the wiki every night** box (Settings → Tidy-up, `maintain` in
-  `PATCH …/tidy-settings`) is **on by default**: a night without problems costs nothing. See
-  [Wiki maintenance](docs/admin/ai.md#wiki-maintenance).
-
-### Upgrade
-- One migration (`0035`), applied at startup: three columns on spaces and an empty table of
-  the problems left. No existing column changes. Maintenance starts from each space's last
-  synchronized head: the past is not caught up.
-=======
 - **Team checks**. A space can list, in its repository, the rules every page must follow:
   `.synaptane/checks.md`, readable and editable by hand. Each level-2 heading is a rule, the
   `- key: value` items under it describe it: a `pattern` on the text (regular expression), a
@@ -73,6 +44,28 @@ of the target version.
   fixes as broken links, then in the **Quality** block of its log (`checks` in the metrics).
   `services.checks` also gives the violations of a page, of a commit or between two commits.
   No migration.
+- **Nightly wiki maintenance**. The scheduled tidy-up (and **Tidy now**) also fixes the
+  problems people introduced since the last run, through the web, REST, MCP or pushes, even
+  when the inbox is empty: broken links introduced in the pages they changed (or
+  in pages that pointed to a page they deleted or moved), and their new pages that nothing
+  links to, missing from their folder's index, untitled or empty. A check without AI finds
+  them; they reach the agent as one "Wiki maintenance (N)" item listing each problem (page,
+  link, suggestion), framed as data. The agent fixes what is safe (a link to the right page,
+  a link from the topic's page or the index, a line in the index), adds no content, never
+  deletes or moves a page for it, and leaves the rest with a reason; its tools, deletion cap,
+  alerts and undo do not change. At most 10 problems a night; Synaptane's own commits never
+  count (the tidy-up's end-of-run check already covers them), nor do imports (more than 20
+  pages in a commit, already reviewed as one "Import: N pages" item); a problem left is not
+  proposed again unless it is introduced again (gone and back, the same broken link written
+  once more, the page created anew), so a page edited every day with a link broken on purpose
+  costs nothing; runs after a drop and chained runs do not maintain; nothing is
+  computed without an AI provider or once the month's budget is used up. Each problem gets a
+  line in the run's log (fixed, or left with the reason); contributors get no notice for it.
+  A run stopped before the end gives the problems again; after three interrupted runs in a
+  row, they are left, as an inbox item would be.
+  The **Maintain the wiki every night** box (Settings → Tidy-up, `maintain` in
+  `PATCH …/tidy-settings`) is **on by default**: a night without problems costs nothing. See
+  [Wiki maintenance](docs/admin/ai.md#wiki-maintenance).
 
 ### Changed
 - The installation guide is split into three pages: **Install and run** (Docker Compose, modes,
@@ -120,7 +113,9 @@ of the target version.
   adopted. A failed push keeps the commit in the local copy, and the next synchronization
   pushes it. REST clients that change a routine's `name` with `PATCH` must change `title`
   instead. As before any upgrade, back up first.
->>>>>>> origin/main
+- A second migration (`0035`), applied after it: three columns on spaces and an empty table of
+  the problems left. No existing column changes. Maintenance starts from each space's last
+  synchronized head: the past is not caught up.
 
 ## [1.15.0] - 2026-11-09
 
