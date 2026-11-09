@@ -19,7 +19,7 @@
     {{ csrf_field() }}
     {# The version the draft started from, kept through a preview or an error: a save over a newer one is a conflict. #}
     <input type="hidden" name="base_sha" value="{{ bases[key] if key in bases else (doc.sha or '') }}">
-    {{ editor(drafts[key] if key in drafts else doc.text, 22 if key == 'vocation' else 12, "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/preview", id=key ~ "-text", label=_("Text (Markdown)"), params={"kind": key}, classes="editor vocation-editor", placeholder=placeholder, help=_("20,000 characters at most. An empty text removes the file from the repository.")) }}
+    {{ editor(drafts[key] if key in drafts else doc.text, 12 if key == 'tidy-rules' else 22, "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/preview", id=key ~ "-text", label=_("Text (Markdown)"), params={"kind": key}, classes="editor vocation-editor", placeholder=placeholder, help=_("20,000 characters at most. An empty text removes the file from the repository.")) }}
     {% if mine and conflict_sha %}<label class="checkbox"><input type="checkbox" name="overwrite_sha" value="{{ conflict_sha }}">{{ _("Replace the repository's current version with my text") }}</label>{% endif %}
     {% if mine %}{{ secret_confirm(error) }}{% endif %}
     <div class="actions">
@@ -61,12 +61,18 @@
       <p>{{ _("Precise rules for the tidy-up agent, taking precedence over its default instructions. Read by the agent only.") }}</p>
       <code>.synaptane/prompts/tidy.md</code>
     </a>
+    <a class="vocation-explain" href="#checks">
+      <p class="eyebrow">{{ _("Team checks") }}</p>
+      <p class="vocation-explain-title">{{ _("What every page must follow") }}</p>
+      <p>{{ _("Rules checked without AI: in Health, at each write (a rule that blocks refuses it), and by the tidy-up agent, which receives them.") }}</p>
+      <code>.synaptane/checks.md</code>
+    </a>
   </div>
 
   {% if not documents.vocation.synced %}
   <div class="notice notice-warning"><p>{{ _("The space is not synchronized with its repository yet: what you save waits for the first synchronization, then is written to the repository (unless it already has its own file).") }} <a href="/o/{{ org.slug }}/{{ space.slug }}/-/git">{{ _("Git repository") }}</a></p></div>
   {% else %}
-  <p class="muted vocation-git">{{ _("Both files are versioned in the repository: edit them here or with a push. Each save is a commit in your name.") }}</p>
+  <p class="muted vocation-git">{{ _("These files are versioned in the repository: edit them here or with a push. Each save is a commit in your name.") }}</p>
   {% endif %}
 
   {% call document_card("vocation", _("Purpose"), _("Answer each section's questions in a few concrete lines. An infrastructure team's second brain is not filed the same way as a marketing team's or a family's."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation", _("Start from a template above, or write: what the space is for, what goes in it, how…")) %}
@@ -87,5 +93,10 @@
   {% endcall %}
 
   {% call document_card("tidy-rules", _("Filing instructions"), _("Precise rules for the agent, for example: “one page per supplier in suppliers/”, “never rename procedures”, “write dates as YYYY-MM-DD”. They do not lift the safeguards (dropped content treated as data, deletion cap)."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/tidy-rules", _("- One page per supplier in suppliers/.")) %}{% endcall %}
+
+  {% call document_card("checks", _("Team checks"), _("One level-2 heading per rule, then its keys: pattern (regular expression), field and expect (front matter), preset (email, phone, card, IBAN), paths, level (warn or block) and message. Personal data is masked in the reports. The preview counts the current pages that break each rule."), "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/vocation/checks", _("## No personal email\n- preset: email\n- level: block\n- message: Link to the person's page instead.")) %}
+  <p><a class="button button-small" href="/o/{{ org.slug }}/{{ space.slug }}/-/vocation?checks_example=1#checks">{{ _("Start from the example") }}</a> <span class="muted">{{ _("The example replaces the editor's text; adapt it, then save.") }}</span></p>
+  {% if 'checks' in drafts and not error_kind and not preview_kind %}<div class="notice notice-ok" role="status"><p>{{ _("Example loaded in the editor: delete the rules you do not need, adapt the others, then save.") }}</p></div>{% endif %}
+  {% endcall %}
 </div>
 {% endblock %}

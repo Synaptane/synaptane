@@ -19,6 +19,8 @@
     {% if m["untitled"] %}<li><strong>{{ _("Pages created without a level-1 heading:") }}</strong> {{ m["untitled"]|join(", ") }}</li>{% endif %}
     {% if m["empty"] %}<li><strong>{{ _("Empty pages created:") }}</strong> {{ m["empty"]|join(", ") }}</li>{% endif %}
     {% if m["closed_without_page_count"] %}<li><strong>{{ _("Items filed without a page given: {count}", count=m["closed_without_page_count"]) }}</strong> — {{ m["closed_without_page"]|join(", ") }}</li>{% endif %}
+    {% set checks = m["checks"] or {} %}
+    {% if checks["introduced"] %}<li><strong>{{ _("Team checks broken: {count}", count=checks["introduced"]) }}</strong> — {% for e in checks["examples"] %}{{ e["page"] }} ({{ e["rule"] }}{% if e["excerpt"] %}, <code>{{ e["excerpt"] }}</code>{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}</li>{% endif %}
     {% if m["reduced"] %}<li><strong>{{ _("Pages heavily reduced:") }}</strong> {{ m["reduced"]|join(", ") }}</li>{% endif %}
     {% if m["removed_chars"] or m["deleted_chars"] %}<li>{{ _("Text removed: {kept} characters from kept pages, {deleted} from deleted pages", kept="{:,}".format(m["removed_chars"]).replace(",", " "), deleted="{:,}".format(m["deleted_chars"]).replace(",", " ")) }}</li>{% endif %}
     <li>{{ _("Items left: {rate}%", rate=(100 * items["left_rate"])|round|int) }}</li>

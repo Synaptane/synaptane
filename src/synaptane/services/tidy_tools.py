@@ -7,6 +7,7 @@ import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any
 
 from synaptane.ai import embeddings
@@ -15,10 +16,12 @@ from synaptane.ai.base import (
     ToolCall,
     ToolSpec,
 )
+from synaptane.core.checks import Checks, is_page
 from synaptane.core.errors import SynaptaneError
 from synaptane.core.markdown import WikiIndex, broken_links, link_targets, links_of
 from synaptane.git.repo import Repository
 from synaptane.services import changes as changes_service
+from synaptane.services import checks as team_checks
 from synaptane.services import freshness, semantic
 from synaptane.services import links as links_service
 from synaptane.services import related as related_service
@@ -728,6 +731,27 @@ class Tools:
         if reason := self.overlay.refusal(full):
             raise ToolFailure(reason)
 
+    @cached_property
+    def team_checks(self) -> Checks:
+        """The space's team checks, at the run's starting commit (`services.checks`)."""
+        return team_checks.load(self.overlay.repo, self.overlay.base)
+
+    def _guard(self, full: str, data: bytes, origin: str | None = None) -> None:
+        """Refuses a write that introduces a violation of a team `block` check, as for a
+        person: the agent reads why and writes again (`origin`: path before a move)."""
+        if not any(rule.blocks for rule in self.team_checks.rules):
+            return
+        prefix = CONTENT_DIR + "/"
+        start = origin or full
+        found = self.team_checks.introduced(
+            full.removeprefix(prefix),
+            data,
+            self.overlay.read(start),
+            start.removeprefix(prefix),
+        )
+        if blocked := [v for v in found if v.blocks]:
+            raise ToolFailure(team_checks.tool_refusal(blocked))
+
     # Writing ------------------------------------------------------------------------------
 
     def t_write_page(self, path: str, content: str) -> str:
@@ -746,6 +770,7 @@ class Tools:
         if not existed:
             self._destination(full)
         data, kept = self._keep_verification(full, self._unwrap(content).encode())
+        self._guard(full, data)
         self.overlay.write(full, data)
         self.read.add(full)
         self._log(Op.MODIFIED if existed else Op.CREATED, full)
@@ -762,6 +787,7 @@ class Tools:
         if before and not before.endswith(b"\n"):
             before += b"\n"
         written, kept = self._keep_verification(full, before + self._unwrap(content).encode())
+        self._guard(full, written)
         self.overlay.write(full, written)
         if data is None:
             self.read.add(full)  # page fully known: written in this run
@@ -782,6 +808,7 @@ class Tools:
         if count != 1:
             raise ToolFailure(f"`old` appears {count} times; it must appear exactly once.")
         written, kept = self._keep_verification(full, text.replace(old, new, 1).encode())
+        self._guard(full, written)
         self.overlay.write(full, written)
         self._log(Op.MODIFIED, full)
         return "Edited." + kept + self._check_links(full)
@@ -803,6 +830,7 @@ class Tools:
             old,
             new,
         )
+        self._guard(new, writes[new], origin=old)
         for path, written in writes.items():
             overlay.write(path, written)
         overlay.write(old, None)
@@ -867,6 +895,8 @@ class Tools:
                 f"Already exists: {path}. Choose another name (a file is never overwritten)."
             )
         self._destination(full)
+        if is_page(full):
+            self._guard(full, data)
         self.overlay.write(full, data)
         self._log(Op.ATTACHMENT, full)
         return f"Filed in {full.removeprefix(CONTENT_DIR + '/')}."
@@ -981,7 +1011,27 @@ class Tools:
             here = page[len(prefix) :]
             if not any(here in targets for source, targets in links.items() if source != page):
                 found.append((here, "page created without an incoming link"))
-        return found
+        return found + self._check_problems()
+
+    def _check_problems(self) -> list[tuple[str, str]]:
+        """Violations of the team checks that the run introduced (`warn` ones: a `block`
+        one is refused at the write)."""
+        overlay = self.overlay
+        found = team_checks.introduced_by(
+            self.team_checks,
+            overlay.changes,
+            lambda path: overlay.repo.blob(path, overlay.base) if overlay.existed(path) else None,
+            self.origins,
+        )
+        return [
+            (
+                v.page,
+                f'team check "{v.rule}" (line {v.line}'
+                + (f", `{v.excerpt}`" if v.excerpt else "")
+                + f"): {v.message or v.rule}",
+            )
+            for v in found
+        ]
 
     def record_problems(self) -> None:
         """Records in the run's log what the end-of-run check still finds ("attention"

@@ -16,6 +16,7 @@ content/                          visible: wiki, search, MCP
   vocation.md                     the space's purpose (optional)
   prompts/tidy.md                 tidy-up rules (optional)
   prompts/<name>.md               the team's prompts for assistants (optional)
+  checks.md                       team checks: rules every page must follow (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -110,6 +111,41 @@ The former name of this file, `.synaptane/prompts/rangement.md`, is still read w
 only one present; the first save from Synaptane writes `tidy.md` instead.
 
 See [AI and tidy-up](../admin/ai.md).
+
+## `.synaptane/checks.md`
+
+The space's **team checks**: rules that every Markdown page of `content/` must follow, checked
+without AI in **Health**, at each write and by the tidy-up (see
+[Team checks](../guide/wiki.md#team-checks)). Written in **Settings → Purpose** (organization
+administrators), through the REST API or by a push; 20,000 characters at most from Synaptane.
+
+Each level-2 heading (`## Title`) is a rule; the `- key: value` list items right under it
+describe it. Any other text (paragraphs, level-1 or level-3 headings, HTML comments, code
+blocks) is a comment. A value between backticks is taken as is (```` `` a`b `` ```` for a
+value that holds a backtick).
+
+| Key | Meaning |
+|---|---|
+| `pattern` | Regular expression ([RE2 syntax](https://github.com/google/re2/wiki/Syntax), linear time), on the text of the page, front matter included; `^` and `$` match at each line. With `field`: on the value of the field |
+| `field` | Front matter field (top-level key) |
+| `expect` | What `field` must be, separated by commas: `present` (there and not empty), `list` (a YAML list: `[a, b]` or one `- item` per line), `date` (`YYYY-MM-DD`, without a time). `list` and `date` only apply when the field is there |
+| `preset` | Personal data: `email`, `phone` (international, French and North American formats), `card` (13 to 19 digits that pass the Luhn check), `iban` (length of its country and check digits). Stands alone: no `pattern` or `field` |
+| `allow` | Values never reported, separated by commas. For `email`: domains (`acme.com`, its subdomains included) or addresses. The `example.com`, `.org` and `.net` domains and the `.example`, `.invalid`, `.test` and `.localhost` ones are always allowed |
+| `paths` | Folders or globs relative to `content/`, separated by commas: `clients/` (everything under it), `notes/*.md` (`*` within a folder), `**/meetings/*.md` (`**` across folders). Without it: every page |
+| `except` | Folders or globs left out, same form |
+| `level` | `warn` (default): reported. `block`: a write that breaks the rule is refused |
+| `message` | What to do, shown with each violation and with a refusal |
+| `mask` | `yes`: the excerpt of a `pattern` is masked, as for presets |
+
+Limits: 50 rules, 500 characters per pattern, 64,000 characters of the file read, the first
+1 MB of each page examined, 20 violations per rule and per page. A faulty rule (unknown key,
+invalid pattern, pattern that matches an empty text, two rules with the same title) is
+ignored and its line is shown in **Health**; the other rules apply. A save from Synaptane
+refuses a file with a faulty rule.
+
+A `block` rule refuses the writes of the web UI, the REST API, MCP, the import and the
+tidy-up, when they add a violation: a page that already broke the rule stays editable, and a
+page moved into a folder that a rule covers counts as new. A push cannot be refused.
 
 ## `.synaptane/prompts/<name>.md`
 

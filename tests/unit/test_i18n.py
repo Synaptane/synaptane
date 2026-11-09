@@ -299,7 +299,7 @@ def test_language_negotiation() -> None:
 def test_labels_computed_by_the_code_are_translated_to_french() -> None:
     """Texts kept in tables or built by the services, shown through the catalog."""
     from synaptane.ai import quota
-    from synaptane.core import secret_scan
+    from synaptane.core import checks, secret_scan
     from synaptane.git import repo
     from synaptane.services import changes, related, routines, tidy_journal, vocation
     from synaptane.web import pages, routine_pages, tidy_pages
@@ -321,6 +321,8 @@ def test_labels_computed_by_the_code_are_translated_to_french() -> None:
         repo.REMOTE_TOO_FAST,
         repo.TOKEN_EXPIRED,
         *(kind for kind, _ in secret_scan._PATTERNS),
+        *checks.PRESET_LABELS.values(),
+        *checks.EXPECT_LABELS.values(),
         *(text for t in routines.TEMPLATES.values() for text in (t.name, t.description)),
         *(text for t in vocation.TEMPLATES.values() for text in (t.label, t.summary)),
     ]

@@ -13,6 +13,7 @@ class ErrorCode(StrEnum):
     CONFLICT = "conflict"
     UNAVAILABLE = "unavailable"  # temporary overload: retry in a moment
     SECRET = "secret_detected"  # likely secret in some content: remove it, or confirm
+    CHECK = "check_failed"  # content refused by a team check (`core.checks`): fix it
     TOO_MANY = "too_many_requests"  # an account's rate limit: retry later
 
 

@@ -43,6 +43,7 @@ dependencies = [
     "cryptography>=50.0.2",
     "fastapi>=0.142.2",
     # Imported directly (services/forges.py: deadline of the calls); httpx2 pins its version.
+    "google-re2>=1.1.20251105",
     "httpcore2>=2.16.0,<3",
     "jinja2>=3.1.6",
     "markdown-it-py>=4.2.0",
@@ -117,7 +118,7 @@ files = ["src", "tests"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["pypdfium2", "pypdfium2.*", "olefile", "olefile.*"]
+module = ["pypdfium2", "pypdfium2.*", "olefile", "olefile.*", "re2", "re2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

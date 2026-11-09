@@ -335,6 +335,7 @@ ACTIONS: dict[str, Kind] = {
         "settings", Label("Space purpose changed"), ("vocation_template", "removed")
     ),
     "space.tidy_rules_updated": Kind("settings", Label("Tidy-up rules changed"), ("removed",)),
+    "space.checks_updated": Kind("settings", Label("Team checks changed"), ("removed",)),
     "space.prompt_updated": Kind(
         "settings", Label("Assistant prompt changed"), ("prompt", "removed")
     ),

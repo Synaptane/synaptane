@@ -11,7 +11,7 @@
 {# Column of the "Edit" button: narrow, aligned right. #}
 {% macro more(items) -%}{% if items|length > shown %}<p class="muted">{{ _("and {count} more", count=items|length - shown) }}</p>{% endif %}{%- endmacro %}
 <h2 class="settings-title">{{ _("Wiki health") }}</h2>
-<p class="muted">{{ _("Check without AI, at the latest commit: broken links, pages with no incoming link, empty or untitled pages, tables that disagree, pages to review, pages not modified for a long time.") }}</p>
+<p class="muted">{{ _("Check without AI, at the latest commit: broken links, pages with no incoming link, empty or untitled pages, tables that disagree, team checks, pages to review, pages not modified for a long time.") }}</p>
 {% if report is none %}
 <div class="notice notice-warning">{{ _("The space has not been synchronized yet: nothing to check for now.") }}</div>
 {% else %}
@@ -58,6 +58,28 @@
   </table></div>
   {{ more(report.drifts) }}
   {% else %}<p class="muted">{{ _("No values that disagree.") }}</p>{% endif %}
+</section>
+
+<section class="card" id="health-checks" aria-labelledby="health-team-checks">
+  {% set manage_checks = can(actor.access, Action.MANAGE_ORG, org_id=space.org_id) %}
+  <h3 id="health-team-checks">{{ _("Team checks") }} <span class="badge badge-quiet">{{ report.checks_total }}</span></h3>
+  {% if not report.check_rules and not report.check_errors %}
+  <p class="muted">{{ _("No team checks: rules of its own that every page of the space must follow (no personal email, a type in the front matter…).") }}{% if manage_checks %} <a href="{{ base }}/-/vocation#checks">{{ _("Write them") }}</a>{% endif %}</p>
+  {% else %}
+  <p class="muted">{{ _(pl(report.check_rules, "{n} rule, in .synaptane/checks.md.", "{n} rules, in .synaptane/checks.md."), n=report.check_rules) }} {{ _("A rule that blocks refuses a write that breaks it; a Git push cannot be refused: what it brings shows here.") }}{% if manage_checks %} <a href="{{ base }}/-/vocation#checks">{{ _("Edit the rules") }}</a>{% endif %}</p>
+  {% if report.check_errors %}
+  <div class="notice notice-warning" role="status"><p>{{ _("The checks file has errors: the rules concerned are ignored.") }}</p>
+    <ul>{% for e in report.check_errors[:20] %}<li>{% if e.line %}{{ _("line {line}", line=e.line) }} · {% endif %}{{ e.message|tr }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if report.checks %}
+  <div class="table-scroll"><table class="health-table">
+    <thead><tr><th>{{ _("Rule") }}</th><th>{{ _("Page") }}</th><th>{{ _("Excerpt") }}</th>{% if contribute %}<th class="row-action"><span class="sr-only">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+    <tbody>{% for item in report.checks[:shown] %}<tr><td>{{ item.rule }}{% if item.blocks %} <span class="badge badge-quiet">{{ _("blocks") }}</span>{% endif %}{% if item.message %}<br><span class="muted">{{ item.message }}</span>{% endif %}</td><td>{{ page_link(item.page) }} <span class="muted">· {{ _("line {line}", line=item.line) }}</span></td><td>{% if item.excerpt %}<code>{{ item.excerpt }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>{% if contribute %}<td class="row-action">{{ edit_link(item.page) }}</td>{% endif %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {% if report.checks_total > shown %}<p class="muted">{{ _("and {count} more", count=report.checks_total - shown) }}</p>{% endif %}
+  {% else %}<p class="muted">{{ _("Every page follows the team checks.") }}</p>{% endif %}
+  {% endif %}
 </section>
 
 <section class="card" id="health-reported" aria-labelledby="health-reports">

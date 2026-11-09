@@ -121,6 +121,7 @@ package ships its own license file in its `*.dist-info/` directory (in the Docke
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | docstring-parser | 0.18.0 | MIT |
 | fastapi | 0.159.1 | MIT |
+| google-re2 | 1.1.20251105 | BSD-3-Clause |
 | h11 | 0.16.0 | MIT |
 | httpcore2 | 2.16.0 | BSD-3-Clause |
 | httpx2 | 2.16.0 | BSD-3-Clause |
@@ -192,6 +193,12 @@ locked in `uv.lock` and rebuilding the image.
 Some binary wheels embed native libraries. Their license texts ship with the wheels; the
 paths below are relative to `site-packages/` (`/app/.venv/lib/python3.12/site-packages/` in
 the Docker image).
+
+### google-re2
+
+`re2/_re2.*.so` statically includes [RE2](https://github.com/google/re2) (BSD-3-Clause, the
+wheel's `LICENSE`) and [Abseil](https://github.com/abseil/abseil-cpp) (Apache-2.0). Full text:
+`google_re2-1.1.20251105.dist-info/licenses/LICENSE`.
 
 ### Pillow
 

@@ -25,6 +25,7 @@ from synaptane.core.markdown import WikiIndex, broken_links, links_of, title_of
 from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Blob, Commit, GitError, PathRefused, Repository, safe_path
 from synaptane.services import Actor, audit, freshness, jobs, links, reports, webhooks
+from synaptane.services import checks as team_checks
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database, try_space_lock
@@ -378,7 +379,11 @@ def _commit(
     files: dict[str, bytes | None],
     actions: dict[str, str],
     message: str,
+    origins: dict[str, str] | None = None,
 ) -> str | None:
+    """Every write of a person (web, MCP, REST, import) ends here, under the space's lock:
+    the team's `block` checks refuse it here (`origins`: starting path of a moved page)."""
+    team_checks.guard(repo, files, origins)
     author = author_identity(actor.user, ws.committer)
     # No inbox item: the commit is enough, the tidy run will find it in the history.
     subject = message.strip().splitlines()[0][:200] if message.strip() else _summary(actions)
@@ -447,7 +452,8 @@ def write_file(
     """Creates or replaces a file. `base_sha`: digest read before editing (conflict otherwise).
 
     A likely secret in the added lines is refused, unless `allow_secrets` (confirmed by the
-    person). Returns the commit created, or None if the content did not change.
+    person); a violation of a team `block` check always is (`services.checks`). Returns the
+    commit created, or None if the content did not change.
     """
     full = content_path(path)
     if full == CONTENT_DIR:
@@ -572,7 +578,7 @@ def move_file(
         actions = {new: f"moved from `{relative_path(old)}`", old: "moved"}
         actions |= {page: "links updated" for page in updated}
         message = message or f"{relative_path(old)} moved to {relative_path(new)}"
-        _commit(repo, ws, actor, source, {old: None, **writes}, actions, message)
+        _commit(repo, ws, actor, source, {old: None, **writes}, actions, message, {new: old})
     _after_write(session, actor, space, "content.moved", new, source)
     reports.follow_move(session, space, relative_path(old), relative_path(new))
     return [relative_path(page) for page in updated]

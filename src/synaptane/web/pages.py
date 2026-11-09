@@ -930,5 +930,6 @@ ERROR_STATUS = {
     ErrorCode.CONFLICT: 409,
     ErrorCode.UNAVAILABLE: 503,
     ErrorCode.SECRET: 422,
+    ErrorCode.CHECK: 422,
     ErrorCode.TOO_MANY: 429,
 }

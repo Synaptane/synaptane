@@ -357,9 +357,10 @@ def test_the_settings_editors_offer_the_preview(client: TestClient, wiki: Wiki) 
     assert [json.loads(b.attrs["data-preview-params"]) for b in boxes] == [
         {"kind": "vocation"},
         {"kind": "tidy-rules"},
+        {"kind": "checks"},
     ]
     assert {b.attrs["data-preview"] for b in boxes} == {DOCUMENTS}
-    for key in ("vocation", "tidy-rules"):
+    for key in ("vocation", "tidy-rules", "checks"):
         textarea = select_one(page, f"textarea#{key}-text")
         assert textarea.attrs["name"] == "text" and "vocation-editor" in textarea.classes
         assert textarea.get("aria-describedby") == f"{key}-text-help"
@@ -367,7 +368,7 @@ def test_the_settings_editors_offer_the_preview(client: TestClient, wiki: Wiki) 
         assert "hidden" in select_one(page, f"#{key}-text-preview").attrs
     # The reloading "Preview" stays, for a browser without JS; preferences.js hides it.
     fallbacks = select_html(page, "button[data-preview-fallback]")
-    assert [(b.get("name"), b.get("value")) for b in fallbacks] == [("action", "preview")] * 2
+    assert [(b.get("name"), b.get("value")) for b in fallbacks] == [("action", "preview")] * 3
     # Team prompts: each one, and the new one.
     client.post("/o/acme/infra/-/prompts", data={"csrf": token, "name": "revue", "text": PROMPT})
     page = client.get("/o/acme/infra/-/prompts").text
@@ -506,6 +507,7 @@ def test_a_preview_without_js_gives_the_connection_back_and_comes_back_to_its_fo
     assert actions == [
         "/o/acme/infra/-/vocation#vocation",
         "/o/acme/infra/-/vocation/tidy-rules#tidy-rules",
+        "/o/acme/infra/-/vocation/checks#checks",
     ]
     region = select_one(page, ".vocation-preview")
     assert (
