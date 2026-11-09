@@ -341,6 +341,12 @@ n'avez pas accès.
   rangement l'avait laissée, elle redevient à traiter), la **déplacer** vers l'inbox d'un
   autre espace où il contribue, ou la **supprimer** (elle reste dans l'historique Git). Une
   page modifiée qui ne demande rien au rangement peut être **marquée comme vue**.
+- **Aperçu** d'une note : au-dessus de son texte, en la déposant (dans l'inbox ou depuis
+  **Déposer une information**, dans l'espace choisi) ou en la corrigeant, comme pour une page
+  (voir [Écrire](#écrire-contributeurs)) : la note telle qu'elle se lira dans l'inbox, sans rien
+  enregistrer (liens depuis la racine de l'espace, comme à la lecture de la note). Le côte à
+  côte est proposé en corrigeant une note, pas dans le formulaire de dépôt, trop étroit. L'aperçu demande le même
+  droit que déposer ou corriger la note (contributeur).
 - **Activité** : tout ce qui change dans l'espace, d'après l'historique Git (pages, inbox,
   rangements), avec les commits poussés hors de Synaptane signalés. Chaque page touchée mène
   au détail de la modification.

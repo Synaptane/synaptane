@@ -2068,6 +2068,7 @@
  "Your session has expired: sign in again in another tab, your text is kept.": "Votre session a expiré : reconnectez-vous dans un autre onglet, votre texte est conservé.",
  "A preview is already being prepared for your account: it will follow.": "Un aperçu est déjà en préparation pour votre compte : il suivra.",
  "Only Markdown pages have a preview.": "Seules les pages Markdown ont un aperçu.",
+ "This text is too long to preview.": "Ce texte est trop long pour l'aperçu.",
  "Only members of the organization join its groups. Someone who is not a member yet: invite them from the Members tab, checking this group.": "Seuls les membres de l'organisation rejoignent ses groupes. Pour quelqu'un qui n'en est pas encore membre : invitez cette personne depuis l'onglet Membres, en cochant ce groupe.",
  "Groups (optional)": "Groupes (facultatif)",
  "{role} on {space}": "{role} sur {space}",

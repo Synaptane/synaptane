@@ -484,6 +484,10 @@ td .inline-form input:not([type=checkbox]){min-height:30px;flex:1 1 140px}
 .workspace main:has(.editor-panes.split){max-width:1480px}
 .wiki-main:has(.editor-panes.split){max-width:none}
 @media(max-width:700px){.editor-preview-scroll{padding:14px 14px}}
+/* Shorter editors (purpose, prompts, a note dropped): a preview of their size; the purpose's
+column widens side by side, as the page does. */
+.vocation-form .editor-preview,.deposit-form .editor-preview{min-height:220px}
+.vocation-page:has(.editor-panes.split){max-width:none}
 .markdown{font-family:var(--font-read);font-size:var(--read-size);line-height:var(--read-lh);max-width:68ch;overflow-wrap:anywhere}
 .markdown h1{font-size:40px;letter-spacing:-0.03em;line-height:1.08;margin:0 0 24px}
 .markdown h2{font-size:21px;letter-spacing:-0.015em;margin:36px 0 10px}

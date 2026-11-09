@@ -11,6 +11,20 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+- **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
+  **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
+  note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
+  information** (in the space chosen in the form; no side by side in these narrow forms), and
+  above the purpose, the filing instructions (**Settings → Purpose**) and each team prompt
+  (**Settings → Assistant prompts**). Same server rendering as reading, same protections
+  (form token, 262,144 characters at most, one preview at a time per account whatever the
+  editor, database connection given back before rendering), nothing committed, indexed,
+  dropped or logged; the right asked is exactly that of the corresponding edit: dropping or
+  correcting the note (`POST /o/<org>/<space>/-/inbox/preview`, with `note` for a note being
+  corrected), the organization administrator for the purpose, the instructions and the prompts
+  (`POST /o/<org>/<space>/-/vocation/preview`, with `kind`). The purpose's **Preview** button,
+  which reloads the page, stays for browsers without JavaScript (hidden otherwise), and team
+  prompts get one too. No migration.
 - **Invite someone straight into groups**. The invitation form of the organization's
   **Members** tab lists its groups, each with what it gives ("Contributor on HR"): the
   administrator checks those the person joins. On acceptance, the person becomes a member of
@@ -32,6 +46,8 @@ of the target version.
   it creates the table linking invitations to groups, empty, so no pending invitation changes.
 
 ### Changed
+- The purpose's preview now resolves `[[wiki links]]` in the space, and refuses a text above
+  262,144 characters.
 - Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
   2.5.0, an overloaded (529) or unavailable (503) Claude API raises a subclass of its server
   error: Synaptane still reports it as a temporary error, retried later, as before.
@@ -42,6 +58,11 @@ of the target version.
   renewal uses no hook). They are fetched on the next `docker compose pull` (or `up -d`) of an
   upgrade.
 - Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
+
+### Fixed
+- After **Preview** (without JavaScript) or an error, saving the purpose or the filing
+  instructions no longer replaces, without a conflict, a version saved by someone else in the
+  meantime: the form keeps the version the text started from.
 
 ### Security
 - pydantic 2.14.3: fixes two validation bypasses when extra data is allowed

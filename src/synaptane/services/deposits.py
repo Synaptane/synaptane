@@ -193,8 +193,9 @@ def _check_hint(hint: str, origin: str) -> None:
         raise invalid("Origin too long (2,000 characters maximum).")
 
 
-def _without_title(body: str, title: str) -> str:
-    """Body without the leading "# Title" that repeats the title (notes from before 1.0)."""
+def without_title(body: str, title: str) -> str:
+    """Body without the leading "# Title" that repeats the title (notes from before 1.0): how
+    a note reads, and how its editor's preview shows it."""
     first, _, rest = body.lstrip().partition("\n")
     if first.startswith("# ") and first[2:].strip() == title.strip():
         return rest.lstrip("\n")
@@ -205,7 +206,7 @@ def _parse_item(path: str, data: bytes) -> InboxItem:
     fields, body = parse_front_matter(data.decode("utf-8", "replace"))
     by = fields.get("deposited_by", "")
     title = str(fields.get("title") or PurePosixPath(path).stem)
-    body = _without_title(body, title)
+    body = without_title(body, title)
     return InboxItem(
         path=path,
         type=str(fields.get("type", "note")),
@@ -274,7 +275,9 @@ def read_attachment(actor: Actor, ws: Workspace, space: Space, item: str, name: 
 # --- Managing notes (contributors) ------------------------------------------------------------
 
 
-def _note(actor: Actor, ws: Workspace, space: Space, name: str) -> InboxItem:
+def editable_note(actor: Actor, ws: Workspace, space: Space, name: str) -> InboxItem:
+    """The note `name`, if the person may correct, move or remove it (its editor's preview
+    asks the same)."""
     require(actor.access, Action.DEPOSIT_SPACE, org_id=space.org_id, space_id=space.id)
     item = read_item(actor, ws, space, name)
     if item.type != "note":
@@ -297,7 +300,7 @@ def update_item(
     allow_secrets: bool = False,
 ) -> None:
     """Corrects a note. If the tidy run had left it, it becomes pending again."""
-    item = _note(actor, ws, space, name)
+    item = editable_note(actor, ws, space, name)
     title = names.display_name(title, field="Title")
     _check_hint(hint, origin)
     if len(body) > MAX_BODY or len(origin) > 2000:
@@ -338,7 +341,7 @@ def delete_item(
     """Removes a note and its attachments (they stay in the Git history). For a problem an
     agent routine reported, what became of it is remembered (`services.verdicts`), so that
     the routine does not report it again: `not_a_problem`, the reason why it is not one."""
-    item = _note(actor, ws, space, name)
+    item = editable_note(actor, ws, space, name)
     files: dict[str, bytes | None] = {item.path: None}
     for attachment in item.attachments:
         files[f"{attachments_dir(item.path)}/{attachment}"] = None
@@ -369,7 +372,7 @@ def move_item(
         raise invalid("Choose another space.")
     require(actor.access, Action.DEPOSIT_SPACE, org_id=target.org_id, space_id=target.id)
     check_rate(session, actor)
-    item = _note(actor, ws, space, name)
+    item = editable_note(actor, ws, space, name)
     repo = ws.local_repository(space)
     fields, body = parse_front_matter((repo.blob(item.path) or b"").decode("utf-8", "replace"))
     fields["moved_from"] = space.address

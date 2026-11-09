@@ -233,6 +233,9 @@ Suis notre modèle : {{include modeles/compte-rendu.md}}
   plus), lue avec les droits de la personne qui lance le prompt et encadrée comme non fiable,
   comme toute page lue par un assistant.
 - 30 prompts au plus par espace ; `tidy.md` contient les règles du rangement, pas un prompt.
+- **Aperçu**, au-dessus du texte de chaque prompt (et par le bouton placé dessous, sans
+  JavaScript), montre son Markdown rendu, sans enregistrer : l'en-tête laissé de côté,
+  `{{nom}}` et `{{include …}}` montrés tels qu'écrits (aucune page n'est lue).
 
 
 ## L'inbox
