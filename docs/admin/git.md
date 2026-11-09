@@ -290,7 +290,7 @@ Timeouts:
 - **SSH**: the connection is abandoned after 20 seconds, and the session is cut after one
   minute without an answer from the server;
 - **overall timeout** for one exchange: 5 minutes (`git_timeout`, in seconds, see
-  [the installation](installation.md)). Only raise it if the first clone of a very large
+  [Configuration](configuration.md)). Only raise it if the first clone of a very large
   repository does not complete.
 
 An interrupted exchange puts the space **in error**, with Git's message; what was already

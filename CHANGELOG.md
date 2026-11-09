@@ -45,6 +45,13 @@ of the target version.
   `services.checks` also gives the violations of a page, of a commit or between two commits.
   No migration.
 
+### Changed
+- The installation guide is split into three pages: **Install and run** (Docker Compose, modes,
+  upgrade, rollback, from source), **Configuration** (options and variables, email, search
+  index, alerts, monitoring, audit log, roles) and **First steps** (organizations, spaces,
+  demo data). Links to the moved sections now go to `docs/admin/configuration.md` and
+  `docs/admin/first-steps.md`.
+
 ### Upgrade
 - New dependency, `google-re2` (BSD license, wheels for Linux, macOS and Windows): installed
   with the image, or by `uv sync` from source.

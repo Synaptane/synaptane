@@ -299,7 +299,7 @@ Les délais :
 - **SSH** : connexion abandonnée après 20 secondes, session coupée après une minute sans
   réponse du serveur ;
 - **délai global** d'un échange : 5 minutes (`git_timeout`, en secondes, voir
-  [l'installation](installation.fr.md)). À augmenter seulement si le premier clone d'un très
+  [Configuration](configuration.fr.md)). À augmenter seulement si le premier clone d'un très
   gros dépôt n'aboutit pas.
 
 Un échange interrompu passe l'espace **en erreur**, avec le message de Git ; ce qui a déjà
