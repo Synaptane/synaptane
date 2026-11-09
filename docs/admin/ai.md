@@ -171,9 +171,16 @@ network, a key file copied where it should not be) does not open the agents cont
 - If the worker gives up (it stops, or its own time limit passes), the connection closes
   and the agents container stops the CLI within seconds: no run goes on alone using the
   quota.
-- At most `SYNAPTANE_AGENTS_MAX_RUNS` CLIs at once (2 by default: a tidy-up or a routine,
-  plus a connection test). Beyond, the run is refused right away and the worker retries it a
-  little later, like any transient error.
+- **One CLI at a time** by default (`SYNAPTANE_AGENTS_MAX_RUNS=1`). The CLIs of the agents
+  container share its account: two running together could read each other's environment
+  and MCP configuration, hence each other's run token (see below). A run that arrives
+  while another is in progress waits for its turn in the worker, a new try every 10 to 15
+  seconds, for as long as a run may last (3 minutes for a connection test); it is not
+  counted as a failure. Past that wait, it is retried later like any transient error,
+  nothing is lost. The price: a connection test or a routine requested during a 30-minute
+  tidy-up waits for it. Raising the value removes that wait at the cost of the separation
+  between runs (and each CLI takes a few hundred MB). Without the agents container, the CLI
+  runs in the worker, which separates nothing anyway: no limit applies there.
 - Instructions and prompt: 16 MB at most per request.
 
 **Upgrading from 1.14 or earlier.** Nothing to do: the new `compose.yaml` adds the `agents`
@@ -206,11 +213,23 @@ readable by that account (the key is created group-readable), and give the worke
   and moving pages of the space being tidied, within the usual safeguards (deletion
   threshold, one commit per run that can be reverted). The tool server only lives for the
   run, and only that run's token opens it.
-- It does not separate the runs from one another: the CLIs running at the same time share
-  the container and its account, so a compromised CLI could read the token of another run in
-  progress (a tidy-up of another organization, for instance) and use its tools until that
-  run ends. If your organizations must not be able to reach each other even then, set
-  `SYNAPTANE_AGENTS_MAX_RUNS=1`: runs then wait for each other.
+- It does not separate runs that run at the same time: they would share the container and
+  its account, so a compromised CLI could read the token of another run in progress (a
+  tidy-up of another organization, for instance) and use its tools until that run ends. That
+  is why `SYNAPTANE_AGENTS_MAX_RUNS` is 1 by default: runs wait for each other. Raise it only
+  if your organizations may reach each other that way.
+- What a run leaves in the CLIs' `HOME` (`/agents`) stays for the next ones. What could
+  steer them is cut off: Claude Code runs with `--setting-sources ""` (neither the hooks,
+  environment and permissions of `~/.claude/settings.json`, nor `~/.claude/CLAUDE.md`, skills
+  or agents), Codex with `--ignore-user-config` and its hooks turned off; the isolation
+  contract plants a hook and instructions in the `HOME` of its check and fails if they have
+  any effect. Codex has no option to leave out `~/.codex/AGENTS.md` (or
+  `AGENTS.override.md`), which it adds to every run: Synaptane never writes them, so a Codex
+  run is refused while one is there. What remains: a compromised CLI could replace the login
+  files themselves (sign the CLI in to another account, which would then receive the next
+  prompts) or other files the CLI reads for itself. If you suspect a compromise, sign the CLIs
+  out and in again (`docker compose exec agents claude auth logout`, then `login`), or empty
+  the volume.
 - Its outgoing access is not filtered: it can reach the Internet (it needs Anthropic and
   OpenAI), the cloud provider's metadata address (`169.254.169.254`) where there is one, and
   whatever listens on all the server's addresses: ports published by Docker (which a firewall
@@ -230,8 +249,12 @@ readable by that account (the key is created group-readable), and give the worke
   `synaptane-agents-key` volume in both (`docker compose config`). Deleting the key file
   (`docker compose exec worker rm /run/synaptane-agents/key`) makes the worker create a new
   one, which the agents container reads at its next request.
-- "already running 2 CLIs": runs are piling up; they are retried on their own. Raise
-  `SYNAPTANE_AGENTS_MAX_RUNS` if it happens often (each CLI takes a few hundred MB).
+- "already running as many CLIs as it may": a run waited for its turn longer than its own
+  time limit; it is retried later on its own. If it happens often, spread the tidy-ups over
+  the night, or raise `SYNAPTANE_AGENTS_MAX_RUNS` knowing what it costs (above).
+- "Codex would add the instructions of …": delete the file named
+  (`docker compose exec agents rm /agents/.codex/AGENTS.md`), after reading it: something put
+  it there.
 - "can reach what it should not" (health page, doctor): the agents container sees a secret
   of the instance, the master key, the Docker socket or the database. Remove what your
   Compose file adds to it (`docker compose config`).

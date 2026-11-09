@@ -219,7 +219,8 @@ avec une image construite par vos soins, déployez son étiquette ou son commit 
 journal) : `deploy/host/deploy.sh <commit>`. `deploy.sh` revient déjà seul en arrière quand
 ses contrôles échouent. Revenir sous la 1.15 laisse tourner le conteneur `agents`, inutilisé
 (les CLI tournent de nouveau dans le worker, avec les mêmes connexions) :
-`docker compose up -d --remove-orphans` l'arrête.
+`docker compose up -d --remove-orphans` l'arrête (le retour arrière automatique de
+`deploy.sh` le fait).
 
 Si une migration a changé la base entre-temps, l'ancien code ne démarre pas sur la base
 migrée : il faut aussi restaurer la sauvegarde faite juste avant la mise à jour fautive

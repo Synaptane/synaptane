@@ -179,9 +179,17 @@ ne devrait pas) n'ouvre pas le conteneur des agents.
 - Si le worker abandonne (il s'arrête, ou son propre délai expire), la connexion se ferme et
   le conteneur des agents arrête le CLI en quelques secondes : aucun passage ne continue seul
   à consommer le quota.
-- Au plus `SYNAPTANE_AGENTS_MAX_RUNS` CLI à la fois (2 par défaut : un rangement ou une
-  routine, plus un test de connexion). Au-delà, le passage est refusé aussitôt et le worker le
-  relance un peu plus tard, comme toute erreur passagère.
+- **Un CLI à la fois** par défaut (`SYNAPTANE_AGENTS_MAX_RUNS=1`). Les CLI du conteneur des
+  agents partagent son compte : deux qui tourneraient ensemble pourraient lire l'environnement
+  et la configuration MCP l'un de l'autre, donc le jeton de passage de l'autre (voir plus bas).
+  Un passage qui arrive pendant un autre attend son tour dans le worker, en réessayant toutes
+  les 10 à 15 secondes, aussi longtemps que peut durer un passage (3 minutes pour un test de
+  connexion) ; ce n'est pas compté comme un échec. Passé ce délai, il est relancé plus tard
+  comme toute erreur passagère : rien n'est perdu. Le prix : un test de connexion ou une
+  routine demandés pendant un rangement de 30 minutes l'attendent. Monter la valeur supprime
+  cette attente, au prix de la séparation entre passages (et chaque CLI prend quelques
+  centaines de Mo). Sans conteneur des agents, le CLI tourne dans le worker, qui ne sépare de
+  toute façon rien : aucune limite ne s'y applique.
 - Instructions et prompt : 16 Mo au plus par requête.
 
 **Mise à jour depuis la 1.14 ou avant.** Rien à faire : le nouveau `compose.yaml` ajoute le
@@ -216,12 +224,24 @@ le même `SYNAPTANE_AGENTS_KEY_FILE`.
   écrire et déplacer des pages de l'espace rangé, dans les garde-fous habituels (seuil de
   suppressions, un commit par passage qu'on peut annuler). Le serveur d'outils ne vit que le
   temps du passage, et seul le jeton de ce passage l'ouvre.
-- Il ne sépare pas les passages les uns des autres : les CLI qui tournent en même temps
-  partagent le conteneur et son compte, si bien qu'un CLI compromis pourrait lire le jeton
-  d'un autre passage en cours (un rangement d'une autre organisation, par exemple) et se
-  servir de ses outils jusqu'à la fin de ce passage. Si vos organisations ne doivent pas
-  pouvoir s'atteindre même ainsi, réglez `SYNAPTANE_AGENTS_MAX_RUNS=1` : les passages
-  s'attendent alors les uns les autres.
+- Il ne sépare pas des passages qui tourneraient en même temps : ils partageraient le
+  conteneur et son compte, si bien qu'un CLI compromis pourrait lire le jeton d'un autre
+  passage en cours (un rangement d'une autre organisation, par exemple) et se servir de ses
+  outils jusqu'à la fin de ce passage. C'est pourquoi `SYNAPTANE_AGENTS_MAX_RUNS` vaut 1 par
+  défaut : les passages s'attendent. Ne le montez que si vos organisations peuvent
+  s'atteindre ainsi.
+- Ce qu'un passage laisse dans le `HOME` des CLI (`/agents`) reste pour les suivants. Ce qui
+  pourrait les orienter est coupé : Claude Code tourne avec `--setting-sources ""` (ni les
+  hooks, l'environnement et les permissions de `~/.claude/settings.json`, ni
+  `~/.claude/CLAUDE.md`, les skills ou les agents), Codex avec `--ignore-user-config` et ses
+  hooks coupés ; le contrat d'isolation plante un hook et des instructions dans le `HOME` de
+  sa vérification et échoue s'ils ont un effet. Codex n'a pas d'option pour écarter
+  `~/.codex/AGENTS.md` (ou `AGENTS.override.md`), qu'il ajoute à chaque passage : Synaptane
+  n'en écrit jamais, donc un passage Codex est refusé tant qu'il y en a un. Reste qu'un CLI
+  compromis pourrait remplacer les fichiers de connexion eux-mêmes (connecter le CLI à un
+  autre compte, qui recevrait alors les prompts suivants) ou d'autres fichiers que le CLI lit
+  pour lui-même. En cas de doute, déconnectez puis reconnectez les CLI
+  (`docker compose exec agents claude auth logout`, puis `login`), ou videz le volume.
 - Son accès sortant n'est pas filtré : il peut joindre Internet (il lui faut Anthropic et
   OpenAI), l'adresse de métadonnées de l'hébergeur (`169.254.169.254`) s'il y en a une, et
   tout ce qui écoute sur toutes les adresses du serveur : les ports publiés par Docker (qu'un
@@ -242,9 +262,13 @@ le même `SYNAPTANE_AGENTS_KEY_FILE`.
   vérifiez le volume `synaptane-agents-key` dans les deux (`docker compose config`). Supprimer
   le fichier de clé (`docker compose exec worker rm /run/synaptane-agents/key`) fait créer
   une nouvelle clé par le worker, que le conteneur des agents lit à sa requête suivante.
-- « fait déjà tourner 2 CLI » : des passages s'accumulent ; ils sont relancés d'eux-mêmes.
-  Montez `SYNAPTANE_AGENTS_MAX_RUNS` si cela revient souvent (chaque CLI prend quelques
-  centaines de Mo).
+- « fait déjà tourner autant de CLI qu'il le peut » : un passage a attendu son tour plus
+  longtemps que son propre délai ; il est relancé plus tard de lui-même. Si cela revient
+  souvent, étalez les rangements dans la nuit, ou montez `SYNAPTANE_AGENTS_MAX_RUNS` en
+  sachant ce que cela coûte (plus haut).
+- « Codex ajouterait les instructions de … » : supprimez le fichier cité
+  (`docker compose exec agents rm /agents/.codex/AGENTS.md`), après l'avoir lu : quelque chose
+  l'a mis là.
 - « atteint ce qu'il ne devrait pas » (page de santé, doctor) : le conteneur des agents voit
   un secret de l'instance, la clé maître, le socket Docker ou la base. Retirez ce que votre
   fichier Compose lui ajoute (`docker compose config`).

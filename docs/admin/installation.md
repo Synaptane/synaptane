@@ -214,7 +214,8 @@ set `SYNAPTANE_VERSION` back to it in `.env` and run `docker compose up -d`; wit
 image, deploy its tag or commit (it is in the log): `deploy/host/deploy.sh <commit>`.
 `deploy.sh` already rolls back on its own when its checks fail. Going back below 1.15 leaves
 the `agents` container running, unused (the CLIs run in the worker again, with the same
-logins): `docker compose up -d --remove-orphans` stops it.
+logins): `docker compose up -d --remove-orphans` stops it (the automatic rollback of
+`deploy.sh` does it).
 
 If a migration changed the database in between, the old code does not start on the migrated
 database: also restore the backup taken just before the faulty upgrade

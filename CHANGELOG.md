@@ -27,14 +27,20 @@ worker, as before, and `synaptane doctor` and the health page say they are less 
   with the worker. It is on a network shared with the worker alone, without Internet, and on
   one of its own for Anthropic and OpenAI: neither the database nor the web container are
   within its reach. Non-root, read-only file system, no Linux capability, memory capped
-  (`SYNAPTANE_AGENTS_MEMORY`, 2 GB) and at most `SYNAPTANE_AGENTS_MAX_RUNS` CLIs at once (2).
+  (`SYNAPTANE_AGENTS_MEMORY`, 2 GB) and one CLI at a time (`SYNAPTANE_AGENTS_MAX_RUNS`, 1:
+  CLIs running together share an account and could read each other's run token; a run that
+  arrives during another one waits for its turn in the worker, without failing).
   The worker sends it each run, with the key (created by the worker on its first call in the
   `synaptane-agents-key` volume, never logged); the CLI is launched exactly as before, with the
   same options, and reaches the run's tools at the worker's address on their private network,
   with the run's single-use token. A run is stopped at its time limit, as soon as the worker
   gives up, or beyond 4 MB of results; only the events Synaptane reads come back to the worker.
   The isolation contract (`synaptane check-clis`) runs in the agents container, where the CLIs
-  run. Sign in with `docker compose exec agents claude auth login` (or
+  run. Claude Code now runs with `--setting-sources ""`: hooks, settings and instructions left
+  in its `HOME` (`~/.claude/settings.json`, `CLAUDE.md`, skills) no longer apply to the runs,
+  which the contract checks by planting some; a Codex run is refused while
+  `~/.codex/AGENTS.md` (which Codex adds to every run, with no option to leave it out) is
+  there. Sign in with `docker compose exec agents claude auth login` (or
   `codex login --device-auth`): the AI page gives the command. This closes the known
   limitation of the earlier versions, where a flaw in the CLI could read the server through the
   worker's account. See [The agents container](docs/admin/ai.md#the-agents-container), with
