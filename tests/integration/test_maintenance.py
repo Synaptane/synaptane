@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from synaptane.git.repo import Repository
 from synaptane.services import budget, changes, content, git_sync, maintenance, tidy
 from synaptane.services.tidy_tools import Op, Overlay, RunState
 from synaptane.services.workspace import Workspace
@@ -375,3 +376,26 @@ def test_the_first_edit_after_turning_it_on_counts(
         ("broken_link", "a.md", "b.md"),
         ("not_in_index", "a.md", "README.md"),
     ]
+
+
+def test_a_big_import_is_read_in_a_few_git_calls(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its window is computed again every night until all its problems are given: one Git
+    process per page (thousands for an import) took most of a minute each night."""
+    batch: dict[str, str | None] = {
+        f"content/lot/p{n}.md": f"# P{n}\n\n[Ailleurs](x{n}.md)\n" for n in range(40)
+    }
+    wiki.remote.push({"content/lot/README.md": "# Lot\n", **batch}, "Import")
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    blob = Repository.blob
+    calls: list[str] = []
+
+    def counted(self: Repository, path: str, rev: str = "HEAD") -> bytes | None:
+        calls.append(path)
+        return blob(self, path, rev)
+
+    monkeypatch.setattr(Repository, "blob", counted)
+    found = pending(db, ctx, wiki)
+    assert found is not None and found.waiting == 81  # 40 broken links, 40 + 1 not indexed
+    assert len(calls) < 5, calls

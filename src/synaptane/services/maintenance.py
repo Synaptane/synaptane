@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
 from synaptane.core.errors import Label
-from synaptane.core.markdown import broken_links, link_targets
+from synaptane.core.markdown import broken_among, broken_links, link_targets
 from synaptane.git.repo import GitError, Repository
 from synaptane.services import health
 from synaptane.services import links as links_service
@@ -188,15 +188,18 @@ class WikiChecks:
             }
         before_view = Overlay(window.repo, window.since)
         before_names, after_names = before_view.names(), view.names()
-        for page in sorted(p for p in candidates if p in current and _is_page(p)):
-            text = _text(view.read(PREFIX + page))
+        pages = sorted(p for p in candidates if p in current and _is_page(p))
+        texts = _read(view, pages)
+        olds = _read(before_view, [window.origins.get(p, p) for p in pages])
+        for page in pages:
+            text = _text(texts.get(page))
             origin = window.origins.get(page, page)
             known: set[str] = set()
-            if before_view.existed(PREFIX + origin):
-                old = _text(before_view.read(PREFIX + origin))
-                known = _broken_keys(old, origin, before_names)
-            keys = {w: t or w for w, t in link_targets(text, page, after_names)}
-            for written, suggestion in broken_links(text, page, after_names):
+            if origin in olds:  # the page existed at the watermark
+                known = _broken_keys(_text(olds[origin]), origin, before_names)
+            targets = link_targets(text, page, after_names)
+            keys = {w: t or w for w, t in targets}
+            for written, suggestion in broken_among(targets, page, after_names):
                 key = keys.get(written, written)
                 if key in known:
                     continue  # already broken before: not introduced
@@ -218,12 +221,14 @@ class WikiChecks:
         for src, targets in links.items():
             incoming |= {t for t in targets if t != _rel(src)}
         found = []
+        current = view.current()
+        contents = _read(view, pages)
         for page in pages:
-            data = view.read(PREFIX + page)
+            data = contents.get(page)
             if data is None:
                 continue
             index = _index_of(page)
-            listed = index is None or not view.exists(PREFIX + index)
+            listed = index is None or PREFIX + index not in current
             if not listed and index is not None:
                 listed = page in links.get(PREFIX + index, set())
             if not listed:
@@ -245,13 +250,12 @@ class WikiChecks:
         names = view.names()
         form = [p for p in problems if p.kind != "broken_link"]
         if form:
-            pages = sorted({p.page for p in form if view.exists(PREFIX + p.page)})
-            now = {p.key for p in self._form(view, pages)}
+            now = {p.key for p in self._form(view, sorted({p.page for p in form}))}
             still |= {p.key for p in form if p.key in now}
-        for problem in problems:
-            if problem.kind != "broken_link":
-                continue
-            data = view.read(PREFIX + problem.page)
+        links = [p for p in problems if p.kind == "broken_link"]
+        contents = _read(view, {p.page for p in links})
+        for problem in links:
+            data = contents.get(problem.page)
             if data is None:
                 continue
             broken = {w for w, _ in broken_links(_text(data), problem.page, names)}
@@ -265,6 +269,28 @@ SOURCES: list[Source] = [WikiChecks()]
 
 def _source(name: str) -> Source | None:
     return next((s for s in SOURCES if s.name == name), None)
+
+
+def _read(view: Overlay, pages: Iterable[str]) -> dict[str, bytes]:
+    """Contents of pages (relative to content/) in `view`, the missing ones left out. In one
+    Git call: one process per page would make the nightly computation of an import of
+    thousands of pages, done again every night until its problems are all given, last
+    minutes."""
+    found: dict[str, bytes] = {}
+    stored: list[str] = []
+    for page in set(pages):
+        full = PREFIX + page
+        if full in view.changes:
+            if (data := view.changes[full]) is not None:
+                found[page] = data
+        elif view.existed(full):
+            stored.append(full)
+    batch = view.repo.read_many(sorted(stored), view.base)
+    for full in stored:
+        data = batch[full] if full in batch else view.read(full)  # a name Git cannot batch
+        if data is not None:
+            found[_rel(full)] = data
+    return found
 
 
 def _text(data: bytes | None) -> str:
