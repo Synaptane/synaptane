@@ -19,6 +19,7 @@ from synaptane.services import (
     budget,
     content,
     git_sync,
+    routine_agent,
     routine_files,
     routines,
     spaces,
@@ -396,3 +397,30 @@ def test_an_edit_waiting_for_the_lock_while_the_sync_writes_the_routine_reaches_
     sync(database, ctx, wiki.infra.id)
     assert [r.name for r in rows(db)] == ["veille"]
 
+
+def test_a_request_locked_by_a_reconciliation_is_not_left_without_a_task(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """A synchronization (or a save) locks the space's routines while it reconciles them. The
+    worker skips a locked row: the request must find a task again, otherwise the routine waits
+    for its next slot, shown as "requested" all along."""
+    from tests.integration.test_routines import RoutineScript, configure_ai, create, queued
+
+    configure_ai(db, ctx, wiki)
+    routine = create(db, database, ctx, wiki, "coherence")
+    routines.request_run(db, wiki.root, wiki.infra, routine)
+    db.commit()
+    for job in queued(db, routines.ROUTINE):  # taken by the worker, as for real
+        job.status = "running"
+    db.commit()
+    script = RoutineScript([[("write_report", {"content": "Ok"}), ("finish", {"summary": "Ok"})]])
+    with database.session() as other:
+        space = other.get(Space, wiki.infra.id)
+        assert space is not None
+        routine_files.reconcile(other, space, ctx.local_repository(space))  # rows locked
+        assert routine_agent.run_pending(database, ctx, wiki.infra.id, factory=script.factory) == 0
+    db.expire_all()
+    assert len(queued(db, routines.ROUTINE)) == 1  # a new task, a little later
+    found = db.get(Routine, routine.id)
+    assert found is not None and found.requested == "manual"
+    assert routine_agent.run_pending(database, ctx, wiki.infra.id, factory=script.factory) == 1

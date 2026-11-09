@@ -1090,6 +1090,9 @@ def run_pending(
     return 0
 
 
+LOCKED_DELAY = timedelta(seconds=15)  # a reconciliation holds the rows for a moment only
+
+
 def _run_pending(
     database: Database,
     ws: Workspace,
@@ -1115,6 +1118,20 @@ def _run_pending(
                 .with_for_update(skip_locked=True)
             )
             if routine is None:
+                # A request locked by someone else (a synchronization reconciling the routines
+                # with their files, a save) is skipped: it gets a task again, otherwise it
+                # would wait for the routine's next slot.
+                locked = session.scalar(
+                    select(Routine.id)
+                    .where(
+                        Routine.space_id == space_id,
+                        Routine.requested.is_not(None),
+                        Routine.id.not_in(seen),
+                    )
+                    .limit(1)
+                )
+                if locked is not None:
+                    jobs.enqueue(session, ROUTINE, space_id, delay=LOCKED_DELAY)
                 break
             trigger, by = str(routine.requested), routine.requested_by
             routine.requested, routine.requested_by = None, None
