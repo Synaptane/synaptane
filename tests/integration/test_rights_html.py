@@ -53,7 +53,8 @@ def as_user(client: TestClient, username: str) -> str:
 
 def snapshot(database: Database) -> dict[str, list[tuple[object, ...]]]:
     """What a refusal must not change: accounts, organizations, members, spaces,
-    invitations, groups. Read in a fresh session, to see what the server committed."""
+    invitations and their groups, groups. Read in a fresh session, to see what the server
+    committed."""
     queries = {
         "users": "SELECT username, is_superadmin FROM users",
         "orgs": "SELECT slug, name FROM organizations",
@@ -68,6 +69,8 @@ def snapshot(database: Database) -> dict[str, list[tuple[object, ...]]]:
         " JOIN users u ON u.id = m.user_id JOIN groups g ON g.id = m.group_id",
         "group_space_roles": "SELECT g.name, s.slug, r.role FROM group_space_roles r"
         " JOIN spaces s ON s.id = r.space_id JOIN groups g ON g.id = r.group_id",
+        "invitation_groups": "SELECT i.email, g.name FROM invitation_groups l"
+        " JOIN invitations i ON i.id = l.invitation_id JOIN groups g ON g.id = l.group_id",
     }
     with database.session() as session:
         return {

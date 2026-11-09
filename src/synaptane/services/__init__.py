@@ -144,6 +144,13 @@ def audit(
             action=action,
             org_id=space.org_id if space else org_id,
             space_id=space.id if space else None,
-            details={k: str(v) for k, v in details.items()},
+            details={k: _stored(v) for k, v in details.items()},
         )
     )
+
+
+def _stored(value: object) -> str | list[str]:
+    """An audit detail as stored: text, or a list of texts (names that may hold a comma)."""
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return str(value)

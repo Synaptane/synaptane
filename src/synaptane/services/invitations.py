@@ -1,7 +1,8 @@
 """Invitations: an organization admin lets someone in without the super-admin.
 
-The invitation carries the role in the organization and, optionally, roles in its spaces. If
-the address is the verified address of an existing account, access is granted at once.
+The invitation carries the role in the organization and, optionally, roles in its spaces and
+groups of the organization to join. If the address is the verified address of an existing
+account, access is granted at once.
 Otherwise, a single-use link (14 days) lets the person create their account; they choose
 their password, and the address counts as verified since the link was received there.
 
@@ -9,21 +10,41 @@ Each invitation sends an email to an address chosen by the admin: at most `PER_H
 organization per hour.
 """
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from synaptane.core.access import Action, OrgRole, SpaceRole, effective_role, require
+from synaptane.core.access import (
+    Action,
+    OrgRole,
+    SpaceRole,
+    effective_role,
+    highest_role,
+    require,
+)
 from synaptane.core.errors import conflict, invalid, not_found, too_many
 from synaptane.core.security import new_token, token_hash
-from synaptane.services import Actor, accounts, audit, organizations, spaces
-from synaptane.storage.models import AuditEvent, Invitation, Organization, Space, User
+from synaptane.services import Actor, accounts, audit, groups, organizations, spaces
+from synaptane.storage.models import (
+    AuditEvent,
+    Group,
+    GroupSpaceRole,
+    Invitation,
+    InvitationGroup,
+    Organization,
+    Space,
+    User,
+)
 
 TTL = timedelta(days=14)
 PER_HOUR = 30
+MAX_GROUPS = 200  # groups chosen for one invitation, at most
 # Counted in the audit log, not in the invitations: re-inviting or revoking deletes the
 # invitation row, not the email already sent.
 SENT = ("org.invitation_created", "org.member_invited")
@@ -38,6 +59,11 @@ class Created:
     invitation: Invitation | None  # None: existing account, access granted directly
     token: str | None
     existing: User | None
+    # The groups to join on acceptance, by name; for an existing account, those it actually
+    # joined (not those it was already in).
+    groups: list[Group] = field(default_factory=list)
+    # Existing account: the roles given in the invitation's spaces, by space name.
+    spaces: list[tuple[Space, SpaceRole]] = field(default_factory=list)
 
 
 def _apply(
@@ -47,12 +73,76 @@ def _apply(
     user: User,
     org_role: OrgRole,
     space_roles: dict[str, str],
-) -> None:
+    joined: Iterable[Group] = (),
+) -> tuple[list[tuple[Space, SpaceRole]], list[Group]]:
+    """Member of the organization first (only its members join its groups), then the roles in
+    its spaces and the groups. Already in a group: nothing changes, nothing is logged.
+    Returns the roles given in the spaces (by name) and the groups actually joined."""
     organizations.set_member(session, actor, org, user, org_role)
+    given: list[tuple[Space, SpaceRole]] = []
     for space_id, role in space_roles.items():
         space = session.get(Space, UUID(space_id))
         if space is not None and space.org_id == org.id:
             spaces.set_member(session, actor, space, user, SpaceRole(role))
+            given.append((space, SpaceRole(role)))
+    session.flush()  # the membership, which the groups' foreign key refers to
+    added = [
+        group
+        for group in joined
+        if group.org_id == org.id and groups.add_member(session, actor, group, user)
+    ]
+    return sorted(given, key=lambda item: item[0].name.lower()), added
+
+
+def _chosen_groups(
+    session: Session, org: Organization, group_ids: Iterable[str | UUID]
+) -> list[Group]:
+    """The groups chosen for an invitation, by name: all of the organization (a group of
+    another one, or deleted in the meantime, is refused)."""
+    wanted: set[UUID] = set()
+    for value in group_ids:
+        try:
+            wanted.add(value if isinstance(value, UUID) else UUID(str(value).strip()))
+        except ValueError:
+            raise not_found("Group not found in this organization.") from None
+    if not wanted:
+        return []
+    if len(wanted) > MAX_GROUPS:
+        raise invalid("Too many groups chosen ({limit} at most).", limit=MAX_GROUPS)
+    found = list(
+        session.scalars(
+            select(Group)
+            .where(Group.id.in_(wanted), Group.org_id == org.id)
+            .order_by(func.lower(Group.name))
+        )
+    )
+    if len(found) != len(wanted):
+        raise not_found("Group not found in this organization.")
+    return found
+
+
+def _names(joined: Iterable[Group]) -> dict[str, Any]:
+    """The audit detail of the groups: the list of their names at the time (a name may hold a
+    comma), none without groups (as before groups existed)."""
+    names = [group.name for group in joined]
+    return {"groups": names} if names else {}
+
+
+def invited_groups(session: Session, invitation_ids: Iterable[UUID]) -> dict[UUID, list[Group]]:
+    """The groups that still exist of each invitation, by name (one query): a deleted group
+    has left its invitations (ON DELETE CASCADE), and a renamed one shows its new name."""
+    ids = list(invitation_ids)
+    found: dict[UUID, list[Group]] = {}
+    if not ids:
+        return found
+    for invitation_id, group in session.execute(
+        select(InvitationGroup.invitation_id, Group)
+        .join(Group, Group.id == InvitationGroup.group_id)
+        .where(InvitationGroup.invitation_id.in_(ids))
+        .order_by(func.lower(Group.name))
+    ):
+        found.setdefault(invitation_id, []).append(group)
+    return found
 
 
 def sent_last_hour(session: Session, org: Organization) -> int:
@@ -78,7 +168,10 @@ def invite(
     email: str,
     org_role: OrgRole = OrgRole.MEMBER,
     space_roles: dict[str, str] | None = None,
+    group_ids: Iterable[str | UUID] = (),
 ) -> Created:
+    """`group_ids`: groups of the organization the person joins, right away (existing account)
+    or on acceptance."""
     require(actor.access, Action.MANAGE_ORG, org_id=org.id)
     email = email.strip().lower()
     if "@" not in email or len(email) > 320 or " " in email:
@@ -88,6 +181,7 @@ def invite(
         space = session.get(Space, UUID(space_id))
         if space is None or space.org_id != org.id or role not in (r.value for r in SpaceRole):
             raise invalid("Invalid space or role.")
+    joined = _chosen_groups(session, org, group_ids)
     if sent_last_hour(session, org) >= PER_HOUR:
         raise too_many(
             "Too many invitations sent in the last hour for this organization ({limit} at "
@@ -103,7 +197,7 @@ def invite(
     if existing is not None:
         if not existing.is_active:
             raise conflict("This account is disabled: a super admin must reactivate it.")
-        _apply(session, actor, org, existing, org_role, space_roles)
+        given, added = _apply(session, actor, org, existing, org_role, space_roles, joined)
         audit(
             session,
             actor,
@@ -111,8 +205,9 @@ def invite(
             org_id=org.id,
             username=existing.username,
             role=org_role,
+            **_names(added),
         )
-        return Created(None, None, existing)
+        return Created(None, None, existing, added, given)
     # A single pending invitation per address and organization: re-inviting renews it.
     for previous in session.scalars(
         select(Invitation).where(
@@ -134,8 +229,27 @@ def invite(
     )
     session.add(invitation)
     session.flush()
-    audit(session, actor, "org.invitation_created", org_id=org.id, email=email, role=org_role)
-    return Created(invitation, token, None)
+    try:
+        # A savepoint: a group deleted since it was checked (another request at the same
+        # time) is refused like an unknown one, instead of an error.
+        with session.begin_nested():
+            session.add_all(
+                InvitationGroup(invitation_id=invitation.id, group_id=group.id, org_id=org.id)
+                for group in joined
+            )
+            session.flush()
+    except IntegrityError:
+        raise not_found("Group not found in this organization.") from None
+    audit(
+        session,
+        actor,
+        "org.invitation_created",
+        org_id=org.id,
+        email=email,
+        role=org_role,
+        **_names(joined),
+    )
+    return Created(invitation, token, None, joined)
 
 
 def pending(session: Session, actor: Actor, org: Organization) -> list[Invitation]:
@@ -199,7 +313,9 @@ def accept(
             Invitation.expires_at > _now(),
         )
     )
-    for pending_invitation in {invitation, *others}:
+    honored = {invitation, *others}
+    joined = invited_groups(session, (i.id for i in honored))
+    for pending_invitation in honored:
         org = session.get(Organization, pending_invitation.org_id)
         if org is None:
             continue
@@ -210,6 +326,7 @@ def accept(
             user,
             OrgRole(pending_invitation.org_role),
             dict(pending_invitation.space_roles),
+            joined.get(pending_invitation.id, []),
         )
         pending_invitation.accepted_at, pending_invitation.accepted_by = _now(), user.id
         audit(session, None, "org.invitation_accepted", org_id=org.id, username=user.username)
@@ -226,21 +343,64 @@ def _system_actor(org: Organization) -> Actor:
     )
 
 
-def describe(session: Session, invitation: Invitation) -> tuple[str, list[tuple[str, str, bool]]]:
+@dataclass(frozen=True)
+class Granted:
+    """The access an invitation gives to one space."""
+
+    space: str  # name
+    role: SpaceRole
+    # Where it comes from: "given" (in the invitation), "group", "default" (the organization's
+    # default role) or "admin" (an administrator contributes everywhere).
+    source: str
+    groups: tuple[str, ...] = ()  # source "group": the groups that give this role, by name
+
+
+@dataclass(frozen=True)
+class Description:
+    inviter: str  # display name, "" if their account is gone
+    granted: list[Granted]  # by space name
+    groups: list[str]  # the groups to join, by name
+
+
+def describe(session: Session, invitation: Invitation) -> Description:
     """Who invites, and the access the invitation actually gives (for the invitation page):
-    (space, effective role, through the default role), the spaces opened by the
-    organization's default role included; an administrator contributes everywhere."""
+    for each space, the highest of the role given in the invitation, of the roles of its
+    groups and of the organization's default role (which a restricted space ignores; a group
+    opens it), with where it comes from; an administrator contributes everywhere."""
     inviter = session.get(User, invitation.invited_by) if invitation.invited_by else None
     org = session.get(Organization, invitation.org_id)
-    granted: list[tuple[str, str, bool]] = []
+    joined = invited_groups(session, [invitation.id]).get(invitation.id, [])
+    granted: list[Granted] = []
     if org is not None:
+        through: dict[UUID, list[tuple[str, SpaceRole]]] = {}
+        if joined:
+            names = {group.id: group.name for group in joined}
+            for group_id, space_id, value in session.execute(
+                select(GroupSpaceRole.group_id, GroupSpaceRole.space_id, GroupSpaceRole.role).where(
+                    GroupSpaceRole.group_id.in_(names)
+                )
+            ):
+                through.setdefault(space_id, []).append((names[group_id], SpaceRole(value)))
         given = invitation.space_roles
         for space in session.scalars(
             select(Space).where(Space.org_id == org.id).order_by(Space.name)
         ):
-            explicit = SpaceRole(given[str(space.id)]) if str(space.id) in given else None
             if invitation.org_role == OrgRole.ADMIN.value:
-                granted.append((space.name, SpaceRole.CONTRIBUTOR.value, False))
-            elif role := effective_role(explicit, org.default_space_role, space.restricted):
-                granted.append((space.name, role.value, role != explicit))
-    return (inviter.display_name if inviter else ""), granted
+                granted.append(Granted(space.name, SpaceRole.CONTRIBUTOR, "admin"))
+                continue
+            explicit = SpaceRole(given[str(space.id)]) if str(space.id) in given else None
+            by_groups = sorted(through.get(space.id, []), key=lambda item: item[0].lower())
+            group = highest_role(role for _, role in by_groups)
+            role = effective_role(explicit, org.default_space_role, space.restricted, group)
+            if role is None:
+                continue
+            if role == explicit:
+                granted.append(Granted(space.name, role, "given"))
+            elif role == group:
+                via = tuple(name for name, found in by_groups if found == role)
+                granted.append(Granted(space.name, role, "group", via))
+            else:
+                granted.append(Granted(space.name, role, "default"))
+    return Description(
+        inviter.display_name if inviter else "", granted, [group.name for group in joined]
+    )
