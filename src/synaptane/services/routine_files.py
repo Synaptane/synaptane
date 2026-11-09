@@ -59,7 +59,7 @@ from sqlalchemy.orm import Session
 from synaptane.core import names
 from synaptane.core.errors import Label, SynaptaneError, conflict, invalid, not_found
 from synaptane.core.secret_scan import added_findings, refuse_secrets
-from synaptane.git.repo import Identity, Repository
+from synaptane.git.repo import Identity, PathRefused, Repository
 from synaptane.services import Actor, jobs
 from synaptane.services.content import content_path
 from synaptane.services.inbox import CONTENT_DIR
@@ -817,7 +817,11 @@ def save(
                 data = _fits(render(config, extra_lines(repo.blob(path))).encode())
             verb = "updated" if data is not None else "removed"
             subject = f"Routine {verb}: {name}" + trailers(source, actor.via)
-            if repo.commit_changes({path: data}, author, subject):
+            try:
+                committed = repo.commit_changes({path: data}, author, subject)
+            except PathRefused as refused:  # the folder made a file or a link by a push
+                raise invalid("Write refused: {detail}", detail=str(refused)) from None
+            if committed:
                 jobs.enqueue(session, "sync", space.id)
             reconcile(session, space, repo)
         saved = session.scalar(

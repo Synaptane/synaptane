@@ -449,3 +449,19 @@ def test_a_file_too_large_to_be_read_back_is_refused(
     db.rollback()
     assert rows(db) == []
     assert ctx.local_repository(wiki.infra).blob(".synaptane/routines/grande.md") is None
+
+
+def test_a_routines_folder_replaced_by_a_file_gives_a_clear_refusal(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """A push made `.synaptane/routines` a file: saving a routine says why it cannot be
+    written, instead of an internal error."""
+    wiki.remote.push({".synaptane/routines": "pas un dossier\n"})
+    sync(database, ctx, wiki.infra.id)
+    with pytest.raises(SynaptaneError, match="refused"):
+        routines.create(
+            db, database, wiki.root, ctx, wiki.infra, routines.Fields(), template="digest"
+        )
+    db.rollback()
+    assert rows(db) == []
+
