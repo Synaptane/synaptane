@@ -48,7 +48,7 @@ if [ "$1" = compose ]; then
     "exec -T postgres psql"*) cat "$f/revision" ;;
     "exec -T app sh -c"*) ;;  # marks of backup.sh in the data volume
     "build --pull") echo "$GIT_SHA" > "$f/tags/synaptane:local" ;;
-    "up -d --no-build")
+    "up -d --no-build" | "up -d --no-build --remove-orphans")
       r=$(cat "$f/tags/synaptane:local"); echo "$r" > "$f/running"
       if [ "$r" = "${FAKE_MIGRATES:-}" ]; then echo 0099 > "$f/revision"; fi ;;
     "stop app worker") ;;
@@ -231,6 +231,12 @@ def test_an_unhealthy_agents_container_rolls_the_deploy_back(server: Server) -> 
     assert "agents unhealthy" in done.stderr
     assert server.state("running") == server.old
     assert server.journal()[-1].endswith(f"rolled back to {server.old[:7]}: ok")
+    # The rollback removes the containers the failed version added (orphans), not the deploy.
+    ups = [line for line in server.calls().splitlines() if " up -d " in line]
+    assert ups == [
+        "docker compose up -d --no-build",
+        "docker compose up -d --no-build --remove-orphans",
+    ]
     healthy = server.deploy(FAKE_AGENTS="1")
     assert healthy.returncode == 0, healthy.stdout + healthy.stderr
     assert "docker inspect -f" in server.calls() and "ps -q agents" in server.calls()

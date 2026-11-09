@@ -188,7 +188,10 @@ rollback() {
   else
     echo "Database unchanged (${now:-?}): no restore."
   fi
-  run docker compose up -d --no-build || return 1
+  # --remove-orphans: services the failed version added and the previous one does not know
+  # (the agents container when going back below 1.15) are stopped and removed; their volumes
+  # stay, and the profiles of .env (proxy) are known to Compose, so nothing else goes.
+  run docker compose up -d --no-build --remove-orphans || return 1
   verify "$prev_running"
 }
 
