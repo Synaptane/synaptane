@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 Read = Callable[[zipfile.ZipInfo], bytes]  # bounded read of an archive entry
 MAX_BROKEN = 1000  # broken links listed by the check; beyond that, only counted
 NAME_LENGTH = 100  # characters of a file or folder name made from a title
-_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f/\\]+")
+# Control characters, separators, and the bidirectional controls that would show a name the
+# wrong way round (`Report\u202egnp.md`, read as "Reportdm.png").
+_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f/\\\u202a-\u202e\u2066-\u2069]+")
 
 
 @dataclass
@@ -49,8 +51,8 @@ class Layout:
 
 
 def clean_name(title: str, fallback: str = "Untitled") -> str:
-    """A file or folder name from a title: no slash nor control character, no leading dot,
-    at most NAME_LENGTH characters."""
+    """A file or folder name from a title: no slash nor control character (bidirectional ones
+    included), no leading dot, at most NAME_LENGTH characters."""
     name = unicodedata.normalize("NFC", _UNSAFE_NAME.sub("-", title))
     name = " ".join(name.split()).strip(" .-") or fallback
     if len(name) > NAME_LENGTH:

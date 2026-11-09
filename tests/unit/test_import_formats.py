@@ -82,6 +82,8 @@ def test_names_lose_their_id_and_stay_unique() -> None:
     assert names.take("Notes", ".png") == "Notes.png"
     assert clean_name("  a/b\\c\x00d  ") == "a-b-c-d" and clean_name(" .. ") == "Untitled"
     assert clean_name(".cache") == "cache" and len(clean_name("x" * 300)) == 100
+    assert clean_name("Rapport\u202egnp.md") == "Rapport-gnp.md"  # read the wrong way round
+    assert clean_name("a\u2067b\u2069") == "a-b" and clean_name("👨\u200d👩") == "👨\u200d👩"
     assert clean_name("é", "x") == "é" and clean_name("é") == "é"  # NFC
     assert split_name("archive.tar.gz") == ("archive.tar", ".gz")
     assert split_name(".env") == (".env", "") and split_name("Note v1. final") == (
