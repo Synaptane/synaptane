@@ -277,7 +277,12 @@ dépôt :
   Chacun existe en anglais et en français, et il est proposé dans la langue de la personne
   qui l'utilise (langue du compte ; de même pour `GET /vocation-templates` en REST). Un
   modèle pré-remplit l'éditeur (avec confirmation s'il contient déjà un autre texte) ; rien
-  n'est enregistré avant **Enregistrer**. **Aperçu** montre le rendu sans enregistrer.
+  n'est enregistré avant **Enregistrer**. **Aperçu** montre le rendu sans enregistrer :
+  au-dessus de chaque texte, comme pour une page du wiki (**Écrire**, **Aperçu**, **Côte à
+  côte** sur grand écran), la vocation telle que les modèles la reçoivent (sans les
+  commentaires des modèles), diagrammes Mermaid dessinés. Sans JavaScript, le bouton
+  **Aperçu** sous le texte recharge la page avec le rendu. Administrateurs de l'organisation
+  seulement, comme l'édition ; rien n'est commité ni journalisé.
 - **Enregistrer** fait un commit au nom de la personne (`Space purpose updated` ou `Tidy-up
   rules updated` ; `… removed` quand le texte est vidé), sous le verrou de l'espace, puis une
   synchronisation ; la page montre les cinq dernières modifications (date, auteur). Git reste

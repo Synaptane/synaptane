@@ -32,7 +32,7 @@
     {{ csrf_field() }}
     <div class="field"><label for="group-member">{{ _("Username") }}</label><input id="group-member" name="username" required list="org-people" autocomplete="off" aria-describedby="group-member-help">{{ people_list("org-people", people) }}</div>
     <button class="button button-primary" type="submit">{{ _("Add") }}</button>
-    <p class="muted" id="group-member-help">{{ _("Only members of the organization join its groups: invite the others first, from the Members tab.") }}</p>
+    <p class="muted" id="group-member-help">{{ _("Only members of the organization join its groups. Someone who is not a member yet: invite them from the Members tab, checking this group.") }}</p>
   </form>
 </section>
 

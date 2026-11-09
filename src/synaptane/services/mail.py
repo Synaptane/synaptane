@@ -149,12 +149,12 @@ _TEXTS = {
         "fr": (
             "Vous avez accès à « {org} » sur Synaptane",
             "Bonjour,\n\n{inviter} vous a donné accès à l'organisation « {org} » sur "
-            "Synaptane.\n\n{link}\n",
+            "Synaptane.\n\n{access}{link}\n",
         ),
         "en": (
             "You now have access to “{org}” on Synaptane",
             "Hello,\n\n{inviter} gave you access to the “{org}” organization on "
-            "Synaptane.\n\n{link}\n",
+            "Synaptane.\n\n{access}{link}\n",
         ),
     },
     "reset": {

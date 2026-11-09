@@ -2,7 +2,8 @@
 
 Reserved for the organization's admins. A template pre-fills the purpose without saving anything
 (with JS, in place after confirmation; without JS, through `?template=…`); "Preview" renders the
-typed text, without saving it.
+typed text, without saving it: with JS, in place (`/-/vocation/preview`, for the purpose, the
+filing instructions and the team prompts); without JS, by reloading the page.
 """
 
 from datetime import datetime
@@ -10,12 +11,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, Response
+from markupsafe import Markup
 
 from synaptane.core.access import Action, can
 from synaptane.core.errors import ErrorCode, SynaptaneError, invalid, not_found
+from synaptane.core.markdown import WikiIndex
 from synaptane.services import Actor, team_prompts, vocation
 from synaptane.storage.models import Space
 from synaptane.web.pages import (
+    ERROR_STATUS,
     Csrf,
     Page,
     WebPage,
@@ -25,8 +29,15 @@ from synaptane.web.pages import (
     render_space_settings,
     space_settings_url,
 )
-from synaptane.web.render import render_markdown
-from synaptane.web.wiki import page_url, raw_url
+from synaptane.web.wiki import (
+    MAX_PREVIEW,
+    TOO_LONG,
+    PreviewRender,
+    one_preview,
+    preview_response,
+    render_at,
+    space_url,
+)
 
 router = APIRouter()
 
@@ -37,6 +48,66 @@ SAVED = {
 PENDING = (
     "Text put on hold: it will be written to the repository at the space's first synchronization."
 )
+PROMPT = "prompt"  # kind of document of a team prompt, for its preview
+
+
+def _require_admin(actor: Actor, space: Space) -> None:
+    """These settings exist only for the organization's admins (who alone write them)."""
+    if not can(actor.access, Action.MANAGE_ORG, org_id=space.org_id):
+        raise not_found("Page not found.")
+
+
+def _document_html(base: str, key: str, text: str, paths: list[str] | None) -> Markup:
+    """A purpose, filing instructions or team prompt as its preview shows it (with or without
+    JS): Markdown read from the root of the space; the purpose as models receive it (without the
+    templates' comments)."""
+    names = WikiIndex.of(paths) if paths is not None else None
+    text = text.replace("\r\n", "\n")
+    shown = vocation.for_prompt(text) if key == "vocation" else text
+    return render_at(base, shown, "README.md", names)
+
+
+def _shown(page: Page, actor: Actor, space: Space, key: str, text: str) -> Markup:
+    """The preview without JS, under the same limits as the one in place."""
+    if len(text) > MAX_PREVIEW:
+        raise invalid(TOO_LONG)
+    with one_preview(actor.user.id):
+        try:
+            paths: list[str] | None = [b.path for b in page.space_files(actor, space)]
+        except SynaptaneError:
+            paths = None
+        base = space_url(space)
+        # Nothing more to read before rendering: the connection goes back to the pool (the
+        # page around it takes one again).
+        page.db.commit()
+        return _document_html(base, key, text, paths)
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/vocation/preview", response_class=HTMLResponse)
+def space_document_preview(
+    page: WebPage,
+    org_slug: str,
+    space_slug: str,
+    csrf: Csrf,
+    text: Annotated[str, Form()] = "",
+    kind: Annotated[str, Form()] = "vocation",
+) -> Response:
+    """The preview in place of the purpose, the filing instructions or a team prompt being
+    written (`kind`: `vocation`, `tidy-rules`, `prompt`): for the organization's admins, as their
+    editing; see `wiki.preview_response`."""
+
+    def check(actor: Actor, space: Space) -> PreviewRender:
+        _require_admin(actor, space)
+        if kind != PROMPT:
+            vocation.kind_of(kind)  # Page not found otherwise
+        section = "prompts" if kind == PROMPT else "vocation"
+
+        def render(base: str, paths: list[str] | None) -> tuple[Markup, str]:
+            return _document_html(base, kind, text, paths), f"{base}/-/{section}"
+
+        return render
+
+    return preview_response(page, csrf, org_slug, space_slug, text, check)
 
 
 def _render(
@@ -49,10 +120,11 @@ def _render(
     error: SynaptaneError | None = None,
     error_kind: str = "",
     preview: tuple[str, str] | None = None,
+    bases: dict[str, str] | None = None,
     status_code: int = 200,
 ) -> Response:
-    if not can(actor.access, Action.MANAGE_ORG, org_id=space.org_id):
-        raise not_found("Page not found.")
+    """`bases`: for a draft shown again (preview, error), the version it started from."""
+    _require_admin(actor, space)
     documents = {
         key: vocation.document(actor, page.workspace, space, kind)
         for key, kind in vocation.KINDS.items()
@@ -75,6 +147,7 @@ def _render(
             for key, doc in documents.items()
         },
         drafts=drafts or {},
+        bases=bases or {},
         chosen=chosen,
         templates=list(vocation.TEMPLATES.values()),
         template_texts={key: t.text_for(page.locale) for key, t in vocation.TEMPLATES.items()},
@@ -117,13 +190,23 @@ def _save(
     space = find_space(page, actor, org_slug, space_slug)
     kind = vocation.kind_of(key)
     if action == "preview":
-        html = render_markdown(
-            vocation.for_prompt(text) if key == "vocation" else text,
-            "README.md",
-            lambda path: page_url(space, path),
-            lambda path: raw_url(space, path),
+        _require_admin(actor, space)
+        try:
+            html = _shown(page, actor, space, key, text)
+        except SynaptaneError as error:
+            return _render(
+                page,
+                actor,
+                space,
+                drafts={key: text},
+                bases={key: base_sha},
+                error=error,
+                error_kind=key,
+                status_code=ERROR_STATUS[error.code],
+            )
+        return _render(
+            page, actor, space, drafts={key: text}, bases={key: base_sha}, preview=(key, html)
         )
-        return _render(page, actor, space, drafts={key: text}, preview=(key, html))
     try:
         sha = vocation.save(
             page.db,
@@ -150,6 +233,7 @@ def _save(
             actor,
             space,
             drafts={key: text},
+            bases={key: base_sha},
             error=error,
             error_kind=key,
             status_code=status,
@@ -225,10 +309,12 @@ def _prompts(
     new_name: str = "",
     error: SynaptaneError | None = None,
     error_for: str = "",
+    preview: tuple[str, Markup] | None = None,
+    bases: dict[str, str] | None = None,
     status_code: int = 200,
 ) -> Response:
-    if not can(actor.access, Action.MANAGE_ORG, org_id=space.org_id):
-        raise not_found("Page not found.")
+    """`bases`: for a draft shown again (preview, error), the version it started from."""
+    _require_admin(actor, space)
     found = team_prompts.of_space(page.workspace, space)
     documents = {
         p.name: vocation.document(actor, page.workspace, space, team_prompts.kind(p.name))
@@ -248,6 +334,9 @@ def _prompts(
         example=team_prompts.EXAMPLES.get(page.locale, team_prompts.EXAMPLES["en"]),
         error=error,
         error_for=error_for,
+        bases=bases or {},
+        preview_for=preview[0] if preview else None,
+        preview_html=preview[1] if preview else "",
         limit=team_prompts.MAX_PROMPTS,
     )
 
@@ -256,6 +345,43 @@ def _prompts(
 def space_prompts_page(page: WebPage, org_slug: str, space_slug: str) -> Response:
     actor = page.user_actor()
     return _prompts(page, actor, find_space(page, actor, org_slug, space_slug))
+
+
+def _prompt_preview(
+    page: Page,
+    actor: Actor,
+    space: Space,
+    name: str,
+    text: str,
+    base_sha: str = "",
+    new_name: str = "",
+) -> Response:
+    """ "Preview" without JS: the page again, the text kept and rendered under its form (`name`:
+    the prompt, "" for a new one)."""
+    _require_admin(actor, space)
+    try:
+        html = _shown(page, actor, space, PROMPT, text)
+    except SynaptaneError as error:
+        return _prompts(
+            page,
+            actor,
+            space,
+            drafts={name: text},
+            bases={name: base_sha},
+            new_name=new_name,
+            error=error,
+            error_for=name,
+            status_code=ERROR_STATUS[error.code],
+        )
+    return _prompts(
+        page,
+        actor,
+        space,
+        drafts={name: text},
+        bases={name: base_sha},
+        new_name=new_name,
+        preview=(name, html),
+    )
 
 
 def _save_prompt(
@@ -281,9 +407,12 @@ def space_prompt_create(
     csrf: Csrf,
     name: Annotated[str, Form()] = "",
     text: Annotated[str, Form()] = "",
+    action: Annotated[str, Form()] = "save",
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
+    if action == "preview":
+        return _prompt_preview(page, actor, space, "", text, new_name=name)
     try:
         clean = team_prompts.check_name(name)
         existing = {p.name for p in team_prompts.of_space(page.workspace, space)}
@@ -317,9 +446,12 @@ def space_prompt_save(
     csrf: Csrf,
     text: Annotated[str, Form()] = "",
     base_sha: Annotated[str, Form()] = "",
+    action: Annotated[str, Form()] = "save",
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
+    if action == "preview":
+        return _prompt_preview(page, actor, space, name, text, base_sha)
     try:
         return _save_prompt(page, space, actor, name, text, base_sha)
     except SynaptaneError as error:
@@ -330,6 +462,7 @@ def space_prompt_save(
             actor,
             space,
             drafts={name: text},
+            bases={name: base_sha},
             error=error,
             error_for=name,
             status_code=status,

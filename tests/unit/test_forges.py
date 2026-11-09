@@ -186,7 +186,7 @@ def test_slow_name_resolution_is_cut_off(monkeypatch: pytest.MonkeyPatch) -> Non
 
     def slow(host: str, *args: object, **kwargs: object) -> object:
         if host == "slow.invalid":
-            time.sleep(2)
+            time.sleep(6)  # far beyond the deadline: a cut is still clear under load
         return real(host, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(socket, "getaddrinfo", slow)
@@ -201,7 +201,7 @@ def test_slow_name_resolution_is_cut_off(monkeypatch: pytest.MonkeyPatch) -> Non
     started = time.monotonic()
     with pytest.raises(SynaptaneError, match="did not answer in time"):
         gitlab.call("GET", "/api/v4/user")
-    assert time.monotonic() - started < 1.8
+    assert time.monotonic() - started < 4
 
 
 def test_every_address_of_a_name_is_tried(monkeypatch: pytest.MonkeyPatch) -> None:

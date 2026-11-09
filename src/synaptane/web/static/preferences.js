@@ -208,24 +208,26 @@
     });
   };
 
-  // --- Editor: preview of the text, as the page will read -----------------------------------------
-  // The server renders it (/-/preview: the reading view's rendering, nothing saved); "Write",
-  // "Preview", or both side by side on a large screen (remembered in this browser). Side by
-  // side, it follows the typing after a pause at least as long as the last rendering; one
-  // request at a time: the latest text is sent once the answer is in. Only the blocks that
-  // changed are replaced. Links open in a new tab, relative ones resolved from the page's reading
-  // address, anchors stay inside the preview: the text being written is never left.
-  // Without JS: the editor alone.
+  // --- Editor: preview of the text, as it will read ------------------------------------------------
+  // Every Markdown editor (editor.html: page, inbox note, purpose, filing instructions, team
+  // prompt). The server renders it (its `data-preview` address: the reading view's rendering,
+  // nothing saved); "Write", "Preview", or both side by side on a large screen (remembered in
+  // this browser). Side by side, it follows the typing after a pause at least as long as the
+  // last rendering; one request at a time: the latest text is sent once the answer is in. Only
+  // the blocks that changed are replaced. Links open in a new tab, relative ones resolved from
+  // the reading address, anchors stay inside the preview: the text being written is never left.
+  // Without JS: the editor alone, or the form's own "Preview" button (data-preview-fallback),
+  // which reloads the page.
   const previewSource = node => (node.nodeType === Node.ELEMENT_NODE ? node.outerHTML : `#${node.textContent}`);
-  const isolatePreview = (node, base) => {
+  const isolatePreview = (node, base, prefix) => {
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const page = new URL(base || window.location.href, window.location.href);
     const all = selector => [node, ...node.querySelectorAll(selector)].filter(el => el.matches(selector));
     const relative = value => !/^([a-z][a-z0-9+.-]*:|\/)/i.test(value);
-    all("[id]").forEach(el => { el.id = `preview-${el.id}`; });
+    all("[id]").forEach(el => { el.id = `${prefix}${el.id}`; });
     all("a[href]").forEach(link => {
       const href = link.getAttribute("href");
-      if (href.startsWith("#")) { link.setAttribute("href", `#preview-${href.slice(1)}`); return; }
+      if (href.startsWith("#")) { link.setAttribute("href", `#${prefix}${href.slice(1)}`); return; }
       if (relative(href)) link.setAttribute("href", new URL(href, page).href);
       link.target = "_blank";
     });
@@ -236,7 +238,7 @@
   };
   const isDiagramBlock = node => node.nodeType === Node.ELEMENT_NODE && node.matches("pre")
     && node.querySelector(":scope > code.language-mermaid") !== null;
-  const patchPreview = (output, shown, html, base) => {
+  const patchPreview = (output, shown, html, base, prefix) => {
     const fresh = document.createElement("template");
     fresh.innerHTML = html;
     const nodes = [...fresh.content.childNodes];
@@ -258,7 +260,7 @@
       if (frame && !(node === kept && target)) removeDiagram(frame);
       node.remove();
     });
-    added.forEach(node => isolatePreview(node, base));
+    added.forEach(node => isolatePreview(node, base, prefix));
     if (target) {
       const frame = diagramFrames.get(kept);
       const at = added.indexOf(target);
@@ -271,6 +273,23 @@
     shown.splice(start, gone.length, ...added.map((node, i) => ({ source: sources[start + i], node })));
     added.forEach(node => { if (node.nodeType === Node.ELEMENT_NODE) observeDiagrams(node); });
   };
+  // One preview request at a time for the whole page (the server renders one at a time per
+  // account): the other editors wait their turn, then send their latest text.
+  const previewLine = { holder: null, waiting: [] };
+  const takeTurn = send => {
+    if (previewLine.holder && previewLine.holder !== send) {
+      if (!previewLine.waiting.includes(send)) previewLine.waiting.push(send);
+      return false;
+    }
+    previewLine.holder = send;
+    return true;
+  };
+  const giveTurn = send => {
+    if (previewLine.holder !== send) return;
+    previewLine.holder = null;
+    // The next one that still has something to send (it takes the turn before any await).
+    while (!previewLine.holder && previewLine.waiting.length) previewLine.waiting.shift()();
+  };
   const setupPreview = () => {
     document.querySelectorAll("[data-preview]").forEach(box => {
       const editor = box.querySelector("textarea");
@@ -282,27 +301,44 @@
       const output = box.querySelector("[data-preview-output]");
       const status = box.querySelector("[data-preview-status]");
       const buttons = [...modes.querySelectorAll("[data-preview-mode]")];
+      const canSplit = buttons.some(button => button.dataset.previewMode === "split");
       const wide = window.matchMedia("(min-width: 1280px)");
       const max = Number(box.dataset.previewMax) || Infinity;
+      const prefix = `${pane.id}-`;  // ids of the preview: unique even with several editors
+      let params = {};  // sent with every text: the edited page or note, the kind of document
+      try { params = JSON.parse(box.dataset.previewParams || "{}"); } catch { /* none */ }
+      // Fields of the form sent too, and followed: folder and name of a new page, hint of a note.
+      const fields = (box.dataset.previewFields || "").split(/\s+/).filter(Boolean);
+      const field = name => (name ? form.elements.namedItem(name) : null);
       const shown = [];
       let mode = "write";
       let shownKey = null;  // text and place shown (or refused for good: too long)
-      let base = "";  // reading address of the page shown
+      let base = "";  // reading address of the text shown
       let busy = false;  // a request is on its way: the next one waits for its answer
       let again = false;
       let hold = 0;  // after a 429: wait longer
       let pause = 700;
       let timer = 0;
-      const where = () => (box.dataset.previewPath
-        ? { path: box.dataset.previewPath }
-        : { folder: form.elements.folder?.value ?? "", name: form.elements.name?.value ?? "" });
+      // Rendered only once on screen (or near): a page of many editors shown side by side does
+      // not ask for every preview at once.
+      let seen = !window.IntersectionObserver;
+      const where = () => ({ ...params, ...Object.fromEntries(fields.map(name => [name, field(name)?.value ?? ""])) });
+      // The preview's address; a note dropped from anywhere: in the space chosen in the form
+      // ("" while none is).
+      const endpoint = () => {
+        const chooser = field(box.dataset.previewSpace);
+        if (!box.dataset.previewSpace) return box.dataset.preview;
+        const chosen = chooser?.value ?? "";
+        return /^[\w-]+\/[\w-]+$/.test(chosen) ? box.dataset.preview.replace("{space}", chosen) : "";
+      };
       // A new page that will not be Markdown (notes.txt, page.html): nothing to preview.
       const markdown = () => {
-        if (box.dataset.previewPath) return true;
-        const last = (form.elements.name?.value ?? "").trim().replace(/\/+$/, "").split("/").pop();
+        if (!box.dataset.previewName) return true;
+        const last = (field(box.dataset.previewName)?.value ?? "").trim().replace(/\/+$/, "").split("/").pop();
         const suffix = /[^./]\.([^./]*)$/.exec(last)?.[1] ?? "";
         return !suffix || ["md", "markdown"].includes(suffix.toLowerCase());
       };
+      const possible = () => markdown() && endpoint() !== "";
       const say = message => { status.textContent = message; };
       const schedule = delay => { clearTimeout(timer); timer = setTimeout(send, delay ?? pause); };
       const send = async () => {
@@ -310,15 +346,17 @@
         if (mode === "write") return;
         if (busy) { again = true; return; }
         const place = where();
-        const key = JSON.stringify([editor.value, place]);
-        if (key === shownKey) return;
+        const url = endpoint();
+        const key = JSON.stringify([editor.value, place, url]);
+        if (key === shownKey || !url || !seen) return;
         if (!editor.value.trim()) {
-          patchPreview(output, shown, "", base);
+          patchPreview(output, shown, "", base, prefix);
           say(box.dataset.previewEmpty);
           shownKey = key;
           return;
         }
         if (editor.value.length > max) { say(box.dataset.previewTooLong); shownKey = key; return; }
+        if (!takeTurn(send)) return;  // another editor of the page first: called back after it
         busy = true;
         pane.setAttribute("aria-busy", "true");
         const started = performance.now();
@@ -327,7 +365,7 @@
           body.set("csrf", form.elements.csrf.value);
           body.set("text", editor.value);
           Object.entries(place).forEach(([name, value]) => body.set(name, value));
-          const response = await fetch(box.dataset.preview, { method: "POST", body, credentials: "same-origin" });
+          const response = await fetch(url, { method: "POST", body, credentials: "same-origin" });
           if (response.redirected) { say(box.dataset.previewExpired); return; }  // sign-in page
           if (response.status === 429) { again = true; hold = 2000; return; }  // this account's other preview first
           const text = await response.text();
@@ -340,9 +378,9 @@
             return;
           }
           const page = response.headers.get("X-Preview-Page") || "";
-          if (page !== base) patchPreview(output, shown, "", base);  // relative links change
+          if (page !== base) patchPreview(output, shown, "", base, prefix);  // relative links change
           base = page;
-          patchPreview(output, shown, text, base);
+          patchPreview(output, shown, text, base, prefix);
           say("");
           shownKey = key;
           pause = Math.max(700, performance.now() - started);
@@ -351,34 +389,47 @@
         } finally {
           busy = false;
           pane.removeAttribute("aria-busy");
+          giveTurn(send);
           if (again) { again = false; schedule(Math.max(pause, hold)); hold = 0; }
         }
       };
       const apply = (next, now = true) => {
         mode = next;
-        if (mode !== "write" && !markdown()) mode = "write";
-        if (mode === "split" && !wide.matches) mode = "write";
+        if (mode !== "write" && !possible()) mode = "write";
+        if (mode === "split" && (!canSplit || !wide.matches)) mode = "write";
         buttons.forEach(button => {
           button.setAttribute("aria-pressed", String(button.dataset.previewMode === mode));
-          if (button.dataset.previewMode !== "write") button.disabled = !markdown();
+          if (button.dataset.previewMode !== "write") button.disabled = !possible();
         });
         panes.classList.toggle("split", mode === "split");
         editor.hidden = mode === "preview";
         pane.hidden = mode === "write";
         if (mode !== "write") { if (now) send(); else schedule(); }
       };
-      // Narrowed window, or a name that is not Markdown: back to the text; then side by side
-      // again if it was chosen.
+      // Narrowed window, a name that is not Markdown, another space: back to the text; then side
+      // by side again if it was chosen.
       const settle = () => apply(mode === "write" && read("editor-split") === "true" ? "split" : mode, false);
       buttons.forEach(button => button.addEventListener("click", () => {
         const next = button.dataset.previewMode;
         if (next === "split" || mode === "split") write("editor-split", String(next === "split"));
         apply(next);
       }));
-      editor.addEventListener("input", () => { if (mode === "split") schedule(); });
-      form.elements.folder?.addEventListener?.("input", () => { if (mode !== "write") schedule(); });
-      form.elements.name?.addEventListener?.("input", settle);
+      // Typing, or a text put in by a script (a purpose template).
+      editor.addEventListener("input", () => { if (mode !== "write") schedule(); });
+      fields.filter(name => name !== box.dataset.previewName).forEach(name => {
+        field(name)?.addEventListener?.("input", () => { if (mode !== "write") schedule(); });
+      });
+      field(box.dataset.previewName)?.addEventListener?.("input", settle);
+      field(box.dataset.previewSpace)?.addEventListener?.("change", settle);
       wide.addEventListener("change", settle);
+      if (!seen) {
+        new IntersectionObserver(entries => {
+          seen = entries.some(entry => entry.isIntersecting);
+          if (seen && mode !== "write") schedule(0);
+        }, { rootMargin: "200px" }).observe(box);
+      }
+      // The form's preview by reloading: not needed any more.
+      form.querySelectorAll("[data-preview-fallback]").forEach(button => { button.hidden = true; });
       modes.hidden = false;
       apply(read("editor-split") === "true" ? "split" : "write");
     });

@@ -319,6 +319,12 @@ time to extract it. You never see a result from a space you do not have access t
   process"), **move** it to the inbox of another space where they contribute, or **delete** it
   (it stays in the Git history). A changed page that asks nothing of the tidy-up can be
   **marked as seen**.
+- **Preview** of a note: above its text, when dropping it (in the inbox or from **Drop
+  information**, in the space chosen) or correcting it, as for a page (see
+  [Write](#write-contributors)): the note as it will read in the inbox, without saving anything
+  (links from the root of the space, as when reading the note). Side by side is offered when
+  correcting a note, not in the narrow drop form. Previewing asks for the same right as dropping or correcting the note
+  (contributor).
 - **Activity**: everything that changes in the space, according to the Git history (pages,
   inbox, tidy-ups), with commits pushed outside Synaptane flagged. Each page touched leads to
   the detail of the change.

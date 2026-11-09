@@ -113,6 +113,15 @@ CHANGED = {
 }
 
 
+def _groups(details: Details) -> list[Label]:
+    """The groups of an invitation: one per name (stored as a list, a name may hold a
+    comma)."""
+    value = details.get("groups")
+    if isinstance(value, list):
+        return [Label("Group {value}", value=str(name)[:TEXT_LIMIT]) for name in value if name]
+    return _value("groups", "Groups: {value}")(details)  # stored as one text
+
+
 def _changed(details: Details) -> list[Label]:
     return [CHANGED[name] for name in _text(details, "fields").split() if name in CHANGED]
 
@@ -225,6 +234,8 @@ FIELDS = {
     "status": Field(_value("status")),
     "removed": Field(_flag("removed", Label("Text removed"))),
     "previous_name": Field(_value("previous", "Formerly: {value}")),
+    # The groups an invitation makes the person join (their names at the time).
+    "invited_groups": Field(_groups),
     "date": Field(_iso_day("date", "Expiry date: {value}")),  # of a Git token
 }
 
@@ -250,9 +261,13 @@ ACTIONS: dict[str, Kind] = {
     "org.member_removed": Kind("members", Label("Removed from the organization"), ("account",)),
     "space.member_set": Kind("members", Label("Space role set"), ("account", "role")),
     "space.member_removed": Kind("members", Label("Removed from the space"), ("account",)),
-    "org.invitation_created": Kind("members", Label("Invitation sent"), ("email", "role")),
+    "org.invitation_created": Kind(
+        "members", Label("Invitation sent"), ("email", "role", "invited_groups")
+    ),
     "org.member_invited": Kind(
-        "members", Label("Existing account added by invitation"), ("account", "role")
+        "members",
+        Label("Existing account added by invitation"),
+        ("account", "role", "invited_groups"),
     ),
     "org.invitation_revoked": Kind("members", Label("Invitation revoked"), ("email",)),
     "org.invitation_accepted": Kind(

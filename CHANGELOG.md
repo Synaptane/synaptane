@@ -38,6 +38,39 @@ of the target version.
   `GET …/spaces/{space}/git`, for organization admins. The token never appears in an alert, an
   email, the audit log or a log line. No migration: the date is kept with the token, encrypted.
   See `docs/admin/git.md#token-expiry`.
+- **Preview while editing, in the other Markdown editors**. The page editor's **Write**,
+  **Preview** and **Side by side** (on a large screen) now come above the text of an inbox
+  note, when correcting it (**Edit**) or dropping it, in a space's inbox or from **Drop
+  information** (in the space chosen in the form; no side by side in these narrow forms), and
+  above the purpose, the filing instructions (**Settings → Purpose**) and each team prompt
+  (**Settings → Assistant prompts**). Same server rendering as reading, same protections
+  (form token, 262,144 characters at most, one preview at a time per account whatever the
+  editor, database connection given back before rendering), nothing committed, indexed,
+  dropped or logged; the right asked is exactly that of the corresponding edit: dropping or
+  correcting the note (`POST /o/<org>/<space>/-/inbox/preview`, with `note` for a note being
+  corrected), the organization administrator for the purpose, the instructions and the prompts
+  (`POST /o/<org>/<space>/-/vocation/preview`, with `kind`). The purpose's **Preview** button,
+  which reloads the page, stays for browsers without JavaScript (hidden otherwise), and team
+  prompts get one too. No migration.
+- **Invite someone straight into groups**. The invitation form of the organization's
+  **Members** tab lists its groups, each with what it gives ("Contributor on HR"): the
+  administrator checks those the person joins. On acceptance, the person becomes a member of
+  the organization, then of these groups, in the same transaction as the rest of their access;
+  an existing account joins them at once, and its notice email now lists the roles given in
+  spaces and the groups joined. The invitation page says the real access before the
+  account is created, groups included ("HR: contributor, through the group “Management”", "You
+  also join the group “Management”"; names are quoted, a name may hold a comma), and **Pending invitations** shows each invitation's groups.
+  A group deleted before the acceptance is simply not joined, a renamed group is joined under its
+  new name, canceling or renewing the invitation drops its groups, and a group of another
+  organization, or one deleted while the invitation is being sent, is refused, by the service
+  and by the database. REST: `"groups": [<id>, …]` (200 at most) in
+  `POST /organizations/{org}/invitations` (404 for an unknown group or one of another
+  organization), and `groups` (`id`, `name`) in the invitations listed and created. The audit
+  log keeps the groups, as a list of their names at the time, in the **Invitation sent** and
+  **Existing account added by invitation** events (for the latter, only the groups actually
+  joined), and the acceptance writes one `group.member_added` per group,
+  by the system, like the other accesses it grants. One migration (`0032`), applied at startup:
+  it creates the table linking invitations to groups, empty, so no pending invitation changes.
 
 ### Changed
 - **Settings → Git repository → Repository access** shows any known expiry date of the saved
@@ -53,6 +86,32 @@ of the target version.
 - Two workers no longer send the same alert twice: its check is serialized in the database.
 - The worker's hourly checks (change watermarks, inbox backlog, review reminders, Git token
   expiry) run each on its own: a lasting error in one no longer skips the others.
+- The purpose's preview now resolves `[[wiki links]]` in the space, and refuses a text above
+  262,144 characters.
+- Dependencies: anthropic 2.6.0, SQLAlchemy 2.1.8, python-multipart 0.0.33. Since anthropic
+  2.5.0, an overloaded (529) or unavailable (503) Claude API raises a subclass of its server
+  error: Synaptane still reports it as a temporary error, retried later, as before.
+- Downloaded images, still pinned by digest in `compose.yaml`: PostgreSQL
+  (`pgvector/pgvector:pg17`) rebuilt on 31 October 2026 with the Debian fixes of its base,
+  still PostgreSQL 17.11 and pgvector 0.8.7, so the data needs nothing; certbot 5.9.0, whose
+  renewal hooks no longer receive the names that failed to renew as renewed (Synaptane's
+  renewal uses no hook). They are fetched on the next `docker compose pull` (or `up -d`) of an
+  upgrade.
+- Development and CI tools: Ruff 0.17.4, mypy 2.4.1, pytest 9.2.0, setup-uv 10.3.3.
+
+### Fixed
+- After **Preview** (without JavaScript) or an error, saving the purpose or the filing
+  instructions no longer replaces, without a conflict, a version saved by someone else in the
+  meantime: the form keeps the version the text started from.
+
+### Security
+- pydantic 2.14.3: fixes two validation bypasses when extra data is allowed
+  (GHSA-qpmf-fgh3-ff25, keys of `__pydantic_extra__` in JSON; GHSA-3r8g-cqwr-jr29, aliased
+  fields of a `TypedDict` or dataclass). Synaptane's own models allow no extra data; the only
+  affected type among its dependencies (the `_meta` of MCP requests, in the MCP SDK) carries a
+  progress token Synaptane does not use, so it was not exposed in practice. The minimum version
+  required is raised to pydantic 2.14.2, so that an installation with pip cannot keep an affected
+  version.
 
 ## [1.13.0] - 2026-11-08
 
