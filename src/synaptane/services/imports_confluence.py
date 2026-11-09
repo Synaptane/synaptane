@@ -184,6 +184,7 @@ class Confluence:
         if info is not None:
             doc = _read_html(self.read(info))
             order = 0
+            parents: dict[int, str | None] = {}  # item of the tree → its page (read once)
             for link in doc.find_all(lambda n: n.tag == "a"):
                 target = _local(link.get("href"))
                 page = self.pages.get(target or "")
@@ -196,7 +197,11 @@ class Confluence:
                     page.title = title
                 item = _ancestor(link, "li")
                 above = _ancestor(item, "li") if item is not None else None
-                parent = _first_page_link(above) if above is not None else None
+                parent = None
+                if above is not None:
+                    if id(above) not in parents:
+                        parents[id(above)] = _first_page_link(above)
+                    parent = parents[id(above)]
                 if parent in self.pages:
                     page.parent = parent
         for page in self.pages.values():

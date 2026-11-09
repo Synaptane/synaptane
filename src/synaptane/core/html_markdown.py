@@ -121,6 +121,10 @@ _CLOSES_P = {
     "ul",
 }
 MAX_DEPTH = 64  # deeper elements are attached to the last open one: no unbounded recursion
+# Empty cells added to a table (spans, short rows): beyond, rows are left short, which Markdown
+# reads the same way. A table of a few bytes per cell would otherwise grow to its rows times
+# its widest row.
+MAX_PADDING = 100_000
 SAFE_SCHEMES = {"", "http", "https", "mailto", "tel", "ftp"}
 # Confluence panels: their class (or panel type) → callout type understood by Synaptane.
 PANELS = {
@@ -258,7 +262,7 @@ def parse(html: str) -> Node:
 # --- Writing Markdown ------------------------------------------------------------------------
 
 _SPACES = re.compile(r"\s+")
-_ESCAPED = re.compile(r"([\\`*\[\]])")
+_ESCAPED = re.compile(r"([\\`*\[\]<])")  # `<`: raw HTML, or an autolink
 _UNDERSCORE = re.compile(r"(?<![^\W_])_|_(?![^\W_])")  # at a word's edge: snake_case stays
 _ENTITY = re.compile(r"&(?=#?\w+;)")
 _LINE_START = re.compile(r"^(\s*)([#>+=-])(?=\s|$)")
@@ -566,6 +570,7 @@ class Writer:
                 elif child.tag in ("thead", "tbody", "tfoot"):
                     yield from rows_of(child)
 
+        padding = MAX_PADDING
         self.in_table += 1
         try:
             for index, row in enumerate(rows_of(table)):
@@ -581,6 +586,8 @@ class Writer:
                         span = min(int(cell.get("colspan") or 1), 50)
                     except ValueError:
                         span = 1
+                    span = min(span, padding + 1)
+                    padding -= span - 1
                     cells.extend([""] * (span - 1))
                 if cells:
                     rows.append(cells)
@@ -589,9 +596,11 @@ class Writer:
         if not rows:
             return ""
         width = max(len(row) for row in rows)
-        rows = [row + [""] * (width - len(row)) for row in rows]
+        if sum(width - len(row) for row in rows) <= padding:
+            rows = [row + [""] * (width - len(row)) for row in rows]
         if not header_row:
             rows.insert(0, [""] * width)
+        rows[0] += [""] * (width - len(rows[0]))  # the header gives the number of columns
         lines = [_row(rows[0]), "|" + " --- |" * width, *(_row(row) for row in rows[1:])]
         return "\n".join(lines)
 

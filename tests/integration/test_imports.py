@@ -495,3 +495,53 @@ def test_encrypted_parts_of_a_zip_of_zips(ctx: Workspace, wiki: Wiki) -> None:
     token = imports.receive(wiki.alice, ctx, wiki.infra, sent({"Part-1.zip": inner}))
     plan = imports.plan(wiki.alice, ctx, wiki.infra, token)
     assert plan.refused == ["a.md"] and [e.path for e in plan.new] == ["b.md"]
+
+
+def corrupted(archive: bytes, name: str) -> io.BytesIO:
+    """The archive, with the compressed data of `name` damaged (an invalid deflate block)."""
+    data = bytearray(archive)
+    position = data.find(b"PK\x03\x04")
+    while position >= 0:
+        length = int.from_bytes(data[position + 26 : position + 28], "little")
+        extra = int.from_bytes(data[position + 28 : position + 30], "little")
+        if data[position + 30 : position + 30 + length] == name.encode():
+            data[position + 30 + length + extra] = 0xFF  # block type 3: does not exist
+        position = data.find(b"PK\x03\x04", position + 4)
+    return io.BytesIO(bytes(data))
+
+
+def test_a_damaged_page_or_part_is_reported_not_an_error(ctx: Workspace, wiki: Wiki) -> None:
+    files = notion_export()
+    page = next(name for name in files if name.endswith(".md"))
+    token = imports.receive(wiki.alice, ctx, wiki.infra, corrupted(zipped(files), page))
+    with pytest.raises(SynaptaneError, match="damaged"):
+        imports.plan(wiki.alice, ctx, wiki.infra, token)
+    token = imports.receive(wiki.alice, ctx, wiki.infra, corrupted(zipped({"a.md": "# A"}), "a.md"))
+    with pytest.raises(SynaptaneError, match="damaged: a.md"):
+        imports.plan(wiki.alice, ctx, wiki.infra, token)
+    inner = corrupted(zipped({"a.md": "# A " * 100}), "a.md").getvalue()
+    with pytest.raises(SynaptaneError, match="damaged: a.md"):
+        imports.receive(wiki.alice, ctx, wiki.infra, sent({"Part-1.zip": inner}))
+
+
+def test_paths_that_leave_an_export_are_refused_before_it_is_laid_out(
+    ctx: Workspace, wiki: Wiki
+) -> None:
+    # An absolute path once made the layout of a Notion export loop forever.
+    files = {**notion_export(), "/etc/evil.md": "# x", "a//b.md": "# x", "c/../d.md": "# x"}
+    token = imports.receive(wiki.alice, ctx, wiki.infra, sent(files))
+    plan = imports.plan(wiki.alice, ctx, wiki.infra, token)
+    assert plan.format == "notion"
+    assert sorted(plan.refused) == ["/etc/evil.md", "a//b.md", "c/../d.md"]
+    assert plan.pages == 7
+    files = {**confluence_export(), "OPS//x.html": "<p>x</p>", "OPS/attachments/../../y.png": "y"}
+    token = imports.receive(wiki.alice, ctx, wiki.infra, sent(files))
+    plan = imports.plan(wiki.alice, ctx, wiki.infra, token)
+    assert plan.format == "confluence"
+    assert sorted(plan.refused) == ["/x.html", "attachments/../../y.png"]
+
+
+def test_a_zip_of_too_many_zips_is_refused(ctx: Workspace, wiki: Wiki) -> None:
+    parts: dict[str, dict[str, str]] = {f"Part-{n}.zip": {} for n in range(3)}
+    with patch.object(imports, "MAX_FILES", 2), pytest.raises(SynaptaneError, match="Too many"):
+        imports.receive(wiki.alice, ctx, wiki.infra, sent({}, parts))

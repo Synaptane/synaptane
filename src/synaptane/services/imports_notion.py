@@ -39,29 +39,47 @@ from synaptane.services.imports_common import (
     split_name,
 )
 
-# `Title 0123…abcd.md`, `Title 0123…abcd.csv`, `Title 0123…abcd_all.csv`, folder `Title 0123…abcd`
-NAMED = re.compile(
-    r"^(?:(?P<title>.*?)\s+)?(?P<id>[0-9a-f]{32})(?P<all>_all)?(?P<ext>\.md|\.csv)?$"
-)
+# `Title 0123…abcd.md`, `Title 0123…abcd.csv`, `Title 0123…abcd_all.csv`, folder `Title 0123…abcd`:
+# the id, after a space or alone, at the end of the name (the title is what comes before).
+_NAMED = re.compile(r"(?:^|(?<=\s))(?P<id>[0-9a-f]{32})(?P<all>_all)?(?P<ext>\.md|\.csv)?\Z")
 _UUID = re.compile(
     r"(?<![0-9a-f])([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})(?![0-9a-f])"
 )
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _CODE = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)")
 _BR = re.compile(r"<br\s*/?>", re.I)
-_DROPPED_TAGS = re.compile(r"</?(?:span|u|font|sup|sub|div|p)\b[^>]*>", re.I)
-_MARK = re.compile(r"<mark\b[^>]*>(.*?)</mark>", re.I)
-_TAG = re.compile(r"<[^>]+>")
+# `[^<>]`, and no `<mark` inside a highlight: each tag is read once, never to the end of the line
+# again (a line of `<mark` or `<span` would otherwise take a time quadratic in its length).
+_DROPPED_TAGS = re.compile(r"</?(?:span|u|font|sup|sub|div|p)\b[^<>]*>", re.I)
+_MARK = re.compile(r"<mark\b[^<>]*>((?:(?!</?mark\b).)*?)</mark>", re.I)
+_TAG = re.compile(r"<[^<>]+>")
 _PROPERTY = re.compile(r"^([^:\n]{1,200}?):[ \t]*(.*)$")
 # A relation in a CSV cell: `Title (Title%200123…abcd.md)`, several separated by commas.
-_RELATION = re.compile(r"\s*([^,()]+?) \(([^()]*?([0-9a-f]{32})\.md)\)")
+# Each one starts the cell or follows a comma: tried from every character, the search would
+# take a time quadratic in the length of the cell.
+_RELATION = re.compile(r"(?:^|,)\s*([^,()]+?) \(([^()]*?([0-9a-f]{32})\.md)\)")
 MAX_ROWS = 20_000  # rows of a database shown in its index page
+MAX_SHORTENED = 200  # characters of a shortened file name matched with the start of a title
+
+
+def named(name: str) -> dict[str, str] | None:
+    """Title, id, `all` (`_all` or "") and `ext` (`.md`, `.csv` or "") of a name given by
+    Notion; None if it is not one."""
+    match = _NAMED.search(name)
+    if match is None:
+        return None
+    return {
+        "title": name[: match.start()].rstrip(),
+        "id": match["id"],
+        "all": match["all"] or "",
+        "ext": match["ext"] or "",
+    }
 
 
 def is_notion(names: list[str]) -> bool:
     """At least one page or table named the Notion way."""
     for name in names:
-        match = NAMED.match(posixpath.basename(name))
+        match = named(posixpath.basename(name))
         if match and match["ext"]:
             return True
     return False
@@ -132,6 +150,8 @@ class Notion:
                 above = posixpath.dirname(parent)
                 folders.setdefault(parent, set())
                 folders.setdefault(above, set()).add(parent)
+                if above == parent:  # `/`: never given by the check, which refuses such paths
+                    break
                 parent = above
         stack: list[tuple[str, str, Names]] = [("", "", Names())]
         while stack:
@@ -155,7 +175,7 @@ class Notion:
         units: dict[str, _Unit] = {}
         plain_files, plain_folders = [], []
         for path in sorted(files):
-            match = NAMED.match(posixpath.basename(path))
+            match = named(posixpath.basename(path))
             if match is None or not match["ext"]:
                 plain_files.append(path)
                 continue
@@ -172,7 +192,7 @@ class Notion:
             else:
                 unit.duplicates.append(path)
         for path in sorted(folders):
-            match = NAMED.match(posixpath.basename(path))
+            match = named(posixpath.basename(path))
             if match is None or match["ext"] or match["all"]:
                 plain_folders.append(path)
                 continue
@@ -242,8 +262,7 @@ class Notion:
         pages = [
             path
             for path in self.files.get(unit.folder, set())
-            if (match := NAMED.match(posixpath.basename(path))) is not None
-            and match["ext"] == ".md"
+            if (match := named(posixpath.basename(path))) is not None and match["ext"] == ".md"
         ]
         table.pages = _match_rows([row[0] if row else "" for row in table.rows], pages)
         for row, page in zip(table.rows, table.pages, strict=True):
@@ -283,7 +302,7 @@ class Notion:
             or self.folders.get(full.rstrip("/"))
         )
         if found is None:
-            match = NAMED.match(posixpath.basename(full))
+            match = named(posixpath.basename(full))
             found = self.by_id.get(match["id"]) if match else None
         if found is None:
             self.links.broke(new, href)
@@ -376,17 +395,26 @@ def _match_rows(titles: list[str], pages: list[str]) -> list[str | None]:
 
     stems = {}
     for page in sorted(pages):
-        match = NAMED.match(posixpath.basename(page))
+        match = named(posixpath.basename(page))
         stems[page] = (match["title"] or "") if match else ""
     exact: dict[str, list[str]] = {}
     loose: dict[str, list[str]] = {}
+    starts: dict[str, list[str]] = {}  # shortened names, by their key
     for page, stem in stems.items():
         exact.setdefault(clean_name(stem), []).append(page)
         loose.setdefault(key(stem), []).append(page)
+        if 10 <= len(key(stem)) <= MAX_SHORTENED:
+            starts.setdefault(key(stem), []).append(page)
+    for candidates in (*exact.values(), *loose.values(), *starts.values()):
+        candidates.reverse()  # the first one at the end: taken with `pop`
+    lengths = sorted({len(start) for start in starts}, reverse=True)
     used: set[str] = set()
 
     def first(candidates: list[str]) -> str | None:
-        return next((page for page in candidates if page not in used), None)
+        """The first page not taken yet (those taken are dropped: each is looked at once)."""
+        while candidates and candidates[-1] in used:
+            candidates.pop()
+        return candidates[-1] if candidates else None
 
     found: list[str | None] = []
     shortened: list[int] = []  # rows left for the slower match
@@ -399,17 +427,12 @@ def _match_rows(titles: list[str], pages: list[str]) -> list[str | None]:
         found.append(chosen)
     for row in shortened:
         wanted = key(titles[row])
-        chosen = next(
-            (
-                page
-                for page, stem in stems.items()
-                if page not in used and len(key(stem)) >= 10 and wanted.startswith(key(stem))
-            ),
-            None,
-        )
-        if chosen is not None:
-            used.add(chosen)
-            found[row] = chosen
+        for length in lengths:  # the longest start first
+            chosen = first(starts.get(wanted[:length], [])) if length <= len(wanted) else None
+            if chosen is not None:
+                used.add(chosen)
+                found[row] = chosen
+                break
     return found
 
 

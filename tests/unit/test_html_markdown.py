@@ -3,6 +3,7 @@ their Markdown equivalent, and nothing of an untrusted page is run, loaded or le
 
 from synaptane.core.html_markdown import (
     MAX_DEPTH,
+    MAX_PADDING,
     callout,
     destination,
     escape,
@@ -40,6 +41,9 @@ def test_text_is_escaped_so_that_it_stays_text() -> None:
     )
     rendered = parser().render(md("<p>&lt;script&gt;alert(1)&lt;/script&gt; *x*</p>"))
     assert "<script>" not in rendered and "*x*" in rendered
+    # Text that looks like HTML stays text, in any reader of the repository (Obsidian, a forge).
+    assert escape("<b>x</b> <https://x.org>") == "\\<b>x\\</b> \\<https://x.org>"
+    assert md("<h1>&lt;!-- x</h1>") == "# \\<!-- x"
 
 
 def test_lists_nested_ordered_and_tasks() -> None:
@@ -69,6 +73,20 @@ def test_tables_with_header_spans_and_blocks_in_cells() -> None:
     )
     assert md("<table><tr><td>a</td></tr></table>") == "| |\n| --- |\n| a |"
     assert md("<table></table>") == ""
+
+
+def test_a_table_does_not_grow_beyond_its_text() -> None:
+    """Spans and short rows are filled within a budget: a few bytes per cell would otherwise
+    become rows times the widest row."""
+    wide = "<tr>" + "<td colspan='50'>x</td>" * 4000 + "</tr>"
+    html = f"<table>{wide}{'<tr><td>y</td></tr>' * 4000}</table>"
+    lines = md(html).splitlines()
+    assert len(lines) == 4003 and lines[-1] == "| y |"  # an empty header, the delimiter
+    assert len(md(html)) < 20 * MAX_PADDING
+    # Within the budget, rows are filled as usual.
+    assert md("<table><tr><th>a</th><th>b</th></tr><tr><td>c</td></tr></table>") == (
+        "| a | b |\n| --- | --- |\n| c | |"
+    )
 
 
 def test_code_blocks_keep_their_language_and_their_backticks() -> None:

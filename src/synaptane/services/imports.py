@@ -15,12 +15,14 @@ Notion makes for a large workspace, is unpacked once within the same limits), sy
 and paths that leave the folder are refused, and nothing already in the space is overwritten.
 """
 
+import lzma
 import re
 import secrets
 import shutil
 import stat
 import time
 import zipfile
+import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -68,6 +70,16 @@ FORMATS = {
     "confluence": Label("Confluence export (HTML)"),
 }
 CONVERTED = {"notion", "confluence"}
+# What reading a damaged entry raises: a corrupt compressed stream is not an OSError.
+DAMAGED = (
+    zipfile.BadZipFile,
+    EOFError,
+    OSError,
+    NotImplementedError,
+    RuntimeError,
+    zlib.error,
+    lzma.LZMAError,
+)
 
 
 @dataclass
@@ -167,6 +179,8 @@ def _unnest(path: Path) -> None:
         ]
         if not parts or not all(info.filename.lower().endswith(".zip") for info in parts):
             return
+        if len(parts) > MAX_FILES:  # each part is unpacked: as many as files at most
+            raise invalid("Too many files in this archive ({max} maximum).", max=MAX_FILES)
         flat, inner = path.with_suffix(".flat"), path.with_suffix(".part")
         try:
             _flatten(archive, sorted(parts, key=lambda i: i.filename), flat, inner)
@@ -200,7 +214,7 @@ def _flatten(
                             raise too_large()
                         copy.write(chunk)
                 held = zipfile.ZipFile(inner)
-            except (zipfile.BadZipFile, EOFError, OSError, NotImplementedError, RuntimeError):
+            except DAMAGED:
                 raise invalid("This archive is damaged: {name}.", name=part.filename) from None
             with held:
                 for info in held.infolist():
@@ -231,7 +245,7 @@ def _flatten(
                                 if held_bytes > MAX_TOTAL:
                                     raise too_large()
                                 target.write(chunk)
-                    except (zipfile.BadZipFile, EOFError, OSError, NotImplementedError):
+                    except DAMAGED:
                         raise invalid(
                             "This archive is damaged: {name}.", name=info.filename
                         ) from None
@@ -260,8 +274,13 @@ def _read(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
     try:
         with archive.open(info) as source:
             return source.read(MAX_UPLOAD + 1)
-    except (zipfile.BadZipFile, EOFError, OSError, NotImplementedError, RuntimeError):
+    except DAMAGED:
         raise invalid("This archive is damaged: {name}.", name=info.filename) from None
+
+
+def _plain(path: str) -> bool:
+    """A path inside the export: no empty part (absolute path, `a//b`), no `.` nor `..`."""
+    return all(part not in ("", ".", "..") for part in path.split("/"))
 
 
 @contextmanager
@@ -357,9 +376,10 @@ def _check(
         entries, result.left_out, obsidian = _entries(archive)
         result.detected = detect([p for _, p in entries], obsidian)
         result.format = format if format in FORMATS else result.detected
-        # A link or an encrypted file is never read, not even to lay out an export.
-        result.refused = [path for info, path in entries if _unsafe(info)]
-        entries = [(info, path) for info, path in entries if not _unsafe(info)]
+        # A link, an encrypted file or a path that leaves the export (absolute, `..`) is never
+        # read, not even to lay out an export.
+        result.refused = [path for info, path in entries if _unsafe(info) or not _plain(path)]
+        entries = [(info, path) for info, path in entries if not _unsafe(info) and _plain(path)]
         reader = _Reader(archive)
         layout = _layout(result.format, entries, reader.read)
         result.skipped, result.links = layout.skipped, layout.links

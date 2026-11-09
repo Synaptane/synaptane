@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from synaptane.services import imports
 from synaptane.services.imports_common import Layout, Names, clean_name, relative, split_name
-from synaptane.services.imports_notion import notion_id
+from synaptane.services.imports_notion import _cleaned, _match_rows, named, notion_id
 from tests.exports import (
     ABSENT,
     PROJECTS,
@@ -278,3 +278,40 @@ def test_a_format_can_be_forced() -> None:
     assert f"Wiki {WIKI}/Tâches {TASKS}.csv" in out and not layout.skipped
     out, _, _ = converted({"Page_1.html": "<p>x</p>", "index.html": ""}, "markdown")
     assert set(out) == {"Page_1.html", "index.html"}
+
+
+def test_names_rows_and_lines_are_read_in_linear_time() -> None:
+    """Hostile names, cells and lines: each of these once took minutes (a time quadratic in
+    their length or number)."""
+    assert named(f"Notes  {WIKI}_all.csv") == {
+        "title": "Notes",
+        "id": WIKI,
+        "all": "_all",
+        "ext": ".csv",
+    }
+    assert named(f"{WIKI}.md") == {"title": "", "id": WIKI, "all": "", "ext": ".md"}
+    assert named(f"x{WIKI}.md") is None and named(f"Notes {WIKI}0.md") is None
+    assert named("a" + " " * 200_000 + "x") is None
+    cell = "a" * 100_000  # (131,072 characters at most in a cell of a CSV)
+    out, _, _ = converted({f"Base {TASKS}.csv": f"Name,Lien\nA,{cell}\n"})
+    assert cell in page(out, "Base.md")
+    assert _cleaned("<b>" + "<mark " * 50_000) == "<b>" + "<mark " * 50_000
+    assert _cleaned("<p>" + "<span " * 50_000) == "<span " * 50_000
+    assert _cleaned("<mark>" * 50_000 + "a</mark>") == "<mark>" * 49_999 + "==a=="
+    summary = "<details>\n<summary>" + "<" * 100_000 + "</summary>\n</details>"
+    assert _cleaned(summary).startswith("> [!note]-")
+    # A thousand "Untitled", a thousand rows of a database.
+    names = Names()
+    taken = [names.take("Untitled", ".md") for _ in range(20_000)]
+    assert taken[:2] == ["Untitled.md", "Untitled (2).md"] and taken[-1] == "Untitled (20000).md"
+    assert len(set(taken)) == 20_000
+    pages = [f"d/Untitled {n:032x}.md" for n in range(10_000)]
+    assert _match_rows([""] * 10_000, pages) == sorted(pages)
+    long = [f"d/Ligne numéro {n:05d} au titre raccourci {n:032x}.md" for n in range(5_000)]
+    titles = [f"Ligne numéro {n:05d} au titre raccourci par Notion" for n in range(5_000)]
+    assert _match_rows([*titles, "Ligne sans page au titre très long"], long) == [*long, None]
+
+
+def test_a_shortened_name_matches_the_longest_start() -> None:
+    pages = [f"d/Compte rendu {WIKI}.md", f"d/Compte rendu de la réunion {PROJECTS}.md"]
+    assert _match_rows(["Compte rendu de la réunion du lundi"], pages) == [pages[1]]

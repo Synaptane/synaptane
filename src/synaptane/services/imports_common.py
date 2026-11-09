@@ -65,6 +65,7 @@ class Names:
 
     def __init__(self) -> None:
         self.used: set[str] = set()
+        self.tried: dict[tuple[str, str], int] = {}  # last number given to a name
 
     @staticmethod
     def _keys(name: str, suffix: str) -> set[str]:
@@ -75,10 +76,14 @@ class Names:
 
     def take(self, name: str, suffix: str = "") -> str:
         """`suffix`: the extension of a file, "" for a folder."""
-        candidate, number = name, 1
+        # The numbers already given to this name are taken: not tried again (a thousand
+        # "Untitled" would otherwise take a time quadratic in their number).
+        number = self.tried.get((name.lower(), suffix.lower()), 1)
+        candidate = name if number == 1 else f"{name} ({number})"
         while self._keys(candidate, suffix) & self.used:
             number += 1
             candidate = f"{name} ({number})"
+        self.tried[name.lower(), suffix.lower()] = number
         self.used |= self._keys(candidate, suffix)
         return candidate + suffix
 
