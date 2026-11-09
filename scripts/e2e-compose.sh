@@ -24,7 +24,8 @@
 # the server. `file://` repositories are only accepted with SYNAPTANE_ALLOW_LOCAL_REPOS, set
 # by an override Compose file specific to this run.
 #
-# Separate Compose project (synaptane-e2e) and port 18000: leaves any local instance alone.
+# Separate Compose project (synaptane-e2e, or E2E_PROJECT) and port 18000 (E2E_PORT): leaves
+# any local instance alone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,7 +40,9 @@ api="${url}/api/v1"
 work="$(mktemp -d)"
 password="password-e2e-$(date +%s)"
 postgres_password="e2e$(date +%s)"
-forge=synaptane-e2e-forge
+# E2E_PROJECT: another Compose project name, to run two at once (separate forge too).
+project="${E2E_PROJECT:-synaptane-e2e}"
+forge="${project}-forge"
 compose="$PWD/compose.yaml"
 
 # Image used by the stack; changed by the "upgrade" variant.
@@ -74,10 +77,10 @@ volumes:
     name: ${forge}
 EOF
 
-dc() { docker compose -p synaptane-e2e -f "$compose" -f "$work/forge.yaml" --env-file "$work/env" "$@"; }
+dc() { docker compose -p "$project" -f "$compose" -f "$work/forge.yaml" --env-file "$work/env" "$@"; }
 cleanup() {
   status=$?
-  if [ "$status" -ne 0 ]; then dc logs --tail 80 app worker migrate || true; fi
+  if [ "$status" -ne 0 ]; then dc logs --tail 80 app worker agents migrate || true; fi
   dc down -v --remove-orphans >/dev/null 2>&1 || true
   docker volume rm -f "$forge" >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -87,9 +90,13 @@ trap cleanup EXIT
 
 step() { printf '\n== %s\n' "$*"; }
 
-# app and worker do run on the expected image.
+# app, worker and the agents container do run on the expected image.
 running_image() {
-  for service in app worker; do
+  local services
+  services="$(dc config --services)"
+  for service in app worker agents; do
+    # The agents container came with 1.15: the previous version may not have it.
+    grep -qx "$service" <<<"$services" || continue
     actual="$(docker inspect -f '{{.Config.Image}}' "$(dc ps -q "$service")")"
     [ "$actual" = "$1" ] || { echo "$service runs on $actual and not $1" >&2; return 1; }
   done
@@ -153,6 +160,109 @@ forge_show() {
 }
 
 check_page() { expect "$page_text" call "${space_api}/raw/notes/e2e.md"; }
+
+# A CLI login as `codex login` leaves it in the CLIs' HOME (/agents): written where the CLIs
+# run in the version that writes it (the worker up to 1.14), read back by the agents container
+# after the upgrade, without signing in again (same volume, same HOME, same account).
+fake_login() {
+  local where=worker
+  if grep -qx agents <<<"$(dc config --services)"; then where=agents; fi
+  # shellcheck disable=SC2016 # expanded in the container
+  dc exec -T "$where" sh -c 'mkdir -p "$HOME/.codex" && umask 077 && echo "{\"e2e\": 1}" > "$HOME/.codex/auth.json"'
+}
+check_login_kept() {
+  step "CLI login kept by the agents container"
+  # shellcheck disable=SC2016 # expanded in the container
+  dc exec -T agents sh -c 'test "$(stat -c %u:%a /agents/.codex/auth.json)" = 1000:600 && grep -q e2e /agents/.codex/auth.json'
+  echo "login of the previous version readable in the agents container"
+}
+
+# A subscription run through the agents container, the fake CLI of the tests mounted in place of
+# `claude` (no login, no model call): login state, then a real call of the run's tool at the
+# worker's address on their private network. The Claude subscription is set up last: the
+# checks after the restore expect the Anthropic key.
+check_agents_run() {
+  step "Subscription run through the agents container (fake CLI)"
+  cat > "$work/fake-cli.yaml" <<EOF
+services:
+  agents:
+    volumes:
+      - $PWD/tests/fake_cli_program.py:/usr/local/bin/claude:ro
+EOF
+  dc -f "$work/fake-cli.yaml" up -d --no-deps --wait agents
+  send -X PUT "${api}/organizations/e2e/ai" -d '{"provider": "claude_code"}' > /dev/null
+  send -X POST "${api}/organizations/e2e/ai/test" > /dev/null
+  for _ in $(seq 1 60); do
+    call "${api}/organizations/e2e/ai" > "$work/ai.json"
+    if python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(d["test_pending"] or d["test_ok"] is None)' \
+      < "$work/ai.json"; then
+      break
+    fi
+    sleep 2
+  done
+  cat "$work/ai.json"; echo
+  expect '"test_ok":true' cat "$work/ai.json"
+  expect "Tool call successful" cat "$work/ai.json"
+  # The fake CLI's arguments: the exact options of a run.
+  dc exec -T agents python -c 'import json; print(json.load(open("/agents/last-args.json")))' \
+    > "$work/args"
+  grep -q -- "--strict-mcp-config" "$work/args"
+  dc up -d --no-deps --wait agents  # back to the image's CLI
+}
+
+# Agents container (subscription CLIs): no secret, no data, neither the database nor the web
+# container within reach; the worker reaches it, with the key they share, and nobody else.
+check_agents() {
+  step "Agents container: isolated, reached by the worker only"
+  local environment doctor
+  environment="$(dc exec -T agents env)"
+  if grep -E '^(SYNAPTANE_DATABASE_URL|POSTGRES_PASSWORD|SYNAPTANE_METRICS_TOKEN)=' <<<"$environment"; then
+    echo "Secret of the instance in the agents container's environment" >&2; return 1
+  fi
+  # /data exists in the image, empty: no volume is mounted there.
+  [ -z "$(dc exec -T agents ls -A /data)" ] || { echo "Data in the agents container" >&2; return 1; }
+  # Names resolved by Docker on the networks a container is on: only the worker for agents.
+  dc exec -T agents python - <<'PY'
+import socket, sys
+for host in ("postgres", "app"):
+    try:
+        socket.getaddrinfo(host, 80)
+    except OSError:
+        continue
+    sys.exit(f"{host} reachable from the agents container")
+socket.getaddrinfo("worker", 80)
+print("agents: only the worker is within reach")
+PY
+  dc exec -T app python - <<'PY'
+import socket, sys
+try:
+    socket.getaddrinfo("agents", 8700)
+except OSError:
+    print("app: the agents container is out of reach")
+else:
+    sys.exit("the web container reaches the agents container")
+PY
+  dc exec -T worker python - <<'PY'
+import urllib.error, urllib.request
+try:
+    urllib.request.urlopen("http://agents:8700/v1/info", timeout=10)
+except urllib.error.HTTPError as error:
+    assert error.code == 401, error.code
+    print("worker without the key: refused")
+else:
+    raise SystemExit("the agents container answers without the key")
+PY
+  for _ in $(seq 1 30); do
+    doctor="$(dc exec -T worker synaptane doctor 2>&1 || true)"
+    if grep -q '^\[ok\] Agents container (subscription CLIs' <<<"$doctor"; then break; fi
+    sleep 2
+  done
+  grep '^\[[a-z]*\] Agents container' <<<"$doctor"
+  grep -q '^\[ok\] Agents container (subscription CLIs' <<<"$doctor"
+  grep -q '^\[ok\] Agents container isolated' <<<"$doctor"
+  # Isolation contract of the CLIs where they run (a CLI missing from the image: a warning).
+  dc exec -T agents synaptane check-clis --installed-only
+}
 
 # Data created by the running version: account, token, organization, space linked to the
 # forge, page, AI key.
@@ -220,6 +330,7 @@ if [ -n "$previous" ]; then
   wait_ready
   running_image "$previous"
   populate
+  fake_login
 
   step "Upgrade to ${image}: migrations on the previous version's data"
   write_env "$image"
@@ -231,6 +342,8 @@ if [ -n "$previous" ]; then
   login
   check_page
   sync_by_worker
+  check_agents
+  check_login_kept
 else
   step "Start"
   dc up -d --no-build
@@ -239,6 +352,7 @@ else
   step "doctor"
   dc exec -T app synaptane doctor
   populate
+  check_agents
 fi
 
 # Right after the start, before any manual backup: a full backup less than 6 hours old would
@@ -319,5 +433,7 @@ step "After the restore: token, page, AI key and sync by the worker"
 check_page
 expect '"provider":"anthropic"' call "${api}/organizations/e2e/ai"
 sync_by_worker
+
+check_agents_run
 
 step "Run complete"
