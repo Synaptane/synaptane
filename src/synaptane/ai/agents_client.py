@@ -258,7 +258,9 @@ def _call(method: str, path: str, body: dict[str, Any] | None, timeout: float) -
 # Waiting for a turn when the agents container is busy: a new try every BUSY_RETRY seconds
 # (plus a random share, so that several workers do not come back together).
 BUSY_RETRY = 10.0
-STATUS_WAIT = 180.0  # longest wait of a connection test for its login check
+# Longest wait of a connection test for each of its two calls (login check, then the run): it
+# blocks the worker's fast lane (Git sync), so it does not wait for a tidy-up to end.
+TEST_WAIT = 30.0
 
 
 def wait_turn[T](call: Callable[[], T], wait: float) -> T:
@@ -285,10 +287,12 @@ def run(
     port: int,
     token: str,
     timeout: float,
+    wait: float | None = None,
 ) -> Completed:
     """A run in the agents container; its CLI reaches the tool server at this worker's
     address, on `port`. Blocks until the end of the run; if the worker gives up (time limit,
-    stop), the connection closes and the agents container stops the CLI."""
+    stop), the connection closes and the agents container stops the CLI. `wait`: longest
+    wait for a turn, `timeout` by default."""
     data = wait_turn(
         lambda: _call(
             "POST",
@@ -304,8 +308,8 @@ def run(
             },
             timeout + MARGIN,
         ),
-        # As long as one run of this length: the one in progress has ended by then.
-        timeout,
+        # By default as long as one run of this length: the one in progress has ended by then.
+        timeout if wait is None else wait,
     )
     try:
         return Completed.from_json(data)
@@ -316,7 +320,7 @@ def run(
 def status(provider: str) -> Label:
     """Login state of a CLI, in the agents container (`cli_agents.local_login_status`)."""
     data = wait_turn(
-        lambda: _call("POST", "/v1/status", {"provider": provider}, STATUS_TIMEOUT), STATUS_WAIT
+        lambda: _call("POST", "/v1/status", {"provider": provider}, STATUS_TIMEOUT), TEST_WAIT
     )
     try:
         return _label(data.get("message") if isinstance(data, dict) else None)

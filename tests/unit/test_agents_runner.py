@@ -261,7 +261,7 @@ def test_past_its_wait_a_busy_run_is_retried_later(
     agents: Agents, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(agents_client, "BUSY_RETRY", 0.2)
-    monkeypatch.setattr(agents_client, "STATUS_WAIT", 0.5)
+    monkeypatch.setattr(agents_client, "TEST_WAIT", 0.5)
     agents.runner.acquire()
     try:
         with pytest.raises(agents_client.Busy, match="as many CLIs as it may") as busy:
@@ -271,6 +271,28 @@ def test_past_its_wait_a_busy_run_is_retried_later(
             cli_agents.login_status("codex")
     finally:
         agents.runner.release()
+    assert agents.fake.pids() == []
+
+
+def test_a_connection_test_does_not_wait_for_a_whole_run(
+    agents: Agents, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The connection test runs in the worker's fast lane (Git sync): while a tidy-up holds
+    the only slot, it waits TEST_WAIT at most for each call, then says why, instead of
+    waiting for the tidy-up to end."""
+    from synaptane.ai import providers
+
+    monkeypatch.setattr(agents_client, "BUSY_RETRY", 0.2)
+    monkeypatch.setattr(agents_client, "TEST_WAIT", 0.5)
+    agents.runner.acquire()
+    started = time.monotonic()
+    try:
+        with pytest.raises(AIError, match="test the connection again") as busy:
+            providers.check_connection(CLAUDE)
+    finally:
+        agents.runner.release()
+    assert time.monotonic() - started < 5 and busy.value.transient
+    assert not isinstance(busy.value, agents_client.Busy)
     assert agents.fake.pids() == []
 
 

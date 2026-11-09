@@ -40,6 +40,9 @@ def test_codex_command_disables_shell_and_web(
     disabled = {command[i + 1] for i, part in enumerate(command) if part == "--disable"}
     assert {"shell_tool", "unified_exec", "browser_use", "computer_use"} <= disabled
     assert 'web_search="disabled"' in command and "--ignore-user-config" in command
+    # Skill descriptions of its home left out (a compromised run could have left some).
+    enabled = {command[i + 1] for i, part in enumerate(command) if part == "--enable"}
+    assert enabled == {"omit_skill_descriptions"}
     assert command[command.index("-m") + 1] == "gpt-5.6"
     assert "TOKEN_ENV" in " ".join(command) and "Bearer" not in " ".join(command)
 

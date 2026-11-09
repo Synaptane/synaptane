@@ -127,6 +127,9 @@ def test_lists_match_codex_of_the_image() -> None:
     active = {f.name for f in features.values() if f.enabled and f.stage != "removed"}
     assert active - set(cli_agents.CODEX_DISABLED) - cli_contract.CODEX_ALLOWED == set()
     assert not set(cli_agents.CODEX_DISABLED) & cli_contract.CODEX_ALLOWED
+    # Turned on: present too, and neither turned off nor counted as enabled by default.
+    assert set(cli_agents.CODEX_ENABLED) <= features.keys()
+    assert not set(cli_agents.CODEX_ENABLED) & set(cli_agents.CODEX_DISABLED)
 
 
 def test_judge_tools() -> None:
@@ -179,6 +182,7 @@ def test_contract_fails_when_the_clis_change(
         'Use "" to disable all', 'Use "" for the defaults of'
     )
     features = FIXTURE.read_text().replace("shell_snapshot ", "shell_snapshot_v3 ")
+    features = features.replace("omit_skill_descriptions ", "skill_descriptions_off ")
     features += "magic_terminal                           stable             true\n"
     simulate(
         monkeypatch,
@@ -191,6 +195,7 @@ def test_contract_fails_when_the_clis_change(
     assert any('--tools ""' in p for p in claude.problems)
     assert any("built-in tools offered to the model: Bash" in p for p in claude.problems)
     assert any("not found: shell_snapshot " in p for p in codex.problems)
+    assert any("to turn on not found: omit_skill_descriptions " in p for p in codex.problems)
     assert any(
         "unclassified enabled features: magic_terminal, shell_snapshot_v3" in p
         for p in codex.problems
@@ -242,4 +247,7 @@ def test_planted_home(tmp_path: Path) -> None:
     assert "hooks" in (tmp_path / ".claude" / "settings.json").read_text()
     assert cli_contract.HOME_MARKER in (tmp_path / ".codex" / "config.toml").read_text()
     assert not (tmp_path / ".codex" / "AGENTS.md").exists()  # refused by the runs instead
+    # Skills of Codex's home and of ~/.agents: their descriptions would reach the model.
+    for skills in (tmp_path / ".codex" / "skills", tmp_path / ".agents" / "skills"):
+        assert cli_contract.HOME_MARKER in (skills / "marker" / "SKILL.md").read_text()
     assert cli_contract.judge_home([{"system": "nothing"}], tmp_path) == []

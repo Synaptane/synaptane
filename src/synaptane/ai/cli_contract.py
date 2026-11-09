@@ -22,7 +22,7 @@ read):
    settings of the temporary `HOME` (`plant_home`), as a compromised run could leave them in
    the CLI's real `HOME` for the next ones: the hook must not run and the instructions must
    not reach the model (`--setting-sources ""` for Claude Code, `--ignore-user-config` and
-   hooks turned off for Codex).
+   hooks turned off and skill descriptions left out for Codex).
 
 It is run by `synaptane check-clis`, by the CI on each built image, by the CLI upgrade
 workflow before it opens its PR, and reported by `synaptane doctor`.
@@ -43,7 +43,7 @@ from pathlib import Path
 
 from synaptane.ai import cli_agents
 from synaptane.ai.base import AIConfig, AIError, ToolSpec
-from synaptane.ai.cli_agents import CLAUDE_ENVIRONMENT, CODEX_DISABLED
+from synaptane.ai.cli_agents import CLAUDE_ENVIRONMENT, CODEX_DISABLED, CODEX_ENABLED
 
 TIMEOUT = 60  # seconds, per command
 
@@ -360,6 +360,13 @@ def plant_home(provider: str, home: Path) -> None:
         # (AGENTS.md: no option leaves it out; a run is refused while there is one.)
         (folder / "config.toml").write_text(f'developer_instructions = "{HOME_MARKER}"\n')
         (folder / "hooks.json").write_text(json.dumps({"hooks": {"SessionStart": hook}}))
+        # Skills of its home and of `~/.agents`: their descriptions go to the model unless
+        # `cli_agents.CODEX_ENABLED` leaves them out.
+        for skills in (folder / "skills", home / ".agents" / "skills"):
+            (skills / "marker").mkdir(parents=True, exist_ok=True)
+            (skills / "marker" / "SKILL.md").write_text(
+                f"---\nname: marker\ndescription: {HOME_MARKER}\n---\n{HOME_MARKER}\n"
+            )
 
 
 def judge_home(received: list[dict[str, object]], home: Path) -> list[str]:
@@ -454,6 +461,12 @@ def check_codex(home: Path) -> Report:
         report.problems.append(
             f"features to turn off not found: {', '.join(missing)} (renamed? Codex then refuses "
             "to start; if another one takes over their role, the agent would get a shell back)"
+        )
+    absent = [name for name in CODEX_ENABLED if name not in features]
+    if absent:
+        report.problems.append(
+            f"features to turn on not found: {', '.join(absent)} (renamed? Codex then refuses "
+            "to start; without them, skills left in its home would reach the model)"
         )
     # `features list` does not always tell the real state (`unified_exec` stays enabled there
     # once turned off, but the tool is no longer offered): only unclassified features count

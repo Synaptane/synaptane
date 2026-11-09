@@ -2147,5 +2147,6 @@
  "{url} is not set.": "{url} n'est pas défini.",
  "{url} is set but {key} is not: the worker cannot authenticate to the agents container (compose.yaml).": "{url} est défini mais pas {key} : le worker ne peut pas s'authentifier auprès du conteneur des agents (compose.yaml).",
  "The agents container is already running as many CLIs as it may ({n}): the run will be retried.": "Le conteneur des agents fait déjà tourner autant de CLI qu'il le peut ({n}) : le passage sera relancé.",
- "Codex would add the instructions of {paths} to every run: delete them (Synaptane never writes them, a compromised run may have).": "Codex ajouterait les instructions de {paths} à chaque passage : supprimez-les (Synaptane n'en écrit jamais, un passage compromis a pu le faire)."
+ "Codex would add the instructions of {paths} to every run: delete them (Synaptane never writes them, a compromised run may have).": "Codex ajouterait les instructions de {paths} à chaque passage : supprimez-les (Synaptane n'en écrit jamais, un passage compromis a pu le faire).",
+ "The agents container is busy with another run (a tidy-up or a routine): test the connection again in a few minutes.": "Le conteneur des agents est occupé par un autre passage (un rangement ou une routine) : testez de nouveau la connexion dans quelques minutes."
 }

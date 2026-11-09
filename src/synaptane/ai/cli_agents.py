@@ -90,6 +90,11 @@ CODEX_DISABLED = (
     "daemon_auto_start",
     "plugin_discovery_prefetch",  # downloads the plugin catalog at startup
 )
+# Codex features turned on: the descriptions of the skills of its home (`$CODEX_HOME/skills`,
+# `~/.agents/skills`) are no longer added to the instructions. `--ignore-user-config` does not
+# leave them out, and a compromised run could leave some there for the next ones. Checked by
+# `cli_contract` (a skill planted in the HOME of the check must not reach the model).
+CODEX_ENABLED = ("omit_skill_descriptions",)
 # Claude Code: deferred tool loading ("tool search") turned off. Since 2.1.310 it keeps itself
 # active with a placeholder tool offered to the model, and it can add its own search tool: the
 # model must see Synaptane's tools only, all of them upfront. Checked by `cli_contract`.
@@ -372,6 +377,8 @@ def _codex_command(config: AIConfig, url: str, token_env: str, workdir: Path) ->
     ]
     for feature in CODEX_DISABLED:
         command += ["--disable", feature]
+    for feature in CODEX_ENABLED:
+        command += ["--enable", feature]
     if config.model:
         command += ["-m", config.model]
     command.append("-")
@@ -794,9 +801,11 @@ def run_agent(
     specs: list[ToolSpec],
     handler: ToolHandler,
     timeout: int = RUN_TIMEOUT,
+    wait: float | None = None,
 ) -> CLIRun:
     """Runs a complete pass in the subscription's CLI: in the agents container if the worker
-    has its address, otherwise here."""
+    has its address, otherwise here. `wait`: longest wait for a turn when the agents container
+    is busy (`agents_client.wait_turn`), `timeout` by default."""
     from synaptane.ai import agents_client
 
     if config.provider not in LOGIN:
@@ -807,7 +816,7 @@ def run_agent(
         if remote:
             port = urlsplit(url).port or 80
             done = agents_client.run(
-                config.provider, config.model, system, prompt, port, token, timeout
+                config.provider, config.model, system, prompt, port, token, timeout, wait
             )
         else:
             done = run_cli(config.provider, config.model, system, prompt, url, token, timeout)
