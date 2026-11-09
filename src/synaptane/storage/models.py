@@ -736,7 +736,8 @@ class EmailCapture(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     key: Mapped[str] = mapped_column(String(64), unique=True)
     at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
-    status: Mapped[str] = mapped_column(String(16))  # accepted, refused
+    # accepted, refused, or deferred (space busy: tried again; `at` is then the first try)
+    status: Mapped[str] = mapped_column(String(16))
     reason: Mapped[str] = mapped_column(String(32), default="")
     sender_domain: Mapped[str] = mapped_column(String(255), default="")
     target: Mapped[str] = mapped_column(String(130), default="")  # org.space as written
@@ -744,7 +745,9 @@ class EmailCapture(Base):
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     path: Mapped[str | None] = mapped_column(Text)  # the inbox note created
 
-    __table_args__ = (CheckConstraint("status IN ('accepted', 'refused')", name="status"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('accepted', 'refused', 'deferred')", name="status"),
+    )
 
 
 class Invitation(Base):

@@ -10,9 +10,12 @@ A sender can write any header, an `Authentication-Results` saying `dmarc=pass` i
   `*.messagingengine.com` for any server of a domain).
   Microsoft 365 writes it without any identifier: such a header is only read when the super
   admin says so (`unnamed`), and only if it is the topmost one;
-- the message is authenticated by `dmarc=pass` for the `From` domain, or by `dkim=pass` with
-  a signing domain aligned on it; `spf=pass` alone only counts for the internal domains the
-  super admin listed (an SPF pass is about the envelope, not about `From`).
+- the message is authenticated by `dmarc=pass` for the `From` domain (named by `header.from`),
+  or by `dkim=pass` with a signing domain aligned on it; `spf=pass` alone only counts for the
+  internal domains the super admin listed (an SPF pass is about the envelope, not about
+  `From`);
+- a header that could be read two ways (a quote inside a comment, a comment left open) or
+  that holds two DMARC results authenticates nothing.
 """
 
 import re
@@ -36,8 +39,19 @@ class Header:
     results: tuple[Result, ...]
 
 
+class Ambiguous(ValueError):
+    """A header that could be read two ways: a double quote inside a comment, or a comment or
+    a quoted string left open."""
+
+
 def _strip_comments(value: str) -> str:
-    """Removes the (comments), nested or not, outside quoted strings."""
+    """Removes the (comments), nested or not, outside quoted strings. Raises Ambiguous when a
+    comment holds a double quote, or when a comment or a quoted string is left open.
+
+    RFC 5322 does not read quoted strings inside a comment: `(domain of "a) ; dmarc=pass (b"@x)`
+    closes the comment at the first ")". A receiving server that copies a quoted address
+    (`smtp.mailfrom`, HELO…) into a comment without escaping its parentheses would thus let
+    the sender write a result of their own: such a header is not read at all."""
     out: list[str] = []
     depth, quoted, escaped = 0, False, False
     for char in value:
@@ -56,7 +70,9 @@ def _strip_comments(value: str) -> str:
                 quoted = False
             out.append(char)
             continue
-        if char == '"' and depth == 0:
+        if char == '"':
+            if depth:
+                raise Ambiguous(value)
             quoted = True
             out.append(char)
         elif char == "(":
@@ -66,6 +82,8 @@ def _strip_comments(value: str) -> str:
             out.append(" ")
         elif depth == 0:
             out.append(char)
+    if depth or quoted:
+        raise Ambiguous(value)
     return "".join(out)
 
 
@@ -103,8 +121,14 @@ def _result(text: str) -> Result | None:
 
 
 def parse(value: str) -> Header:
-    """One `Authentication-Results` header. Lenient: what cannot be read is left out."""
-    text = " ".join(_strip_comments(value).split())
+    """One `Authentication-Results` header. Lenient: what cannot be read is left out; an
+    ambiguous header (see `_strip_comments`) keeps its identifier but no result."""
+    try:
+        text = " ".join(_strip_comments(value).split())
+    except Ambiguous:
+        words = value.strip().split(";", 1)[0].split()
+        named = bool(words) and "=" not in words[0] and "(" not in words[0]
+        return Header(words[0].lower() if named else None, ())
     segments = [s.strip() for s in _split(text, ";")]
     first = segments[0] if segments else ""
     if "=" in first.split(" ", 1)[0]:  # no identifier: the first segment is a result
@@ -163,16 +187,21 @@ def trusted(authserv_id: str, trusted_ids: tuple[str, ...]) -> bool:
 
 def verdict(header: Header | None, from_domain: str, spf_domains: tuple[str, ...] = ()) -> str:
     """How the `From` domain is authenticated: DMARC_PASS, DKIM_PASS, SPF_PASS, or "" (not
-    authenticated). An explicit `dmarc=fail` wins over everything."""
+    authenticated). An explicit `dmarc=fail` wins over everything.
+
+    A server evaluates DMARC once per email: two `dmarc` results mean that one was written by
+    someone else, and nothing is trusted. A `dmarc=pass` counts only if it names the `From`
+    domain it was evaluated for (`header.from`, written by every common server): the server may
+    have read a malformed `From` (`alice@acme.test <eve@evil.test>`) otherwise than here."""
     if header is None or not from_domain:
         return ""
     from_domain = _domain(from_domain)
     dmarc = [r for r in header.results if r.method == "dmarc"]
-    if any(r.result in ("fail", "quarantine", "reject") for r in dmarc):
+    if len(dmarc) > 1 or any(r.result in ("fail", "quarantine", "reject") for r in dmarc):
         return ""
     for result in dmarc:
         claimed = result.props.get("header.from", "")
-        if result.result == "pass" and (not claimed or _domain(claimed) == from_domain):
+        if result.result == "pass" and claimed and _domain(claimed) == from_domain:
             return DMARC_PASS
     for result in header.results:
         if result.method != "dkim" or result.result != "pass":

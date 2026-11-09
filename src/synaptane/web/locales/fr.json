@@ -2205,5 +2205,11 @@
  "from {domain}": "de {domain}",
  "to {space}": "vers {space}",
  "{field}: domain names expected (mx.google.com).": "{field} : noms de domaine attendus (mx.google.com).",
- "{username} on {server}, folder {folder}.": "{username} sur {server}, dossier {folder}."
+ "{username} on {server}, folder {folder}.": "{username} sur {server}, dossier {folder}.",
+ "Space unavailable for 24 hours": "Espace indisponible pendant 24 heures",
+ "Too many parts, or parts nested too deep": "Trop de parties, ou parties imbriquées trop profondément",
+ "The username and password may only hold characters without accents: use an app password.": "L'identifiant et le mot de passe ne peuvent contenir que des caractères sans accents : utilisez un mot de passe d'application.",
+ "Unexpected error while reading the mailbox: {kind}": "Erreur inattendue en relevant la boîte : {kind}",
+ "The space could not take it for 24 hours (busy or unavailable): send it again later, or tell an administrator.": "L'espace n'a pas pu le recevoir pendant 24 heures (occupé ou indisponible) : renvoyez-le plus tard, ou prévenez un administrateur.",
+ "The email has too many parts, or parts nested too deep, to be read: send its text and attachments in a new email.": "L'e-mail a trop de parties, ou des parties imbriquées trop profondément, pour être lu : envoyez son texte et ses pièces jointes dans un nouvel e-mail."
 }

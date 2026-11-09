@@ -64,7 +64,8 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Uuid(), nullable=True),
         sa.Column("path", sa.Text(), nullable=True),
         sa.CheckConstraint(
-            "status IN ('accepted', 'refused')", name=op.f("ck_email_captures_status")
+            "status IN ('accepted', 'refused', 'deferred')",
+            name=op.f("ck_email_captures_status"),
         ),
         sa.ForeignKeyConstraint(
             ["space_id"],

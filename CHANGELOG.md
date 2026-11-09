@@ -23,17 +23,22 @@ of the target version.
   rules as the web form and `inbox_add`, restricted spaces and groups included; a super admin
   only where they are a member), and if the receiving server authenticated it: the topmost
   `Authentication-Results` header (RFC 8601), written by a trusted server, says `dmarc=pass` or
-  `dkim=pass` aligned on the `From` domain; a header written by the sender is never read. Two
+  `dkim=pass` aligned on the `From` domain (a DMARC pass must name that domain in
+  `header.from`); a header written by the sender is never read, nor one that could be read
+  two ways. Two
   options, off by default and documented as less safe: internal domains accepted on SPF alone,
   and the Microsoft 365 header without identifier. Same limits as every note (10 attachments
   of 25 MB, 35 MB per email, secrets refused, 120 notes per hour); the plain text version is
   preferred, HTML is turned into Markdown without scripts or remote images. Handled emails are
   moved to `Synaptane/Processed` or `Synaptane/Refused`; an email that cannot be dropped now
-  (space busy, rate limit) waits for the next poll; the same email (its `Message-ID`) is never
+  (space busy, rate limit) waits for the next poll without holding back the others, and is
+  refused after 24 hours; the parts of an email are only read once its sender is
+  authenticated and has an account, and an email of too many nested parts is refused; the
+  same email (its `Message-ID`) is never
   dropped twice; a single poll runs at a time. The note is written in the person's name, with
   "by email" in the space's activity (a person, not an AI). Only an authenticated sender with
   an account may get an answer (the reason of a refusal by default, or a confirmation too,
-  or nothing), never a forged address. Members who may drop notes see the address of the
+  or nothing; 20 per hour and per account at most), never a forged address. Members who may drop notes see the address of the
   space, with a copy button, on its **Inbox** page and in its first steps. The health page
   shows the polls and the latest refusals (reason, sender's domain, space aimed at: never the
   content), `/metrics` gives `synaptane_email_capture_messages_24h`,

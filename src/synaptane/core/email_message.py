@@ -8,6 +8,7 @@ and the Markdown produced cannot load an image.
 
 import mimetypes
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email import policy
@@ -28,6 +29,12 @@ RECIPIENT_HEADERS = ("To", "Cc")
 # An inline image (in the HTML, `cid:`) smaller than this is decoration: a logo, a signature.
 INLINE_MIN = 16 * 1024
 MAX_NAME = 120
+MAX_NAME_BYTES = 200  # a file name is limited to 255 bytes on most file systems, not characters
+# Beyond these, an email is too complex to read: Python's parser takes seconds per level of
+# nested parts (a few dozen kilobytes would hold a worker for minutes). Real emails nest a
+# handful of parts.
+MAX_BOUNDARIES = 50
+MAX_PART_LINES = 2000
 
 
 @dataclass
@@ -44,6 +51,7 @@ class Parsed:
     automatic: bool  # auto-reply, bounce, mailing list: never answered, never dropped
     body: str = ""
     attachments: list[tuple[str, bytes]] = field(default_factory=list)
+    has_content: bool = False  # body and attachments read (`parse(with_content=True)`)
 
     @property
     def sender(self) -> str:
@@ -89,8 +97,9 @@ def _automatic(message: Message) -> bool:
 
 def parse(raw: bytes, *, with_content: bool = True) -> Parsed:
     """An email, headers and (`with_content`) text and attachments. Never raises on a
-    malformed email: what cannot be read is left out."""
-    message = BytesParser(policy=policy.default).parsebytes(raw)
+    malformed email: what cannot be read is left out. Without content, the parts are not even
+    parsed: cheap, whoever sent it."""
+    message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=not with_content)
     from_headers = _header(message, "From")
     pairs = getaddresses(from_headers)
     try:
@@ -112,7 +121,24 @@ def parse(raw: bytes, *, with_content: bool = True) -> Parsed:
     )
     if with_content and isinstance(message, EmailMessage):
         parsed.body, parsed.attachments = _content(message)
+        parsed.has_content = True
     return parsed
+
+
+def too_complex(raw: bytes) -> bool:
+    """Too many parts, or parts nested too deep, to be read in a reasonable time."""
+    boundaries = len(re.findall(rb"(?i)\bboundary\s*=", raw))
+    return boundaries > MAX_BOUNDARIES or raw.count(b"\n--") > MAX_PART_LINES
+
+
+def read_content(parsed: Parsed, raw: bytes) -> None:
+    """Fills the text and attachments of an email parsed without them."""
+    if parsed.has_content:
+        return
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    if isinstance(message, EmailMessage):
+        parsed.body, parsed.attachments = _content(message)
+    parsed.has_content = True
 
 
 # --- Text and attachments ---------------------------------------------------------------------
@@ -207,17 +233,22 @@ def _collect(
 
 def clean_name(name: str) -> str:
     """A file name that can be written in the repository: no folder, no leading dot, no
-    control character, at most MAX_NAME characters (the extension kept)."""
+    control character (nor a Unicode format character, such as a right-to-left override that
+    would disguise `fdp.exe` as `exe.pdf`), at most MAX_NAME characters and MAX_NAME_BYTES
+    bytes in UTF-8 (the extension kept)."""
     name = name.replace("\\", "/").rsplit("/", 1)[-1]  # the file name, without its folders
+    name = "".join(c for c in name if unicodedata.category(c) != "Cf")
     name = re.sub(r"[\x00-\x1f\x7f:*?\"<>|]+", "_", name).strip().lstrip(".").strip()
     if not name:
         name = "attachment"
-    if len(name) > MAX_NAME:
-        stem, dot, extension = name.rpartition(".")
-        if dot and len(extension) <= 10:
-            name = stem[: MAX_NAME - len(extension) - 1].rstrip() + "." + extension
-        else:
-            name = name[:MAX_NAME]
+    stem, dot, extension = name.rpartition(".")
+    if not dot or len(extension) > 10 or not stem:
+        stem, dot, extension = name, "", ""
+    stem = stem[:MAX_NAME]  # a name can be megabytes long: cut before trimming
+    name = stem.rstrip() + dot + extension
+    while len(name) > MAX_NAME or len(name.encode()) > MAX_NAME_BYTES:
+        stem = stem[:-1]
+        name = stem.rstrip() + dot + extension
     return name
 
 
@@ -283,6 +314,9 @@ _VOID = frozenset({"br", "hr", "img", "input", "meta", "link", "area", "base", "
 _LINK_SCHEMES = ("http://", "https://", "mailto:")
 _ESCAPED = re.compile(r"([\\`*_\[\]<])")
 _URL_ESCAPES = (("(", "%28"), (")", "%29"), (" ", "%20"), ("<", "%3C"), (">", "%3E"))
+# Indentation of nested lists and quotes, at most: each level repeats its prefix on every line
+# inside it, and thousands of nested <ul> would weigh gigabytes.
+MAX_DEPTH = 8
 
 
 class _Markdown(HTMLParser):
@@ -334,7 +368,7 @@ class _Markdown(HTMLParser):
             self.out.append("#" * int(tag[1]) + " ")
         elif tag == "li":
             self._newline()
-            depth = max(len(self.lists) - 1, 0)
+            depth = min(max(len(self.lists) - 1, 0), MAX_DEPTH)
             kind = self.lists[-1] if self.lists else [0, 0]
             kind[1] += 1
             self.out.append("  " * depth + (f"{kind[1]}. " if kind[0] else "- "))
@@ -392,6 +426,8 @@ class _Markdown(HTMLParser):
             self._newline()
         elif tag == "blockquote" and self.quotes:
             start = self.quotes.pop()
+            if len(self.quotes) >= MAX_DEPTH:  # deeper: kept, without its own "> "
+                return
             quoted = "".join(self.out[start:]).strip("\n")
             del self.out[start:]
             self.out.append("\n".join(f"> {line}".rstrip() for line in quoted.split("\n")))

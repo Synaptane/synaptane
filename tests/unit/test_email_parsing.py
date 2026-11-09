@@ -6,7 +6,15 @@ from email.message import EmailMessage
 import pytest
 
 from synaptane.core import authres
-from synaptane.core.email_message import Parsed, clean_name, defuse, html_to_markdown, parse
+from synaptane.core.email_message import (
+    Parsed,
+    clean_name,
+    defuse,
+    html_to_markdown,
+    parse,
+    read_content,
+    too_complex,
+)
 from synaptane.services.email_capture import find_space, targets
 from tests.fakeimap import CAPTURE, TRUSTED, message
 
@@ -87,7 +95,10 @@ def test_only_the_topmost_header_of_a_trusted_server_counts() -> None:
     ("results", "domain", "expected"),
     [
         ("dmarc=pass header.from=acme.test", "acme.test", "dmarc"),
-        ("dmarc=pass", "acme.test", "dmarc"),  # header.from not given: about this From
+        # header.from not given: which From did the server read? (see the next test)
+        ("dmarc=pass", "acme.test", ""),
+        # A server evaluates DMARC once: a second result was written by someone else.
+        ("dmarc=pass header.from=acme.test; dmarc=none header.from=acme.test", "acme.test", ""),
         ("dmarc=pass header.from=evil.test", "acme.test", ""),  # about another domain
         ("dmarc=fail header.from=acme.test; dkim=pass header.d=acme.test", "acme.test", ""),
         ("dmarc=bestguesspass header.from=acme.test", "acme.test", ""),
@@ -107,6 +118,37 @@ def test_only_the_topmost_header_of_a_trusted_server_counts() -> None:
 def test_verdict(results: str, domain: str, expected: str) -> None:
     header = authres.parse(f"mx.test; {results}")
     assert authres.verdict(header, domain) == expected
+
+
+def test_a_from_read_differently_by_the_server_is_not_authenticated() -> None:
+    """`alice@acme.test <eve@evil.test>` is Alice for Python, Eve for most servers: the DMARC
+    pass of evil.test must not count for acme.test, nor a DMARC pass that names no domain."""
+    parsed = parse(message(sender="alice@acme.test <eve@evil.test>"))
+    assert parsed.sender == "alice@acme.test"
+    for results in (
+        "dmarc=pass header.from=evil.test",
+        "dmarc=pass",
+        "dkim=pass header.d=evil.test",
+    ):
+        header = authres.trusted_header([f"mx.test; {results}"], ("mx.test",))
+        assert authres.verdict(header, "acme.test") == ""
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # A quoted address copied into a comment, its parenthesis unescaped: RFC 5322 closes
+        # the comment there, and the sender's own result would follow.
+        'mx.test; spf=pass (domain of "a) ; dmarc=pass header.from=acme.test (b"@evil.test '
+        "designates 1.2.3.4) smtp.mailfrom=b@evil.test",
+        "mx.test; dkim=pass (comment left open header.d=acme.test",
+        'mx.test; dkim=pass reason="quote left open header.d=acme.test',
+    ],
+)
+def test_an_ambiguous_header_authenticates_nothing(value: str) -> None:
+    header = authres.parse(value)
+    assert header.authserv_id == "mx.test" and header.results == ()
+    assert authres.verdict(header, "acme.test") == ""
 
 
 def test_spf_alone_only_for_the_internal_domains_listed() -> None:
@@ -277,8 +319,34 @@ def test_extra_text_parts_are_kept_and_unnamed_attachments_named() -> None:
 
 
 def test_headers_only() -> None:
-    parsed = parse(message(attachments=[("a.pdf", "application/pdf", b"x")]), with_content=False)
+    raw = message(attachments=[("a.pdf", "application/pdf", b"x")])
+    parsed = parse(raw, with_content=False)
     assert parsed.sender == "alice@acme.test" and parsed.body == "" and parsed.attachments == []
+    assert not parse(raw, with_content=False).has_content
+    read_content(parsed, raw)
+    assert parsed.has_content and parsed.body == "Le NAS passe à 8 To."
+    assert [name for name, _ in parsed.attachments] == ["a.pdf"]
+
+
+def _nested(levels: int) -> bytes:
+    head = b"From: alice@acme.test\r\nMIME-Version: 1.0\r\n"
+    out = head + b'Content-Type: multipart/mixed; boundary="b0"\r\n\r\n'
+    for i in range(1, levels):
+        out += f'--b{i - 1}\r\nContent-Type: multipart/mixed; boundary="b{i}"\r\n\r\n'.encode()
+    out += f"--b{levels - 1}\r\nContent-Type: text/plain\r\n\r\nhi\r\n".encode()
+    return out + b"".join(f"--b{i}--\r\n".encode() for i in reversed(range(levels)))
+
+
+def test_too_complex_emails_are_not_parsed() -> None:
+    """A thousand nested parts weigh 67 KB and hold Python's parser for half a minute: the
+    headers are read without the parts, and the parts are counted before being read."""
+    bomb = _nested(1000)
+    assert parse(bomb, with_content=False).sender == "alice@acme.test"  # instant
+    assert too_complex(bomb)
+    many = b"Content-Type: multipart/mixed; boundary=b\r\n\r\n" + b"--b\r\n\r\nx\r\n" * 3000
+    assert too_complex(many)
+    assert not too_complex(_nested(10)) and not too_complex(message())
+    assert parse(_nested(10)).body == "hi"
 
 
 def test_clean_name() -> None:
@@ -288,6 +356,13 @@ def test_clean_name() -> None:
     long = clean_name("x" * 300 + ".docx")
     assert len(long) == 120 and long.endswith(".docx")
     assert len(clean_name("y" * 300)) == 120
+    # 255 bytes at most for a file name: characters of several bytes count as such.
+    wide = clean_name("é" * 150 + ".pdf")
+    assert len(wide.encode()) <= 200 and wide.endswith(".pdf")
+    assert len(clean_name("😀" * 120).encode()) <= 200
+    assert len(clean_name("x" * 1_000_000)) == 120  # quickly
+    # A right-to-left override would show "fdp.exe" as "exe.pdf".
+    assert clean_name("facture\u202efdp.exe") == "facturefdp.exe"
 
 
 # --- HTML to Markdown -------------------------------------------------------------------------
@@ -320,6 +395,16 @@ def test_html_to_markdown_keeps_structure_and_drops_the_dangerous() -> None:
     assert "1 \\< 2" in text and "`x\\*y`" in text and "*it*  \nsuite" in text
     assert "---" in text and "a b" in text
     assert "\\<img" in text  # written as text, never as HTML
+
+
+def test_html_to_markdown_bounds_nested_lists_and_quotes() -> None:
+    """Each level of a list or a quote repeats its prefix on the lines inside it: thousands of
+    levels in a few kilobytes of HTML would weigh gigabytes of Markdown."""
+    lists = html_to_markdown("<ul><li>" * 20_000 + "x")
+    assert len(lists) < 500_000
+    quotes = html_to_markdown("<blockquote>" * 3000 + "<p>x</p>" * 3000)
+    assert len(quotes) < 100_000
+    assert html_to_markdown("<blockquote><blockquote>a</blockquote></blockquote>") == "> > a"
 
 
 def test_html_to_markdown_survives_broken_html() -> None:

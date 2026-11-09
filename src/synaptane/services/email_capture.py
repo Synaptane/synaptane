@@ -14,9 +14,11 @@ no webhook, no incoming SMTP server. Each email is accepted only if all of this 
 
 Emails handled are moved out of the read folder, to `Synaptane/Processed` or
 `Synaptane/Refused` (created if absent); an email that cannot be handled now (space busy, rate
-limit) stays and is tried again at the next poll. Nothing ever answers a sender who is not
-authenticated (no backscatter); an authenticated account holder may get a confirmation or the
-reason of a refusal (`replies`). Refusals are kept for the health page, without content.
+limit) stays and is tried again at the next poll, for MAX_DEFERRAL at most. The parts of an
+email are only read once its sender is authenticated and has an account. Nothing ever answers
+a sender who is not authenticated (no backscatter); an authenticated account holder may get a
+confirmation or the reason of a refusal (`replies`, MAX_ANSWERS_PER_HOUR at most). Refusals
+are kept for the health page, without content.
 """
 
 import hashlib
@@ -36,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from synaptane.core import authres, names
 from synaptane.core.access import Action, Limits, can, require
-from synaptane.core.email_message import Parsed, parse
+from synaptane.core.email_message import Parsed, parse, read_content, too_complex
 from synaptane.core.errors import ErrorCode, Label, SynaptaneError, invalid
 from synaptane.core.security import SecretBox
 from synaptane.git.repo import GitError
@@ -63,7 +65,16 @@ TIMEOUT = 30  # seconds, for each network operation of a poll
 TEST_TIMEOUT = 15  # seconds, for the "Test the connection" button (a web request waits)
 MAX_MESSAGE = 35 * 1024 * 1024  # bytes, as received (attachments encoded in base64)
 MAX_PER_POLL = 25  # emails handled per poll: the others wait for the next one
+# Emails looked at per poll, those waiting for a busy space included: they must not hold
+# back the others.
+MAX_EXAMINED = 100
 POLL_BUDGET = 240.0  # seconds: no new email taken after that
+# An email that still cannot be dropped after this long (space unavailable) is refused: it
+# would otherwise be read again at every poll, forever.
+MAX_DEFERRAL = timedelta(hours=24)
+# Answers to one account per hour, at most: an auto-responder that ignores `Auto-Submitted`
+# and answers each of them must not start an endless exchange.
+MAX_ANSWERS_PER_HOUR = 20
 KEEP = timedelta(days=90)  # handled emails remembered (idempotence, health page)
 PARENT, PROCESSED, REFUSED = "Synaptane", "Processed", "Refused"
 _CONTEXT = "imap:password"
@@ -84,14 +95,16 @@ REASONS: dict[str, Label] = {
     "space_not_ready": Label("Space not synchronized yet"),
     "too_large": Label("Email too large"),
     "too_many_attachments": Label("Too many attachments"),
+    "too_complex": Label("Too many parts, or parts nested too deep"),
     "secret": Label("Likely secret in the content"),
     "invalid": Label("Content refused (empty, or an attachment too large)"),
+    "unavailable": Label("Space unavailable for 24 hours"),
     "error": Label("Unexpected error while reading it"),
 }
 # Refusals told to the sender (authenticated, with an account): the others are silent.
 _TOLD = frozenset(
     {"no_space", "no_access", "space_not_ready", "too_large", "too_many_attachments", "secret"}
-    | {"invalid"}
+    | {"invalid", "unavailable", "too_complex"}
 )
 
 
@@ -223,6 +236,12 @@ def configure(
             "Enter the identifier of the receiving server (mx.google.com…): without it, no "
             "sender can be authenticated."
         )
+    if not username.isascii() or (password and not password.isascii()):
+        # imaplib sends them in ASCII (LOGIN): an accent would fail at every poll.
+        raise invalid(
+            "The username and password may only hold characters without accents: use an app "
+            "password."
+        )
     address, spf = _address(address), _list(spf_domains, "SPF domains")
     row = session.get(CaptureSettings, 1)
     if row is None:
@@ -328,7 +347,7 @@ class Conf:
     port: int
     security: str
     username: str
-    password: str
+    password: str = field(repr=False)  # never in a log or an error, even by mistake
     folder: str
     address: str
     authserv_ids: tuple[str, ...]
@@ -355,6 +374,11 @@ def _conf(row: CaptureSettings, box: SecretBox) -> Conf:
 
 def _quote(name: str) -> str:
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _unexpected(error: BaseException) -> Label:
+    """Any other error: its class only (its words could quote anything)."""
+    return Label("Unexpected error while reading the mailbox: {kind}", kind=type(error).__name__)
 
 
 def _describe(error: BaseException) -> Label:
@@ -428,7 +452,8 @@ class Mailbox:
         return int(first) if isinstance(first, bytes) and first.isdigit() else 0
 
     def uids(self) -> list[str]:
-        data = self._ok(self._imap.uid("SEARCH", "ALL"))
+        # Not those flagged as deleted: copied already by a move cut short (without MOVE).
+        data = self._ok(self._imap.uid("SEARCH", "UNDELETED"))
         first = data[0] if data else b""
         return first.decode().split() if isinstance(first, bytes) else []
 
@@ -517,6 +542,9 @@ def test(session: Session, actor: Actor, box: SecretBox, *, allow_plain: bool) -
         raise
     except (imaplib.IMAP4.error, OSError, EOFError) as error:
         raise CaptureError(_describe(error)) from None
+    except Exception as error:  # noqa: BLE001 — a server answer imaplib did not expect
+        log.exception("Capture by email: connection test failed")
+        raise CaptureError(_unexpected(error)) from None
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return TestResult(waiting, ranked, unnamed)
 
@@ -595,8 +623,9 @@ def poll(
     allow_plain: bool = False,
     now: datetime | None = None,
 ) -> Summary:
-    """Reads the mailbox once: at most MAX_PER_POLL emails, oldest first. An email that
-    fails does not stop the others; a lost connection ends the poll (tried again at the
+    """Reads the mailbox once: at most MAX_PER_POLL emails handled, oldest first (those left
+    for a later poll do not count, within MAX_EXAMINED). An email that fails does not stop the
+    others; a lost connection ends the poll (tried again at the
     next one). Never raises for the mailbox: the error is kept for the health page."""
     summary = Summary()
     with _poll_lock(database) as acquired:
@@ -612,8 +641,11 @@ def poll(
         try:
             with Mailbox(conf, allow_plain=allow_plain) as mailbox:
                 mailbox.select(conf.folder)
-                for uid in mailbox.uids()[:MAX_PER_POLL]:
-                    if time.monotonic() - started > POLL_BUDGET:
+                for uid in mailbox.uids()[:MAX_EXAMINED]:
+                    if (
+                        summary.accepted + summary.refused >= MAX_PER_POLL
+                        or time.monotonic() - started > POLL_BUDGET
+                    ):
                         break
                     outcome = _one(database, ws, conf, mailbox, uid)
                     summary.outcomes.append(outcome)
@@ -629,6 +661,9 @@ def poll(
             summary.error = error.label.dumps()
         except (imaplib.IMAP4.error, OSError, EOFError) as error:
             summary.error = _describe(error).dumps()
+        except Exception as error:  # noqa: BLE001 — kept for the health page, not lost
+            log.exception("Capture by email: poll failed")
+            summary.error = _unexpected(error).dumps()
         if summary.error:
             log.warning("Capture by email: %s", Label.loads(summary.error))
         _finish(database, summary, now or datetime.now(UTC))
@@ -658,7 +693,8 @@ def _one(database: Database, ws: Workspace, conf: Conf, mailbox: Mailbox, uid: s
         raw = mailbox.fetch(uid)
         too_large = False
     try:
-        parsed = parse(raw, with_content=not too_large)
+        # Headers only: the parts are read once the sender is known to have an account.
+        parsed = parse(raw, with_content=False)
         return handle(database, ws, conf, parsed, raw, too_large=too_large)
     except Exception:  # noqa: BLE001 — one broken email must not stop the others
         log.exception("Capture by email: email %s not handled", uid)
@@ -692,7 +728,7 @@ def _record(
     path: str | None = None,
 ) -> bool:
     """Remembers an email handled. False if a refusal of this very email was already
-    remembered (its sender was told then: not again)."""
+    remembered (its sender was told then: not again). A deferral is not a refusal."""
     key = key if len(key) <= 64 else hashlib.sha256(key.encode()).hexdigest()
     before = session.scalar(select(EmailCapture.status).where(EmailCapture.key == key))
     values = {
@@ -707,7 +743,7 @@ def _record(
     }
     statement = insert(EmailCapture).values(key=key, **values)
     session.execute(statement.on_conflict_do_update(index_elements=["key"], set_=values))
-    return before is None
+    return before != REFUSED_STATUS
 
 
 def _accepted(session: Session, key: str) -> bool:
@@ -791,7 +827,7 @@ def handle(
         if silent is None:
             user = session.scalar(
                 select(User).where(
-                    func.lower(User.email) == sender,
+                    User.email == sender,  # stored in lowercase, compared as such
                     User.email_verified_at.is_not(None),
                     User.is_active.is_(True),
                 )
@@ -810,7 +846,10 @@ def handle(
             outcomes.append(_refusal(session, parsed, raw, domain, user, "", "no_space"))
         elif too_large:
             outcomes.append(_refusal(session, parsed, raw, domain, user, "", "too_large"))
+        elif not parsed.has_content and too_complex(raw):
+            outcomes.append(_refusal(session, parsed, raw, domain, user, "", "too_complex"))
         else:
+            read_content(parsed, raw)
             for tag in aimed:
                 outcomes.append(_drop(session, database, ws, actor, parsed, raw, domain, tag))
         user_id = user.id
@@ -862,6 +901,14 @@ def _told(reason: str) -> Label:
         "too_many_attachments": Label(
             "Too many attachments: {limit} at most.", limit=deposits.MAX_ATTACHMENTS
         ),
+        "too_complex": Label(
+            "The email has too many parts, or parts nested too deep, to be read: send its "
+            "text and attachments in a new email."
+        ),
+        "unavailable": Label(
+            "The space could not take it for 24 hours (busy or unavailable): send it again "
+            "later, or tell an administrator."
+        ),
     }
     return texts.get(reason, REASONS.get(reason, Label(reason)))
 
@@ -905,7 +952,7 @@ def _drop(
         session.rollback()
         if error.code in (ErrorCode.TOO_MANY, ErrorCode.CONFLICT, ErrorCode.UNAVAILABLE):
             log.info("Capture by email: %s deferred (%s)", tag, error.code)
-            return _Outcome(DEFERRED, target=tag, space=space)
+            return _defer(session, parsed, raw, domain, user, tag, space)
         reason = {
             ErrorCode.SECRET: "secret",
             ErrorCode.FORBIDDEN: "no_access",
@@ -924,11 +971,46 @@ def _drop(
     except GitError as error:
         session.rollback()
         log.warning("Capture by email: %s deferred (%s)", tag, error)
-        return _Outcome(DEFERRED, target=tag, space=space)
+        return _defer(session, parsed, raw, domain, user, tag, space)
     _record(session, key, ACCEPTED, "", domain, tag, space=space, user=user, path=path)
     session.commit()
     log.info("Capture by email: dropped in %s", space.address)
     return _Outcome(ACCEPTED, target=tag, space=space, path=path)
+
+
+def _defer(
+    session: Session,
+    parsed: Parsed,
+    raw: bytes,
+    domain: str,
+    user: User,
+    tag: str,
+    space: Space,
+) -> _Outcome:
+    """Leaves the email for a later poll, and remembers since when; refused (and its sender
+    told) once it has waited MAX_DEFERRAL."""
+    key, now = _key(parsed, raw, tag), datetime.now(UTC)
+    values = {
+        "status": DEFERRED,
+        "reason": "",
+        "sender_domain": domain[:255],
+        "target": tag[:130],
+        "space_id": space.id,
+        "user_id": user.id,
+        "path": None,
+        "at": now,
+    }
+    statement = insert(EmailCapture).values(key=key, **values)
+    session.execute(  # the first deferral counts, not the latest
+        statement.on_conflict_do_update(
+            index_elements=["key"], set_=values, where=EmailCapture.status != DEFERRED
+        )
+    )
+    since = session.scalar(select(EmailCapture.at).where(EmailCapture.key == key)) or now
+    session.commit()
+    if now - since >= MAX_DEFERRAL:
+        return _refusal(session, parsed, raw, domain, user, tag, "unavailable", space=space)
+    return _Outcome(DEFERRED, target=tag, space=space)
 
 
 def _answer(
@@ -948,6 +1030,17 @@ def _answer(
             return
         user = session.get(User, user_id)
         if user is None or not user.email:
+            return
+        recent = session.scalar(
+            select(func.count())
+            .select_from(EmailCapture)
+            .where(
+                EmailCapture.user_id == user.id,
+                EmailCapture.at >= datetime.now(UTC) - timedelta(hours=1),
+            )
+        )
+        if (recent or 0) > MAX_ANSWERS_PER_HOUR:
+            log.warning("Capture by email: answers to %s paused for the hour", user.username)
             return
         subject = parsed.subject or "—"
         for outcome in outcomes:

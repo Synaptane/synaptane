@@ -110,9 +110,16 @@ en-tête `Authentication-Results` (RFC 8601) **en haut** de l'e-mail. La capture
   se retrouve sous celui du serveur de réception ;
 - exige que cet en-tête porte un **identifiant de confiance** : un en-tête écrit par tout
   autre serveur est ignoré ;
-- accepte `dmarc=pass` pour le domaine du `From`, ou `dkim=pass` dont le domaine de signature
-  est aligné sur lui (le même domaine, un parent ou un sous-domaine). Un `dmarc=fail` explicite
-  refuse l'e-mail ;
+- accepte `dmarc=pass` pour le domaine du `From` (le résultat doit le nommer dans
+  `header.from`, comme le fait tout serveur courant : un `From` mal formé comme
+  `alice@acme.test <eve@evil.test>` peut être lu comme celui d'Ève par le serveur et comme celui
+  d'Alice ailleurs), ou `dkim=pass` dont le domaine de signature est aligné sur lui (le même
+  domaine, un parent ou un sous-domaine ; jamais un domaine de premier niveau seul). Un
+  `dmarc=fail` explicite refuse l'e-mail ;
+- ne lit rien d'un en-tête qui pourrait se lire de deux façons (un guillemet dans un
+  commentaire, un commentaire non refermé : un serveur qui recopie l'adresse de l'expéditeur
+  dans un commentaire le laisserait sinon écrire un résultat à lui), ni d'un en-tête qui porte
+  deux résultats DMARC ;
 - ne répond jamais à un e-mail non authentifié, ni à un expéditeur sans compte : pas de
   « backscatter » vers une adresse usurpée.
 
@@ -144,12 +151,17 @@ vérifiée pour chaque e-mail, sans aucun secret à garder.
   voie : un serveur de messagerie lent ne retarde pas les synchronisations. Une seule relève à
   la fois sur l'instance, même avec plusieurs workers (verrou consultatif PostgreSQL).
 - Une relève traite au plus 25 e-mails, du plus ancien au plus récent, pendant 4 minutes au
-  plus ; le reste attend la suivante. Chaque opération réseau est bornée (30 secondes).
+  plus ; le reste attend la suivante. Chaque opération réseau est bornée (30 secondes). Les
+  parties d'un e-mail ne sont lues qu'une fois son expéditeur authentifié et doté d'un compte ;
+  un e-mail de plus de 50 parties imbriquées ou de 2 000 parties est refusé comme trop complexe
+  (l'analyseur de Python y passerait des minutes).
 - Chaque e-mail traité est **déplacé** : dans `Synaptane/Processed` une fois déposé, dans
   `Synaptane/Refused` sinon. Sans l'extension IMAP `MOVE`, il est copié, marqué supprimé puis
   effacé.
 - Un e-mail qui ne peut pas être déposé **tout de suite** (espace occupé, limite de débit du
-  compte) reste dans le dossier et est repris à la relève suivante. Un e-mail illisible
+  compte, dépôt indisponible) reste dans le dossier et est repris à la relève suivante, sans
+  retenir les autres (il ne compte pas parmi les 25). Au bout de 24 heures, il est refusé
+  (« Espace indisponible pendant 24 heures ») et son expéditeur prévenu. Un e-mail illisible
   n'arrête pas les autres : il va dans `Synaptane/Refused`.
 - **Idempotente** : chaque e-mail est mémorisé par une empreinte de son `Message-ID` et de
   l'espace visé, pendant 90 jours. Le même e-mail reçu deux fois (deux copies, ou remis dans le
@@ -170,12 +182,15 @@ l'expéditeur, dans sa langue, avec un en-tête `Auto-Submitted: auto-replied` (
 répond) :
 
 - **Quand l'e-mail est refusé** (par défaut) : la raison (pas d'espace dans l'adresse, pas le
-  droit de déposer dans cet espace ou espace inexistant, trop gros, trop de pièces jointes,
-  secret probable). Un e-mail refusé ne reçoit qu'une réponse, même s'il est relevé à nouveau ;
+  droit de déposer dans cet espace ou espace inexistant, trop gros, trop de pièces jointes ou
+  de parties, secret probable, espace indisponible pendant 24 heures). Un e-mail refusé ne
+  reçoit qu'une réponse, même s'il est relevé à nouveau ;
 - **Toujours** : aussi une confirmation avec le lien vers la note ;
 - **Jamais**.
 
-Seul un expéditeur **authentifié** qui **a un compte** reçoit une réponse. Un e-mail non
+Un compte reçoit au plus 20 réponses par heure : au-delà, la capture cesse de lui répondre pour
+l'heure, pour qu'un répondeur automatique qui ignore `Auto-Submitted` ne puisse pas lancer un
+échange sans fin. Seul un expéditeur **authentifié** qui **a un compte** reçoit une réponse. Un e-mail non
 authentifié, d'une adresse inconnue, ou automatique (réponse automatique, rebond, liste de
 diffusion) est refusé en silence. L'avis du rangement (classée où, ou laissée pourquoi) part
 toujours à la personne, comme pour toute note qu'elle dépose.

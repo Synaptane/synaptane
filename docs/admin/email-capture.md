@@ -105,9 +105,14 @@ sender's DKIM signature, SPF and DMARC policy, and writes the results in an
   the receiving server's;
 - requires that header to carry a **trusted identifier**: a header written by any other
   server is ignored;
-- accepts `dmarc=pass` for the `From` domain, or `dkim=pass` whose signing domain is aligned
-  with it (the same domain, or a parent or child of it). An explicit `dmarc=fail` refuses the
-  email;
+- accepts `dmarc=pass` for the `From` domain (the result must name it in `header.from`, as
+  every common server does: a malformed `From` such as `alice@acme.test <eve@evil.test>` may be
+  read as Eve's by the server and as Alice's elsewhere), or `dkim=pass` whose signing domain is
+  aligned with it (the same domain, or a parent or child of it; never a bare top-level domain).
+  An explicit `dmarc=fail` refuses the email;
+- reads nothing from a header that could be read two ways (a double quote inside a comment,
+  a comment left open: a server that copies the sender's address into a comment would
+  otherwise let them write a result of their own), nor from one that holds two DMARC results;
 - never answers an email that is not authenticated, and never one whose sender has no
   account: no "backscatter" to a forged address.
 
@@ -137,12 +142,16 @@ and its rights, is checked for every email, without any secret to keep.
   mail server does not delay the syncs. A single poll runs at a time on the instance, even
   with several workers (PostgreSQL advisory lock).
 - A poll handles at most 25 emails, oldest first, for at most 4 minutes; the rest waits for
-  the next one. Every network operation is bounded (30 seconds).
+  the next one. Every network operation is bounded (30 seconds). The parts of an email are
+  only read once its sender is authenticated and has an account; an email of more than 50
+  nested parts or 2,000 parts is refused as too complex (Python's parser would take minutes).
 - Each email handled is **moved**: to `Synaptane/Processed` once dropped, to
   `Synaptane/Refused` otherwise. Without the IMAP `MOVE` extension, it is copied, flagged as
   deleted and expunged.
-- An email that cannot be dropped **right now** (space busy, rate limit of the account)
-  stays in the folder and is tried again at the next poll. One that cannot be read does not
+- An email that cannot be dropped **right now** (space busy, rate limit of the account,
+  repository unavailable) stays in the folder and is tried again at the next poll, without
+  holding back the others (they do not count among the 25). After 24 hours, it is refused
+  ("Space unavailable for 24 hours") and its sender told. One that cannot be read does not
   stop the others: it goes to `Synaptane/Refused`.
 - **Idempotent**: each email is remembered by a digest of its `Message-ID` and of the space
   aimed at, for 90 days. The same email received twice (two copies, or moved back into the
@@ -161,12 +170,15 @@ With email sending set up (**Administration → Email**), the capture can answer
 their language, with an `Auto-Submitted: auto-replied` header (no robot answers it back):
 
 - **When the email is refused** (default): the reason (no space in the address, no right to
-  drop notes in this space or no such space, too large, too many attachments, likely secret).
-  A refused email is answered once, even if it is polled again;
+  drop notes in this space or no such space, too large, too many attachments or parts, likely
+  secret, space unavailable for 24 hours). A refused email is answered once, even if it is
+  polled again;
 - **Always**: also a confirmation with the link to the note;
 - **Never**.
 
-Only an **authenticated** sender who **has an account** is ever answered. An email that is
+An account gets at most 20 answers per hour: beyond that, the capture stops answering it for
+the hour, so that an auto-responder that ignores `Auto-Submitted` cannot start an endless
+exchange. Only an **authenticated** sender who **has an account** is ever answered. An email that is
 not authenticated, from an unknown address, or automatic (auto-reply, bounce, mailing list)
 is refused in silence. The tidy-up notice (filed where, or left why) still goes to the person
 as for every note they drop.

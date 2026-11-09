@@ -18,8 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole, SpaceRole
-from synaptane.core.errors import SynaptaneError
+from synaptane.core.errors import SynaptaneError, conflict
 from synaptane.core.metrics import Exposition
+from synaptane.git.repo import GitError
 from synaptane.services import (
     activity,
     deposits,
@@ -284,6 +285,213 @@ def test_unauthenticated_or_unknown_senders_are_refused_in_silence(
     assert smtp.messages == []  # never an answer: no backscatter
 
 
+FORGERIES = {
+    # The sender's own header, below the receiving server's (which found nothing).
+    "below": message(auth=[f"{TRUSTED}; dmarc=none", FORGED]),
+    # Another server's header on top: what is below is not looked at.
+    "other_server": message(auth=["mx.evil.test; dmarc=pass header.from=acme.test", FORGED]),
+    "lookalike_id": message(auth=f"{TRUSTED}.evil.test; dmarc=pass header.from=acme.test"),
+    "prefixed_id": message(auth=f"x{TRUSTED}; dmarc=pass header.from=acme.test"),
+    # The server's header folded over several lines still counts, and fails.
+    "folded": (
+        f"Authentication-Results: {TRUSTED};\r\n\tdmarc=fail\r\n header.from=acme.test\r\n"
+    ).encode()
+    + message(auth=FORGED),
+    "dmarc_other_domain": message(auth=f"{TRUSTED}; dmarc=pass header.from=evil.test"),
+    # Alice for Python, Eve for the receiving server: DMARC passed for evil.test.
+    "display_name": message(
+        sender="alice@acme.test <eve@evil.test>",
+        auth=f"{TRUSTED}; dkim=pass header.d=evil.test; dmarc=pass",
+    ),
+    "encoded_word": message(
+        sender="=?utf-8?b?YWxpY2VAYWNtZS50ZXN0?= <eve@evil.test>",
+        auth=f"{TRUSTED}; dmarc=pass header.from=evil.test",
+    ),
+    "parent_tld": message(auth=f"{TRUSTED}; dkim=pass header.d=test"),
+    "comment": message(
+        auth=f'{TRUSTED}; spf=pass (domain of "a) ; dmarc=pass header.from=acme.test (b"@evil.test)'
+        " smtp.mailfrom=b@evil.test"
+    ),
+    "two_dmarc": message(
+        auth=f"{TRUSTED}; spf=pass smtp.helo=x;dmarc=pass header.from=acme.test; dmarc=none "
+        "header.from=acme.test"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(FORGERIES))
+def test_forged_authentication_results_are_refused(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    smtp: Inbox,
+    name: str,
+) -> None:
+    server.deliver(FORGERIES[name])
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["not_authenticated"] and notes(wiki, ctx) == []
+    assert smtp.messages == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "reason"),
+    [
+        (message().replace(b"From: ", b"From: eve@evil.test\nFrom: ", 1), "malformed"),
+        (message(sender="g: alice@acme.test, eve@evil.test;"), "malformed"),
+        (message(sender="\u0430lice@acme.test"), "unknown_sender"),  # Cyrillic "а"
+        (message(sender="alice+capture@acme.test"), "unknown_sender"),
+        (message(sender="ALICE@ACME.TEST", subject="Casse"), ""),  # the same address
+    ],
+)
+def test_the_sender_is_exactly_the_verified_address(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    smtp: Inbox,
+    raw: bytes,
+    reason: str,
+) -> None:
+    server.deliver(raw)
+    poll(database, ctx)
+    assert reasons(db) == [reason] and smtp.messages == []
+
+
+def test_an_envelope_header_written_by_the_sender_only_aims_at_spaces_they_may_drop_in(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server
+) -> None:
+    """Anyone can write `Delivered-To` in their own email: it names the space like the real
+    one, so the right to drop notes is checked for the space it names, as for any other."""
+    forged = {"Delivered-To": "brain+acme.autre@capture.test"}
+    server.deliver(message(headers=forged))
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["no_access"] and notes(wiki, ctx) == []
+    assert notes(wiki, ctx, wiki.other) == []
+
+
+def test_a_space_unavailable_for_a_day_refuses_the_email(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    smtp: Inbox,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repository that keeps failing must not have its emails read again at every poll
+    forever: after MAX_DEFERRAL, refused, and the sender told."""
+
+    def broken(*_args: object, **_kwargs: object) -> str:
+        raise GitError("push refused")
+
+    monkeypatch.setattr(deposits, "deposit", broken)
+    server.deliver(message(subject="Bloqué"))
+    assert poll(database, ctx).deferred == 1
+    db.expire_all()
+    [row] = db.scalars(select(EmailCapture)).all()
+    first = row.at
+    assert poll(database, ctx).deferred == 1  # the first deferral is what counts
+    db.expire_all()
+    assert db.scalars(select(EmailCapture)).one().at == first
+    row.at = datetime.now(UTC) - email_capture.MAX_DEFERRAL - timedelta(minutes=1)
+    db.commit()
+    assert poll(database, ctx).refused == 1
+    assert reasons(db) == ["unavailable"] and server.inbox() == []
+    [answer] = smtp.messages
+    assert "pendant 24 heures" in body_of(answer)
+
+
+def test_emails_left_for_later_do_not_hold_back_the_others(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = deposits.deposit
+
+    def busy(*args: object, **kwargs: object) -> str:
+        if kwargs.get("title") == "Bloqué":
+            raise conflict("The space is busy (synchronization in progress). Try again.")
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(deposits, "deposit", busy)
+    monkeypatch.setattr(email_capture, "MAX_PER_POLL", 1)
+    server.deliver(message(subject="Bloqué"))
+    server.deliver(message(subject="Bloqué"))
+    server.deliver(message(subject="Bon"))
+    summary = poll(database, ctx)
+    assert (summary.accepted, summary.deferred) == (1, 2)
+    assert [n.title for n in notes(wiki, ctx)] == ["Bon"] and len(server.inbox()) == 2
+
+
+def test_answers_to_an_account_are_capped_per_hour(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    smtp: Inbox,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An auto-responder that ignores `Auto-Submitted` and answers each refusal would
+    otherwise exchange emails with the capture forever."""
+    monkeypatch.setattr(email_capture, "MAX_ANSWERS_PER_HOUR", 2)
+    for _ in range(4):
+        server.deliver(message(sender="bob@acme.test"))  # a reader: refused, told why
+    assert poll(database, ctx).refused == 4
+    assert len(smtp.messages) == 2
+
+
+def test_a_too_complex_email_is_refused_without_being_parsed(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server, smtp: Inbox
+) -> None:
+    levels = 1000  # 67 KB: half a minute of Python's parser
+    parts = "".join(
+        f'--b{i - 1}\nContent-Type: multipart/mixed; boundary="b{i}"\n\n' for i in range(1, levels)
+    )
+    bomb = message().replace(
+        b"Content-Type: text/plain",
+        f'Content-Type: multipart/mixed; boundary="b0"\n\n{parts}--b{levels - 1}\n'
+        "Content-Type: text/plain".encode(),
+        1,
+    )
+    server.deliver(bomb.replace(b"alice@", b"inconnu@"))  # unknown: headers only, silent
+    server.deliver(bomb)
+    assert poll(database, ctx).refused == 2
+    assert reasons(db) == ["unknown_sender", "too_complex"]
+    [answer] = smtp.messages
+    assert "trop de parties" in body_of(answer)
+
+
+def test_an_unexpected_error_of_the_mailbox_is_kept_without_its_words(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    server: Server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def odd(_self: object) -> list[str]:
+        raise ValueError(f"odd answer, {server.password}")
+
+    monkeypatch.setattr(email_capture.Mailbox, "uids", odd)
+    summary = email_capture.poll(database, ctx)
+    assert "ValueError" in summary.error and server.password not in summary.error
+    db.expire_all()
+    row = db.get(CaptureSettings, 1)
+    assert row is not None and row.poll_error and server.password not in row.poll_error
+    with pytest.raises(email_capture.CaptureError) as caught:
+        email_capture.test(db, wiki.root, ctx.box, allow_plain=False)
+    assert server.password not in str(caught.value.label.params)
+    conf = email_capture._conf(row, ctx.box)
+    assert conf.password == server.password and server.password not in repr(conf)
+
+
 def test_account_checks_disabled_unverified_super_admin(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki, server: Server, smtp: Inbox
 ) -> None:
@@ -475,7 +683,9 @@ def test_busy_space_or_rate_limit_leaves_the_email_for_the_next_poll(
     monkeypatch.setattr(deposits, "MAX_DEPOSITS_PER_HOUR", 0)
     server.deliver(message())
     summary = poll(database, ctx)
-    assert summary.deferred == 1 and len(server.inbox()) == 1 and reasons(db) == []
+    assert summary.deferred == 1 and len(server.inbox()) == 1
+    db.expire_all()
+    assert [c.status for c in db.scalars(select(EmailCapture))] == ["deferred"]
     monkeypatch.setattr(deposits, "MAX_DEPOSITS_PER_HOUR", 120)
     assert poll(database, ctx).accepted == 1 and server.inbox() == []
 
@@ -601,6 +811,7 @@ def test_settings_are_validated(db: Session, ctx: Workspace, wiki: Wiki) -> None
         ({"interval": 0}, "Interval"),
         ({"replies": "maybe"}, "answers"),
         ({"password": ""}, "password"),
+        ({"password": "été-2026"}, "without accents"),  # imaplib sends it in ASCII
     ):
         with pytest.raises(SynaptaneError, match=re.escape(words)):
             email_capture.configure(db, wiki.root, ctx.box, **{**base, **change})  # type: ignore[arg-type]
