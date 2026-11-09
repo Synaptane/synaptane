@@ -721,7 +721,8 @@ def cmd_agents_runner(args: argparse.Namespace) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 2
     max_runs = str(args.max_runs if args.max_runs is not None else "")
-    max_runs = max_runs or os.environ.get("SYNAPTANE_AGENTS_MAX_RUNS", "").strip() or "2"
+    default = str(agents_runner.DEFAULT_MAX_RUNS)
+    max_runs = max_runs or os.environ.get("SYNAPTANE_AGENTS_MAX_RUNS", "").strip() or default
     if not max_runs.isdigit() or int(max_runs) < 1:
         print(f"Error: CLIs at a time (--max-runs): {max_runs!r}, 1 at least.", file=sys.stderr)
         return 2
@@ -842,7 +843,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-runs",
         type=int,
         default=None,
-        help="CLIs running at the same time, at most (default 2, $SYNAPTANE_AGENTS_MAX_RUNS)",
+        help="CLIs running at the same time, at most (default 1: they share an account, "
+        "$SYNAPTANE_AGENTS_MAX_RUNS)",
     )
     runner.set_defaults(handler=cmd_agents_runner)
 

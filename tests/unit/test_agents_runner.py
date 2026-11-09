@@ -2,10 +2,12 @@
 CLI apart (`agents_runner`). Real server on 127.0.0.1, real tool server, fake `claude` and
 `codex` (tests/fake_cli.py): the whole protocol, without any login or model call."""
 
+import itertools
 import json
 import logging
 import stat
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -241,18 +243,52 @@ def test_the_cli_stops_when_the_worker_hangs_up(agents: Agents) -> None:
     assert fake_cli.wait_for(lambda: not fake_cli.alive(pid) and agents.runner.running == 0)
 
 
-def test_beyond_its_runs_the_agents_container_says_to_retry(agents: Agents) -> None:
-    agents.runner.acquire()  # its only slot is taken
+def test_a_run_waits_its_turn_while_the_agents_container_is_busy(
+    agents: Agents, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One CLI at a time (the default): a run that arrives during another one waits for its
+    turn in the worker, a new try every BUSY_RETRY seconds, instead of failing."""
+    monkeypatch.setattr(agents_client, "BUSY_RETRY", 0.2)
+    agents.runner.acquire()  # its only slot is taken by another run
+    threading.Timer(1.0, agents.runner.release).start()  # which ends a second later
+    calls: list[tuple[str, dict[str, object]]] = []
+    run = cli_agents.run_agent(CLAUDE, "S", "P", [PING], handler_for(calls))
+    assert run.text == "Done: ok" and calls  # not lost
+    assert agents.runner.running == 0
+
+
+def test_past_its_wait_a_busy_run_is_retried_later(
+    agents: Agents, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agents_client, "BUSY_RETRY", 0.2)
+    monkeypatch.setattr(agents_client, "STATUS_WAIT", 0.5)
+    agents.runner.acquire()
     try:
-        with pytest.raises(AIError, match="already running 1 CLIs") as busy:
-            cli_agents.run_agent(CLAUDE, "S", "P", [PING], handler_for([]))
-        assert busy.value.transient
-        with pytest.raises(AIError, match="already running"):
+        with pytest.raises(agents_client.Busy, match="as many CLIs as it may") as busy:
+            cli_agents.run_agent(CLAUDE, "S", "P", [PING], handler_for([]), timeout=1)
+        assert busy.value.transient  # the job is retried later, with its backoff
+        with pytest.raises(agents_client.Busy):
             cli_agents.login_status("codex")
     finally:
         agents.runner.release()
     assert agents.fake.pids() == []
-    assert cli_agents.run_agent(CLAUDE, "S", "P", [PING], handler_for([])).text == "Done: ok"
+
+
+def test_waiting_for_a_turn_is_not_a_tight_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(agents_client, "BUSY_RETRY", 0.1)
+    tries: list[float] = []
+
+    def busy() -> None:
+        tries.append(time.monotonic())
+        raise agents_client.Busy("busy", transient=True)
+
+    with pytest.raises(agents_client.Busy):
+        agents_client.wait_turn(busy, 1.0)
+    gaps = [b - a for a, b in itertools.pairwise(tries)]
+    assert 3 <= len(tries) <= 11 and min(gaps) >= 0.1
+    other = AIError("refused")
+    with pytest.raises(AIError):  # any other error: no wait
+        agents_client.wait_turn(lambda: (_ for _ in ()).throw(other), 60)
 
 
 def test_stopping_the_agents_container_stops_its_clis(agents: Agents) -> None:

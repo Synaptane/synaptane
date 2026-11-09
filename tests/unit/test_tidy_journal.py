@@ -225,8 +225,9 @@ def test_next_run_is_imminent_when_due_and_absent_when_off() -> None:
         (AIError("The run exceeded the maximum time."), "run_timeout"),
         (
             AIError(
-                "The agents container is already running {n} CLIs: the run will be retried.",
-                n=2,
+                "The agents container is already running as many CLIs as it may ({n}): "
+                "the run will be retried.",
+                n=1,
             ),
             "agents_busy",
         ),

@@ -13,7 +13,8 @@ The worker sends each run (`agents_client`); this server:
 - launches the CLI exactly as the worker would (`cli_agents.run_cli`: same options, same
   environment, throwaway working folder), pointed at the tool server of the worker, at the
   address the request comes from: a caller cannot point the CLI elsewhere;
-- runs at most `max_runs` CLIs at a time (beyond: 503, the worker retries later), each for
+- runs at most `max_runs` CLIs at a time, 1 by default (beyond: 503, the worker waits for its
+  turn), each for
   at most `cli_agents.RUN_TIMEOUT`, and stops the CLI as soon as the worker hangs up;
 - answers with the kept output of the CLI (bounded, `cli_agents.MAX_KEPT`), never with its
   logins;
@@ -51,7 +52,11 @@ from synaptane.core.errors import Label
 log = logging.getLogger("synaptane.agents")
 
 DEFAULT_PORT = 8700
-DEFAULT_MAX_RUNS = 2
+# One CLI at a time by default: the CLIs of the agents container share its account, so one of
+# them, compromised, could read the run token of another running at the same time (its
+# environment in /proc, its MCP configuration) and use that run's tools, those of another
+# space or organization. More at once trades that separation for less waiting.
+DEFAULT_MAX_RUNS = 1
 MAX_BODY = 16 * 1024 * 1024  # instructions and prompt of a run
 POLL = 0.5  # seconds between two checks that the worker is still waiting
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,99}")
@@ -69,20 +74,23 @@ SECRET_VARIABLES = (
 
 
 class Refused(Exception):
-    def __init__(self, status: int, label: Label, transient: bool = False) -> None:
+    def __init__(
+        self, status: int, label: Label, transient: bool = False, busy: bool = False
+    ) -> None:
         super().__init__(str(label))
-        self.status, self.label, self.transient = status, label, transient
+        self.status, self.label, self.transient, self.busy = status, label, transient, busy
 
 
 def _answer(error: Refused | AIError, status: int | None = None) -> JSONResponse:
+    busy = isinstance(error, Refused) and error.busy
     if isinstance(error, Refused):
         label, transient, status = error.label, error.transient, error.status
     else:
         label, transient = error.label, error.transient
-    return JSONResponse(
-        {"error": json.loads(label.dumps(limit=2000)), "transient": transient},
-        status_code=status or 422,
-    )
+    answer = {"error": json.loads(label.dumps(limit=2000)), "transient": transient}
+    if busy:
+        answer["busy"] = True  # the worker waits for its turn (agents_client.wait_turn)
+    return JSONResponse(answer, status_code=status or 422)
 
 
 class _KeyGuard:
@@ -202,10 +210,12 @@ class Runner:
             raise Refused(
                 503,
                 Label(
-                    "The agents container is already running {n} CLIs: the run will be retried.",
+                    "The agents container is already running as many CLIs as it may ({n}): "
+                    "the run will be retried.",
                     n=self.max_runs,
                 ),
                 transient=True,
+                busy=True,
             )
         with self._lock:
             self.running += 1

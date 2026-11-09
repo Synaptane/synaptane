@@ -22,10 +22,13 @@ web container and do not reach it, read it there (`read_state`).
 import json
 import logging
 import os
+import random
 import re
 import secrets
 import socket
 import string
+import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -179,12 +182,17 @@ def _label(data: object) -> Label:
         raise ValueError("not a message") from None
 
 
+class Busy(AIError):
+    """The agents container already runs as many CLIs as it may: wait for a turn."""
+
+
 def _error(data: object, status: int) -> AIError:
     """Error answered by the agents container (message to translate), or a generic one."""
     if isinstance(data, dict) and isinstance(data.get("error"), dict):
         try:
             label = _label(data["error"])
-            return AIError(label.template, transient=bool(data.get("transient")), **label.params)
+            kind = Busy if data.get("busy") is True else AIError
+            return kind(label.template, transient=bool(data.get("transient")), **label.params)
         except ValueError:
             pass  # not a message of the agents container: the generic error below
     if status == 401:
@@ -247,6 +255,28 @@ def _call(method: str, path: str, body: dict[str, Any] | None, timeout: float) -
     return data
 
 
+# Waiting for a turn when the agents container is busy: a new try every BUSY_RETRY seconds
+# (plus a random share, so that several workers do not come back together).
+BUSY_RETRY = 10.0
+STATUS_WAIT = 180.0  # longest wait of a connection test for its login check
+
+
+def wait_turn[T](call: Callable[[], T], wait: float) -> T:
+    """`call`, tried again while the agents container is busy, for at most `wait` seconds:
+    a run is not failed (nor counted as an attempt) because another one is in progress; past
+    `wait`, the Busy error goes up, transient, and the job is retried later."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            return call()
+        except Busy:
+            pause = BUSY_RETRY + random.uniform(0, BUSY_RETRY / 2)
+            if time.monotonic() + pause > deadline:
+                raise
+            log.info("Agents container busy: next try in %.0f s.", pause)
+            time.sleep(pause)
+
+
 def run(
     provider: str,
     model: str,
@@ -259,19 +289,23 @@ def run(
     """A run in the agents container; its CLI reaches the tool server at this worker's
     address, on `port`. Blocks until the end of the run; if the worker gives up (time limit,
     stop), the connection closes and the agents container stops the CLI."""
-    data = _call(
-        "POST",
-        "/v1/run",
-        {
-            "provider": provider,
-            "model": model,
-            "system": system,
-            "prompt": prompt,
-            "port": port,
-            "token": token,
-            "timeout": int(timeout),
-        },
-        timeout + MARGIN,
+    data = wait_turn(
+        lambda: _call(
+            "POST",
+            "/v1/run",
+            {
+                "provider": provider,
+                "model": model,
+                "system": system,
+                "prompt": prompt,
+                "port": port,
+                "token": token,
+                "timeout": int(timeout),
+            },
+            timeout + MARGIN,
+        ),
+        # As long as one run of this length: the one in progress has ended by then.
+        timeout,
     )
     try:
         return Completed.from_json(data)
@@ -281,7 +315,9 @@ def run(
 
 def status(provider: str) -> Label:
     """Login state of a CLI, in the agents container (`cli_agents.local_login_status`)."""
-    data = _call("POST", "/v1/status", {"provider": provider}, STATUS_TIMEOUT)
+    data = wait_turn(
+        lambda: _call("POST", "/v1/status", {"provider": provider}, STATUS_TIMEOUT), STATUS_WAIT
+    )
     try:
         return _label(data.get("message") if isinstance(data, dict) else None)
     except ValueError:
