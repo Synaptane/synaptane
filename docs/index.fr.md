@@ -17,7 +17,11 @@ assistant IA via MCP, et rangés chaque nuit par un agent IA. Commencez par les
 ## Administration
 
 - [Installer et exploiter Synaptane](admin/installation.fr.md) : Docker Compose ou depuis
-  les sources, mises à jour, référence de la configuration.
+  les sources, mises à jour, retour en arrière.
+- [Configuration](admin/configuration.fr.md) : options et variables, e-mails et invitations,
+  index de recherche, alertes, supervision, journal d'audit, rôles.
+- [Premiers pas](admin/first-steps.fr.md) : organisations, espaces et membres, puis les
+  données de démonstration pour essayer Synaptane.
 - [Dépôts Git](admin/git.fr.md) : relier un espace à son dépôt, synchronisation, conflits.
 - [IA et rangement](admin/ai.fr.md) : fournisseurs et abonnements, rangement nocturne,
   vocation et consignes, routines, coût et budget, recherche par le sens.

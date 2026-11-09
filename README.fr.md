@@ -293,6 +293,7 @@ Chaque page existe en anglais et en français. Commencez par le
 - **Utilisateurs :** [brancher son assistant IA (MCP)](docs/guide/mcp.fr.md),
   [lire, écrire et chercher dans le wiki](docs/guide/wiki.fr.md).
 - **Administration :** [installation](docs/admin/installation.fr.md),
+  [configuration](docs/admin/configuration.fr.md), [premiers pas](docs/admin/first-steps.fr.md),
   [dépôts Git](docs/admin/git.fr.md), [IA et rangement](docs/admin/ai.fr.md),
   [SSO](docs/admin/sso.fr.md), [webhooks](docs/admin/webhooks.fr.md),
   [sauvegarde et restauration](docs/admin/backup.fr.md),
