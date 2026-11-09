@@ -33,8 +33,8 @@ of the target version.
 
 ### Upgrade
 - One migration (`0035`), applied at startup: three columns on spaces and an empty table of
-  the problems left. No existing row changes. Maintenance starts from each space's head at its
-  first sync after the upgrade: the past is not caught up.
+  the problems left. No existing column changes. Maintenance starts from each space's last
+  synchronized head: the past is not caught up.
 
 ## [1.15.0] - 2026-11-09
 

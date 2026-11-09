@@ -193,14 +193,13 @@ def test_no_catching_up_and_at_most_ten_problems_a_night(
 ) -> None:
     tidy.update_settings(db, wiki.root, wiki.infra, maintain=False)
     db.commit()
-    tidy.update_settings(db, wiki.root, wiki.infra, maintain=True)  # turned on again
-    db.commit()
-    assert space(db, wiki).maintain_watermark is None
     batch: dict[str, str | None] = {
         f"content/lot/p{n}.md": f"# P{n}\n\n[Ailleurs](x{n}.md)\n" for n in range(12)
     }
-    wiki.remote.push(batch, "Lot 1")
+    wiki.remote.push(batch, "Lot 1")  # while off
     git_sync.run_sync(database, ctx, wiki.infra.id)
+    tidy.update_settings(db, wiki.root, space(db, wiki), maintain=True)  # turned on again
+    db.commit()
     watermark = space(db, wiki).maintain_watermark
     assert watermark == ctx.local_repository(wiki.infra).head()  # the past is not caught up
     assert pending(db, ctx, wiki) is None
@@ -294,7 +293,8 @@ def test_the_setting_in_the_web_and_in_rest(
     }
     client.post("/o/acme/infra/-/tidy-settings", data=form)
     found = space(db, wiki)
-    assert found.tidy_maintain and found.maintain_watermark is None  # from the head, later
+    # From the last synchronized head: the time it was off is not caught up.
+    assert found.tidy_maintain and found.maintain_watermark == found.remote_head
 
 
 def test_a_very_long_link_left_does_not_make_every_run_fail(
@@ -355,3 +355,23 @@ def test_a_fix_lost_in_a_conflict_is_not_taken_for_a_problem_left(
     assert db.scalars(select(MaintenanceMark)).all() == []
     assert space(db, wiki).maintain_watermark == watermark
     assert problems(pending(db, ctx, wiki)) == [("not_in_index", "nouveau.md", "README.md")]
+
+
+def test_the_first_edit_after_turning_it_on_counts(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Turned on again, maintenance starts from the last synchronized head: the edit that
+    triggers the next sync is not taken for the past."""
+    tidy.update_settings(db, wiki.root, wiki.infra, maintain=False)
+    db.commit()
+    content.delete_file(db, database, wiki.alice, ctx, wiki.infra, "serveurs/proxmox.md")
+    db.commit()
+    git_sync.run_sync(database, ctx, wiki.infra.id)  # while off: the past
+    tidy.update_settings(db, wiki.root, space(db, wiki), maintain=True)
+    db.commit()
+    write(db, database, ctx, wiki, "a.md", "# A\n\n[B](b.md)\n")
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    assert problems(pending(db, ctx, wiki)) == [
+        ("broken_link", "a.md", "b.md"),
+        ("not_in_index", "a.md", "README.md"),
+    ]

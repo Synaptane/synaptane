@@ -10,8 +10,8 @@ agent fixes what is safe and leaves the rest, with a reason.
 
 No flood, no repetition:
 - the problems are counted from a watermark (`Space.maintain_watermark`): the head at the end
-  of the last run that was given all of them, or the head when maintenance was turned on (or
-  at the upgrade). The past is never caught up;
+  of the last run that was given all of them, or the last synchronized head when maintenance
+  was turned on (or at the upgrade). The past is never caught up;
 - only the commits of people count: Synaptane's own (tidy-up, routines…) are left out, since
   the tidy-up already fixes what it breaks (its end-of-run check);
 - at most MAX_PROBLEMS per night; the others wait for the next nights (the watermark only moves
@@ -362,8 +362,8 @@ def _move(session: Session, space: Space, old: str | None, new: str) -> bool:
 
 
 def start(session: Session, space: Space, head: str | None) -> None:
-    """Starting point, set by the sync: the head when maintenance starts (at the upgrade, or
-    once turned on again), so that nothing older is caught up."""
+    """Starting point, set by the sync when there is none (a space never synchronized at the
+    upgrade or when turned on): its first head, so that nothing older is caught up."""
     if head and space.tidy_maintain and not space.maintain_watermark:
         _move(session, space, None, head)
 
@@ -587,9 +587,11 @@ def settle(
 
 
 def turned_on(space: Space) -> None:
-    """Maintenance turned on again: it starts from the head at the next sync or run, without
-    catching up on the time it was off."""
-    space.maintain_watermark = None
+    """Maintenance turned on again: it starts from the last synchronized head, without catching
+    up on the time it was off. Not from the next sync: the edit that triggers it (every web
+    edit does) would be taken for the past. Never synchronized: from the first sync."""
+    space.maintain_watermark = space.remote_head
+    space.maintain_attempts = 0
 
 
 # --- Log: the problems in the reader's language ----------------------------------------------

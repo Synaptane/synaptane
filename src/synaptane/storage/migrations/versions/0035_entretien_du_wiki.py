@@ -1,11 +1,11 @@
 """Nightly wiki maintenance: the tidy-up also fixes the problems people introduced
 
 `spaces.tidy_maintain` turns it on per space (on by default: it only costs when there are
-problems); `spaces.maintain_watermark` is the commit the problems are counted from, empty
-until the next sync or run sets it to the head (no catching up on the past);
-`spaces.maintain_attempts` counts the runs interrupted in a row before the agent decided.
+problems); `spaces.maintain_watermark` is the commit the problems are counted from: the last
+synchronized head (no catching up on the past), or, for a space never synchronized, its first
+head; `spaces.maintain_attempts` counts the runs interrupted in a row before the agent decided.
 `maintenance_marks` remembers the problems the agent left, with their reason and the content
-of the page then. No existing row changes.
+of the page then. No existing column changes.
 
 Revision ID: 0035
 Revises: 0033
@@ -32,6 +32,8 @@ def upgrade() -> None:
         "spaces",
         sa.Column("maintain_attempts", sa.Integer(), server_default="0", nullable=False),
     )
+    # From the last synchronized head: the edit that triggers the next sync is not the past.
+    op.execute("UPDATE spaces SET maintain_watermark = remote_head")
     op.create_table(
         "maintenance_marks",
         sa.Column("space_id", sa.Uuid(), nullable=False),

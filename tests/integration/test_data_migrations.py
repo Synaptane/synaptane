@@ -19,6 +19,9 @@ rules (CHANGELOG):
   groups of its organization, and deleting the group or the invitation removes the link;
 - 0033: no capture by email is configured (nothing is read before the super admin sets it
   up), and what it remembers of an email outlives the space and the account it named.
+- 0035: the nightly maintenance is on everywhere and starts from each space's last
+  synchronized head (nothing is caught up, and the edit that triggers the next sync is not
+  taken for the past); a space never synchronized waits for its first sync.
 
 Same principle for every future migration that touches data.
 """
@@ -465,6 +468,48 @@ def test_email_capture_migration_starts_empty_and_keeps_no_content(
             )
             == []
         )
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_maintenance_migration_starts_from_the_last_synchronized_head(
+    new_database: Callable[[], str],
+) -> None:
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0033")
+    org, synced, never = uuid4(), uuid4(), uuid4()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO organizations (id, slug, name, description, created_at) "
+                    "VALUES (:id, 'acme', 'Acme', '', now())"
+                ),
+                {"id": org},
+            )
+            for space, slug, head in ((synced, "rh", "a" * 40), (never, "dev", None)):
+                connection.execute(
+                    text(
+                        "INSERT INTO spaces (id, org_id, slug, name, description, branch, "
+                        "created_at, sync_status, conflict_paths, tidy_enabled, tidy_time, "
+                        "tidy_timezone, embeddings_enabled, remote_head) VALUES (:id, :org, "
+                        ":slug, :slug, '', 'main', now(), 'ok', '[]', true, '02:00', 'UTC', "
+                        "false, :head)"
+                    ),
+                    {"id": space, "org": org, "slug": slug, "head": head},
+                )
+        command.upgrade(config, "0035")
+        with engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT slug, tidy_maintain, maintain_watermark, maintain_attempts FROM spaces"
+                )
+            ).all()
+        assert sorted(tuple(r) for r in rows) == [("dev", True, None, 0), ("rh", True, "a" * 40, 0)]
+        command.downgrade(config, "0033")
         command.upgrade(config, "head")
     finally:
         engine.dispose()
