@@ -15,6 +15,8 @@ images et pages HTML, et tout est cherchable. Vos assistants IA y cherchent et d
 qu'ils apprennent dans une inbox, via MCP. Chaque nuit, un agent IA range ces notes dans le
 wiki et commite le résultat.
 
+Site, documentation et démo en ligne : **[synaptane.com/fr](https://synaptane.com/fr/)**.
+
 [![Licence : Apache-2.0](https://img.shields.io/github/license/synaptane/synaptane)](LICENSE)
 [![CI](https://github.com/synaptane/synaptane/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/synaptane/synaptane/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Version](https://img.shields.io/github/v/release/synaptane/synaptane?sort=semver)](https://github.com/synaptane/synaptane/releases)

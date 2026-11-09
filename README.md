@@ -14,6 +14,8 @@ files: pages sit next to PDFs (scans included), Office documents, images and HTM
 everything is searchable. Your AI assistants search it and drop what they learn into an inbox
 over MCP. Every night, an AI agent files those notes into the wiki and commits the result.
 
+Website, documentation and live demo: **[synaptane.com](https://synaptane.com)**.
+
 [![License: Apache-2.0](https://img.shields.io/github/license/synaptane/synaptane)](LICENSE)
 [![CI](https://github.com/synaptane/synaptane/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/synaptane/synaptane/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Release](https://img.shields.io/github/v/release/synaptane/synaptane?sort=semver)](https://github.com/synaptane/synaptane/releases)
