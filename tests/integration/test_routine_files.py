@@ -404,7 +404,8 @@ def test_a_request_locked_by_a_reconciliation_is_not_left_without_a_task(
     """A synchronization (or a save) locks the space's routines while it reconciles them. The
     worker skips a locked row: the request must find a task again, otherwise the routine waits
     for its next slot, shown as "requested" all along."""
-    from tests.integration.test_routines import RoutineScript, configure_ai, create, queued
+    from tests.integration.test_routines import RoutineScript, create, queued
+    from tests.integration.test_tidy import configure_ai
 
     configure_ai(db, ctx, wiki)
     routine = create(db, database, ctx, wiki, "coherence")
