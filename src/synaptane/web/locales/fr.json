@@ -2125,5 +2125,7 @@
  "Files of the export not imported as they are (tables turned into pages, styles, icons)": "Fichiers de l'export non importés tels quels (tables changées en pages, styles, icônes)",
  "Import Obsidian, Notion, Confluence…": "Importer Obsidian, Notion, Confluence…",
  "Add a first page, drop a note, or import from Obsidian, Notion or Confluence": "Ajouter une première page, déposer une note, ou importer depuis Obsidian, Notion ou Confluence",
- "This is a Confluence XML export. Export the space in HTML instead: Space settings, Export space, HTML.": "C'est un export XML de Confluence. Exportez plutôt l'espace en HTML : Paramètres de l'espace, Exporter l'espace, HTML."
+ "This is a Confluence XML export. Export the space in HTML instead: Space settings, Export space, HTML.": "C'est un export XML de Confluence. Exportez plutôt l'espace en HTML : Paramètres de l'espace, Exporter l'espace, HTML.",
+ "too large to be converted ({max} MB maximum)": "trop grande pour être convertie ({max} Mo maximum)",
+ "cells longer than {size} KiB shortened in the index page and the properties": "cellules de plus de {size} Kio raccourcies dans la page d'index et les propriétés"
 }

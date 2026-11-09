@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from urllib.parse import unquote, urlsplit
 
+from synaptane.core.errors import Label
 from synaptane.core.html_markdown import escape
 from synaptane.core.markdown import link_refs
 from synaptane.services.freshness import FIELDS
@@ -59,6 +60,7 @@ _PROPERTY = re.compile(r"^([^:\n]{1,200}?):[ \t]*(.*)$")
 # take a time quadratic in the length of the cell.
 _RELATION = re.compile(r"(?:^|,)\s*([^,()]+?) \(([^()]*?([0-9a-f]{32})\.md)\)")
 MAX_ROWS = 20_000  # rows of a database shown in its index page
+MAX_CELL = 128 * 1024  # characters of a CSV cell, as the csv module's limit
 MAX_SHORTENED = 200  # characters of a shortened file name matched with the start of a title
 
 
@@ -124,9 +126,13 @@ class _Table:
 
 
 class Notion:
-    def __init__(self, entries: list[tuple[zipfile.ZipInfo, str]], read: Read) -> None:
-        """`entries`: each entry of the archive with its path in the export."""
+    def __init__(
+        self, entries: list[tuple[zipfile.ZipInfo, str]], read: Read, head: Read | None = None
+    ) -> None:
+        """`entries`: each entry of the archive with its path in the export; `head` reads the
+        start of an entry (to find a page's title), `read` all of it."""
         self.read = read
+        self.head = head or read
         self.entry = {path: info for info, path in entries}
         self.paths: dict[str, str] = {}  # export path → new path (files)
         self.folders: dict[str, str] = {}
@@ -134,6 +140,9 @@ class Notion:
         self.tables: dict[str, _Table] = {}  # index page → table
         self.table_sources: dict[str, str] = {}  # CSV of the export → index page
         self.properties: dict[str, list[tuple[str, str]]] = {}  # export path of a row page
+        self.columns: dict[str, set[str]] = {}  # property names of a row page
+        self.titles: dict[str, str] = {}  # export path of a page → its title
+        self.reasons: dict[str, Label] = {}
         self.links = Links()
         self.skipped: list[str] = []
         self.files: dict[str, set[str]] = {}  # export folder → its files
@@ -165,7 +174,8 @@ class Notion:
         for new, table in self.tables.items():
             source = self.entry[table.source].filename
             items.append(Item(source, new, made=partial(self._index, table)))
-        return Layout(items, sorted(self.entry[path].filename for path in self.skipped), self.links)
+        skipped = sorted(self.entry[path].filename for path in self.skipped)
+        return Layout(items, skipped, self.links, self.reasons)
 
     def _place(
         self, source: str, target: str, names: Names, files: set[str], folders: set[str]
@@ -183,6 +193,7 @@ class Notion:
             unit.title = unit.title or (match["title"] or "")
             if match["ext"] == ".md" and unit.page is None:
                 unit.page = path
+                unit.title = self._title(path, match["title"])
             elif match["ext"] == ".md":
                 plain_files.append(path)
             elif unit.table is None or (match["all"] and not unit.table.endswith("_all.csv")):
@@ -247,10 +258,14 @@ class Notion:
         assert unit.table is not None
         data = self.read(self.entry[unit.table])
         text = data.decode("utf-8", "replace").lstrip("﻿")
-        try:
-            rows = [row for row in csv.reader(io.StringIO(text)) if any(c.strip() for c in row)]
-        except csv.Error:
-            rows = []
+        rows, cut = _csv_rows(text)
+        rows = [row for row in rows if any(cell.strip() for cell in row)]
+        if cut:  # imported all the same, the long cells shortened: said at the check
+            self.skipped.append(unit.table)
+            self.reasons[self.entry[unit.table].filename] = Label(
+                "cells longer than {size} KiB shortened in the index page and the properties",
+                size=MAX_CELL // 1024,
+            )
         header = [" ".join(cell.split()) for cell in rows[0]] if rows else []
         table = _Table(
             clean_name(unit.title, "Database"), unit.table, index, header, rows[1 : MAX_ROWS + 1]
@@ -264,16 +279,36 @@ class Notion:
             for path in self.files.get(unit.folder, set())
             if (match := named(posixpath.basename(path))) is not None and match["ext"] == ".md"
         ]
-        table.pages = _match_rows([row[0] if row else "" for row in table.rows], pages)
+        stems = {
+            page: self._title(page, (named(posixpath.basename(page)) or {})["title"])
+            for page in pages
+        }
+        table.pages = _match_rows([row[0] if row else "" for row in table.rows], stems)
         for row, page in zip(table.rows, table.pages, strict=True):
             if page is None:
                 continue
+            self.columns[page] = set(header[1:])
             fields = []
             for key, value in zip(header[1:], row[1:], strict=False):
                 value = _without_relations(value)
                 if key and value:
                     fields.append((key, value))
             self.properties[page] = fields
+
+    def _title(self, path: str, written: str) -> str:
+        """Title of a page: its name in the export, or its `# Title` when the name is that title
+        shortened by Notion."""
+        if path in self.titles:
+            return self.titles[path]
+        title = written
+        start = self.head(self.entry[path]).decode("utf-8", "ignore").lstrip("﻿")
+        first = start.split("\n", 1)[0].strip() if "\n" in start else ""
+        if first.startswith("# "):
+            full = " ".join(first[2:].split())
+            if len(full) > len(written) and _key(full).startswith(_key(written)) and _key(written):
+                title = full
+        self.titles[path] = title
+        return title
 
     # Pages
 
@@ -346,8 +381,9 @@ class _PageConverter:
     def __call__(self, data: bytes) -> bytes:
         text = data.decode("utf-8", "replace").lstrip("﻿").replace("\r\n", "\n")
         fields = self.notion.properties.get(self.path)
-        if fields:
-            text = _without_properties(text, {key for key, _ in fields})
+        columns = self.notion.columns.get(self.path)
+        if columns:
+            text = _without_properties(text, columns)
         text = _cleaned(text)
         text = self._links(text)
         if fields:
@@ -385,18 +421,13 @@ def _without_relations(value: str) -> str:
     return ", ".join(match[1].strip() for match in _RELATION.finditer(value))
 
 
-def _match_rows(titles: list[str], pages: list[str]) -> list[str | None]:
+def _match_rows(titles: list[str], pages: dict[str, str]) -> list[str | None]:
     """Page of each row of a database. The CSV does not give it: rows are matched with the
     pages of the table's folder by title, exact first, then with case and punctuation
     ignored, then by its start (Notion shortens long file names)."""
 
-    def key(text: str) -> str:
-        return "".join(char for char in text.lower() if char.isalnum())
-
-    stems = {}
-    for page in sorted(pages):
-        match = named(posixpath.basename(page))
-        stems[page] = (match["title"] or "") if match else ""
+    key = _key
+    stems = {page: pages[page] for page in sorted(pages)}
     exact: dict[str, list[str]] = {}
     loose: dict[str, list[str]] = {}
     starts: dict[str, list[str]] = {}  # shortened names, by their key
@@ -434,6 +465,58 @@ def _match_rows(titles: list[str], pages: list[str]) -> list[str | None]:
                 found[row] = chosen
                 break
     return found
+
+
+def _key(text: str) -> str:
+    """A title with case and punctuation ignored."""
+    return "".join(char for char in text.lower() if char.isalnum())
+
+
+_CSV_FIELD = re.compile(r'"([^"]*(?:""[^"]*)*)"|([^,"\r\n]*)')
+_CSV_REST = re.compile(r"[^,\r\n]*")
+
+
+def _csv_rows(text: str) -> tuple[list[list[str]], bool]:
+    """Rows of a CSV, and whether cells were shortened. The csv module refuses a cell longer
+    than its limit (128 KiB), a limit shared by the whole process: such a file is read again
+    here, its long cells shortened to MAX_CELL characters."""
+    try:
+        return list(csv.reader(io.StringIO(text))), False
+    except csv.Error:
+        return _csv_fallback(text)
+
+
+def _csv_fallback(text: str) -> tuple[list[list[str]], bool]:
+    """Like the csv module (its default dialect), long cells shortened."""
+    rows: list[list[str]] = []
+    row: list[str] = []
+    position, line, cut = 0, 0, False
+    while True:
+        match = _CSV_FIELD.match(text, position)
+        assert match is not None  # the second branch matches the empty string
+        if match.group(1) is not None:
+            value, position = match.group(1).replace('""', '"'), match.end()
+        elif text.startswith('"', position):  # a quote never closed: the rest of the text
+            value, position = text[position + 1 :], len(text)
+        else:
+            value, position = match.group(2), match.end()
+        # Text after a closing quote, up to the next separator, belongs to the cell.
+        extra = _CSV_REST.match(text, position)
+        if extra is not None and extra.group():
+            value += extra.group()
+            position = extra.end()
+        if len(value) > MAX_CELL:
+            value, cut = value[:MAX_CELL] + "…", True
+        row.append(value)
+        if position < len(text) and text[position] == ",":
+            position += 1
+            continue
+        rows.append([] if row == [""] and position == line else row)  # an empty line
+        row = []
+        position += 2 if text.startswith("\r\n", position) else 1
+        line = position
+        if position >= len(text):
+            return rows, cut
 
 
 def _without_properties(text: str, keys: set[str]) -> str:

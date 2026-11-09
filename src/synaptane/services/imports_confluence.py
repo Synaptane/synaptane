@@ -22,9 +22,19 @@ import posixpath
 import re
 import zipfile
 from dataclasses import dataclass, field
+from functools import partial
 from urllib.parse import unquote, urlsplit
 
-from synaptane.core.html_markdown import Node, Writer, by_class, by_id, escape, parse
+from synaptane.core.errors import Label
+from synaptane.core.html_markdown import (
+    Node,
+    Writer,
+    by_class,
+    by_id,
+    destination,
+    escape,
+    parse,
+)
 from synaptane.services.imports_common import (
     Item,
     Layout,
@@ -34,9 +44,12 @@ from synaptane.services.imports_common import (
     clean_name,
     relative,
     split_name,
+    windows_path,
 )
 
 PAGE = re.compile(r"(?:^|_)(\d+)\.html?$")
+MAX_PAGE_HTML = 5 * 1024 * 1024  # bytes of a page's HTML: beyond, it is not converted
+_TOKEN = re.compile("\x00([0-9]+)\x00")  # a link written once the tree is known
 _SITE_PAGE = re.compile(r"/pages/(\d+)(?:/|$)")
 _PAGE_ID = re.compile(r"(?:^|&)pageId=(\d+)")
 
@@ -65,10 +78,32 @@ class _Page:
     parent: str | None = None  # in the export
     aliases: dict[str, str] = field(default_factory=dict)  # attachment → its real name
     order: int = 1 << 30
+    body: str = ""  # Markdown, links as tokens (`_Deferred`)
+    links: list[tuple[bool, str, str, bool]] = field(default_factory=list)
+
+
+class _Deferred(Writer):
+    """Writes a page before the tree is known: each link or image is a token, written by
+    `Confluence._made` once the new paths are. The HTML is parsed once."""
+
+    def __init__(self, page: _Page, shift: int) -> None:
+        super().__init__(shift=shift)
+        self.page = page
+
+    def _token(self, image: bool, text: str, href: str) -> str:
+        self.page.links.append((image, text, href, bool(self.in_table)))
+        return f"\x00{len(self.page.links) - 1}\x00"
+
+    def write_link(self, text: str, href: str) -> str:
+        return text if href.startswith("#") else self._token(False, text, href)
+
+    def write_image(self, alt: str, src: str) -> str:
+        return self._token(True, alt, src)
 
 
 def _read_html(data: bytes) -> Node:
-    return parse(data.decode("utf-8", "replace"))
+    # No NUL: it marks the links written later (`_Deferred`).
+    return parse(data.decode("utf-8", "replace").replace("\x00", ""))
 
 
 class Confluence:
@@ -80,6 +115,7 @@ class Confluence:
         self.by_id: dict[str, str] = {}  # page id → new path
         self.paths: dict[str, str] = {}  # export path → new path (pages and attachments)
         self.links = Links()
+        self.reasons: dict[str, Label] = {}
 
     def layout(self) -> Layout:
         skipped = []
@@ -90,7 +126,16 @@ class Confluence:
                 and path.lower().endswith((".html", ".htm"))
                 and path != "index.html"
             ):
-                self.pages[path] = self._summary(path)
+                info = self.entry[path]
+                data = self.read(info) if info.file_size <= MAX_PAGE_HTML else b""
+                if info.file_size > MAX_PAGE_HTML or len(data) > MAX_PAGE_HTML:
+                    skipped.append(info.filename)
+                    self.reasons[info.filename] = Label(
+                        "too large to be converted ({max} MB maximum)",
+                        max=MAX_PAGE_HTML // 1024 // 1024,
+                    )
+                    continue
+                self.pages[path] = self._summary(path, data)
             elif path.startswith("attachments/") and not path.startswith("attachments/thumbnails/"):
                 attachments.append(path)
             else:
@@ -129,22 +174,19 @@ class Confluence:
                 self.paths[page.path] = new
                 if page.id:
                     self.by_id[page.id] = new
-        for path in orphans:
-            self.paths[path] = path
+        for path in orphans:  # their page is not in the export: where they were
+            self.paths[path] = windows_path(path)
         items = [
-            Item(
-                self.entry[path].filename,
-                new,
-                self.entry[path],
-                _PageConverter(self, path, new) if path in self.pages else None,
-            )
+            Item(self.entry[path].filename, new, made=partial(self._made, path, new))
+            if path in self.pages
+            else Item(self.entry[path].filename, new, self.entry[path])
             for path, new in self.paths.items()
         ]
-        return Layout(items, sorted(skipped), self.links)
+        return Layout(items, sorted(skipped), self.links, self.reasons)
 
-    def _summary(self, path: str) -> _Page:
-        """Title, parent and attachment names of a page, from its HTML."""
-        doc = _read_html(self.read(self.entry[path]))
+    def _summary(self, path: str, data: bytes) -> _Page:
+        """Title, parent, attachment names and content of a page, from its HTML."""
+        doc = _read_html(data)
         match = PAGE.search(path)
         page = _Page(path, match.group(1) if match else "", "")
         crumbs = doc.find(by_id("breadcrumbs"))
@@ -175,6 +217,7 @@ class Confluence:
                 page.aliases[target] = given
             elif text and ext and text.lower().endswith(ext) and target not in page.aliases:
                 page.aliases[target] = text
+        page.body = self._body(doc, page)
         return page
 
     def _tree(self) -> None:
@@ -216,6 +259,48 @@ class Confluence:
                     break
                 seen.add(parent)
                 parent = self.pages[parent].parent
+
+    def _body(self, doc: Node, page: _Page) -> str:
+        main = (
+            doc.find(by_id("main-content"))
+            or doc.find(by_class("wiki-content"))
+            or doc.find(lambda n: n.tag == "body")
+            or doc
+        )
+        shift = 1 if main.find(lambda n: n.tag == "h1") is not None else 0
+        writer = _Deferred(page, shift)
+        parts = []
+        metadata = doc.find(by_class("page-metadata"))
+        if metadata is not None and metadata.text():
+            parts.append(f"*{escape(metadata.text())}*")
+        parts.append(writer.markdown(main))
+        for section in doc.find_all(by_class("pageSection")):
+            above = _ancestor(section, "div")
+            while above is not None and "pageSection" not in above.classes:
+                above = _ancestor(above, "div")
+            if above is None and not _inside(section, main) and not _inside(main, section):
+                parts.append(writer.markdown(section))
+        return "\n\n".join(part.strip() for part in parts if part.strip())
+
+    def _made(self, path: str, new: str) -> bytes:
+        """The page in Markdown, its links leading to the new paths."""
+        page = self.pages[path]
+
+        def written(match: re.Match[str]) -> str:
+            image, text, href, in_table = page.links[int(match.group(1))]
+            target = self.target(href, path, new, image)
+            if not target:
+                return "" if image else text
+            if image:
+                link = f"![{text}]({destination(target)})"
+            else:
+                link = f"[{text or escape(target)}]({destination(target)})"
+            return link.replace("|", "\\|") if in_table else link
+
+        body = _TOKEN.sub(written, page.body)
+        return (
+            "\n\n".join(part for part in (f"# {escape(page.title)}", body) if part).encode() + b"\n"
+        )
 
     def target(self, href: str, path: str, new: str, image: bool = False) -> str | None:
         """New address of a link (or image) of the page `path`, now `new`. None: dropped (an
@@ -280,39 +365,6 @@ def _first_page_link(item: Node) -> str | None:
             if target and target.lower().endswith((".html", ".htm")) and target != "index.html":
                 return target
     return None
-
-
-class _PageConverter:
-    def __init__(self, confluence: Confluence, path: str, new: str) -> None:
-        self.confluence, self.path, self.new = confluence, path, new
-
-    def __call__(self, data: bytes) -> bytes:
-        doc = _read_html(data)
-        page = self.confluence.pages[self.path]
-        main = (
-            doc.find(by_id("main-content"))
-            or doc.find(by_class("wiki-content"))
-            or doc.find(lambda n: n.tag == "body")
-            or doc
-        )
-        shift = 1 if main.find(lambda n: n.tag == "h1") is not None else 0
-        writer = Writer(
-            lambda href: self.confluence.target(href, self.path, self.new),
-            lambda src: self.confluence.target(src, self.path, self.new, image=True),
-            shift,
-        )
-        parts = [f"# {escape(page.title)}"]
-        metadata = doc.find(by_class("page-metadata"))
-        if metadata is not None and metadata.text():
-            parts.append(f"*{escape(metadata.text())}*")
-        parts.append(writer.markdown(main))
-        for section in doc.find_all(by_class("pageSection")):
-            above = _ancestor(section, "div")
-            while above is not None and "pageSection" not in above.classes:
-                above = _ancestor(above, "div")
-            if above is None and not _inside(section, main) and not _inside(main, section):
-                parts.append(writer.markdown(section))
-        return ("\n\n".join(part.strip() for part in parts if part.strip()) + "\n").encode()
 
 
 def _inside(node: Node, container: Node) -> bool:

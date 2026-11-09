@@ -204,6 +204,11 @@ the tidy-up reviews it as one item, not page by page. Wiki links and
 [Obsidian syntax](../reference/repository-format.md) work as they are. Afterwards, **Health**
 lists the links that lead nowhere. An archive that is not imported is deleted after 24 hours.
 
+Whatever the format, a name Windows keeps for its devices (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to
+`COM9`, `LPT1` to `LPT9`, with or without an extension) gets a `_` (`con.md` becomes `con_.md`),
+so that the repository can be cloned on Windows; links to it in a vault are to be fixed by hand
+(**Health** lists them).
+
 ### From Notion
 
 1. In Notion, open the **⋯** menu of the page to export (or, for the whole workspace,
@@ -218,7 +223,8 @@ lists the links that lead nowhere. An archive that is not imported is deleted af
 What is converted:
 
 - **Names**: the 32-character id Notion adds to every page, folder and table
-  (`Notes 0123…abcd.md`) is removed. Two pages with the same title in a folder become `Notes.md`
+  (`Notes 0123…abcd.md`) is removed; a name Notion shortened takes the full title of its page
+  (100 characters at most). Two pages with the same title in a folder become `Notes.md`
   and `Notes (2).md` (case ignored, so the repository can be cloned on macOS and Windows). A page
   with subpages or files becomes the home page of its folder: `Notes/README.md`, with
   `Notes/Subpage.md` and `Notes/image.png`.
@@ -230,7 +236,9 @@ What is converted:
   `Tasks_all.csv`, the complete `_all` one is used. The properties of each row go to the
   front matter of its page (`Status: "Done"`), moved from the lines Notion writes under the
   title; a property named like a verification field of Synaptane (`owner`, `verified`,
-  `review_every`, `reconfirmed`) becomes `owner (Notion)`, so that it is not taken for one.
+  `review_every`, `reconfirmed`) becomes `owner (Notion)`, so that it is not taken for one. A
+  cell longer than 128 KiB is shortened in the index page and the front matter, and the check
+  says so.
 - **Blocks**: callouts (`<aside>`) become callouts, toggles (`<details>`) folded callouts
   (shown open), `<br>` a line break. The rest of Notion's Markdown is kept as it is.
 
@@ -259,10 +267,12 @@ What is converted:
   code blocks with their language, quotes, links and images become Markdown. Info, tip, note and
   warning panels become callouts with the same colour (`> [!info]`, `> [!tip]`, `> [!warning]`
   for a yellow note, `> [!danger]` for a red warning), an expand a folded callout (shown open),
-  a panel a callout with its title, a status a bold word, an emoticon its emoji. The page's "Created by … last modified on …" line is kept in italics, and its list
-  of attachments at the bottom.
+  a panel a callout with its title, a status a bold word, an emoticon its emoji. The page's
+  "Created by … last modified on …" line is kept in italics, and its list of attachments at the
+  bottom. A page whose HTML exceeds 5 MB is not converted: the check lists it with the reason.
 - **Attachments**: next to their page, under their real name (`attachments/65541/65601.png`
-  becomes `Procedures/Backup/network diagram.png`).
+  becomes `Procedures/Backup/network diagram.png`). An attachment whose page is not in the
+  export stays where it was, in `attachments/<page id>/`.
 - **Links**: links to a page or an attachment of the export are rewritten to the new paths, as
   are addresses of the Confluence site with the id of a page of the export
   (`…/pages/65540/…`, `viewpage.action?pageId=65540`). Links to pages that are not in the

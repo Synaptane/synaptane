@@ -1,17 +1,38 @@
 """Notion and Confluence exports laid out as a space: names, tree, links, databases, macros."""
 
+import csv
 import io
 import zipfile
 from collections.abc import Mapping
+from unittest.mock import patch
 
-from synaptane.services import imports
-from synaptane.services.imports_common import Layout, Names, clean_name, relative, split_name
-from synaptane.services.imports_notion import _cleaned, _match_rows, named, notion_id
+from synaptane.core import html_markdown
+from synaptane.core.html_markdown import escape
+from synaptane.services import imports, imports_confluence
+from synaptane.services.imports_common import (
+    Layout,
+    Names,
+    clean_name,
+    relative,
+    split_name,
+    windows_safe,
+)
+from synaptane.services.imports_notion import (
+    MAX_CELL,
+    _cleaned,
+    _csv_fallback,
+    _match_rows,
+    named,
+    notion_id,
+)
 from tests.exports import (
     ABSENT,
     PROJECTS,
+    REREAD,
+    SETUP,
     TASKS,
     WIKI,
+    WRITE,
     confluence_export,
     confluence_page,
     notion_export,
@@ -27,7 +48,7 @@ def converted(
         entries, _, obsidian = imports._entries(archive)
         detected = imports.detect([path for _, path in entries], obsidian)
         reader = imports._Reader(archive)
-        layout = imports._layout(kind or detected, entries, reader.read)
+        layout = imports._layout(kind or detected, entries, reader.read, reader.head)
         out: dict[str, str | bytes] = {}
         for item in layout.items:
             data = reader.read(item.info) if item.info is not None else b""
@@ -37,6 +58,11 @@ def converted(
                 data = item.convert(data)
             out[item.path] = data.decode() if item.path.endswith(".md") else data
     return out, layout, detected
+
+
+def titled(pages: list[str]) -> dict[str, str]:
+    """Pages with their title, as Notion names them."""
+    return {page: (named(page.rsplit("/", 1)[-1]) or {"title": ""})["title"] for page in pages}
 
 
 def page(out: dict[str, str | bytes], path: str) -> str:
@@ -308,12 +334,102 @@ def test_names_rows_and_lines_are_read_in_linear_time() -> None:
     assert taken[:2] == ["Untitled.md", "Untitled (2).md"] and taken[-1] == "Untitled (20000).md"
     assert len(set(taken)) == 20_000
     pages = [f"d/Untitled {n:032x}.md" for n in range(10_000)]
-    assert _match_rows([""] * 10_000, pages) == sorted(pages)
+    assert _match_rows([""] * 10_000, titled(pages)) == sorted(pages)
     long = [f"d/Ligne numéro {n:05d} au titre raccourci {n:032x}.md" for n in range(5_000)]
     titles = [f"Ligne numéro {n:05d} au titre raccourci par Notion" for n in range(5_000)]
-    assert _match_rows([*titles, "Ligne sans page au titre très long"], long) == [*long, None]
+    rows = [*titles, "Ligne sans page au titre très long"]
+    assert _match_rows(rows, titled(long)) == [*long, None]
 
 
 def test_a_shortened_name_matches_the_longest_start() -> None:
     pages = [f"d/Compte rendu {WIKI}.md", f"d/Compte rendu de la réunion {PROJECTS}.md"]
-    assert _match_rows(["Compte rendu de la réunion du lundi"], pages) == [pages[1]]
+    assert _match_rows(["Compte rendu de la réunion du lundi"], titled(pages)) == [pages[1]]
+
+
+def test_a_confluence_page_too_large_is_not_converted_and_each_page_is_parsed_once() -> None:
+    files = {
+        **confluence_export(),
+        "OPS/Huge_70000.html": confluence_page("Énorme", [("index.html", "Ops")], "x" * 20_000),
+    }
+    files["OPS/FAQ_65542.html"] = confluence_page(
+        "FAQ",
+        [("index.html", "Ops"), ("Ops-Home_65538.html", "Ops Home")],
+        "<p><a href='Huge_70000.html'>énorme</a></p><table><tr><td>"
+        "<a href='Ops-Home_65538.html'>a|b</a></td></tr></table>",
+    )
+    with (
+        patch.object(imports_confluence, "MAX_PAGE_HTML", 15_000),
+        patch.object(imports_confluence, "parse", wraps=html_markdown.parse) as parsed,
+    ):
+        out, layout, _ = converted(files)
+    assert parsed.call_count == 5  # four pages (not the one too large), and index.html
+    assert "Énorme.md" not in out and "OPS/Huge_70000.html" in layout.skipped
+    assert str(layout.reasons["OPS/Huge_70000.html"]) == "too large to be converted (0 MB maximum)"
+    faq = page(out, "Ops Home/FAQ.md")
+    assert "[énorme](Huge_70000.html)" in faq  # left as written, and listed as broken
+    assert "| [a\\|b](README.md) |" in faq
+    assert ("Ops Home/FAQ.md", "Huge_70000.html") in layout.links.broken
+
+
+def test_a_csv_with_cells_too_long_for_the_csv_module() -> None:
+    long = "é" * (MAX_CELL + 10)
+    files: dict[str, bytes | str] = {
+        f"Base {TASKS}.csv": f'Name,Notes\nA,"{long}"\nB,"court ""cité"""\n',
+        f"Base {TASKS}/A {WRITE}.md": "# A\n\nNotes: x\n\nCorps\n",
+    }
+    out, layout, _ = converted(files)
+    index = page(out, "Base/README.md")
+    assert "| [A](A.md) | " + "é" * 100 in index and '| B | court "cité" |' in index
+    assert f"Base {TASKS}.csv" in layout.skipped
+    assert "shortened" in str(layout.reasons[f"Base {TASKS}.csv"])
+    assert page(out, "Base/A.md").startswith('---\nNotes: "' + "é" * 100)
+    odd = 'a,"b\r\nc"\r\n"d""e",f"g\n"h,"i"j,,\n\n'
+    assert _csv_fallback(odd) == (list(csv.reader(io.StringIO(odd))), False)
+    rows, cut = _csv_fallback('x,"' + "y" * (MAX_CELL + 1) + '"\n"ouvert,jamais fermé')
+    assert cut and rows[0][1] == "y" * MAX_CELL + "…" and rows[1] == ["ouvert,jamais fermé"]
+
+
+def test_a_shortened_notion_name_takes_the_title_of_its_page() -> None:
+    full = "Compte rendu de la réunion trimestrielle de l'équipe infrastructure et réseau, Lyon"
+    short = full[:50].rstrip()
+    files: dict[str, bytes | str] = {
+        f"Base {TASKS}.csv": f'Name,Status\n"{full}",Done\n',
+        f"Base {TASKS}/{short} {WRITE}.md": f"# {full}\n\nStatus: Done\n\nCorps\n",
+        f"Autre titre {REREAD}.md": "# Un titre sans rapport\n",
+        f"{'x' * 120} {SETUP}.md": "# " + "x" * 150 + "\n",
+    }
+    out, _, _ = converted(files)
+    assert f"Base/{full}.md" in out and "Autre titre.md" in out
+    assert f"[{escape(full)}](<{full}.md>)" in page(out, "Base/README.md")
+    assert "x" * 100 + ".md" in out  # within the length of a name
+
+
+def test_names_reserved_by_windows_are_renamed() -> None:
+    names = Names()
+    taken = [names.take("CON", ".md"), names.take("aux"), names.take("nul.tar", ".gz")]
+    assert taken == ["CON_.md", "aux_", "nul_.tar.gz"]
+    assert [names.take("com1 ", ".txt"), names.take("COM10"), names.take("Console", ".md")] == [
+        "com1 _.txt",
+        "COM10",
+        "Console.md",
+    ]
+    assert windows_safe("LPT9") == "LPT9_" and windows_safe("prn.") == "prn_."
+    out, _, _ = converted({"con.md": "# Con", "Aux/notes.md": "# N", "lpt1.png": b"x"})
+    assert set(out) == {"con_.md", "Aux_/notes.md", "lpt1_.png"}
+    out, _, _ = converted({f"CON {WIKI}.md": "# CON\n", f"Nul {TASKS}.csv": "Name\n"})
+    assert set(out) == {"CON_.md", "Nul_.md"}
+    files = {**confluence_export(), "OPS/attachments/77777/prn.txt": "x"}
+    out, _, _ = converted(files)
+    assert "attachments/77777/prn_.txt" in out
+    titled_page = confluence_page("COM3", [("index.html", "Ops")], "<p>x</p>")
+    out, _, _ = converted({"index.html": "", "COM3_5.html": titled_page})
+    assert set(out) == {"COM3_.md"}
+
+
+def test_empty_property_lines_leave_the_page_too() -> None:
+    files: dict[str, bytes | str] = {
+        f"Base {TASKS}.csv": "Name,Status,owner,Due\nRelire,,,\n",
+        f"Base {TASKS}/Relire {REREAD}.md": "# Relire\n\nStatus:\nowner: \nDue:\n\nÀ relire.\n",
+    }
+    out, _, _ = converted(files)
+    assert page(out, "Base/Relire.md") == "# Relire\n\nÀ relire.\n"

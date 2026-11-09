@@ -660,6 +660,10 @@ class Writer:
         href = node.get("href").strip()
         if not href or not safe_url(href):
             return text
+        return self.write_link(text, href)
+
+    def write_link(self, text: str, href: str) -> str:
+        """A link whose address is safe: where it leads is the caller's (`link`)."""
         target = self.link(href)
         if not target:
             return text
@@ -677,10 +681,13 @@ class Writer:
         alt = " ".join(node.get("alt").split())
         if not src or not safe_url(src) or src.lower().startswith("data:"):
             return ""
+        return self.write_image(escape(alt), src)
+
+    def write_image(self, alt: str, src: str) -> str:
         target = self.image(src)
         if not target:
             return ""
-        return f"![{escape(alt)}]({destination(target)})"
+        return f"![{alt}]({destination(target)})"
 
 
 def to_markdown(

@@ -8,12 +8,19 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from synaptane.core.errors import Label
+
 Read = Callable[[zipfile.ZipInfo], bytes]  # bounded read of an archive entry
 MAX_BROKEN = 1000  # broken links listed by the check; beyond that, only counted
 NAME_LENGTH = 100  # characters of a file or folder name made from a title
 # Control characters, separators, and the bidirectional controls that would show a name the
 # wrong way round (`Report\u202egnp.md`, read as "Reportdm.png").
-_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f/\\\u202a-\u202e\u2066-\u2069]+")
+_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f/\\\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+")
+# Names Windows keeps for its devices, with or without an extension: a repository holding
+# `con.md` or `aux/` cannot be cloned there.
+RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
+    f"{kind}{n}" for kind in ("COM", "LPT") for n in range(1, 10)
+}
 
 
 @dataclass
@@ -48,6 +55,20 @@ class Layout:
     items: list[Item] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)  # entries of the export not imported
     links: Links = field(default_factory=Links)
+    reasons: dict[str, Label] = field(default_factory=dict)  # why, for some of the skipped
+
+
+def windows_safe(name: str) -> str:
+    """A file or folder name usable on Windows: `CON`, `con.md`, `Aux.tar.gz` get a `_` after
+    the reserved word (`CON_`, `con_.md`, `Aux_.tar.gz`)."""
+    stem = name.split(".", 1)[0]
+    if stem.rstrip(" ").upper() in RESERVED:
+        return stem + "_" + name[len(stem) :]
+    return name
+
+
+def windows_path(path: str) -> str:
+    return "/".join(windows_safe(part) for part in path.split("/"))
 
 
 def clean_name(title: str, fallback: str = "Untitled") -> str:
@@ -78,6 +99,8 @@ class Names:
 
     def take(self, name: str, suffix: str = "") -> str:
         """`suffix`: the extension of a file, "" for a folder."""
+        safe = windows_safe(name + suffix)
+        name = safe[: len(safe) - len(suffix)]
         # The numbers already given to this name are taken: not tried again (a thousand
         # "Untitled" would otherwise take a time quadratic in their number).
         number = self.tried.get((name.lower(), suffix.lower()), 1)

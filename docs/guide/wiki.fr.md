@@ -223,6 +223,11 @@ rangement l'examine comme un seul élément, pas page par page. Les liens wiki e
 **Santé** liste les liens qui ne mènent nulle part. Une archive qui n'est pas importée est
 supprimée au bout de 24 heures.
 
+Quel que soit le format, un nom que Windows réserve à ses périphériques (`CON`, `PRN`, `AUX`,
+`NUL`, `COM1` à `COM9`, `LPT1` à `LPT9`, avec ou sans extension) reçoit un `_` (`con.md` devient
+`con_.md`), pour que le dépôt se clone sous Windows ; les liens vers lui dans un coffre sont à
+corriger à la main (**Santé** les liste).
+
 ### Depuis Notion
 
 1. Dans Notion, ouvrez le menu **⋯** de la page à exporter (ou, pour tout l'espace de travail,
@@ -239,7 +244,8 @@ supprimée au bout de 24 heures.
 Ce qui est converti :
 
 - **Noms** : l'identifiant de 32 caractères que Notion ajoute à chaque page, dossier et table
-  (`Notes 0123…abcd.md`) est retiré. Deux pages de même titre dans un dossier deviennent
+  (`Notes 0123…abcd.md`) est retiré ; un nom raccourci par Notion prend le titre complet de sa
+  page (100 caractères au plus). Deux pages de même titre dans un dossier deviennent
   `Notes.md` et `Notes (2).md` (casse ignorée, pour que le dépôt se clone sous macOS et Windows).
   Une page qui a des sous-pages ou des fichiers devient la page d'accueil de son dossier :
   `Notes/README.md`, avec `Notes/Sous-page.md` et `Notes/image.png`.
@@ -252,7 +258,8 @@ Ce qui est converti :
   ligne vont dans le front matter de sa page (`Status: "Done"`), déplacées depuis les lignes que
   Notion écrit sous le titre ; une propriété nommée comme un champ de vérification de Synaptane
   (`owner`, `verified`, `review_every`, `reconfirmed`) devient `owner (Notion)`, pour ne pas
-  être prise pour lui.
+  être prise pour lui. Une cellule de plus de 128 Kio est raccourcie dans la page d'index et le
+  front matter, et le contrôle le signale.
 - **Blocs** : les encadrés (`<aside>`) deviennent des encadrés, les blocs dépliables
   (`<details>`) des encadrés repliables (affichés ouverts), `<br>` un saut de ligne. Le reste du
   Markdown de Notion est gardé tel quel.
@@ -287,9 +294,11 @@ Ce qui est converti :
   avertissement rouge), un bloc dépliable un encadré repliable (affiché ouvert), un panneau un
   encadré avec son titre, un statut un mot en gras, une émoticône son emoji. La ligne « Créé
   par … modifié le … » de la page est gardée en italique, et la liste de ses pièces jointes en
-  bas.
+  bas. Une page dont le HTML dépasse 5 Mo n'est pas convertie : le contrôle la liste avec la
+  raison.
 - **Pièces jointes** : à côté de leur page, sous leur vrai nom (`attachments/65541/65601.png`
-  devient `Procédures/Backup/schéma réseau.png`).
+  devient `Procédures/Backup/schéma réseau.png`). Une pièce jointe dont la page n'est pas dans
+  l'export reste où elle était, dans `attachments/<id de la page>/`.
 - **Liens** : les liens vers une page ou une pièce jointe de l'export sont réécrits vers les
   nouveaux chemins, ainsi que les adresses du site Confluence portant l'identifiant d'une page de
   l'export (`…/pages/65540/…`, `viewpage.action?pageId=65540`). Les liens vers des pages absentes

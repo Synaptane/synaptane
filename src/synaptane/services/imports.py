@@ -46,7 +46,7 @@ from synaptane.services.content import (
     relative_path,
     writable,
 )
-from synaptane.services.imports_common import Item, Layout, Links, Read
+from synaptane.services.imports_common import Item, Layout, Links, Read, windows_path
 from synaptane.services.imports_confluence import Confluence, is_confluence, is_confluence_xml
 from synaptane.services.imports_notion import Notion, is_notion
 from synaptane.services.inbox import CONTENT_DIR
@@ -62,6 +62,7 @@ TOKEN = re.compile(r"[0-9a-f]{32}")
 # System leftovers; anything starting with a dot is left out too (.obsidian, .trash, .git).
 LEFT_OUT = {"__MACOSX", "Thumbs.db", "desktop.ini"}
 CHUNK = 1024 * 1024
+HEAD = 4096  # bytes read to find the title of a Notion page
 # Formats of an archive, recognized or chosen at the check.
 FORMATS = {
     "obsidian": Label("Obsidian vault"),
@@ -102,6 +103,7 @@ class Plan:
     too_large: list[str] = field(default_factory=list)
     refused: list[str] = field(default_factory=list)  # unsafe path, link, encrypted
     skipped: list[str] = field(default_factory=list)  # files of the export not imported
+    reasons: dict[str, Label] = field(default_factory=dict)  # why, for some of the skipped
     links: Links = field(default_factory=Links)  # links of the converted pages
     left_out: int = 0
 
@@ -346,13 +348,25 @@ class _Reader:
                 )
         return data
 
+    def head(self, info: zipfile.ZipInfo) -> bytes:
+        """The first bytes of an entry (a page's title), "" if it cannot be read. Not counted:
+        HEAD bytes at most per entry."""
+        try:
+            with self.archive.open(info) as source:
+                return source.read(HEAD)
+        except DAMAGED:
+            return b""
 
-def _layout(kind: str, entries: list[tuple[zipfile.ZipInfo, str]], read: Read) -> Layout:
+
+def _layout(
+    kind: str, entries: list[tuple[zipfile.ZipInfo, str]], read: Read, head: Read
+) -> Layout:
     if kind == "notion":
-        return Notion(entries, read).layout()
+        return Notion(entries, read, head).layout()
     if kind == "confluence":
         return Confluence(entries, read).layout()
-    return Layout([Item(info.filename, path, info) for info, path in entries])
+    # Kept as they are, but for the names Windows refuses (`con.md` becomes `con_.md`).
+    return Layout([Item(info.filename, windows_path(path), info) for info, path in entries])
 
 
 def plan(
@@ -381,8 +395,10 @@ def _check(
         result.refused = [path for info, path in entries if _unsafe(info) or not _plain(path)]
         entries = [(info, path) for info, path in entries if not _unsafe(info) and _plain(path)]
         reader = _Reader(archive)
-        layout = _layout(result.format, entries, reader.read)
-        result.skipped, result.links = layout.skipped, layout.links
+        layout = _layout(result.format, entries, reader.read, reader.head)
+        result.links, result.reasons = layout.links, layout.reasons
+        # With a reason (too large, cells shortened) first: never hidden past the list's end.
+        result.skipped = sorted(layout.skipped, key=lambda name: name not in layout.reasons)
         taken: set[str] = set()
         for item in sorted(layout.items, key=lambda item: item.path.split("/")):
             written = item.path

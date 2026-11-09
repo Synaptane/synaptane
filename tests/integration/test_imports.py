@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synaptane.core.errors import SynaptaneError
-from synaptane.services import content, imports
+from synaptane.services import content, imports, imports_confluence
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import Job
@@ -545,3 +545,24 @@ def test_a_zip_of_too_many_zips_is_refused(ctx: Workspace, wiki: Wiki) -> None:
     parts: dict[str, dict[str, str]] = {f"Part-{n}.zip": {} for n in range(3)}
     with patch.object(imports, "MAX_FILES", 2), pytest.raises(SynaptaneError, match="Too many"):
         imports.receive(wiki.alice, ctx, wiki.infra, sent({}, parts))
+
+
+def test_the_check_says_why_a_file_of_an_export_is_left_out(client: TestClient, wiki: Wiki) -> None:
+    files = {
+        **confluence_export(),
+        "OPS/Huge_70000.html": confluence_page("Énorme", [("index.html", "Ops")], "x" * 20_000),
+    }
+    login(client, "alice")
+    response = client.post(
+        "/o/acme/infra/-/import",
+        data={"csrf": csrf(client, "/o/acme/infra/-/import")},
+        files={"archive": ("ops.zip", sent(files), "application/zip")},
+        follow_redirects=False,
+    )
+    with patch.object(imports_confluence, "MAX_PAGE_HTML", 15_000):
+        check = client.get(response.headers["location"]).text
+    assert "<code>OPS/Huge_70000.html</code>" in check
+    assert "trop grande pour être convertie (0 Mo maximum)" in check or (
+        "trop grande pour être convertie (0 Mo maximum)" in check
+    )
+    assert '<details class="card section-gap-small" open>' in check

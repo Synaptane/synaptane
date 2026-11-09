@@ -65,7 +65,10 @@
 </details>
 {% endif %}
 {% if plan.skipped %}
-<details class="card section-gap-small"><summary>{{ _("Files of the export not imported as they are (tables turned into pages, styles, icons)") }} <span class="badge badge-quiet">{{ plan.skipped|length }}</span></summary>{{ paths(plan.skipped) }}</details>
+<details class="card section-gap-small"{% if plan.reasons %} open{% endif %}><summary>{{ _("Files of the export not imported as they are (tables turned into pages, styles, icons)") }} <span class="badge badge-quiet">{{ plan.skipped|length }}</span></summary>
+<ul class="import-list">{% for name in plan.skipped[:shown] %}<li><code>{{ name }}</code>{% if name in plan.reasons %} <span class="muted">{{ plan.reasons[name]|tr }}</span>{% endif %}</li>{% endfor %}</ul>
+{% if plan.skipped|length > shown %}<p class="muted">{{ _("and {count} more", count=plan.skipped|length - shown) }}</p>{% endif %}
+</details>
 {% endif %}
 {% if plan.refused %}
 <details class="card section-gap-small"><summary>{{ _("Refused: unsafe path, link, encrypted file or folder conflict") }} <span class="badge badge-quiet">{{ plan.refused|length }}</span></summary>{{ paths(plan.refused) }}</details>
