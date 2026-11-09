@@ -154,6 +154,8 @@ class Space(Base):
     # from (None: set to the head at the next computation, without catching up the past).
     tidy_maintain: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     maintain_watermark: Mapped[str | None] = mapped_column(String(64))
+    # Runs interrupted in a row before closing the maintenance item: left beyond a few.
+    maintain_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     ai_model: Mapped[str | None] = mapped_column(String(200))  # otherwise the organization's
     embeddings_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # hybrid search
     # Default review period of pages (`6m`, `1y`…); empty: never due for review

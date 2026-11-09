@@ -25,13 +25,15 @@ of the target version.
   again until its page changes; runs after a drop and chained runs do not maintain; nothing is
   computed without an AI provider or once the month's budget is used up. Each problem gets a
   line in the run's log (fixed, or left with the reason); contributors get no notice for it.
+  A run stopped before the end gives the problems again; after three interrupted runs in a
+  row, they are left, as an inbox item would be.
   The **Maintain the wiki every night** box (Settings → Tidy-up, `maintain` in
   `PATCH …/tidy-settings`) is **on by default**: a night without problems costs nothing. See
   [Wiki maintenance](docs/admin/ai.md#wiki-maintenance).
 
 ### Upgrade
-- One migration (`0035`), applied at startup: two columns on spaces and an empty table of the
-  problems left. No existing row changes. Maintenance starts from each space's head at its
+- One migration (`0035`), applied at startup: three columns on spaces and an empty table of
+  the problems left. No existing row changes. Maintenance starts from each space's head at its
   first sync after the upgrade: the past is not caught up.
 
 ## [1.15.0] - 2026-11-09

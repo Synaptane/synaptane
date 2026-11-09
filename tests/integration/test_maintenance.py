@@ -254,9 +254,24 @@ def test_an_interrupted_run_gives_the_problems_again(
     assert record is not None
     assert [op["op"] for op in record.operations] == [Op.UNTREATED]
     assert record.operations[0]["path"] == "Wiki maintenance (2)"
+    assert str(record.operations[0]["detail"]).endswith("(attempt 1)")
     assert space(db, wiki).maintain_watermark == watermark
     assert db.scalars(select(MaintenanceMark)).all() == []
     assert len(problems(pending(db, ctx, wiki))) == 2
+    # A model that never closes the item is not paid for every night: left on the third
+    # interrupted run in a row, with the reason, like an inbox item.
+    for _ in range(maintenance.MAX_ATTEMPTS - 1):
+        nightly = tidy.run(
+            database, ctx, wiki.infra.id, trigger="schedule", factory=Scripted([]).factory
+        )
+        assert nightly is not None
+    assert nightly is not None
+    assert {op["op"] for op in nightly.operations} == {Op.PROBLEM_LEFT}
+    assert "Not processed after 3 interrupted runs" in str(nightly.operations[0]["detail"])
+    assert len(db.scalars(select(MaintenanceMark)).all()) == 2
+    assert space(db, wiki).maintain_attempts == 0
+    assert space(db, wiki).maintain_watermark != watermark
+    assert tidy.run(database, ctx, wiki.infra.id, trigger="schedule") is None
 
 
 def test_the_setting_in_the_web_and_in_rest(

@@ -2,7 +2,8 @@
 
 `spaces.tidy_maintain` turns it on per space (on by default: it only costs when there are
 problems); `spaces.maintain_watermark` is the commit the problems are counted from, empty
-until the next sync or run sets it to the head (no catching up on the past).
+until the next sync or run sets it to the head (no catching up on the past);
+`spaces.maintain_attempts` counts the runs interrupted in a row before the agent decided.
 `maintenance_marks` remembers the problems the agent left, with their reason and the content
 of the page then. No existing row changes.
 
@@ -27,6 +28,10 @@ def upgrade() -> None:
         sa.Column("tidy_maintain", sa.Boolean(), server_default=sa.true(), nullable=False),
     )
     op.add_column("spaces", sa.Column("maintain_watermark", sa.String(length=64), nullable=True))
+    op.add_column(
+        "spaces",
+        sa.Column("maintain_attempts", sa.Integer(), server_default="0", nullable=False),
+    )
     op.create_table(
         "maintenance_marks",
         sa.Column("space_id", sa.Uuid(), nullable=False),
@@ -50,5 +55,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("maintenance_marks")
+    op.drop_column("spaces", "maintain_attempts")
     op.drop_column("spaces", "maintain_watermark")
     op.drop_column("spaces", "tidy_maintain")

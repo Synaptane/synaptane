@@ -448,7 +448,8 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
 - **Journal** : chaque problème a sa ligne, **Problème du wiki corrigé** ou **Problème du
   wiki laissé** avec la raison de l'agent. Les déposants ne reçoivent pas d'avis pour lui. Le
   commit dit combien de problèmes ont été corrigés. Un passage arrêté avant la fin redonne
-  les problèmes la nuit suivante.
+  les problèmes la nuit suivante ; après trois passages interrompus de suite, ils sont
+  laissés, avec cette raison.
 - **REST** : `maintain` dans `PATCH …/spaces/{space}/tidy-settings`.
 
 ## Vocation et consignes de rangement

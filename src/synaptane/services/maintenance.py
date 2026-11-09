@@ -60,6 +60,11 @@ INDEX = "README.md"
 # the next morning. A normal day of edits introduces fewer; an import waits a few nights.
 MAX_PROBLEMS = 10
 
+# Runs interrupted in a row before the problems given are left, as for an inbox item
+# (`tidy.MAX_ITEM_ATTEMPTS`): otherwise a model that never closes the item would be paid for
+# a run every night, for nothing.
+MAX_ATTEMPTS = 3
+
 # Order in which the problems are given: a broken link misleads readers right away, an
 # isolated page is only hard to find, form comes last.
 RANK = {"broken_link": 0, "not_in_index": 1, "orphan": 2, "untitled": 3, "empty": 4}
@@ -307,6 +312,7 @@ class Found:
     waiting: int  # problems waiting in all (the ones given included)
     watermark: str  # read before the run: moved after it only if it has not changed
     complete: bool  # every problem of the window is given: the watermark may move after
+    attempts: int = 0  # runs interrupted in a row before (`MAX_ATTEMPTS`)
 
     @property
     def item(self) -> InboxItem:
@@ -372,7 +378,9 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
     Moves the watermark to the head right away when its window holds nothing to give: nothing
     is lost, and the next window stays short."""
     repo, head = view.repo, view.base
-    watermark = session.scalar(select(Space.maintain_watermark).where(Space.id == space.id))
+    watermark, attempts = session.execute(
+        select(Space.maintain_watermark, Space.maintain_attempts).where(Space.id == space.id)
+    ).one()
     if not watermark or repo.rev(watermark) is None or not repo.is_ancestor(watermark, head):
         _move(session, space, watermark, head)  # first time, or history rewritten
         return None
@@ -417,14 +425,16 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
     if not given:
         return None
     keys = {p.key for p in given}
-    return Found(given, len(everything), watermark, all(p.key in keys for p in fresh))
+    return Found(given, len(everything), watermark, all(p.key in keys for p in fresh), attempts)
 
 
 @dataclass
 class Closure:
     """What became of the problems given to a run."""
 
-    status: str  # done or left (the agent closed the item), untreated (run interrupted)
+    # done or left (the agent closed the item), untreated (run interrupted), given_up (left
+    # after MAX_ATTEMPTS interrupted runs in a row)
+    status: str
     operations: list[dict[str, object]] = field(default_factory=list)
     fixed: list[Problem] = field(default_factory=list)
     left: list[tuple[Problem, str]] = field(default_factory=list)  # with the reason
@@ -479,7 +489,8 @@ def close(
 ) -> Closure:
     """Fixed problems (gone from `view`, the run's final state), left ones (with the reason the
     agent gave for each, otherwise its summary), or untreated (run interrupted, or some write
-    left in conflict: given again later). Log lines: the page and the problem in words.
+    left in conflict: given again later; left after MAX_ATTEMPTS interrupted runs in a row).
+    Log lines: the page and the problem in words.
 
     A write dropped by a conflict may have been the fix of a problem in another page (the
     folder's index for a page missing from it): the problems still there are then not taken
@@ -488,6 +499,10 @@ def close(
         closure, general = Closure("done"), state.done[NAME]
     elif NAME in state.left:
         closure, general = Closure("left"), state.left[NAME]
+    elif found.attempts + 1 >= MAX_ATTEMPTS:
+        why = interruption or "item not closed by the agent"
+        closure = Closure("given_up")
+        general = f"Not processed after {found.attempts + 1} interrupted runs (last one: {why})"
     else:
         closure, general = Closure("untreated"), ""
     stuck = {_rel(p) for p in conflicts}
@@ -519,7 +534,10 @@ def close(
             {
                 "op": Op.UNTREATED,
                 "path": str(found.item.title),
-                "detail": interruption or "item not closed by the agent",
+                "detail": (
+                    f"{interruption or 'item not closed by the agent'} "
+                    f"(attempt {found.attempts + 1})"
+                ),
             }
         )
     return closure
@@ -538,9 +556,12 @@ def settle(
     problem of its window was given and decided.
 
     It moves to the run's commit, so that what the run itself changed is never counted; but to
-    its start if people committed during the run, so that their changes are not skipped."""
+    its start if people committed during the run, so that their changes are not skipped.
+    An interrupted run is counted, up to MAX_ATTEMPTS (`close`)."""
     if not closure.decided:
+        space.maintain_attempts = found.attempts + 1
         return
+    space.maintain_attempts = 0
     repo = ws.local_repository(space)
     at = commit or base
     for problem, reason in closure.left:

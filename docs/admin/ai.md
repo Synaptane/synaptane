@@ -423,7 +423,8 @@ with an empty inbox.
   budget is used up. A night without problems costs nothing.
 - **Log**: each problem has its line, **Wiki problem fixed** or **Wiki problem left** with
   the agent's reason. Contributors get no notice for it. The commit says how many problems
-  were fixed. A run stopped before the end gives the problems again the next night.
+  were fixed. A run stopped before the end gives the problems again the next night; after
+  three interrupted runs in a row, they are left, with that reason.
 - **REST**: `maintain` in `PATCH …/spaces/{space}/tidy-settings`.
 
 ## Purpose and tidy-up instructions
