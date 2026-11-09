@@ -159,6 +159,7 @@ SAME_IN_FRENCH = {
     # Same word, or a term kept in French
     "5 h",
     "Action",
+    "Format",
     "Actions",
     "Administration",
     "Application",

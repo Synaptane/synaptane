@@ -10,14 +10,6 @@ of the target version.
 
 ## [Unreleased]
 
-Upgrading to this version with Claude or ChatGPT subscriptions: nothing to do. The new
-`compose.yaml` runs the CLIs in the new `agents` container and mounts the existing
-`synaptane-agents` volume there, at the same path and with the same account: the logins made in
-the worker stay valid. Pull or rebuild, then `docker compose up -d`; `deploy/host/deploy.sh`
-does it and also waits for the agents container to be healthy. No migration. With a custom
-Compose file without the `agents` service, or without Docker, the CLIs keep running in the
-worker, as before, and `synaptane doctor` and the health page say they are less isolated there.
-
 ### Added
 - **The subscription CLIs run in a container of their own**. With a Claude or ChatGPT
   subscription, Claude Code and Codex no longer run in the worker but in the `agents` service
@@ -53,6 +45,27 @@ worker, as before, and `synaptane doctor` and the health page say they are less 
   container can reach and should not (a secret, the master key, the Docker socket, the
   database). The worker reports it every 10 minutes, since the web container does not reach
   the agents container; `docker compose exec worker synaptane doctor` asks it directly.
+- **Import from Notion and Confluence**. The import of a folder's **⋮** menu (now **Import
+  Obsidian, Notion, Confluence…**) also takes the zip of a Notion export (**Markdown & CSV**,
+  including the zip of zips Notion makes for a large workspace, `Export-…-Part-1.zip`…) and the
+  zip of a Confluence space exported in **HTML**. The format is recognized from the archive and
+  shown on the check screen, where it can be changed (**Read it this way**); the send form can
+  also force it. Notion: names lose their 32-character id (a second "Notes" in a folder becomes
+  "Notes (2)"), a page with subpages or files becomes its folder's home page
+  (`Notes/README.md`), links to the export's pages, files and databases are rewritten to the new
+  paths, `https://www.notion.so/…` addresses of an exported page too; a database becomes an index
+  page (a table of its rows, each linked to its page) and each row's properties go to its page's
+  front matter; callouts and toggles become callouts. Confluence: the page tree is rebuilt from
+  `index.html` and the breadcrumbs, pages become Markdown (headings, lists, tables, code with its
+  language, links, images; info, tip, note and warning panels as callouts, expand as a folded
+  callout), attachments go next to their page under their real name, and links to the export's
+  pages and attachments are rewritten, addresses of the Confluence site with a page id too. The
+  check screen counts the rewritten links, lists those that lead nowhere (a page that is not in
+  the export) and the files of the export not imported as they are (styles, icons, a database's
+  second CSV); converted pages go through the same secret check as any file. The HTML is not
+  trusted: nothing in it is run or loaded, scripts, frames and forms are dropped, and paths come
+  from the layout made by Synaptane. A Confluence XML export is refused with a message saying to
+  export in HTML. No new dependency, no migration.
 
 ### Changed
 - **Test the connection** of a subscription goes through the agents container, and a tidy-up
