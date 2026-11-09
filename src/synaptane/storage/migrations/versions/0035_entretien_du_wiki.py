@@ -30,7 +30,7 @@ def upgrade() -> None:
     op.create_table(
         "maintenance_marks",
         sa.Column("space_id", sa.Uuid(), nullable=False),
-        sa.Column("key", sa.Text(), nullable=False),
+        sa.Column("key", sa.String(length=64), nullable=False),
         sa.Column("source", sa.String(length=64), nullable=False),
         sa.Column("kind", sa.String(length=64), nullable=False),
         sa.Column("page", sa.Text(), nullable=False),

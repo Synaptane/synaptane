@@ -280,3 +280,26 @@ def test_the_setting_in_the_web_and_in_rest(
     client.post("/o/acme/infra/-/tidy-settings", data=form)
     found = space(db, wiki)
     assert found.tidy_maintain and found.maintain_watermark is None  # from the head, later
+
+
+def test_a_very_long_link_left_does_not_make_every_run_fail(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """The link as written has no length limit: its mark must still be recorded, otherwise
+    the run fails after its commit and the same problem comes back every night."""
+    configure_ai(db, ctx, wiki)
+    target = "x" * 40 + "".join(f"{n:04x}" for n in range(800)) + ".md"
+    write(db, database, ctx, wiki, "README.md", f"# Infra\n\n[Plus tard]({target})\n")
+    reviewed(db, ctx, wiki)
+    script = Scripted(
+        [
+            [("read_inbox_item", {"item": NAME})],
+            [("leave_in_inbox", {"item": NAME, "reason": "P1: page à écrire plus tard"})],
+            [("finish", {"summary": "Rien à corriger"})],
+        ]
+    )
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="schedule", factory=script.factory)
+    assert record is not None and record.status == "done", record and record.error
+    mark = db.scalars(select(MaintenanceMark)).one()
+    assert (mark.detail, mark.reason) == (target, "page à écrire plus tard")
+    assert pending(db, ctx, wiki) is None  # left, page unchanged: not asked again

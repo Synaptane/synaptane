@@ -28,6 +28,7 @@ what the health check would; another source (the team's own checks, for one) onl
 return `Problem`s for a `Window` and say which of them are still there.
 """
 
+import hashlib
 import posixpath
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -77,7 +78,11 @@ class Problem:
 
     @property
     def key(self) -> str:
-        return f"{self.source}:{self.kind}:{self.page}:{self.detail}"
+        """Identity of the problem, also the primary key of its mark: a digest, since a link
+        as written and a page's path have no length limit, while an index entry has one (a
+        longer key would make every run that leaves the problem fail, night after night)."""
+        identity = "\0".join((self.source, self.kind, self.page, self.detail))
+        return hashlib.sha256(identity.encode("utf-8", "surrogatepass")).hexdigest()
 
     def describe(self) -> str:
         """The problem in words (English): for the agent, and for the log (`localize`)."""

@@ -855,7 +855,7 @@ class MaintenanceMark(Base):
     space_id: Mapped[UUID] = mapped_column(
         ForeignKey("spaces.id", ondelete="CASCADE"), primary_key=True
     )
-    key: Mapped[str] = mapped_column(Text, primary_key=True)  # `maintenance.Problem.key`
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)  # `maintenance.Problem.key`
     source: Mapped[str] = mapped_column(String(64))
     kind: Mapped[str] = mapped_column(String(64))
     page: Mapped[str] = mapped_column(Text)  # relative to content/
