@@ -17,6 +17,7 @@ from synaptane.ai.base import AIConfig, AIError, ToolResult, ToolSpec, Turn
 from synaptane.config import Settings
 from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
+    Actor,
     changes,
     content,
     deposits,
@@ -84,9 +85,11 @@ class Failing:
         raise AssertionError
 
 
-def create(db: Session, wiki: Wiki, template: str = "", **values: Any) -> Routine:
+def create(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, template: str = "", **values: Any
+) -> Routine:
     routine = routines.create(
-        db, wiki.root, wiki.infra, routines.Fields(**values), template=template
+        db, database, wiki.root, ctx, wiki.infra, routines.Fields(**values), template=template
     )
     db.commit()
     return routine
@@ -119,7 +122,7 @@ def test_coherence_check_writes_its_report_and_inbox_items_only(
         }
     )
     git_sync.run_sync(database, ctx, wiki.infra.id)
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     before = git(ctx.clone_path(wiki.infra.id), "rev-parse", "HEAD")
     script = RoutineScript(
         [
@@ -230,8 +233,10 @@ def test_routine_cannot_write_outside_its_outputs_nor_read_outside_its_scope(
     configure_ai(db, ctx, wiki)
     routine = create(
         db,
+        database,
+        ctx,
         wiki,
-        name="Revue des serveurs",
+        title="Revue des serveurs",
         instructions="Relis le dossier serveurs.",
         frequency="daily",
         at="06:00",
@@ -343,7 +348,7 @@ def test_weekly_digest_mails_the_members_who_accept_it(
         db, database, wiki.alice, ctx, wiki.infra, "procedures/astreinte.md", b"# Astreinte\n"
     )
     db.commit()
-    routine = create(db, wiki, "digest")
+    routine = create(db, database, ctx, wiki, "digest")
     script = RoutineScript(
         [
             [("read_page", {"path": "procedures/astreinte.md"})],
@@ -387,8 +392,10 @@ def test_webhook_output_carries_the_text_without_any_commit(
     )
     routine = create(
         db,
+        database,
+        ctx,
         wiki,
-        name="Brief du lundi",
+        title="Brief du lundi",
         instructions="Résume la semaine pour Slack.",
         frequency="weekly",
         weekday=0,
@@ -432,7 +439,7 @@ def test_exhausted_budget_refuses_the_routine_and_warns_the_admins(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     set_budget(db, wiki, "1", spent="1.5")
     with pytest.raises(SynaptaneError, match="Monthly AI budget"):
         routines.request_run(db, wiki.root, wiki.infra, routine)
@@ -451,7 +458,7 @@ def test_budget_reached_during_the_run_stops_it_and_publishes_nothing(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     set_budget(db, wiki, "0.03")  # one turn costs €0.008 (Opus 5.5)
     before = head_files(ctx, wiki)
     script = RoutineScript(
@@ -476,7 +483,7 @@ def test_provider_failure_is_journaled_alerted_and_retried_when_transient(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     refused = Failing(AIError("Clé Anthropic refusée (401)."))
     record = routine_agent.run_one(
         database, ctx, routine.id, trigger="manual", factory=refused.factory
@@ -507,7 +514,7 @@ def test_routines_never_run_alongside_a_tidying_pass(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
     configure_ai(db, ctx, wiki)
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     routines.request_run(db, wiki.root, wiki.infra, routine)
     db.commit()
     for job in queued(db, routines.ROUTINE):  # taken by the worker, as for real
@@ -534,7 +541,7 @@ def test_routines_never_run_alongside_a_tidying_pass(
 def test_schedule_requests_due_routines_and_the_worker_runs_them(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki, settings: Settings
 ) -> None:
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     found = db.get(Routine, routine.id)
     assert found is not None
     found.last_date = None
@@ -582,32 +589,33 @@ def test_budget_counts_routine_runs(db: Session, ctx: Workspace, wiki: Wiki) -> 
     assert budget.spent(db, wiki.infra.org_id) == Decimal("2.00")
 
 
-def test_settings_are_validated(db: Session, wiki: Wiki) -> None:
+def test_settings_are_validated(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    def blank(actor: Actor = wiki.root, **values: Any) -> Routine:
+        fields = routines.Fields(**values)
+        return routines.create(db, database, actor, ctx, wiki.infra, fields)
+
     with pytest.raises(SynaptaneError, match="at least one output"):
-        routines.create(
-            db, wiki.root, wiki.infra, routines.Fields(name="X", instructions="Y", output_page="")
-        )
+        blank(title="X", instructions="Y", output_page="")
     db.rollback()
     with pytest.raises(SynaptaneError, match="day of the month|Day of the month"):
-        routines.create(
-            db,
-            wiki.root,
-            wiki.infra,
-            routines.Fields(
-                name="X", instructions="Y", frequency="monthly", monthday=None, output_inbox=True
-            ),
-        )
+        blank(title="X", instructions="Y", frequency="monthly", monthday=None, output_inbox=True)
     db.rollback()
-    first = create(db, wiki, "digest")
+    first = create(db, database, ctx, wiki, "digest")
     with pytest.raises(SynaptaneError, match="already exists"):
-        routines.create(db, wiki.root, wiki.infra, routines.Fields(), template="digest")
+        create(db, database, ctx, wiki, "digest")
     db.rollback()
     with pytest.raises(SynaptaneError):
-        routines.create(db, wiki.alice, wiki.infra, routines.Fields(), template="coherence")
+        routines.create(
+            db, database, wiki.alice, ctx, wiki.infra, routines.Fields(), template="coherence"
+        )
     db.rollback()
-    routines.update(db, wiki.root, wiki.infra, first, routines.Fields(frequency="daily"))
+    first = routines.update(
+        db, database, wiki.root, ctx, wiki.infra, first, routines.Fields(frequency="daily")
+    )
     assert first.weekday is None and first.monthday is None
-    assert [r.name for r in routines.list_routines(db, wiki.alice, wiki.infra)] == [
+    assert [r.title for r in routines.list_routines(db, wiki.alice, wiki.infra)] == [
         "Résumé hebdomadaire"
     ]
     with pytest.raises(SynaptaneError):
@@ -617,7 +625,7 @@ def test_settings_are_validated(db: Session, wiki: Wiki) -> None:
 def test_space_without_ai_records_a_manual_failure(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
-    routine = create(db, wiki, "coherence")
+    routine = create(db, database, ctx, wiki, "coherence")
     record = routine_agent.run_one(database, ctx, routine.id, trigger="manual")
     assert record is not None and record.status == "failed"
     assert tidy_journal.explain(record.error).code == "no_provider"

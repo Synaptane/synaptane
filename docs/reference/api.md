@@ -50,6 +50,7 @@ The code never changes; the message is in English, or in French with
 | `not_found` | 404 |
 | `conflict` | 409 |
 | `secret_detected` | 422 |
+| `check_failed` | 422 (a team check refuses the content: see below) |
 | `too_many_requests` | 429 (rate limit of an account or an organization: try again later) |
 | `unavailable` | 503 (database, repository or server temporarily unavailable; `Retry-After` header) |
 
@@ -70,6 +71,11 @@ as well.
 key, private key…). Nothing is committed. Remove it, or send the request again with
 `"allow_secrets": true` if it is not one. For an existing page, only the added lines are
 checked.
+
+`check_failed`: the content breaks one of the space's [team checks](../guide/wiki.md#team-checks)
+whose level is `block` (a personal email, a local path…). Nothing is committed; the
+`message` gives the rule, the page, the line and what to do. Unlike a secret, it cannot be
+confirmed: fix the content. For an existing page, only what the change adds counts.
 
 A resource the caller cannot see returns 404, like a resource that does not exist.
 
@@ -212,7 +218,7 @@ Paths are relative to `content/`:
 | `DELETE …/spaces/{space}/reports/{path}` | reader | Withdraws your report; `?all=true` dismisses them all (contributor). A verification of the page closes them too |
 | `GET …/spaces/{space}/history/{path}` | reader | Commits that touched the file (a deleted one too): `sha`, `author`, `date`, `subject` |
 | `POST …/spaces/{space}/restore` | contributor | Puts a file back as it was in a past version, a deleted file too: `{"path": …, "commit": …}` (`commit`: a `sha` from the history), with `message`, `base_sha` (the current `sha`, 409 if the file changed since; `""` for a deleted file) and `allow_secrets`, optional. Returns `commit` (`null` if this version is already the current one). A page keeps its current verification fields |
-| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner), `drifts` (tables that disagree: `key`, `column`, `first` and `second` with `page`, `line`, `value`) and their totals `counts` (with `verified`: verified, up-to-date pages) |
+| `GET …/spaces/{space}/health?months=12&limit=500` | reader | Wiki health: `broken` (page, link, suggestion), `orphans`, `empty`, `untitled`, `stale` (page, date), `due` (pages to review: `path`, `owner`, `verified`, `due`), `unowned` (verified without an owner), `drifts` (tables that disagree: `key`, `column`, `first` and `second` with `page`, `line`, `value`), `checks` (team checks broken: `rule`, `level`, `page`, `line`, `excerpt` with personal data masked, `message`), `check_rules` (rules of `.synaptane/checks.md`), `check_errors` (its faulty lines: `line`, `message`) and their totals `counts` (with `verified`: verified, up-to-date pages, and `checks`) |
 
 `freshness` (page read, search results, verification): `state` (`verified`, `stale` or
 `never`), `verified` and `stale` (booleans), `verified_at`, `owner`, `review_due` (due date,
@@ -265,6 +271,8 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 | `POST /organizations/{org}/ai/test` | admin | Test call: `{"message": …}` |
 | `GET …/spaces/{space}/tidy-rules` | admin | Tidy-up rules of the space (`.synaptane/prompts/tidy.md`, or its former name `.synaptane/prompts/rangement.md` if it is the only one; `path` says which): same shape as `GET …/vocation` |
 | `PUT …/spaces/{space}/tidy-rules` | admin | Same fields and same rules as `PUT …/vocation` |
+| `GET …/spaces/{space}/checks` | admin | [Team checks](../guide/wiki.md#team-checks) of the space (`.synaptane/checks.md`): same shape as `GET …/vocation`. The pages that break them are in `GET …/health` |
+| `PUT …/spaces/{space}/checks` | admin | Same fields and same rules as `PUT …/vocation`; 400 if a rule is faulty (the `message` names each faulty line) |
 | `PATCH …/spaces/{space}/tidy-settings` | admin | `enabled`, `time` (`"03:00"`, local time), `timezone` (`Europe/Paris`), `model` (`""`: the organization's), `delay` (minutes between a drop and the continuous tidy-up, `0`: off), `maintain` (nightly [wiki maintenance](../admin/ai.md#wiki-maintenance), `true` by default) (204) |
 | `POST …/spaces/{space}/tidy` | contributor | Starts a tidy-up (202); 429 beyond the manual run limit (see [Errors](#errors)) |
 | `GET …/spaces/{space}/tidy/runs` | reader | Runs: `status`, `trigger`, `model`, `items_done`, `items_left`, `summary`, `operations`, `commit`, tokens used, `cost`, `error`, `reverted_at` |
@@ -276,16 +284,18 @@ most), and `GET /api/v1/search/pending?q=…&spaces=…` lists them: `space`, `n
 
 A routine is a scheduled AI agent that rereads the wiki of a space and only writes to its
 outputs (see [Agent routines](../admin/ai.md#agent-routines-per-space)). Paths under
-`…/spaces/{space}/routines`.
+`…/spaces/{space}/routines`. Each routine is a file of the repository,
+`.synaptane/routines/<name>.md`: every write is a commit of that file in the caller's name,
+and a push can change it too.
 
 | Method and path | Right | Purpose |
 |---|---|---|
-| `GET …/routines` | contributor | Routines of the space: `id`, `name`, `template` (`coherence`, `digest` or `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = Monday), `monthday` (1 to 28), `at` (`"06:00"`, the space's local time), `scope` (folders; empty: the whole space), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
-| `POST …/routines` | admin | Creates a routine (201). `{"template": "coherence"}` starts from a provided template (its settings, then the given fields); blank: `name`, `instructions` and at least one output |
+| `GET …/routines` | contributor | Routines of the space: `id`, `name` (file name), `title`, `description`, `path` (file in the repository), `sha` (hash of the file, for `base_sha`; `null` until the next synchronization writes it, then `pending` is `true`), `error` (invalid file: why it does not run; `null` otherwise), `warnings` (what was ignored, such as an unknown field), `template` (`coherence`, `digest` or `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = Monday), `monthday` (1 to 28), `at` (`"06:00"`, the space's local time), `scope` (folders; empty: the whole space), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
+| `POST …/routines` | admin | Creates a routine (201). `{"template": "coherence"}` starts from a provided template (its settings, then the given fields); blank: `title`, `instructions` and at least one output. `name`: file name (lowercase letters, digits, dashes), made from the title if omitted; a free text is taken as the title, as before routines were files. 409 if the name is taken, 422 for a likely secret (`allow_secrets: true` to confirm) |
 | `GET …/routines/{id}` | contributor | One routine |
-| `PATCH …/routines/{id}` | admin | Changes the given fields (`enabled: false` disables it) |
-| `DELETE …/routines/{id}` | admin | Deletes the routine (204); its runs still count toward the budget, its report page stays in the wiki |
-| `POST …/routines/{id}/run` | admin | Runs the routine as soon as the worker is free (202); refused (400) if the month's budget is reached |
+| `PATCH …/routines/{id}` | admin | Changes the given fields (`enabled: false` disables it) and rewrites the file. `base_sha`: the `sha` read before; 409 if the file changed since (push, another admin). The file name does not change (400); an invalid file is fixed in the repository (400) |
+| `DELETE …/routines/{id}` | admin | Removes the routine's file (204; `?base_sha=` as for `PATCH`); its runs still count toward the budget, its report page stays in the wiki |
+| `POST …/routines/{id}/run` | admin | Runs the routine as soon as the worker is free (202); refused (400) if the month's budget is reached or the file is invalid |
 | `GET …/routines/{id}/runs` | contributor | Runs, newest first: `status` (`running`, `done`, `failed`), `trigger`, `model`, `summary`, `report` (output text), `outputs` (`page`, `inbox`: titles of the items dropped, `emails`: number sent, `webhook`), `commit`, tokens, `cost`, `quota`, `error` |
 
 ## Semantic search

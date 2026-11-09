@@ -1,0 +1,25 @@
+{#- Preview of a team checks file (vocation_pages._checks_html): the rules understood, the
+    file's errors and, for each rule, the current pages that break it. Rendered alone, with
+    `_`, `locale`, `preview`, `rules` ((rule, pages) pairs) and `synced`. -#}
+{%- if preview.checks.errors %}
+<div class="notice notice-error" role="alert">
+  <p>{{ _("These lines have errors: the rules concerned would be ignored, and the file cannot be saved as is.") }}</p>
+  <ul>{% for e in preview.checks.errors %}<li>{% if e.line %}{{ _("line {line}", line=e.line) }} · {% endif %}{{ _(e.message) }}</li>{% endfor %}</ul>
+</div>
+{%- endif %}
+{%- if rules %}
+<div class="table-scroll"><table class="health-table">
+  <thead><tr><th>{{ _("Rule") }}</th><th>{{ _("Checks") }}</th><th>{{ _("Pages") }}</th>{% if synced %}<th>{{ _("Pages that break it") }}</th>{% endif %}</tr></thead>
+  <tbody>{% for rule, count in rules %}<tr>
+    <td>{{ rule.title }} {% if rule.blocks %}<span class="badge badge-quiet">{{ _("blocks") }}</span>{% else %}<span class="badge badge-quiet">{{ _("warns") }}</span>{% endif %}{% if rule.message %}<br><span class="muted">{{ rule.message }}</span>{% endif %}</td>
+    <td>{{ _(rule.what()) }}</td>
+    <td>{% if rule.paths %}<code>{{ rule.paths|join(", ") }}</code>{% else %}{{ _("all") }}{% endif %}{% if rule.skip %} <span class="muted">{{ _("except {paths}", paths=rule.skip|join(", ")) }}</span>{% endif %}</td>
+    {% if synced %}<td>{{ count }}</td>{% endif %}
+  </tr>{% endfor %}</tbody>
+</table></div>
+{%- if synced %}
+<p class="muted">{% if preview.complete %}{{ _(pl(preview.examined, "Counted on the {n} current page.", "Counted on the {n} current pages."), n=preview.examined) }}{% else %}{{ _("Count stopped after {n} pages: the space is large, the numbers are partial.", n=preview.examined) }}{% endif %}</p>
+{%- endif %}
+{%- elif not preview.checks.errors %}
+<p class="muted">{{ _("No rule: write a level-2 heading per rule, followed by its keys (- pattern: …).") }}</p>
+{%- endif %}

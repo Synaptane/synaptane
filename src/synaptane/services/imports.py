@@ -36,6 +36,7 @@ from synaptane.core.errors import Label, SynaptaneError, invalid, not_found
 from synaptane.core.secret_scan import Finding, scan_file
 from synaptane.git.repo import GitError, safe_path
 from synaptane.services import Actor
+from synaptane.services import checks as team_checks
 from synaptane.services.content import (
     MARKDOWN,
     MAX_UPLOAD,
@@ -386,6 +387,7 @@ def _check(
     result = Plan(token, folder)
     present = {blob.path for blob in list_files(actor, ws, space)}
     folders = {parent for file in present for parent in _parents(file)}
+    checks = team_checks.load(ws.local_repository(space))
     with _opened(path) as archive:
         entries, result.left_out, obsidian = _entries(archive)
         result.detected = detect([p for _, p in entries], obsidian)
@@ -425,6 +427,15 @@ def _check(
                 data = item.convert(data)
             if len(data) > MAX_UPLOAD:
                 result.too_large.append(written)
+                continue
+            if blocked := [v for v in checks.introduced(relative, data, None) if v.blocks]:
+                # A team's `block` check: the file is not imported (`services.checks`).
+                result.skipped.append(item.name)
+                result.reasons[item.name] = Label(
+                    "refused by the team check “{rule}”: {message}",
+                    rule=blocked[0].rule,
+                    message=blocked[0].message or blocked[0].rule,
+                )
                 continue
             taken.add(relative)
             entry = Entry(item.name, relative, scan_file(relative, data), data if collect else None)

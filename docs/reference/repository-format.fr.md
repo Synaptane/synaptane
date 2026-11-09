@@ -16,6 +16,8 @@ content/                          visible : wiki, recherche, MCP
   vocation.md                     vocation de l'espace (facultatif)
   prompts/tidy.md                 consignes de rangement (facultatif)
   prompts/<nom>.md                prompts d'équipe pour les assistants (facultatif)
+  checks.md                       contrôles de l'équipe : règles que chaque page doit suivre (facultatif)
+  routines/<nom>.md               routines d'agent de l'espace (facultatif)
   inbox/
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a.md   une note
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a/     ses pièces jointes éventuelles
@@ -27,8 +29,9 @@ README.md, .github/, …            tout le reste : ignoré par Synaptane
 - À la première synchronisation, Synaptane crée ce qui manque, et seulement cela :
   `content/README.md` (avec le nom et la description de l'espace) si `content/` n'existe pas,
   et `.synaptane/inbox/`.
-- Les réglages de l'espace (description, heure et fuseau du rangement, modèle, embeddings,
-  routines) sont en base, modifiables dans l'interface web ou l'API REST, pas dans le dépôt.
+- Les réglages de l'espace (description, heure et fuseau du rangement, modèle, embeddings)
+  sont en base, modifiables dans l'interface web ou l'API REST, pas dans le dépôt. Les routines
+  sont des fichiers du dépôt ; seul l'état de leurs passages est en base.
 - Git fait foi : chaque fichier décrit ici peut aussi changer par un push, et Synaptane le
   prend en compte à la synchronisation suivante.
 
@@ -115,6 +118,47 @@ seul ; le premier enregistrement depuis Synaptane écrit `tidy.md` à la place.
 
 Voir [IA et rangement](../admin/ai.fr.md).
 
+## `.synaptane/checks.md`
+
+Les **contrôles de l'équipe** : des règles que chaque page Markdown de `content/` doit suivre,
+vérifiées sans IA dans **Santé**, à chaque écriture et par le rangement (voir
+[Contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe)). Ils s'écrivent dans
+**Paramètres → Vocation** (administrateurs de l'organisation), par l'API REST ou par un push ;
+20 000 caractères au plus depuis Synaptane.
+
+Chaque titre de niveau 2 (`## Titre`) est une règle ; les éléments de liste `- clé: valeur`
+juste en dessous la décrivent. Tout autre texte (paragraphes, titres de niveau 1 ou 3,
+commentaires HTML, blocs de code) est un commentaire. Une valeur entre accents graves est
+prise telle quelle (```` `` a`b `` ```` pour une valeur qui contient un accent grave). Les clés
+sont en anglais.
+
+| Clé | Sens |
+|---|---|
+| `pattern` | Expression régulière ([syntaxe RE2](https://github.com/google/re2/wiki/Syntax), en temps linéaire), sur le texte de la page, front matter compris ; `^` et `$` valent pour chaque ligne. Avec `field` : sur la valeur du champ |
+| `field` | Champ du front matter (clé de premier niveau) |
+| `expect` | Ce que `field` doit être, séparé par des virgules : `present` (présent et non vide), `list` (une liste YAML : `[a, b]` ou un `- élément` par ligne), `date` (`AAAA-MM-JJ`, sans heure). `list` et `date` ne s'appliquent que si le champ est présent |
+| `preset` | Données personnelles : `email`, `phone` (formats international, français et nord-américain), `card` (13 à 19 chiffres qui passent la vérification de Luhn), `iban` (longueur de son pays et clé de contrôle, en majuscules ou en minuscules). Les espaces insécables, les tirets et les caractères invisibles entre les chiffres ne les arrêtent pas. S'emploie seul : ni `pattern` ni `field` |
+| `allow` | Valeurs jamais signalées, séparées par des virgules. Pour `email` : des domaines (`acme.com`, sous-domaines compris) ou des adresses. Les domaines `example.com`, `.org` et `.net`, et `.example`, `.invalid`, `.test` et `.localhost`, sont toujours autorisés |
+| `paths` | Dossiers ou globs relatifs à `content/`, séparés par des virgules : `clients/` (tout ce qu'il contient), `notes/*.md` (`*` dans un dossier), `**/reunions/*.md` (`**` à travers les dossiers). Sans elle : toutes les pages |
+| `except` | Dossiers ou globs écartés, même forme |
+| `level` | `warn` (par défaut) : signalé. `block` : une écriture qui enfreint la règle est refusée |
+| `message` | Ce qu'il faut faire, affiché avec chaque infraction et avec un refus |
+| `mask` | `yes` : l'extrait d'un `pattern` est masqué, comme pour les préréglages |
+
+Limites : 50 règles, 500 caractères par motif, 3 000 étapes RE2 par motif compilé et 15 000
+pour tout le fichier (une répétition comptée comme `.{0,1000}` en coûte autant : RE2 reste
+linéaire, mais son coût par octet augmente avec elles), 64 000 caractères du fichier lus.
+**Santé** examine le premier Mo de chaque page et montre 20 infractions par règle et par page ;
+une écriture est vérifiée en entier. Une règle fautive (clé inconnue, motif invalide, motif
+trop complexe, motif qui correspond à un texte vide, deux règles du même titre) est ignorée et sa ligne apparaît dans **Santé** ; les autres règles s'appliquent. Un
+enregistrement depuis Synaptane refuse un fichier qui a une règle fautive.
+
+Une règle `block` refuse les écritures de l'interface web, de l'API REST, de MCP, de l'import,
+du rangement, de la page de rapport d'une routine et de l'annulation d'un rangement ou du
+passage d'un assistant, quand elles ajoutent une infraction : une page qui enfreignait déjà la règle
+reste modifiable, et une page déplacée dans un dossier que couvre une règle compte comme
+nouvelle. Un push ne peut pas être refusé.
+
 ## `.synaptane/prompts/<nom>.md`
 
 Les **prompts d'équipe pour les assistants** : tout autre fichier Markdown du dossier, un par
@@ -123,6 +167,37 @@ prompt (30 au plus), nommé en lettres minuscules, chiffres et tirets. En-tête 
 facultatif) ; le corps utilise `{{argument}}` et `{{include page.md}}`. Écrits dans
 **Paramètres → Prompts d'assistant** (administrateurs de l'organisation) ou par un push. Voir
 [Les prompts de votre équipe](../guide/mcp.fr.md#les-prompts-de-votre-équipe).
+
+## `.synaptane/routines/<nom>.md`
+
+Les **routines d'agent** de l'espace, un fichier Markdown chacune (20 au plus), nommé en
+minuscules, chiffres et tirets (40 caractères au plus) : c'est le nom de la routine. Un
+en-tête entre deux lignes `---`, puis les consignes :
+
+```markdown
+---
+title: Résumé hebdomadaire
+schedule: weekly friday 16:00
+scope: projets, decisions
+report: rapports/semaine.md
+email: members
+---
+Rédige le résumé de la semaine…
+```
+
+Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
+`monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
+en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
+`- dossier`), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+`template`. Les valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et
+ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines
+et dans l'API REST.
+
+Écrites dans **Paramètres → Routines** (administrateurs de l'organisation : un commit à leur
+nom) ou par un push : quiconque peut pousser peut les modifier. Lues à chaque
+synchronisation ; l'état des passages (dernier passage, passage demandé) reste en base, si bien
+qu'un fichier modifié ne relance jamais une routine. Voir
+[Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace).
 
 ## `.synaptane/inbox/`
 
@@ -179,8 +254,12 @@ elles sont calculées depuis l'historique Git depuis le dernier rangement.
   comme les fusions de Synaptane et les fichiers initiaux, ne sont jamais signalés à l'inbox
   comme des modifications.
 - Une routine commite sa page de rapport et ses éléments d'inbox au nom de
-  `Synaptane routine (<nom>)`, sujet `Routine "<nom>": …` (`Synaptane – routine` dans les
+  `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` (`Synaptane – routine` dans les
   historiques plus anciens).
+- Une routine enregistrée depuis Synaptane : `Routine updated: <nom>` ou
+  `Routine removed: <nom>`, au nom de l'administrateur. Les routines gardées en base par les
+  versions précédentes sont écrites par `Synaptane: routines written to the repository`, à la
+  première synchronisation après la mise à jour.
 - Les commits de Synaptane lui-même ont des sujets en anglais : `Inbox: <titre>` (une note
   déposée ; aussi `Inbox: edit “…”`, `Inbox: delete “…”`, `Inbox: “…” moved to <espace>`),
   `Synaptane: initialize space`, `Synaptane: merge remote changes`,

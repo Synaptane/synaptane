@@ -12,7 +12,9 @@ For a space, at the last commit:
 - **pages to review**: verified, but their verification due date has passed, and **pages
   without an owner** among the verified pages (`services.freshness`);
 - **tables that disagree**: the same row, in two aligned tables of two pages, with a different
-  value (`core.tables`).
+  value (`core.tables`);
+- **team checks**: the rules of `.synaptane/checks.md` that pages break (`services.checks`,
+  cached per page digest too), excerpts of personal data masked.
 
 Computed live, with two caches: what a page says about itself (its links, its title) is kept
 per content digest, and the result per commit. A new commit only rereads the changed pages, and
@@ -28,6 +30,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from synaptane.core import tables as tables_of_pages
 from synaptane.core.access import Action, require
+from synaptane.core.checks import FileError, Violation
 from synaptane.core.markdown import (
     WikiIndex,
     broken_among,
@@ -38,6 +41,7 @@ from synaptane.core.markdown import (
 )
 from synaptane.git.repo import GitError, Repository
 from synaptane.services import Actor, freshness
+from synaptane.services import checks as team_checks
 from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.workspace import Workspace
 from synaptane.storage.models import Space
@@ -88,6 +92,10 @@ class Health:
     drifts: list[tables_of_pages.Drift] = field(default_factory=list)  # tables that disagree
     verified: int = 0  # verified, up-to-date pages
     review_every: str = ""  # default interval of the space
+    checks: list[Violation] = field(default_factory=list)  # team checks broken
+    checks_total: int = 0  # before the limit of `services.checks`
+    check_rules: int = 0  # rules of the checks file
+    check_errors: tuple[FileError, ...] = ()  # faulty lines of the checks file
 
     @property
     def problems(self) -> int:
@@ -99,6 +107,7 @@ class Health:
             + len(self.stale)
             + len(self.due)
             + len(self.drifts)
+            + self.checks_total
         )
 
 
@@ -193,6 +202,7 @@ def analyze(
         key=lambda d: (d.due, d.path),
     )
     unowned = sorted(p for p, s in states.items() if s.verified and not s.owner)
+    checks = team_checks.at_commit(repo, head)
     return Health(
         head,
         len(base.pages),
@@ -207,6 +217,10 @@ def analyze(
         base.drifts,
         sum(1 for s in states.values() if s.is_verified),
         review_every,
+        checks.violations,
+        checks.total,
+        checks.rules,
+        checks.errors,
     )
 
 

@@ -11,6 +11,8 @@ What is counted, and why:
 - pages created without an incoming link, missing from their folder's index, untitled or
   empty: an isolated or shapeless page will not be found again;
 - items filed without a page given: information possibly lost;
+- violations of the team checks (`services.checks`) introduced by the run: the space's own
+  rules, broken by the agent;
 - volume removed from existing pages, moves, deletions, pages touched: abusive
   reorganization or injection;
 - tokens, cost and turns per filed item, share of items left: cost and clarity of the
@@ -27,6 +29,7 @@ from typing import Any
 
 from synaptane.ai.base import Usage
 from synaptane.core.markdown import WikiIndex, broken_links, title_of
+from synaptane.services import checks as team_checks
 from synaptane.services.inbox import CONTENT_DIR, parse_front_matter
 from synaptane.services.tidy_tools import MOVED_FROM, Op, Overlay, RunState
 
@@ -180,6 +183,14 @@ def measure(overlay: Overlay, state: RunState) -> dict[str, Any]:
             )
     deleted_chars = sum(len(overlay.repo.blob(PREFIX + p, overlay.base) or b"") for p in deleted)
 
+    # Team checks: violations the run introduced (a moved page compared with its start).
+    broken_checks = team_checks.introduced_by(
+        team_checks.load(overlay.repo, overlay.base),
+        changes,
+        lambda path: overlay.repo.blob(path, overlay.base) if overlay.existed(path) else None,
+        {PREFIX + target: PREFIX + origin for target, origin in moved.items()},
+    )
+
     # Inbox items only: the maintenance item (`state.synthetic`) is measured by its own log.
     notes_done = [n for n in state.done if n not in state.changes and n not in state.synthetic]
     silent = sorted(state.items[n].title for n in notes_done if not state.integrated.get(n))
@@ -212,6 +223,19 @@ def measure(overlay: Overlay, state: RunState) -> dict[str, Any]:
         "removed_chars": removed,
         "deleted_chars": deleted_chars,
         "reduced": reduced[:SHOWN],
+        "checks": {
+            "introduced": len(broken_checks),
+            "examples": [
+                {
+                    "page": v.page,
+                    "rule": v.rule,
+                    "level": v.level,
+                    "line": v.line,
+                    "excerpt": v.excerpt,
+                }
+                for v in broken_checks[:SHOWN]
+            ],
+        },
         "items": {
             "done": done,
             "left": left,
@@ -235,6 +259,7 @@ def issues(metrics: dict[str, Any] | None) -> int:
         + len(metrics.get("empty") or [])
         + int(metrics.get("closed_without_page_count", 0))
         + len(metrics.get("reduced") or [])
+        + int((metrics.get("checks") or {}).get("introduced", 0))
     )
 
 

@@ -17,7 +17,11 @@ and the big picture.
 ## Administrators
 
 - [Install and run Synaptane](admin/installation.md): Docker Compose or from source,
-  upgrades, configuration reference.
+  upgrades, rollback.
+- [Configuration](admin/configuration.md): options and variables, email and invitations,
+  search index, alerts, monitoring, audit log, roles.
+- [First steps](admin/first-steps.md): organizations, spaces and members, then the demo data
+  to try Synaptane.
 - [Git repositories](admin/git.md): link a space to its repository, sync, conflicts.
 - [AI and tidy-up](admin/ai.md): providers and subscriptions, nightly tidy-up, purpose and
   rules, routines, cost and budget, search by meaning.

@@ -368,11 +368,80 @@ latest commit:
   for the same row, the NAS with 8 TB here and 12 TB there. One of them is probably outdated.
   Tables that disagree more than they agree describe different things (two companies' sheets),
   and two dated notes (`veille-2026-11-02.md`) each hold on their day: neither is reported.
-  The agent routines receive these values too.
+  The agent routines receive these values too;
+- **team checks**: the pages that break one of the space's own rules (see
+  [Team checks](#team-checks)).
 
 Each line leads to the page, and to **Edit** for contributors. The same check is served by the
 REST API (`GET /api/v1/organizations/{org}/spaces/{space}/health`, parameters `months` and
 `limit`). The tidy-up also runs it at the end of a run, on what it wrote.
+
+## Team checks
+
+A team that keeps its wiki up to date ends up with rules of its own, often written after an
+incident: no customer email address in a page, no local path such as `/private/tmp`, a `type`
+in every page's front matter, `tags` written as a YAML list. Synaptane checks them for you,
+without AI. They live in the repository, in `.synaptane/checks.md`, readable and editable by
+hand like any page.
+
+Organization administrators write them in **Settings → Purpose → Team checks**: **Start from
+the example** loads an example ready to adapt (in English or French), **Preview** lists the
+rules understood, the lines in error, and the number of current pages that break each rule;
+**Save** makes a commit in your name, as for the purpose (a conflict is detected the same way).
+They can also be changed by a push, or through the REST API (`GET` and `PUT …/checks`).
+
+Each level-2 heading is a rule. The list right under it describes the rule; any other text is
+a comment:
+
+```markdown
+## No personal email address
+- preset: email
+- allow: acme.com
+- level: block
+- message: Write the person's name and link to their page, not their address.
+
+## Tags are a YAML list
+- field: tags
+- expect: list
+- message: Write `tags: [a, b]`, or one `- tag` per line.
+
+## No local working path
+- pattern: `/private/tmp|scratchpad`
+- paths: notes/, projects/**/*.md
+- message: Link to the page or the file instead.
+```
+
+- **What is checked**: a `pattern` on the text of the page (a regular expression, between
+  backticks), a front matter `field` with what it must be (`expect: present`, `list` or
+  `date` for a date without a time) or what it must not contain (`pattern`), or a `preset` for
+  personal data: `email` (with the allowed domains in `allow`), `phone`, `card` (card numbers,
+  with the Luhn check) and `iban` (with its check digits). Presets see through no-break
+  spaces, dashes and invisible characters between digits.
+- **Where**: every Markdown page by default; `paths` limits the rule to folders or globs,
+  relative to `content/` (`clients/`, `notes/**/*.md`), and `except` leaves some out.
+- **How strictly**: `level: warn` (the default) reports; `level: block` refuses the write that
+  breaks the rule, with its `message`, from the web editor, MCP, the REST API, an import (the
+  file is left out, with the reason), the tidy-up, the report page of a routine, and the undo
+  of a tidy-up or of an assistant's run. Like the secret detector, only what a change adds
+  counts: a page that already broke a rule stays editable.
+- **What it shows**: the **Health** tab lists every page that breaks a rule, with the line and
+  an excerpt. Personal data (presets, or a rule with `mask: yes`) is masked: `j•••@gmail.com`,
+  `••• 1111`.
+
+A Git push cannot be refused: what it brings shows in **Health**. The tidy-up agent receives
+the rules with its instructions; a write of its own that a `block` rule refuses is sent back
+to it, and what it breaks of a `warn` rule comes back in its end-of-run check, to fix, then
+in the **Quality** block of its log.
+
+Expressions use the [RE2 syntax](https://github.com/google/re2/wiki/Syntax), which runs in
+linear time: no pattern can freeze the server, whatever the text. Lookarounds and
+backreferences are therefore not available. `^` and `$` match at each line; `(?i)` ignores
+case. Limits: 50 rules, 500 characters per pattern, and a cost per pattern: a long counted
+repetition such as `.{0,1000}` is refused (write `.{0,200}`). **Health** reads the first 1 MB
+of each page; a write is checked in full. A file with
+an error is never fatal: the faulty rule is ignored, the others apply, and **Health** names
+the line (a save from Synaptane refuses it). Full format:
+[Repository format](../reference/repository-format.md#synaptanechecksmd).
 
 ## Search
 

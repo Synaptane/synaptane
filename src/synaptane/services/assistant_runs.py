@@ -20,10 +20,11 @@ from synaptane.core.access import Action, require
 from synaptane.core.errors import SynaptaneError, conflict, invalid, not_found
 from synaptane.git.repo import Commit
 from synaptane.services import Actor, audit, jobs
+from synaptane.services import checks as team_checks
 from synaptane.services.activity import MAX_SCAN, origin_of
 from synaptane.services.content import writable
 from synaptane.services.inbox import CONTENT_DIR
-from synaptane.services.tidy_undo import PREFIX, RunPage, page_states
+from synaptane.services.tidy_undo import PREFIX, RunPage, moves, page_states
 from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database
 from synaptane.storage.models import Space
@@ -165,6 +166,8 @@ def undo_pages(
         for page in todo:
             for path in filter(None, (page.path, page.old)):
                 files[PREFIX + path] = repo.blob(PREFIX + path, run.start)
+        # As a restore: a team `block` check refuses what the undo would bring back.
+        team_checks.guard(repo, files, moves(todo))
         started = _when(run.commits[-1]).astimezone(UTC)
         message = (
             f"{UNDOS[0]}{run.client or 'an assistant'} wrote on {started:%Y-%m-%d %H:%M} for "

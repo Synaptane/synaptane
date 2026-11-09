@@ -229,7 +229,8 @@ without AI, and block nothing. What each line means:
 Main keys: `pages` (files created, modified, moved, deleted, touched), `broken_links` (`before`,
 `after`, `introduced`, `examples`), `orphans`, `not_in_index`, `untitled`, `empty`,
 `closed_without_page`, `removed_chars`, `deleted_chars`, `reduced` (pages flagged by
-`big_changes`), `items` (`done`, `left`, `left_rate`), `usage` (`tokens`,
+`big_changes`), `checks` (team checks broken by the run: `introduced`, `examples`), `items`
+(`done`, `left`, `left_rate`), `usage` (`tokens`,
 `cache_write_tokens`, `turns`, `per_item`) and `issues` (points to check). `version` changes
 if the meaning of a key changes.
 

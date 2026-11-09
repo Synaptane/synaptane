@@ -11,6 +11,7 @@ of the target version.
 ## [Unreleased]
 
 ### Added
+<<<<<<< HEAD
 - **Nightly wiki maintenance**. The scheduled tidy-up (and **Tidy now**) also fixes the
   problems people introduced since the last run, through the web, REST, MCP or pushes, even
   when the inbox is empty: broken links introduced in the pages they changed (or
@@ -38,6 +39,88 @@ of the target version.
 - One migration (`0035`), applied at startup: three columns on spaces and an empty table of
   the problems left. No existing column changes. Maintenance starts from each space's last
   synchronized head: the past is not caught up.
+=======
+- **Team checks**. A space can list, in its repository, the rules every page must follow:
+  `.synaptane/checks.md`, readable and editable by hand. Each level-2 heading is a rule, the
+  `- key: value` items under it describe it: a `pattern` on the text (regular expression), a
+  front matter `field` with `expect` (`present`, a YAML `list`, a `date` without a time) or a
+  `pattern` on its value, or a `preset` for personal data: `email` (with the domains allowed in
+  `allow`), `phone`, `card` (Luhn check) and `iban` (check digits), which see through no-break
+  spaces, dashes and zero-width characters between digits; optional `paths` and
+  `except` (folders or globs), a `level` (`warn`: reported, `block`: the write is refused) and
+  the `message` that says what to do. Patterns run on RE2 (the `google-re2` package), in linear
+  time: no team pattern can freeze the server whatever the text of a page, and the number of
+  rules (50), the length of a pattern (500 characters), its cost per byte (3,000 RE2 steps per
+  pattern, 15,000 per file: `.{0,1000}` is refused) and the text Health examines (1 MB per
+  page; a write is checked in full) are capped. A faulty rule is ignored and named, never fatal. Organization admins write them in
+  **Settings → Purpose → Team checks**, next to the purpose and the filing instructions: a
+  commit in their name, conflict detected, an example ready to adapt (English or French), and a
+  **Preview** that lists the rules understood, the lines in error and the number of current
+  pages that break each rule; a file with a faulty rule is refused there. REST:
+  `GET`/`PUT …/spaces/{space}/checks`. A `block` rule refuses the writes that add a violation,
+  with the rule's message, wherever they come from: web editor, MCP, REST (`422`,
+  `check_failed`, not lifted by `allow_secrets`), moves (a page moved into a folder a rule
+  covers), import (the file is left out, with the reason), the tidy-up, the report page of a
+  routine (refused to its agent, which fixes the text) and the undo of a tidy-up or of an
+  assistant's run (as a restore); as for secrets, a
+  page that already broke a rule stays editable. A push cannot be refused: the **Health** tab
+  gets a **Team checks** section (rule, page, line, excerpt with personal data masked:
+  `j•••@gmail.com`, `••• 1111`), computed per page digest like the rest of the tab, and the
+  REST health gets `checks`, `check_rules`, `check_errors` and `counts.checks`. The tidy-up
+  agent receives the rules with its instructions (configuration data, like the filing
+  instructions); a write that a `block` rule refuses is sent back to it, and the violations of
+  a `warn` rule that its run introduced come back in its end-of-run check, in the same round of
+  fixes as broken links, then in the **Quality** block of its log (`checks` in the metrics).
+  `services.checks` also gives the violations of a page, of a commit or between two commits.
+  No migration.
+
+### Changed
+- The installation guide is split into three pages: **Install and run** (Docker Compose, modes,
+  upgrade, rollback, from source), **Configuration** (options and variables, email, search
+  index, alerts, monitoring, audit log, roles) and **First steps** (organizations, spaces,
+  demo data). Links to the moved sections now go to `docs/admin/configuration.md` and
+  `docs/admin/first-steps.md`.
+- **Agent routines are files of the repository.** Each routine of a space is now
+  `.synaptane/routines/<name>.md`, versioned like the purpose and the tidy-up rules: a header
+  (`title`, `description`, `schedule` such as `weekly monday 06:00`, or in French
+  `hebdo lundi 06:00`, written back in English by Synaptane, `scope`, `report`,
+  `inbox`, `email`, `webhook`, `enabled`, `template`), then the instructions. Git is the source
+  of truth; the database keeps a copy of the settings and the state of the runs. At each
+  synchronization, Synaptane reads the files at the space's current commit: a new file creates
+  the routine (which waits for its next slot), a changed file updates its settings without
+  making it run again, a removed file removes it (its log and its cost stay in the month's
+  budget). An invalid file does not run, and its error shows in **Settings → Routines** and in
+  the REST API (`error`); a field this version does not know is reported (`warnings`), ignored,
+  and kept when Synaptane rewrites the file. **Settings → Routines**, the provided templates
+  (**Enable**, **Customize first**) and the REST API keep working and write the file: a commit
+  in the administrator's name, under the space lock, then a synchronization; a file changed
+  since the form was opened is refused, with the choice to replace it, as for the purpose.
+  Anyone who can push to the repository can now change a routine, as they can change the
+  tidy-up rules: grant push access accordingly. Inside Synaptane, only organization
+  administrators write these files. REST: a routine gains `title`, `description`, `path`,
+  `sha`, `pending`, `error` and `warnings`; `name` is now the file name (a free text given at
+  creation is still taken as the title); `PATCH` and `DELETE` accept `base_sha`. A routine
+  created from a template has the same file name in every language: `consistency-check`,
+  `weekly-digest`. See
+  [Agent routines](docs/admin/ai.md#the-routine-file).
+
+### Upgrade
+- New dependency, `google-re2` (BSD license, wheels for Linux, macOS and Windows): installed
+  with the image, or by `uv sync` from source.
+- One migration (`0034`), applied at startup. Each existing routine keeps its row, so its
+  state and its runs; its name becomes its title, and it gets a file name made from it
+  (`Contrôle de cohérence` → `controle-de-coherence`, `-2` if the name is taken in the space),
+  even for a routine created from a template, which a new one would name `consistency-check`.
+  At the next synchronization of each space, Synaptane writes its routines to the repository
+  in one commit, `Synaptane: routines written to the repository`, and pushes it. A routine
+  keeps running from the database until then, and runs neither twice nor not at all: its last
+  run day stays. A space not synchronized yet writes them at its first synchronization. If a
+  file of the same name is already in the repository with other content, the repository wins
+  and the routine of the database takes a free name (`-2`); with the same content, it is
+  adopted. A failed push keeps the commit in the local copy, and the next synchronization
+  pushes it. REST clients that change a routine's `name` with `PATCH` must change `title`
+  instead. As before any upgrade, back up first.
+>>>>>>> origin/main
 
 ## [1.15.0] - 2026-11-09
 

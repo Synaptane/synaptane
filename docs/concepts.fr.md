@@ -102,11 +102,12 @@ s'inscrire, mais n'accordent aucune adhésion, et un administrateur ajoute chaqu
 
 - Le contenu vit dans les dépôts. La base PostgreSQL contient les comptes,
   organisations, espaces et droits, les réglages (dépôt, rangement, fournisseurs d'IA,
-  routines, webhooks, connexion unique), les jetons et connexions, les secrets chiffrés, la
-  file des tâches, l'historique des rangements et des routines, le journal d'audit et l'index
-  sémantique (pgvector, reconstruit depuis Git). La recherche plein texte n'a pas d'index :
-  ripgrep lit les dépôts et le texte extrait, gardé sous `data_dir`. `synaptane reindex`
-  reconstruit le texte extrait et l'index sémantique depuis Git.
+  webhooks, connexion unique), les jetons et connexions, les secrets chiffrés, la file des
+  tâches, l'historique des rangements et des routines (les routines elles-mêmes sont des
+  fichiers du dépôt), le journal d'audit et l'index sémantique (pgvector, reconstruit depuis
+  Git). La recherche plein texte n'a pas d'index : ripgrep lit les dépôts et le texte extrait,
+  gardé sous `data_dir`. `synaptane reindex` reconstruit le texte extrait et l'index
+  sémantique depuis Git.
 - Chaque espace a une copie locale. Chaque écriture est un commit lisible : l'auteur est la
   personne qui agit (ou l'agent de rangement, `Synaptane tidy-up`), et le message dit ce qui a
   été fait (`Inbox: …`, `Tidy-up: …`, `Synaptane: initialize space`…). Le commit est poussé
@@ -233,9 +234,12 @@ Deux modèles sont fournis : un **contrôle de cohérence** hebdomadaire (contra
 informations périmées, doublons) et un **résumé hebdomadaire** de ce que l'équipe a appris et
 décidé, en anglais et en français (la langue de la personne qui crée la routine).
 
-Les administrateurs de l'organisation créent, modifient, lancent et suppriment les routines ;
-les contributeurs de l'espace les voient, ainsi que leur journal. Le rangement nocturne n'est
-pas une routine.
+Chaque routine est un fichier du dépôt de l'espace, `.synaptane/routines/<nom>.md` : Git fait
+foi ; la base garde une copie de ses réglages, remise à jour à chaque synchronisation, et l'état
+de ses passages. Les administrateurs de l'organisation créent, modifient, lancent et suppriment
+les routines depuis Synaptane ; quiconque peut pousser sur le dépôt peut aussi les modifier. Les
+contributeurs de l'espace les voient, ainsi que leur journal. Le rangement nocturne n'est pas
+une routine.
 
 ## Recherche
 

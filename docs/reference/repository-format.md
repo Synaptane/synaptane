@@ -16,6 +16,8 @@ content/                          visible: wiki, search, MCP
   vocation.md                     the space's purpose (optional)
   prompts/tidy.md                 tidy-up rules (optional)
   prompts/<name>.md               the team's prompts for assistants (optional)
+  checks.md                       team checks: rules every page must follow (optional)
+  routines/<name>.md              the space's agent routines (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -27,8 +29,9 @@ README.md, .github/, …            anything else: ignored by Synaptane
 - On the first sync, Synaptane creates what is missing, and only that: `content/README.md`
   (with the space's name and description) if `content/` does not exist, and
   `.synaptane/inbox/`.
-- Space settings (description, tidy-up time and time zone, model, embeddings, routines) are
-  kept in the database and changed in the web UI or the REST API, not in the repository.
+- Space settings (description, tidy-up time and time zone, model, embeddings) are kept in the
+  database and changed in the web UI or the REST API, not in the repository. Routines are
+  files of the repository; only the state of their runs is kept in the database.
 - Git is the source of truth: every file here can also be changed by a push, and Synaptane
   picks it up on the next sync.
 
@@ -111,6 +114,45 @@ only one present; the first save from Synaptane writes `tidy.md` instead.
 
 See [AI and tidy-up](../admin/ai.md).
 
+## `.synaptane/checks.md`
+
+The space's **team checks**: rules that every Markdown page of `content/` must follow, checked
+without AI in **Health**, at each write and by the tidy-up (see
+[Team checks](../guide/wiki.md#team-checks)). Written in **Settings → Purpose** (organization
+administrators), through the REST API or by a push; 20,000 characters at most from Synaptane.
+
+Each level-2 heading (`## Title`) is a rule; the `- key: value` list items right under it
+describe it. Any other text (paragraphs, level-1 or level-3 headings, HTML comments, code
+blocks) is a comment. A value between backticks is taken as is (```` `` a`b `` ```` for a
+value that holds a backtick).
+
+| Key | Meaning |
+|---|---|
+| `pattern` | Regular expression ([RE2 syntax](https://github.com/google/re2/wiki/Syntax), linear time), on the text of the page, front matter included; `^` and `$` match at each line. With `field`: on the value of the field |
+| `field` | Front matter field (top-level key) |
+| `expect` | What `field` must be, separated by commas: `present` (there and not empty), `list` (a YAML list: `[a, b]` or one `- item` per line), `date` (`YYYY-MM-DD`, without a time). `list` and `date` only apply when the field is there |
+| `preset` | Personal data: `email`, `phone` (international, French and North American formats), `card` (13 to 19 digits that pass the Luhn check), `iban` (length of its country and check digits, upper or lower case). No-break spaces, dashes and zero-width characters between digits are seen through. Stands alone: no `pattern` or `field` |
+| `allow` | Values never reported, separated by commas. For `email`: domains (`acme.com`, its subdomains included) or addresses. The `example.com`, `.org` and `.net` domains and the `.example`, `.invalid`, `.test` and `.localhost` ones are always allowed |
+| `paths` | Folders or globs relative to `content/`, separated by commas: `clients/` (everything under it), `notes/*.md` (`*` within a folder), `**/meetings/*.md` (`**` across folders). Without it: every page |
+| `except` | Folders or globs left out, same form |
+| `level` | `warn` (default): reported. `block`: a write that breaks the rule is refused |
+| `message` | What to do, shown with each violation and with a refusal |
+| `mask` | `yes`: the excerpt of a `pattern` is masked, as for presets |
+
+Limits: 50 rules, 500 characters per pattern, 3,000 RE2 steps per compiled pattern and 15,000
+for the whole file (a counted repetition such as `.{0,1000}` costs that many: RE2 stays
+linear, but its cost per byte grows with them), 64,000 characters of the file read. **Health**
+examines the first 1 MB of each page and shows 20 violations per rule and per page; a write
+is checked in full. A faulty rule (unknown key, invalid pattern, pattern too complex, pattern
+that matches an empty text, two rules with the same title) is
+ignored and its line is shown in **Health**; the other rules apply. A save from Synaptane
+refuses a file with a faulty rule.
+
+A `block` rule refuses the writes of the web UI, the REST API, MCP, the import, the tidy-up,
+the report page of a routine and the undo of a tidy-up or of an assistant's run, when they add
+a violation: a page that already broke the rule stays editable, and a
+page moved into a folder that a rule covers counts as new. A push cannot be refused.
+
 ## `.synaptane/prompts/<name>.md`
 
 The team's **prompts for assistants**: every other Markdown file of the folder, one per prompt
@@ -119,6 +161,35 @@ The team's **prompts for assistants**: every other Markdown file of the folder, 
 `{{argument}}` and `{{include page.md}}`. Written in **Settings → Assistant prompts**
 (organization administrators) or by a push. See [Your team's
 prompts](../guide/mcp.md#your-teams-prompts).
+
+## `.synaptane/routines/<name>.md`
+
+The space's **agent routines**, one Markdown file each (20 at most), named with lowercase
+letters, digits and dashes (40 characters at most): the name of the routine. A header between
+two `---` lines, then the instructions:
+
+```markdown
+---
+title: Weekly digest
+schedule: weekly friday 16:00
+scope: projects, decisions
+report: reports/weekly-digest.md
+email: members
+---
+Write the summary of the week…
+```
+
+Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
+`monthly 1 06:00`; French is read too, such as `hebdo lundi 06:00`, and Synaptane writes English
+back), `scope` (folders separated by commas, a JSON list or one `- folder` line
+each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+`template`. Values are plain text or JSON. An unknown field is reported and ignored; an
+invalid file does not run, and its error shows in Settings → Routines and the REST API.
+
+Written in **Settings → Routines** (organization administrators: a commit in their name) or by
+a push: anyone who can push can change them. Read at each synchronization; the state of the
+runs (last run, run requested) stays in the database, so a changed file never makes a routine
+run again. See [Agent routines](../admin/ai.md#agent-routines-per-space).
 
 ## `.synaptane/inbox/`
 
@@ -173,8 +244,12 @@ Git history since the last tidy-up.
 - Tidy-up runs are committed by `Synaptane tidy-up` (`Synaptane – rangement` in older
   histories), subject `Tidy-up: …`: one commit per run. Its commits, like Synaptane's merges
   and the initial files, are never reported to the inbox as changes.
-- A routine commits its report page and inbox items as `Synaptane routine (<name>)`, subject
-  `Routine "<name>": …` (`Synaptane – routine` in older histories).
+- A routine commits its report page and inbox items as `Synaptane routine (<title>)`, subject
+  `Routine "<title>": …` (`Synaptane – routine` in older histories).
+- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
+  the administrator's name. The routines kept in the database by older versions are written by
+  `Synaptane: routines written to the repository`, at the first synchronization after the
+  upgrade.
 - Synaptane's own commits have English subjects: `Inbox: <title>` (a note dropped; also
   `Inbox: edit “…”`, `Inbox: delete “…”`, `Inbox: “…” moved to <space>`),
   `Synaptane: initialize space`, `Synaptane: merge remote changes`,

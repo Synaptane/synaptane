@@ -6,15 +6,20 @@ rewritten at each run, items deposited in the inbox, an email, a `routine.done` 
 agent reads the wiki; it writes nowhere but in its outputs. Actual fixes go through the inbox
 and the nightly tidy-up, with their safeguards (`services.routine_agent`).
 
+Each routine is a file of the space's repository, `.synaptane/routines/<name>.md`
+(`services.routine_files`: format, reading, writing); the database keeps a copy of its
+settings and the state of its runs.
+
 The nightly tidy-up stays separate (`services.tidy`): it is not a routine.
 
-Rights: the organization's administrators create, edit, run and delete; the space's
-contributors see the routines and their log.
+Rights: the organization's administrators create, edit, run and delete (from Synaptane: a
+commit in their name); the space's contributors see the routines and their log. Whoever can
+push to the repository can change them too, like the tidy-up rules.
 
 Scheduling: like the tidy-up, the worker checks every minute what is due (`schedule`). A
 routine due receives a request (`Routine.requested`) and a single `routine` task per space
 runs them all, one after the other (`jobs` merges the repeated requests of a space into one
-task).
+task). An invalid file is never due.
 """
 
 from dataclasses import dataclass
@@ -24,22 +29,25 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synaptane.core import names
 from synaptane.core.access import Action, require
-from synaptane.core.errors import SynaptaneError, conflict, invalid, not_found
+from synaptane.core.errors import SynaptaneError, invalid, not_found
 from synaptane.services import Actor, audit, budget, jobs
-from synaptane.services.content import content_path
-from synaptane.services.inbox import CONTENT_DIR
+from synaptane.services.routine_files import (
+    MAX_ROUTINES,
+    Config,
+    apply,
+    check_name,
+    file_path,
+    name_for,
+    save,
+)
+from synaptane.services.routine_files import Fields as Fields  # interfaces: `routines.Fields`
 from synaptane.services.tidy import parse_time, zone
+from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import Routine, RoutineRun, Space
 
 ROUTINE = "routine"  # kind of task (the worker's slow lane, with the tidy-up)
-FREQUENCIES = ("daily", "weekly", "monthly")
-EMAIL_TARGETS = ("", "admins", "members")
-MAX_INSTRUCTIONS = 20_000
-MAX_SCOPE = 20  # folders
-MAX_ROUTINES = 20  # per space: each routine costs, proliferation is paid for
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,12 @@ class Template:
     def text_for(self, locale: str) -> Text:
         """Instructions and report page in a language; English for any language missing."""
         return self.texts.get(locale) or self.texts["en"]
+
+    @property
+    def file_name(self) -> str:
+        """Name of the routine's file, the same in every language (`consistency-check`), so
+        that a team finds the template's routine under one name whoever enabled it."""
+        return name_for(self.name)
 
 
 def flow(text: str) -> str:
@@ -201,119 +215,31 @@ donnée en entrée (historique Git du wiki, passages du rangement : éléments r
 TEMPLATES: dict[str, Template] = {t.key: t for t in (COHERENCE, DIGEST)}
 
 
-@dataclass
-class Fields:
-    """Settings of a routine; None: unchanged (partial update)."""
+def from_template(key: str, locale: str) -> Config:
+    """A template's settings, its title, instructions and report page in a language."""
+    model = TEMPLATES.get(key)
+    if model is None:
+        raise invalid("Unknown routine template.")
+    from synaptane.web.i18n import translator
 
-    name: str | None = None
-    instructions: str | None = None
-    frequency: str | None = None
-    weekday: int | None = None
-    monthday: int | None = None
-    at: str | None = None
-    scope: list[str] | None = None
-    output_page: str | None = None
-    output_inbox: bool | None = None
-    output_email: str | None = None
-    output_webhook: bool | None = None
-    enabled: bool | None = None
-
-
-# --- Validation ---------------------------------------------------------------------------
-
-
-def clean_folder(folder: str) -> str:
-    """Folder of the scope, relative to content/ ("infra/servers")."""
-    full = content_path(folder.removeprefix("content/"))
-    if full == CONTENT_DIR:
-        return ""
-    return full[len(CONTENT_DIR) + 1 :]
-
-
-def clean_scope(folders: list[str]) -> list[str]:
-    cleaned = [f for f in dict.fromkeys(clean_folder(f) for f in folders if f.strip()) if f]
-    if len(cleaned) > MAX_SCOPE:
-        raise invalid("Scope: {n} folders at most.", n=MAX_SCOPE)
-    return cleaned
-
-
-def clean_page(page: str) -> str:
-    """Output page, relative to content/; "": no page."""
-    page = page.strip().removeprefix("content/").strip("/")
-    if not page:
-        return ""
-    if not page.lower().endswith(".md"):
-        page += ".md"
-    full = content_path(page)
-    if full == CONTENT_DIR:
-        return ""
-    return full[len(CONTENT_DIR) + 1 :]
-
-
-def _apply(routine: Routine, fields: Fields) -> None:
-    if fields.name is not None:
-        routine.name = names.display_name(fields.name, field="Name")
-    if fields.instructions is not None:
-        text = fields.instructions.strip()
-        if not text:
-            raise invalid("Instructions: say what the routine must do.")
-        if len(text) > MAX_INSTRUCTIONS:
-            raise invalid("Instructions too long (20,000 characters at most).")
-        routine.instructions = text
-    if fields.frequency is not None:
-        if fields.frequency not in FREQUENCIES:
-            raise invalid("Unknown frequency (daily, weekly or monthly).")
-        routine.frequency = fields.frequency
-    if fields.weekday is not None:
-        routine.weekday = fields.weekday
-    if fields.monthday is not None:
-        routine.monthday = fields.monthday
-    if fields.at is not None:
-        routine.at = parse_time(fields.at).strftime("%H:%M")
-    if fields.scope is not None:
-        routine.scope = clean_scope(fields.scope)
-    if fields.output_page is not None:
-        routine.output_page = clean_page(fields.output_page)
-    if fields.output_inbox is not None:
-        routine.output_inbox = fields.output_inbox
-    if fields.output_email is not None:
-        if fields.output_email not in EMAIL_TARGETS:
-            raise invalid("Unknown email recipients.")
-        routine.output_email = fields.output_email
-    if fields.output_webhook is not None:
-        routine.output_webhook = fields.output_webhook
-    if fields.enabled is not None:
-        routine.enabled = fields.enabled
-    # Consistency of the whole, once everything is applied.
-    if routine.frequency == "weekly":
-        if routine.weekday is None or not 0 <= routine.weekday <= 6:
-            raise invalid("Choose the day of the week.")
-        routine.monthday = None
-    elif routine.frequency == "monthly":
-        if routine.monthday is None or not 1 <= routine.monthday <= 28:
-            raise invalid("Day of the month: from 1 to 28.")
-        routine.weekday = None
-    else:
-        routine.weekday = routine.monthday = None
-    if not (
-        routine.output_page
-        or routine.output_inbox
-        or routine.output_email
-        or routine.output_webhook
-    ):
-        raise invalid("Choose at least one output: page, inbox, email or webhook.")
-
-
-def _skip_today(routine: Routine, space: Space, now: datetime | None = None) -> None:
-    """A routine created, re-enabled or rescheduled after its time of the day does not start
-    right away (and costs nothing unless asked): "Run now" does that."""
-    try:
-        local = (now or datetime.now(UTC)).astimezone(zone(space.tidy_timezone))
-        at = parse_time(routine.at)
-    except SynaptaneError:
-        return
-    if local.time() >= at:
-        routine.last_date = local.date()
+    text = model.text_for(locale)
+    config = Config(template=model.key)
+    apply(
+        config,
+        Fields(
+            title=translator(locale)(model.name),
+            instructions=text.instructions,
+            frequency=model.frequency,
+            weekday=model.weekday,
+            monthday=model.monthday,
+            at=model.at,
+            output_page=text.output_page,
+            output_inbox=model.output_inbox,
+            output_email=model.output_email,
+            output_webhook=model.output_webhook,
+        ),
+    )
+    return config
 
 
 # --- Use cases ----------------------------------------------------------------------------
@@ -322,7 +248,11 @@ def _skip_today(routine: Routine, space: Space, now: datetime | None = None) -> 
 def list_routines(session: Session, actor: Actor, space: Space) -> list[Routine]:
     require(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id)
     return list(
-        session.scalars(select(Routine).where(Routine.space_id == space.id).order_by(Routine.name))
+        session.scalars(
+            select(Routine)
+            .where(Routine.space_id == space.id)
+            .order_by(Routine.title, Routine.name)
+        )
     )
 
 
@@ -334,96 +264,125 @@ def get(session: Session, actor: Actor, space: Space, routine_id: UUID) -> Routi
     return routine
 
 
-def _unique_name(session: Session, space: Space, name: str, routine_id: UUID | None) -> None:
-    other = session.scalar(
-        select(Routine.id).where(Routine.space_id == space.id, Routine.name == name)
-    )
-    if other is not None and other != routine_id:
-        raise conflict("A routine with this name already exists in the space.")
+def path_of(routine: Routine) -> str:
+    """The routine's file in the repository."""
+    return file_path(routine.name)
 
 
 def create(
-    session: Session, actor: Actor, space: Space, fields: Fields, *, template: str = ""
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    fields: Fields,
+    *,
+    name: str = "",
+    template: str = "",
+    allow_secrets: bool = False,
+    source: str = "web",
 ) -> Routine:
     """New routine, blank or from a template (its settings in the creator's language, then
-    `fields`)."""
+    `fields`): a new file `.synaptane/routines/<name>.md`. `name` defaults to the template's
+    (`consistency-check`, `weekly-digest`), or else to one made from the title."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     count = len(list(session.scalars(select(Routine.id).where(Routine.space_id == space.id))))
     if count >= MAX_ROUTINES:
         raise invalid("{n} routines at most per space.", n=MAX_ROUTINES)
-    routine = Routine(
-        space_id=space.id,
-        template="",
-        name="",
-        instructions="",
-        frequency="weekly",
-        weekday=0,
-        at="06:00",
-        scope=[],
-        output_page="",
-        output_inbox=False,
-        output_email="",
-        output_webhook=False,
-        enabled=True,
-        created_by=actor.user.id,
+    config = from_template(template, actor.user.locale) if template else Config()
+    apply(config, fields)
+    if not config.title or not config.instructions:
+        raise invalid("Give the routine a title and instructions.")
+    if name.strip():
+        file_name = check_name(name)
+    elif template:
+        file_name = TEMPLATES[template].file_name  # whatever the language of the title
+    else:
+        file_name = name_for(config.title)
+    routine = save(
+        session,
+        database,
+        actor,
+        ws,
+        space,
+        file_name,
+        config,
+        creating=True,
+        allow_secrets=allow_secrets,
+        source=source,
     )
-    if template:
-        model = TEMPLATES.get(template)
-        if model is None:
-            raise invalid("Unknown routine template.")
-        routine.template = model.key
-        text = model.text_for(actor.user.locale)
-        from synaptane.web.i18n import translator
-
-        _apply(
-            routine,
-            Fields(
-                name=translator(actor.user.locale)(model.name),  # in the creator's language
-                instructions=text.instructions,
-                frequency=model.frequency,
-                weekday=model.weekday,
-                monthday=model.monthday,
-                at=model.at,
-                output_page=text.output_page,
-                output_inbox=model.output_inbox,
-                output_email=model.output_email,
-                output_webhook=model.output_webhook,
-            ),
-        )
-    _apply(routine, fields)
-    if not routine.name or not routine.instructions:
-        raise invalid("Give the routine a name and instructions.")
-    _unique_name(session, space, routine.name, None)
-    _skip_today(routine, space)
-    session.add(routine)
-    session.flush()
-    audit(session, actor, "routine.created", space=space, routine=routine.name, template=template)
+    assert routine is not None
+    audit(
+        session,
+        actor,
+        "routine.created",
+        space=space,
+        routine=routine.title,
+        file=path_of(routine),
+        template=template,
+    )
     return routine
 
 
-def update(session: Session, actor: Actor, space: Space, routine: Routine, fields: Fields) -> None:
+def update(
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    routine: Routine,
+    fields: Fields,
+    *,
+    base_sha: str | None = None,
+    allow_secrets: bool = False,
+    source: str = "web",
+) -> Routine:
+    """Rewrites the routine's file with `fields` changed. `base_sha`: the file's hash when
+    the form was opened (conflict if it changed since); None: no check."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
-    before = (routine.enabled, routine.frequency, routine.weekday, routine.monthday, routine.at)
-    _apply(routine, fields)
-    _unique_name(session, space, routine.name, routine.id)
-    after = (routine.enabled, routine.frequency, routine.weekday, routine.monthday, routine.at)
-    if after != before and routine.enabled:
-        _skip_today(routine, space)
-    routine.updated_at = datetime.now(UTC)
-    audit(session, actor, "routine.updated", space=space, routine=routine.name)
+    config = Config.of(routine)
+    apply(config, fields)
+    saved = save(
+        session,
+        database,
+        actor,
+        ws,
+        space,
+        routine.name,
+        config,
+        base_sha=base_sha,
+        allow_secrets=allow_secrets,
+        source=source,
+    )
+    assert saved is not None
+    audit(session, actor, "routine.updated", space=space, routine=saved.title)
+    return saved
 
 
-def delete(session: Session, actor: Actor, space: Space, routine: Routine) -> None:
-    """Deletes the routine. Its runs stay in the log (and in the month's budget); the report
-    page stays in the wiki, like any page."""
+def delete(
+    session: Session,
+    database: Database,
+    actor: Actor,
+    ws: Workspace,
+    space: Space,
+    routine: Routine,
+    *,
+    base_sha: str | None = None,
+    source: str = "web",
+) -> None:
+    """Removes the routine's file. Its runs stay in the log (and in the month's budget); the
+    report page stays in the wiki, like any page."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
-    audit(session, actor, "routine.deleted", space=space, routine=routine.name)
-    session.delete(routine)
+    title = routine.title
+    save(session, database, actor, ws, space, routine.name, None, base_sha=base_sha, source=source)
+    audit(session, actor, "routine.deleted", space=space, routine=title)
 
 
 def request_run(session: Session, actor: Actor, space: Space, routine: Routine) -> None:
     """ "Run now": the worker runs it as soon as the slow lane is free."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    if routine.error is not None:
+        raise invalid("The routine's file is invalid: fix it before running the routine.")
     if not space.repo_url:
         raise invalid(
             "The space is not linked to any Git repository: nothing for the routine to read."
@@ -435,7 +394,7 @@ def request_run(session: Session, actor: Actor, space: Space, routine: Routine) 
         )
     routine.requested, routine.requested_by = "manual", actor.user.id
     jobs.enqueue(session, ROUTINE, space.id)
-    audit(session, actor, "routine.requested", space=space, routine=routine.name)
+    audit(session, actor, "routine.requested", space=space, routine=routine.title)
 
 
 def runs(
@@ -483,9 +442,9 @@ def _matches(routine: Routine, day: date) -> bool:
 
 
 def due(routine: Routine, space: Space, now: datetime) -> date | None:
-    """Local day of the run due, or None (disabled, not the right day, already done, or time
-    not reached yet). Time zone of the space, the tidy-up's one."""
-    if not routine.enabled or not space.repo_url:
+    """Local day of the run due, or None (disabled, invalid file, not the right day, already
+    done, or time not reached yet). Time zone of the space, the tidy-up's one."""
+    if not routine.enabled or routine.error is not None or not space.repo_url:
         return None
     try:
         local = now.astimezone(zone(space.tidy_timezone))
@@ -498,8 +457,8 @@ def due(routine: Routine, space: Space, now: datetime) -> date | None:
 
 
 def next_run(routine: Routine, space: Space, now: datetime | None = None) -> datetime | None:
-    """Next scheduled run (local time of the space), or None if disabled."""
-    if not routine.enabled or not space.repo_url:
+    """Next scheduled run (local time of the space), or None if disabled or invalid."""
+    if not routine.enabled or routine.error is not None or not space.repo_url:
         return None
     try:
         tz = zone(space.tidy_timezone)
@@ -525,7 +484,11 @@ def schedule(database: Database, now: datetime | None = None) -> int:
         rows = session.execute(
             select(Routine, Space)
             .join(Space, Space.id == Routine.space_id)
-            .where(Routine.enabled.is_(True), Space.repo_url.is_not(None))
+            .where(
+                Routine.enabled.is_(True),
+                Routine.error.is_(None),
+                Space.repo_url.is_not(None),
+            )
         ).all()
         for routine, space in rows:
             day = due(routine, space, now)

@@ -401,11 +401,84 @@ dernier commit :
   sans doute périmée. Des tableaux qui divergent plus qu'ils ne concordent décrivent des choses
   différentes (les fiches de deux sociétés), et deux notes datées (`veille-2026-11-02.md`)
   sont chacune vraies à leur date : ni les uns ni les autres ne sont signalés. Les routines
-  d'agent reçoivent aussi ces valeurs.
+  d'agent reçoivent aussi ces valeurs ;
+- **contrôles de l'équipe** : les pages qui enfreignent une des règles propres à l'espace (voir
+  [Contrôles de l'équipe](#contrôles-de-léquipe)).
 
 Chaque ligne mène à la page, et à « Modifier » pour les contributeurs. Le même contrôle est
 servi par l'API REST (`GET /api/v1/organizations/{org}/spaces/{space}/health`, paramètres
 `months` et `limit`). Le rangement le fait aussi en fin de passage, sur ce qu'il a écrit.
+
+## Contrôles de l'équipe
+
+Une équipe qui entretient son wiki finit par avoir ses propres règles, souvent écrites après
+un incident : pas d'adresse e-mail de client dans une page, pas de chemin local comme
+`/private/tmp`, un `type` dans le front matter de chaque page, des `tags` en liste YAML.
+Synaptane les vérifie pour vous, sans IA. Elles sont dans le dépôt, dans
+`.synaptane/checks.md`, lisibles et modifiables à la main comme une page.
+
+Les administrateurs de l'organisation les écrivent dans **Paramètres → Vocation → Contrôles de
+l'équipe** : **Partir de l'exemple** charge un exemple prêt à adapter (en français ou en
+anglais), **Aperçu** liste les règles comprises, les lignes en erreur et le nombre de pages
+actuelles qui enfreignent chaque règle ; **Enregistrer** fait un commit à votre nom, comme pour
+la vocation (un conflit est détecté de la même façon). Elles se modifient aussi par un push, ou
+par l'API REST (`GET` et `PUT …/checks`).
+
+Chaque titre de niveau 2 est une règle. La liste juste en dessous la décrit ; tout autre texte
+est un commentaire. Les clés restent en anglais :
+
+```markdown
+## Pas d'adresse e-mail de personne
+- preset: email
+- allow: acme.com
+- level: block
+- message: Écrivez le nom de la personne avec un lien vers sa page, pas son adresse.
+
+## Les tags sont une liste YAML
+- field: tags
+- expect: list
+- message: Écrivez `tags: [a, b]`, ou un `- tag` par ligne.
+
+## Pas de chemin de travail local
+- pattern: `/private/tmp|scratchpad`
+- paths: notes/, projets/**/*.md
+- message: Mettez un lien vers la page ou le fichier.
+```
+
+- **Ce qui est vérifié** : un motif (`pattern`) sur le texte de la page (une expression
+  régulière, entre accents graves), un champ du front matter (`field`) avec ce qu'il doit être
+  (`expect: present`, `list`, ou `date` pour une date sans heure) ou ce qu'il ne doit pas
+  contenir (`pattern`), ou un préréglage (`preset`) de données personnelles : `email` (avec
+  les domaines autorisés dans `allow`), `phone`, `card` (numéros de carte, avec la
+  vérification de Luhn) et `iban` (avec sa clé de contrôle). Les préréglages lisent à
+  travers les espaces insécables, les tirets et les caractères invisibles entre les chiffres.
+- **Où** : toutes les pages Markdown par défaut ; `paths` limite la règle à des dossiers ou à
+  des globs, relatifs à `content/` (`clients/`, `notes/**/*.md`), et `except` en retire.
+- **Avec quelle sévérité** : `level: warn` (par défaut) signale ; `level: block` refuse
+  l'écriture qui enfreint la règle, avec son `message`, depuis l'éditeur web, MCP, l'API REST,
+  un import (le fichier est écarté, avec la raison), le rangement, la page de rapport d'une
+  routine, et l'annulation d'un rangement ou du passage d'un assistant. Comme pour le
+  détecteur de secrets, seul ce qu'une modification ajoute compte : une page qui enfreignait
+  déjà une règle reste modifiable.
+- **Ce qu'on en voit** : l'onglet **Santé** liste chaque page qui enfreint une règle, avec la
+  ligne et un extrait. Les données personnelles (préréglages, ou règle avec `mask: yes`) sont
+  masquées : `j•••@gmail.com`, `••• 1111`.
+
+Un push Git ne peut pas être refusé : ce qu'il apporte apparaît dans **Santé**. L'agent de
+rangement reçoit les règles avec ses consignes ; une écriture qu'une règle `block` refuse lui
+est renvoyée, et ce qu'il enfreint d'une règle `warn` revient dans son contrôle de fin de
+passage, pour qu'il le corrige, puis dans le bloc **Qualité** de son journal.
+
+Les expressions suivent la [syntaxe RE2](https://github.com/google/re2/wiki/Syntax), qui
+s'exécute en temps linéaire : aucun motif ne peut bloquer le serveur, quel que soit le texte.
+Les assertions avant ou arrière et les références arrière ne sont donc pas disponibles. `^` et
+`$` valent pour chaque ligne ; `(?i)` ignore la casse. Limites : 50 règles, 500 caractères
+par motif, et un coût par motif : une longue répétition comptée comme `.{0,1000}` est refusée
+(écrivez `.{0,200}`). **Santé** lit le premier Mo de chaque page ; une écriture est vérifiée en
+entier. Un fichier en erreur n'est jamais bloquant : la règle
+fautive est ignorée, les autres s'appliquent, et **Santé** nomme la ligne (un enregistrement
+depuis Synaptane la refuse). Format complet :
+[Format du dépôt](../reference/repository-format.fr.md#synaptanechecksmd).
 
 ## Chercher
 

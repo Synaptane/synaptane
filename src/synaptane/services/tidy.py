@@ -61,6 +61,7 @@ from synaptane.services import (
     webhooks,
 )
 from synaptane.services import changes as changes_service
+from synaptane.services import checks as team_checks
 from synaptane.services import search as search_service
 from synaptane.services.ai_settings import check_space_model, config_for
 from synaptane.services.deposits import list_items
@@ -417,7 +418,8 @@ def tidy_space(
         description=space.description or "",
         language=vocation.language_note(vocation.space_language(repo, base, purpose)),
         vocation=VOCATION.format(text=vocation.for_prompt(purpose)) if purpose else "",
-        custom=CUSTOM.format(text=custom.decode("utf-8", "replace")) if custom else "",
+        custom=(CUSTOM.format(text=custom.decode("utf-8", "replace")) if custom else "")
+        + team_checks.for_prompt(team_checks.load(repo, base)),
         max_deletions=MAX_DELETIONS,
     )
     usage = spent if spent is not None else Usage()

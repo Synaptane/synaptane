@@ -18,7 +18,9 @@ rules (CHANGELOG):
 - 0032: pending invitations keep their roles and join no group; an invitation only names
   groups of its organization, and deleting the group or the invitation removes the link;
 - 0033: no capture by email is configured (nothing is read before the super admin sets it
-  up), and what it remembers of an email outlives the space and the account it named.
+  up), and what it remembers of an email outlives the space and the account it named;
+- 0034: each routine keeps its row (state, runs), its name becomes its title, and it gets a
+  file name unique in its space, waiting to be written to the repository;
 - 0035: the nightly maintenance is on everywhere and starts from each space's last
   synchronized head (nothing is caught up, and the edit that triggers the next sync is not
   taken for the past); a space never synchronized waits for its first sync.
@@ -511,5 +513,200 @@ def test_maintenance_migration_starts_from_the_last_synchronized_head(
         assert sorted(tuple(r) for r in rows) == [("dev", True, None, 0), ("rh", True, "a" * 40, 0)]
         command.downgrade(config, "0033")
         command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_routines_migration_gives_each_routine_a_file_name_and_keeps_its_state(
+    new_database: Callable[[], str],
+) -> None:
+    """0034 on an instance in service: each routine keeps its row (state, runs) and its name
+    as its title; it gets a valid file name, unique in its space, and waits to be written to
+    the repository (`sha` NULL); the migration goes down and up again."""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0033")
+    org, infra, ventes = uuid4(), uuid4(), uuid4()
+    first, second, other = uuid4(), uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def rows(sql: str) -> list[tuple[object, ...]]:
+        with engine.connect() as connection:
+            return [tuple(row) for row in connection.execute(text(sql))]
+
+    try:
+        run(
+            "INSERT INTO organizations (id, slug, name, description, created_at) "
+            "VALUES (:id, 'acme', 'Acme', '', now())",
+            id=org,
+        )
+        for space, slug in ((infra, "infra"), (ventes, "ventes")):
+            run(
+                "INSERT INTO spaces (id, org_id, slug, name, description, branch, created_at, "
+                "sync_status, conflict_paths, tidy_enabled, tidy_time, tidy_timezone) VALUES "
+                "(:id, :org, :slug, :slug, '', 'main', now(), 'never', '[]', true, '02:00', "
+                "'Europe/Paris')",
+                id=space,
+                org=org,
+                slug=slug,
+            )
+        for routine, space, name, created in (
+            (first, infra, "Contrôle de cohérence", "2026-10-01"),
+            (second, infra, "contrôle de cohérence !", "2026-10-02"),  # same file name
+            (other, ventes, "Contrôle de cohérence", "2026-10-03"),  # another space
+        ):
+            run(
+                "INSERT INTO routines (id, space_id, name, template, instructions, frequency, "
+                "weekday, at, scope, output_page, output_inbox, output_email, output_webhook, "
+                "enabled, last_date, requested, created_at, updated_at) VALUES (:id, :space, "
+                ":name, 'coherence', 'Relis.', 'weekly', 0, '06:00', '[]', 'r.md', true, '', "
+                "false, true, '2026-11-02', 'schedule', :created, now())",
+                id=routine,
+                space=space,
+                name=name,
+                created=created,
+            )
+        run(
+            "INSERT INTO routine_runs (id, routine_id, space_id, name, trigger, status, model, "
+            "started_at, summary, report, outputs, input_tokens, output_tokens, cached_tokens, "
+            "cost) VALUES (:id, :routine, :space, 'Contrôle de cohérence', 'schedule', 'done', "
+            "'m', now(), '', '', '{}', 0, 0, 0, 0.25)",
+            id=uuid4(),
+            routine=first,
+            space=infra,
+        )
+        command.upgrade(config, "0034")
+        assert rows(
+            "SELECT id, name, title, sha, error, warnings, last_date::text, requested "
+            "FROM routines ORDER BY created_at"
+        ) == [
+            (
+                first,
+                "controle-de-coherence",
+                "Contrôle de cohérence",
+                None,
+                None,
+                [],
+                "2026-11-02",
+                "schedule",
+            ),
+            (
+                second,
+                "controle-de-coherence-2",
+                "contrôle de cohérence !",
+                None,
+                None,
+                [],
+                "2026-11-02",
+                "schedule",
+            ),
+            (
+                other,
+                "controle-de-coherence",
+                "Contrôle de cohérence",
+                None,
+                None,
+                [],
+                "2026-11-02",
+                "schedule",
+            ),
+        ]
+        assert rows("SELECT routine_id FROM routine_runs") == [(first,)]
+
+        command.downgrade(config, "0033")
+        assert rows("SELECT name FROM routines ORDER BY created_at") == [
+            ("Contrôle de cohérence",),
+            ("contrôle de cohérence !",),
+            ("Contrôle de cohérence",),
+        ]
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_routines_migration_goes_down_with_long_twin_titles(
+    new_database: Callable[[], str],
+) -> None:
+    """Titles need not be unique since 0034: going down, two routines of a space with the same
+    long title (or a title that reads like another one with its file name) still get names
+    unique in their space, within 120 characters. Going up, titles without a single Latin
+    letter get `routine`, `routine-2`…"""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0034")
+    org, infra = uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def names() -> list[str]:
+        with engine.connect() as connection:
+            return [
+                row[0]
+                for row in connection.execute(text("SELECT name FROM routines ORDER BY created_at"))
+            ]
+
+    long = "Revue " + "très " * 21 + "longue"  # 117 characters
+    try:
+        run(
+            "INSERT INTO organizations (id, slug, name, description, created_at) "
+            "VALUES (:id, 'acme', 'Acme', '', now())",
+            id=org,
+        )
+        run(
+            "INSERT INTO spaces (id, org_id, slug, name, description, branch, created_at, "
+            "sync_status, conflict_paths, tidy_enabled, tidy_time, tidy_timezone) VALUES "
+            "(:id, :org, 'infra', 'infra', '', 'main', now(), 'never', '[]', true, '02:00', "
+            "'Europe/Paris')",
+            id=infra,
+            org=org,
+        )
+        for index, (name, title) in enumerate(
+            (
+                ("revue-tres-tres-tres-longue", long),
+                ("revue-tres-tres-tres-longue-2", long),
+                ("revue-tres-tres-tres-longue-3", long),
+                ("autre", "Veille (veille-2)"),
+                ("veille", "Veille"),
+                ("veille-2", "Veille"),
+            )
+        ):
+            run(
+                "INSERT INTO routines (id, space_id, name, title, description, template, "
+                "instructions, frequency, weekday, at, scope, output_page, output_inbox, "
+                "output_email, output_webhook, enabled, warnings, created_at, updated_at) "
+                "VALUES (:id, :space, :name, :title, '', '', 'Relis.', 'weekly', 0, '06:00', "
+                "'[]', 'r.md', true, '', false, true, '[]', :created, now())",
+                id=uuid4(),
+                space=infra,
+                name=name,
+                title=title,
+                created=f"2026-10-0{index + 1}",
+            )
+        command.downgrade(config, "0033")
+        found = names()
+        assert len(set(found)) == 6 and all(len(n) <= 120 for n in found)
+        assert found[0] == long and found[3:5] == ["Veille (veille-2)", "Veille"]
+
+        run("DELETE FROM routines")
+        for index, name in enumerate(("日報", "!!!", "週報")):
+            run(
+                "INSERT INTO routines (id, space_id, name, template, instructions, frequency, "
+                "weekday, at, scope, output_page, output_inbox, output_email, output_webhook, "
+                "enabled, created_at, updated_at) VALUES (:id, :space, :name, '', 'Relis.', "
+                "'weekly', 0, '06:00', '[]', 'r.md', true, '', false, true, :created, now())",
+                id=uuid4(),
+                space=infra,
+                name=name,
+                created=f"2026-10-0{index + 1}",
+            )
+        command.upgrade(config, "0034")
+        assert names() == ["routine", "routine-2", "routine-3"]
     finally:
         engine.dispose()

@@ -375,7 +375,9 @@ def test_coherence_routine_gets_close_pairs(
     text_a = "# Ceph\n\nLe stockage Ceph : trois nœuds OSD, réplication triple, pool rbd.\n"
     text_b = "# Stockage Ceph\n\nCeph : trois nœuds OSD, réplication triple, pool rbd, quotas.\n"
     write(db, database, ctx, wiki, {"stockage/ceph.md": text_a, "infra/ceph-stockage.md": text_b})
-    routine = routines.create(db, wiki.root, wiki.infra, routines.Fields(), template="coherence")
+    routine = routines.create(
+        db, database, wiki.root, ctx, wiki.infra, routines.Fields(), template="coherence"
+    )
     db.commit()
     spec = routine_agent.Spec.of(routine)
     repo = ctx.local_repository(wiki.infra)

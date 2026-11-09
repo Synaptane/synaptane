@@ -14,14 +14,18 @@
     <article class="card routine-card{% if not r.enabled %} routine-off{% endif %}">
       <div class="routine-head">
         <div class="routine-heading">
-          <h3><a href="{{ base }}/{{ r.id }}">{{ r.name }}</a></h3>
+          <h3><a href="{{ base }}/{{ r.id }}">{{ r.title }}</a></h3>
+          {% if r.description %}<p class="routine-description">{{ r.description }}</p>{% endif %}
           <p class="muted routine-meta">
             <span>{{ schedule(r, weekdays) }} ({{ space.tidy_timezone }})</span>
             {% if r.scope %}<span>{{ _("Scope: {folders}", folders=r.scope|join(", ")) }}</span>{% else %}<span>{{ _("The whole space") }}</span>{% endif %}
           </p>
         </div>
-        <span class="badge{% if not r.enabled %} badge-quiet{% endif %}">{{ _("Enabled", context="routine") if r.enabled else _("Disabled", context="routine") }}</span>
+        {% if r.error %}<span class="status status-error">{{ _("Invalid file") }}</span>
+        {% else %}<span class="badge{% if not r.enabled %} badge-quiet{% endif %}">{{ _("Enabled", context="routine") if r.enabled else _("Disabled", context="routine") }}</span>{% endif %}
       </div>
+      {% if r.error %}<div class="notice notice-error"><p>{{ _("{path}: {error}", path=routine_path(r), error=_(routine_error(r))) }}</p></div>{% endif %}
+      {% if r.sha is none %}<p class="muted"><span class="status status-warn">{{ _("Waiting to be written to the repository") }}</span></p>{% endif %}
       {{ outputs(r) }}
       <p class="routine-state">{{ last_run(run) }}{% if r.requested %}<span class="status status-warn">{{ _("Requested, waiting for the worker") }}</span>{% elif upcoming %}<span class="muted">{{ (_("Next run: {when}")|e).format(when=when(upcoming)) }}</span>{% endif %}</p>
       {% if run and run.status == 'done' and run.summary %}<p class="routine-summary">{{ run.summary }}</p>{% endif %}
@@ -29,8 +33,8 @@
         <a class="button button-small" href="{{ base }}/{{ r.id }}">{{ _("Log") }}</a>
         {% if manage %}
         <a class="button button-small" href="{{ base }}/{{ r.id }}/edit">{{ _("Edit") }}</a>
-        {% if ai_configured and not spending.exhausted %}{{ action(base ~ "/" ~ r.id ~ "/run", _("Run now"), confirm=_("Run the routine now? The run uses tokens counted in the month's budget.")) }}{% endif %}
-        {{ action(base ~ "/" ~ r.id ~ "/toggle", _("Deactivate") if r.enabled else _("Enable"), kind="quiet" if r.enabled else "primary") }}
+        {% if not r.error %}{% if ai_configured and not spending.exhausted %}{{ action(base ~ "/" ~ r.id ~ "/run", _("Run now"), confirm=_("Run the routine now? The run uses tokens counted in the month's budget.")) }}{% endif %}
+        {{ action(base ~ "/" ~ r.id ~ "/toggle", _("Deactivate") if r.enabled else _("Enable"), kind="quiet" if r.enabled else "primary") }}{% endif %}
         {% endif %}
       </div>
     </article>
@@ -66,5 +70,6 @@
   {% else %}
   <p class="muted section-gap-small">{{ _("Only organization administrators create and edit routines.") }}</p>
   {% endif %}
+  <p class="muted section-gap-small">{{ _("Each routine is a file of the repository, in .synaptane/routines/: anyone who can push to the repository can change it, like the tidy-up rules.") }}</p>
 </div>
 {% endblock %}

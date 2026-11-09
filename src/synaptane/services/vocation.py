@@ -1,4 +1,4 @@
-"""Vocation of a space and tidy-up rules: two Markdown files of the repository.
+"""Vocation of a space, tidy-up rules and team checks: three Markdown files of the repository.
 
 - `.synaptane/vocation.md` says **what** the space **is**: what it is for and for whom, what
   goes there (and what does not), the folder organization, the conventions, what matters
@@ -7,6 +7,9 @@
 - `.synaptane/prompts/tidy.md` says **how to tidy up**: precise rules for the agent. Its
   former name, `.synaptane/prompts/rangement.md`, is still read when it is alone (spaces
   created before the rename); a write from Synaptane moves to the new name.
+- `.synaptane/checks.md` lists the **team checks**: rules every page must follow, checked
+  without AI (`core.checks`, `services.checks`). A text with a faulty rule is refused here;
+  one pushed with Git is reported in Health, its faulty rules left out.
 
 Git remains the source: both files can also be changed by a push. From Synaptane, a write is
 a commit in the person's name, under the space lock, followed by a sync (like
@@ -28,8 +31,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from synaptane.core import checks as checks_format
 from synaptane.core.access import Action, require
-from synaptane.core.errors import SynaptaneError, conflict, invalid, not_found
+from synaptane.core.errors import Label, SynaptaneError, conflict, invalid, not_found
 from synaptane.core.secret_scan import added_findings, refuse_secrets
 from synaptane.git.repo import Commit, Identity, Repository
 from synaptane.services import Actor, audit, jobs
@@ -42,7 +46,8 @@ VOCATION_FILE = ".synaptane/vocation.md"
 PROMPTS_DIR = ".synaptane/prompts"  # tidy-up rules, and the team prompts (`team_prompts`)
 RULES_FILE = f"{PROMPTS_DIR}/tidy.md"  # tidy-up rules
 LEGACY_RULES_FILE = ".synaptane/prompts/rangement.md"  # former name, read if alone
-MAX_LENGTH = 20_000  # characters, for each of the two files
+CHECKS_FILE = ".synaptane/checks.md"  # team checks (`services.checks`)
+MAX_LENGTH = 20_000  # characters, for each of the files
 EXCERPT_LENGTH = 600  # excerpt of the vocation in `list_spaces` (MCP)
 
 log = logging.getLogger("synaptane.vocation")
@@ -73,7 +78,15 @@ RULES = Kind(
     "space.tidy_rules_updated",
     legacy=LEGACY_RULES_FILE,
 )
-KINDS = {k.key: k for k in (VOCATION, RULES)}
+CHECKS = Kind(
+    "checks",
+    CHECKS_FILE,
+    "Team checks updated",
+    "Team checks removed",
+    "space.checks_updated",
+)
+KINDS = {k.key: k for k in (VOCATION, RULES, CHECKS)}
+PENDING_FILES = (VOCATION_FILE, RULES_FILE, LEGACY_RULES_FILE, CHECKS_FILE)
 
 
 def kind_of(key: str) -> Kind:
@@ -341,6 +354,8 @@ def save(
             limit=f"{MAX_LENGTH:,}".replace(",", "\u202f"),
             length=f"{len(clean):,}".replace(",", "\u202f"),
         )
+    if kind is CHECKS and clean:
+        refuse_invalid_checks(clean)
     data = clean.encode() if clean else None
     if data is not None and not allow_secrets:  # scanned outside the space lock
         repo = _synced(ws, space)
@@ -390,6 +405,20 @@ def save(
     return sha
 
 
+def refuse_invalid_checks(text: str) -> None:
+    """A checks file saved from Synaptane parses without error: each faulty line is named."""
+    errors = checks_format.parse(text).errors
+    if errors:
+        parts: dict[str, object] = {
+            f"e{i}": Label("line {line}: {message}", line=e.line, message=e.message)
+            for i, e in enumerate(errors[:5])
+        }
+        raise invalid(
+            "The checks are not valid: {detail}",
+            detail=Label(" ".join(f"{{{k}}}" for k in parts), **parts),
+        )
+
+
 # --- Pending until the first sync ----------------------------------------------------------------
 
 
@@ -433,7 +462,7 @@ def _load_pending(path: Path) -> _Pending | None:
         files = {
             (RULES_FILE if p == LEGACY_RULES_FILE else p): t
             for p, t in raw["files"].items()
-            if p in (VOCATION_FILE, RULES_FILE, LEGACY_RULES_FILE) and t.strip()
+            if p in PENDING_FILES and t.strip()
         }
         return _Pending(files, Identity(str(raw["author"]["name"]), str(raw["author"]["email"])))
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
@@ -477,7 +506,8 @@ def apply_pending(repo: Repository) -> str | None:
         log.info("Pending texts ignored, already in the repository: %s", ", ".join(skipped))
     sha = None
     if changes:
-        what = " and ".join("vocation" if p == VOCATION_FILE else "tidy-up rules" for p in changes)
+        names = {VOCATION_FILE: "vocation", CHECKS_FILE: "team checks"}
+        what = " and ".join(names.get(p, "tidy-up rules") for p in changes)
         subject = f"Synaptane: {what}, saved before the first sync"
         sha = repo.commit_changes(changes, waiting.author, subject)
     path.unlink(missing_ok=True)

@@ -34,7 +34,17 @@ from synaptane.git.repo import (
     describe_error,
     expired_error,
 )
-from synaptane.services import Actor, alerts, audit, changes, jobs, maintenance, vocation, webhooks
+from synaptane.services import (
+    Actor,
+    alerts,
+    audit,
+    changes,
+    jobs,
+    maintenance,
+    routine_files,
+    vocation,
+    webhooks,
+)
 from synaptane.services.inbox import CONTENT_DIR, INBOX_DIR, parse_front_matter, skeleton
 from synaptane.services.secrets import delete_space_secret, get_space_secret, put_space_secret
 from synaptane.services.workspace import Workspace, author_identity
@@ -391,6 +401,7 @@ CARRIED = (
     INBOX_DIR,
     vocation.VOCATION_FILE,
     vocation.PROMPTS_DIR,  # tidy-up rules and team prompts
+    routine_files.ROUTINES_DIR,
 )
 
 
@@ -657,6 +668,12 @@ def _exchange(
                 outcome, to_push = _integrate(
                     repo, staged, snapshot, ctx.committer, ctx.recovery_path(space_id), progress
                 )
+                # Routines: those waiting in the database written, the others in step with
+                # their files (never stops the synchronization of the pages).
+                if outcome.status == "ok" and routine_files.synchronize(
+                    database, repo, space_id, ctx.committer
+                ):
+                    to_push = repo.head()
             if to_push is None:
                 break
             # 3. Push, outside the lock: `push` only reads objects. HEAD may move meanwhile
