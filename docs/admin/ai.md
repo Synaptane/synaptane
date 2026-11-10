@@ -425,7 +425,12 @@ with an empty inbox.
   - broken links introduced in the pages they changed, or in the pages that pointed to a page
     they deleted or moved;
   - their new pages that no page links to, missing from their folder's index (`README.md`,
-    when the folder has one), untitled or empty.
+    when the folder has one), untitled or empty;
+  - the [team checks](../guide/wiki.md#team-checks) they broke in the pages they changed:
+    the `block` rules and the personal data ones (a preset, or `mask: yes`). The other `warn`
+    rules are only reported in **Health**, since a warning is the team's way of saying "worth
+    knowing", not "to fix". A rule says otherwise with `fix: yes` or `fix: no`. A faulty rule
+    is left out, as everywhere: **Health** names its line, and the other rules still apply.
   Synaptane's own commits do not count: what the tidy-up breaks is already handled by its
   end-of-run check. Nor do imports, that is any commit that touches more than 20 pages (an
   Obsidian, Notion or Confluence import, a reorganization): the tidy-up already reviews them as
@@ -437,11 +442,25 @@ with an empty inbox.
   its topic's page or from the index, completes the index. It adds no content, and never
   deletes or moves a page to fix a problem. Otherwise it leaves the problem, with a reason.
   Its powers do not change: same tools, deletion cap, alerts and undo as for any run.
+  - For a team check, it gets the rule (title, level, message), the page, the line and an
+    excerpt. It fixes the page itself: it removes what the rule forbids, or rewrites it as
+    the message says. It completes a front matter field only with a value the page itself
+    states (a date already written, put in the right format); it never invents one.
+  - Personal data is never in the clear outside the page: the excerpt is masked
+    (`j•••@gmail.com`) in the item, the log and what Synaptane remembers of a problem left.
+    The agent removes the data or replaces it with a neutral mention, and is told never to
+    copy it elsewhere; should it write it in a reason or its summary anyway, the reason, the
+    summary and the commit message are masked the same way. The agent does read the page,
+    as for any page it files.
 - **No flood, no repetition**:
   - no catching up on the past: problems are counted from the end of the last run, or from
     the moment maintenance was turned on (or the upgrade);
   - **at most 10 problems a night**: enough for a normal day of edits, a small share of a
-    run's limits, and a list easy to check in the log. The others wait for the next nights;
+    run's limits, and a list easy to check in the log. The others wait for the next nights.
+    The most urgent come first: personal data (each night it stays, the page is read,
+    indexed, synchronized and backed up), then the team's `block` rules, then broken links,
+    pages missing from an index, isolated pages, untitled and empty ones, and last the
+    `warn` rules with `fix: yes`;
   - a problem left by the agent is not proposed again unless it is **introduced again**: it
     went away and came back, or someone writes it again (the same broken link added once
     more, the page created anew). Editing the page is not enough: a log page edited every

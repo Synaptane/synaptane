@@ -27,13 +27,18 @@ No flood, no repetition:
 Nothing is computed without an AI provider, nor once the month's budget is used up: the
 caller (`tidy.tidy_space`) only asks then.
 
-Extension point: `SOURCES`, the sources of problems. The built-in one (`WikiChecks`) reports
-what the health check would; another source (the team's own checks, for one) only has to
-return `Problem`s for a `Window`, say which of them are still there, and which were
-introduced again.
+Extension point: `SOURCES`, the sources of problems. `WikiChecks` reports what the health
+check would; `TeamChecks`, what people broke of the team's own checks (`.synaptane/checks.md`).
+A source only has to return `Problem`s for a `Window`, say which of them are still there,
+which were introduced again, and describe the ones it gives again (`annotate`). A source that
+fails is left out for the night (server log): the others still run.
+
+Order of the night's places: personal data first, then the team's `block` rules, then the
+wiki's own problems, then the rest (see `rank`).
 """
 
 import hashlib
+import logging
 import posixpath
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -44,15 +49,19 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
+from synaptane.core.checks import EMPTY, Checks, Rule, Violation, is_page
 from synaptane.core.errors import Label
 from synaptane.core.markdown import WikiIndex, broken_among, broken_links, link_targets
 from synaptane.git.repo import GitError, Repository
 from synaptane.services import changes, health
+from synaptane.services import checks as team_checks
 from synaptane.services import links as links_service
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
 from synaptane.services.tidy_tools import FOLDER_INDEXES, Op, Overlay, RunState, _broken_keys
 from synaptane.services.workspace import Workspace
 from synaptane.storage.models import MaintenanceMark, Space
+
+log = logging.getLogger("synaptane.maintenance")
 
 PREFIX = CONTENT_DIR + "/"
 TYPE = "maintenance"  # type of the synthetic item
@@ -73,18 +82,28 @@ MAX_ATTEMPTS = 3
 # Order in which the problems are given: a broken link misleads readers right away, an
 # isolated page is only hard to find, form comes last.
 RANK = {"broken_link": 0, "not_in_index": 1, "orphan": 2, "untitled": 3, "empty": 4}
+# The team's checks around them (`Problem.rank`): personal data first (each night it stays,
+# the page is read, indexed, synchronized and backed up), then what the team refuses
+# everywhere else (`block`); a `warn` rule it asked to fix (`fix: yes`) after the wiki's own.
+RANK_PRIVATE, RANK_BLOCK, RANK_TEAM = -2, -1, 5
 
 
 @dataclass(frozen=True)
 class Problem:
     """A problem in a page. `detail`: what identifies it in the page (the link as written,
-    the index concerned); `suggestion`: a possible fix (closest file of the same name)."""
+    the index concerned; for a team check, its title and excerpt); `suggestion`: a possible
+    fix (closest file of the same name). `note`, `rank` and `private` are set by the source
+    for the run (`annotate`), never stored: the text for the agent, the place in the night's
+    order (`RANK` by default), and personal data concerned (the agent's texts are scrubbed)."""
 
     source: str
     kind: str
     page: str  # relative to content/
     detail: str = ""
     suggestion: str = ""
+    note: str = field(default="", compare=False)
+    rank: int | None = field(default=None, compare=False)
+    private: bool = field(default=False, compare=False)
 
     @property
     def key(self) -> str:
@@ -102,6 +121,9 @@ class Problem:
             return f"broken link {self.detail}"
         if self.kind == "not_in_index":
             return f"missing from the folder index {self.detail}"
+        if self.kind == TEAM_KIND:
+            title, excerpt = _identity(self)
+            return f'{TEAM_PHRASE} "{title}"' + (f" `{excerpt}`" if excerpt else "")
         return {"orphan": "no incoming link", "untitled": "no title", "empty": "empty page"}.get(
             self.kind, self.detail or self.kind
         )
@@ -127,6 +149,12 @@ class Window:
         return not (self.touched or self.gone)
 
 
+def rank(problem: Problem) -> tuple[int, str, str]:
+    """Place of a problem in the night's order."""
+    order = problem.rank if problem.rank is not None else RANK.get(problem.kind, 9)
+    return order, problem.page, problem.detail
+
+
 class Source(Protocol):
     """A source of problems (extension point)."""
 
@@ -145,6 +173,11 @@ class Source(Protocol):
     ) -> set[str]:
         """Keys of those problems (left by the agent) that people introduced again in the
         commits `touches`, made after the decision. Editing their page is not enough."""
+        ...
+
+    def annotate(self, view: Overlay, problems: list[Problem]) -> list[Problem]:
+        """Those problems (rebuilt from their marks, introduced again) as they are given to
+        the agent; the ones not to give any more left out."""
         ...
 
 
@@ -326,6 +359,9 @@ class WikiChecks:
                     break
         return found
 
+    def annotate(self, view: Overlay, problems: list[Problem]) -> list[Problem]:
+        return problems
+
 
 _NO_INDEX = WikiIndex()  # wiki links counted as written, without resolving them
 
@@ -338,7 +374,148 @@ def _count(data: bytes | None, problem: Problem) -> int:
     return sum(1 for written, _ in targets if written == problem.detail)
 
 
-SOURCES: list[Source] = [WikiChecks()]
+TEAM_KIND = "check"
+TEAM_PHRASE = "team check"  # first words of a team problem in the log (`localize`)
+
+
+def _identity(problem: Problem) -> tuple[str, str]:
+    """Rule title and excerpt of a team problem (its `detail`)."""
+    title, _, excerpt = problem.detail.partition("\n")
+    return title, excerpt
+
+
+def _rules(repo: Repository, rev: str) -> Checks:
+    """The team's rules at `rev`; none if they cannot be read. A faulty rule is already left
+    out by the parser, and shown in Health with its line: the others still apply."""
+    try:
+        return team_checks.load(repo, rev)
+    except GitError:
+        log.warning("Team checks unreadable at %s: maintenance without them", rev)
+        return EMPTY
+
+
+class TeamChecks:
+    """The team's own checks (`.synaptane/checks.md`): what people broke, in the pages they
+    changed (compared with the watermark, or with the import that last wrote the page), of
+    the rules the maintenance fixes (`Rule.fixes`: `block` ones and personal data by default,
+    `fix: yes` or `no` otherwise). A `warn` rule is only reported, in Health.
+
+    A problem is named by its rule's title and its excerpt, which is masked for personal
+    data: the data itself is never in the item, the log or the marks. Equal excerpts in a page
+    are one problem, fixed when none is left. Rules are read at the run's starting commit."""
+
+    name = "team"
+
+    def introduced(self, window: Window) -> list[Problem]:
+        view = window.view
+        checks = _rules(view.repo, view.base)
+        if not any(rule.fixes for rule in checks.rules):
+            return []  # nothing to read
+        current = {_rel(p) for p in view.current() if p.startswith(PREFIX)}
+        pages = sorted(p for p in window.touched if p in current and is_page(p))
+        texts = _read(view, pages)
+        olds: dict[str, dict[str, bytes]] = {}
+        for commit in {window.baselines.get(p, window.since) for p in pages}:
+            group = [
+                window.origins.get(p, p)
+                for p in pages
+                if window.baselines.get(p, window.since) == commit
+            ]
+            olds[commit] = _read(Overlay(window.repo, commit), group)
+        found: list[Problem] = []
+        for page in pages:
+            data = texts.get(page)
+            if data is None or len(data) > team_checks.MAX_PAGE:
+                continue
+            origin = window.origins.get(page, page)
+            old = olds[window.baselines.get(page, window.since)].get(origin)
+            for violation in checks.introduced(page, data, old, origin):
+                rule = checks.rules[violation.index]
+                if rule.fixes:
+                    found.append(self._problem(rule, violation))
+        return found
+
+    def _problem(self, rule: Rule, violation: Violation) -> Problem:
+        order = RANK_PRIVATE if rule.masked else RANK_BLOCK if rule.blocks else RANK_TEAM
+        kind = "personal data, masked" if rule.masked else ""
+        what = f"{rule.level}, {kind}" if kind else rule.level
+        excerpt = f" `{violation.excerpt}`" if violation.excerpt else ""
+        note = (
+            f'{TEAM_PHRASE} "{rule.title}" ({what}), line {violation.line}{excerpt}: '
+            f"{rule.message or str(rule.what())}"
+        )
+        return Problem(
+            self.name,
+            TEAM_KIND,
+            violation.page,
+            f"{rule.title}\n{violation.excerpt}",
+            note=note,
+            rank=order,
+            private=rule.masked,
+        )
+
+    def _violations(self, checks: Checks, page: str, data: bytes | None) -> list[Violation]:
+        return checks.violations(page, data, whole=True) if data is not None else []
+
+    def present(self, view: Overlay, problems: list[Problem]) -> set[str]:
+        checks = _rules(view.repo, view.base)
+        if not checks or not problems:
+            return set()
+        contents = _read(view, {p.page for p in problems})
+        seen = {
+            page: {(v.rule, v.excerpt) for v in self._violations(checks, page, data)}
+            for page, data in contents.items()
+        }
+        return {p.key for p in problems if _identity(p) in seen.get(p.page, set())}
+
+    def reintroduced(
+        self, repo: Repository, touches: list[Touch], problems: list[Problem]
+    ) -> set[str]:
+        """A commit that writes the excerpt once more than before it (the address removed,
+        then written again; the page created anew without its field) brings the problem
+        back; an edit elsewhere in the page does not."""
+        checks = _rules(repo, "HEAD")
+        if not checks:
+            return set()
+        found: set[str] = set()
+
+        def count(page: str, data: bytes | None, problem: Problem) -> int:
+            wanted = _identity(problem)
+            violations = self._violations(checks, page, data)
+            return sum(1 for v in violations if (v.rule, v.excerpt) == wanted)
+
+        for problem in problems:
+            for touch in (t for t in touches if t.page == problem.page):
+                after = repo.blob(PREFIX + problem.page, touch.commit)
+                before = (
+                    None
+                    if touch.status != "M"
+                    else repo.blob(PREFIX + problem.page, f"{touch.commit}^")
+                )
+                if count(problem.page, after, problem) > count(problem.page, before, problem):
+                    found.add(problem.key)
+                    break
+        return found
+
+    def annotate(self, view: Overlay, problems: list[Problem]) -> list[Problem]:
+        """With the rule as it is now: a rule removed, or no longer fixed, gives nothing."""
+        checks = _rules(view.repo, view.base)
+        rules = {rule.title: rule for rule in checks.rules}
+        contents = _read(view, {p.page for p in problems})
+        given: list[Problem] = []
+        for problem in problems:
+            title, excerpt = _identity(problem)
+            rule = rules.get(title)
+            if rule is None or not rule.fixes:
+                continue
+            violations = self._violations(checks, problem.page, contents.get(problem.page))
+            match = next((v for v in violations if (v.rule, v.excerpt) == (title, excerpt)), None)
+            if match is not None:
+                given.append(self._problem(rule, match))
+        return given
+
+
+SOURCES: list[Source] = [WikiChecks(), TeamChecks()]
 
 
 def _source(name: str) -> Source | None:
@@ -466,7 +643,7 @@ class Found:
             "",
         ]
         for number, problem in enumerate(self.problems, start=1):
-            lines.append(f"- P{number} — {problem.page}: {problem.describe()}")
+            lines.append(f"- P{number} — {problem.page}: {problem.note or problem.describe()}")
         if self.waiting > len(self.problems):
             lines += ["", f"{self.waiting - len(self.problems)} more will come in the next runs."]
         return "\n".join(lines)
@@ -518,7 +695,12 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
         changed = window(repo, watermark, view, ws.committer.email)
         if not changed.empty:
             for source in SOURCES:
-                for problem in source.introduced(changed):
+                try:
+                    introduced = source.introduced(changed)
+                except Exception:  # noqa: BLE001 — one faulty source must not stop the night
+                    log.exception("Maintenance source %s failed: left out", source.name)
+                    continue
+                for problem in introduced:
                     candidates.setdefault(problem.key, problem)
     marks = {
         m.key: m
@@ -544,17 +726,28 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
             else:
                 standing.append(mark)
     back = _reintroduced(repo, head, ws.committer.email, standing)
-    again = [_problem(m) for m in standing if m.key in back and m.key not in candidates]
+    again = _annotated(
+        view, [_problem(m) for m in standing if m.key in back and m.key not in candidates]
+    )
     fresh = [p for p in candidates.values() if p.key not in marks or p.key in back]
     if not fresh and watermark != head:
         _move(session, space, watermark, head)
         watermark = head
-    everything = sorted(fresh + again, key=lambda p: (RANK.get(p.kind, 9), p.page, p.detail))
+    everything = sorted(fresh + again, key=rank)
     given = everything[:MAX_PROBLEMS]
     if not given:
         return None
     keys = {p.key for p in given}
     return Found(given, len(everything), watermark, all(p.key in keys for p in fresh), attempts)
+
+
+def _annotated(view: Overlay, problems: list[Problem]) -> list[Problem]:
+    """Problems rebuilt from their marks, described by their source as they are given."""
+    given: list[Problem] = []
+    for name in sorted({p.source for p in problems}):
+        if (source := _source(name)) is not None:
+            given += source.annotate(view, [p for p in problems if p.source == name])
+    return given
 
 
 def _reintroduced(
@@ -663,6 +856,7 @@ def close(
         general = f"Not processed after {found.attempts + 1} interrupted runs (last one: {why})"
     else:
         closure, general = Closure("untreated"), ""
+    general = scrub(found, view, general)  # the reasons go to the log and the marks
     stuck = {_rel(p) for p in conflicts}
     still: set[str] = set()
     for name in {p.source for p in found.problems}:
@@ -699,6 +893,14 @@ def close(
             }
         )
     return closure
+
+
+def scrub(found: Found, view: Overlay, text: str) -> str:
+    """A text of the agent about the run (reasons, summary) without the personal data the
+    team's rules mask, when it was given some to fix: told never to copy it, it still could."""
+    if not text or not any(p.private for p in found.problems):
+        return text
+    return _rules(view.repo, view.base).scrub(text)
 
 
 def settle(
@@ -789,6 +991,8 @@ def localize(text: str, translate: Callable[..., str]) -> str:
         words = translate("no title")
     elif phrase == "empty page":
         words = translate("empty page")
+    elif phrase.startswith(TEAM_PHRASE + " "):
+        words = translate("team check {check}", check=phrase[len(TEAM_PHRASE) + 1 :])
     if words is None:
         return text
     return words + separator + reason

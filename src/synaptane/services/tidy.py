@@ -523,6 +523,8 @@ def _maintained(
     if found is None:
         return None
     kept = maintenance.close(found, state, overlay, interruption=interruption, conflicts=conflicts)
+    # Personal data given to fix stays out of the summary too (commit message, log, webhook).
+    outcome.summary = maintenance.scrub(found, overlay, outcome.summary)
     outcome.operations += kept.operations
     outcome.maintenance = kept
     return kept

@@ -10,6 +10,33 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **The nightly maintenance fixes the team checks people break**. A push cannot be refused,
+  and a page someone edits can bring a customer's address or lose its `type`: Health showed
+  it, nobody fixed it. Now, with **Maintain the wiki every night**, what people broke since
+  the last run of a `block` rule or of personal data (a preset, or `mask: yes`) becomes one
+  more problem of the "Wiki maintenance (N)" item: the rule (title, level, message), the
+  page, the line and an excerpt. The agent removes the data or replaces it with a neutral
+  mention, completes a field only with a value the page states, never deletes or moves a
+  page, and otherwise leaves the problem with a reason. The other `warn` rules are only
+  reported in Health. Same limits as for the wiki's problems: 10 a night, imports and
+  Synaptane's own commits left out, a problem left not given again unless written again.
+  The most urgent come first: personal data, then `block` rules, then broken links and the
+  rest. The data itself is never in the clear outside the page: the excerpt is masked in the
+  item, the log and the marks, and a reason, a summary or a commit message in which the agent
+  copied it anyway is masked the same way. A faulty rule is left out (Health names its line),
+  and a source of problems that fails is left out for the night: the others still run.
+- **`fix` key in `.synaptane/checks.md`**: `fix: yes` lets the nightly maintenance fix a
+  `warn` rule, `fix: no` keeps it from fixing a `block` or personal data one. The examples
+  mention it.
+
+### Fixed
+- A front matter rule with `mask: yes` showed the field's value in its excerpt when the
+  value had the wrong form (`expect: date`, `list`): it is masked now, in Health too.
+
+### Upgrade
+- No migration: update the image and restart.
+
 ## [1.16.1] - 2026-11-10
 
 A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each

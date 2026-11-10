@@ -449,7 +449,13 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   - les liens cassés introduits dans les pages qu'ils ont modifiées, ou dans les pages qui
     menaient à une page qu'ils ont supprimée ou déplacée ;
   - leurs nouvelles pages vers lesquelles aucune page ne mène, absentes de l'index de leur
-    dossier (`README.md`, si le dossier en a un), sans titre ou vides.
+    dossier (`README.md`, si le dossier en a un), sans titre ou vides ;
+  - les [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) qu'ils ont
+    enfreints dans les pages qu'ils ont modifiées : les règles `block` et celles de données
+    personnelles (un préréglage, ou `mask: yes`). Les autres règles `warn` sont seulement
+    signalées dans **Santé** : un avertissement dit « bon à savoir », pas « à corriger ».
+    Une règle en décide autrement avec `fix: yes` ou `fix: no`. Une règle fautive est
+    écartée, comme partout : **Santé** nomme sa ligne, et les autres règles s'appliquent.
   Les commits de Synaptane ne comptent pas : ce que casse le rangement est déjà repris par
   sa vérification de fin de passage. Les imports non plus, c'est-à-dire tout commit qui touche
   plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
@@ -464,12 +470,27 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   corriger un problème. Sinon, il laisse le problème, avec une raison. Ses pouvoirs ne
   changent pas : mêmes outils, même plafond de suppressions, mêmes alertes et même
   annulation que pour tout passage.
+  - Pour un contrôle de l'équipe, il reçoit la règle (titre, niveau, message), la page, la
+    ligne et un extrait. Il corrige la page elle-même : il retire ce que la règle interdit,
+    ou le réécrit comme le dit le message. Il ne complète un champ du front matter qu'avec
+    une valeur que la page donne elle-même (une date déjà écrite, remise au bon format) ; il
+    n'en invente jamais.
+  - Une donnée personnelle n'est jamais en clair hors de la page : l'extrait est masqué
+    (`j•••@gmail.com`) dans l'élément, le journal et ce que Synaptane retient d'un problème
+    laissé. L'agent retire la donnée ou la remplace par une mention neutre, et il a pour
+    consigne de ne jamais la recopier ailleurs. S'il l'écrit quand même dans une raison ou
+    dans son résumé, la raison, le résumé et le message du commit sont masqués de la même
+    façon. L'agent lit bien la page, comme toute page qu'il range.
 - **Ni déluge ni répétition** :
   - pas de rattrapage du passé : les problèmes sont comptés depuis la fin du dernier passage,
     ou depuis l'activation de l'entretien (ou la mise à jour) ;
   - **10 problèmes au plus par nuit** : assez pour une journée ordinaire de modifications,
     une petite part des limites d'un passage, et une liste facile à vérifier dans le journal.
-    Les autres attendent les nuits suivantes ;
+    Les autres attendent les nuits suivantes. Les plus urgents passent d'abord : les données
+    personnelles (chaque nuit où elles restent, la page est lue, indexée, synchronisée et
+    sauvegardée), puis les règles `block` de l'équipe, puis les liens cassés, les pages
+    absentes d'un index, les pages isolées, sans titre et vides, et enfin les règles `warn`
+    avec `fix: yes` ;
   - un problème laissé par l'agent n'est reproposé que s'il est **réintroduit** : il a
     disparu puis est revenu, ou quelqu'un l'écrit de nouveau (le même lien cassé ajouté une
     fois de plus, la page recréée). Modifier la page ne suffit pas : une page de journal

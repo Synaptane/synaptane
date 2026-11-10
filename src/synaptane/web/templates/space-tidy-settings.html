@@ -31,7 +31,7 @@
       <div class="field"><label for="tidy-tz">{{ _("Time zone") }}</label><input id="tidy-tz" name="tidy_timezone" value="{{ space.tidy_timezone }}" required list="timezones" autocomplete="off"><datalist id="timezones">{% for zone in timezones %}<option value="{{ zone }}">{% endfor %}</datalist></div>
     </div>
     <label class="checkbox"><input type="checkbox" name="tidy_maintain" value="true" aria-describedby="tidy-maintain-help" {% if space.tidy_maintain %}checked{% endif %}>{{ _("Maintain the wiki every night") }}</label>
-    <p class="muted" id="tidy-maintain-help">{{ _("Even with an empty inbox, the agent fixes the problems people introduced since the last run: broken links, new pages that nothing links to, missing from their folder's index, untitled or empty. At most {count} a night; it only costs when there are some.", count=max_problems) }}</p>
+    <p class="muted" id="tidy-maintain-help">{{ _("Even with an empty inbox, the agent fixes the problems people introduced since the last run: broken links, new pages that nothing links to, missing from their folder's index, untitled or empty, and the team checks they break (blocking ones and personal data). At most {count} a night; it only costs when there are some.", count=max_problems) }}</p>
   </fieldset>
   <fieldset class="settings-group">
     <legend>{{ _("Tidy-up as you go") }}</legend>

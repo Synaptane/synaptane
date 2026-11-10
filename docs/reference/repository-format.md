@@ -138,6 +138,7 @@ value that holds a backtick).
 | `level` | `warn` (default): reported. `block`: a write that breaks the rule is refused |
 | `message` | What to do, shown with each violation and with a refusal |
 | `mask` | `yes`: the excerpt of a `pattern` is masked, as for presets |
+| `fix` | `yes` or `no`: whether the [nightly maintenance](../admin/ai.md#wiki-maintenance) fixes what people break of this rule. By default, `yes` for a `block` rule and for personal data (a preset, or `mask: yes`), `no` for the other `warn` rules, only reported in **Health** |
 
 Limits: 50 rules, 500 characters per pattern, 3,000 RE2 steps per compiled pattern and 15,000
 for the whole file (a counted repetition such as `.{0,1000}` costs that many: RE2 stays

@@ -144,6 +144,7 @@ sont en anglais.
 | `level` | `warn` (par défaut) : signalé. `block` : une écriture qui enfreint la règle est refusée |
 | `message` | Ce qu'il faut faire, affiché avec chaque infraction et avec un refus |
 | `mask` | `yes` : l'extrait d'un `pattern` est masqué, comme pour les préréglages |
+| `fix` | `yes` ou `no` : l'[entretien de nuit](../admin/ai.fr.md#entretien-du-wiki) corrige-t-il ce que les membres enfreignent de cette règle ? Par défaut, `yes` pour une règle `block` et pour les données personnelles (un préréglage, ou `mask: yes`), `no` pour les autres règles `warn`, seulement signalées dans **Santé** |
 
 Limites : 50 règles, 500 caractères par motif, 3 000 étapes RE2 par motif compilé et 15 000
 pour tout le fichier (une répétition comptée comme `.{0,1000}` en coûte autant : RE2 reste

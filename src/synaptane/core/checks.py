@@ -18,7 +18,8 @@ Keys: `pattern` (regular expression on the text), `field` (front matter field) w
 (`present`, `list`, `date`) or `pattern` (on its value), `preset` (`email`, `phone`, `card`,
 `iban`), `allow` (values, or email domains, never reported), `paths` and `except` (globs
 relative to `content/`), `level` (`warn` or `block`), `message` (what to do), `mask` (hide
-the excerpt). A value between backticks is taken as is.
+the excerpt), `fix` (whether the nightly maintenance fixes what people break: by default, the
+`block` rules and the personal data ones). A value between backticks is taken as is.
 
 Patterns come from the team and pages from anyone: both are untrusted. Expressions run on
 RE2 (linear time, no backtracking: no catastrophic pattern), with a memory cap; the number
@@ -56,7 +57,9 @@ LEVELS = ("warn", "block")
 EXPECTS = ("present", "list", "date")
 PRESETS = ("email", "phone", "card", "iban")
 KEYS = ("pattern", "field", "expect", "preset", "allow", "paths", "except", "level", "message")
-FLAGS = ("mask",)
+FLAGS = ("mask", "fix")
+YES = ("yes", "true", "1", "oui")
+NO = ("no", "false", "0", "non")
 MASK = "•••"
 
 # Domains and top-level domains reserved for examples (RFC 2606): never a person's address.
@@ -111,6 +114,7 @@ class Rule:
     compiled: Any = field(default=None, compare=False, repr=False)
     scope: Any = field(default=None, compare=False, repr=False)  # paths, compiled
     outside: Any = field(default=None, compare=False, repr=False)  # except, compiled
+    fix: bool | None = None  # `fix`; None: not said
 
     @property
     def blocks(self) -> bool:
@@ -119,6 +123,16 @@ class Rule:
     @property
     def masked(self) -> bool:
         return self.mask or bool(self.preset)
+
+    @property
+    def fixes(self) -> bool:
+        """Does the nightly maintenance give what people break of this rule to the agent?
+        By default, a `block` rule (the team refuses it everywhere else) and personal data
+        (each night it stays, the page is read, indexed and copied); a `warn` rule is only
+        reported in Health, unless the team says `fix: yes`."""
+        if self.fix is not None:
+            return self.fix
+        return self.blocks or self.masked
 
     def covers(self, path: str) -> bool:
         """Does the rule apply to a page (path relative to `content/`)?"""
@@ -266,6 +280,28 @@ class Checks:
                 kept[violation.index] += 1
                 fresh.append(violation)
         return fresh
+
+    def scrub(self, text: str) -> str:
+        """`text` with what the masked rules find in it (personal data, `mask: yes`) replaced
+        by its masked form, whatever the rules' paths: for a text written about the pages
+        (an agent's reason, a run's summary) that must not carry what Health hides."""
+        rules = [r for r in self.rules if r.masked and (r.preset or r.compiled is not None)]
+        if not rules or not text:
+            return text
+        data = text.encode("utf-8", "replace")
+        for rule in rules:
+            found: list[tuple[int, int, str]] = []
+            if rule.preset:
+                data = _spaced(data)
+                finder = PRESET_FINDERS[rule.preset]
+                found = [(s, e, shown) for s, e, _, shown in finder(data, rule.allow)]
+            else:
+                for match in rule.compiled.finditer(data):
+                    value = match.group(0).decode("utf-8", "replace")
+                    if value and value.strip() not in rule.allow:
+                        found.append((match.start(), match.end(), _mask(value)))
+            data = _replaced(data, found)
+        return data.decode("utf-8", "replace")
 
     def _violation(self, path: str, hit: Hit) -> Violation:
         rule = self.rules[hit.rule]
@@ -441,7 +477,13 @@ def _rule(
     pattern = values.get("pattern", "")
     name = values.get("field", "")
     expect = tuple(e.lower() for e in _items(values.get("expect", "")))
-    mask = values.get("mask", "no").lower() in ("yes", "true", "1", "oui")
+    mask = values.get("mask", "no").lower() in YES
+    fix: bool | None = None
+    if "fix" in values:
+        said = values["fix"].lower()
+        if said not in YES + NO:
+            fail("fix", Label("Unknown value “{value}” for fix: yes or no.", value=said[:20]))
+        fix = said in YES
     if preset and preset not in PRESETS:
         fail(
             "preset",
@@ -532,6 +574,7 @@ def _rule(
             compiled,
             scope,
             outside,
+            fix,
         ),
         [],
     )
@@ -675,7 +718,8 @@ def _field_hits(index: int, rule: Rule, meta: _Front) -> list[Hit]:
     shape = _shape(entry) if entry is not None else "missing"
     line = entry.line if entry is not None else 1
     raw = entry.raw if entry is not None else ""
-    excerpt = _cut(f"{rule.field_name}: {raw}" if entry is not None else "")
+    shown_raw = _mask(raw) if rule.mask and raw else raw
+    excerpt = _cut(f"{rule.field_name}: {shown_raw}" if entry is not None else "")
     found: list[Hit] = []
     for wanted in rule.expect:
         if wanted == "present" and (shape in ("missing", "empty") or raw in ("[]", "{}")):
@@ -718,6 +762,17 @@ def _mask(text: str) -> str:
     return f"{flat[:2]}{MASK}{flat[-2:]}" if len(flat) > 6 else MASK
 
 
+def _replaced(data: bytes, spans: list[tuple[int, int, str]]) -> bytes:
+    """`data` with each span (start, end, replacement) replaced; overlapping ones skipped."""
+    out, copied = [], 0
+    for start, end, by in sorted(spans):
+        if start < copied:
+            continue
+        out += [data[copied:start], by.encode()]
+        copied = end
+    return b"".join(out) + data[copied:]
+
+
 class _Lines:
     """Line number of byte offsets, counted forward (matches come in order)."""
 
@@ -737,7 +792,7 @@ def _text_hits(index: int, rule: Rule, data: bytes, limit: int = MAX_HITS) -> li
     lines = _Lines(data)
     if rule.preset:
         finder = PRESET_FINDERS[rule.preset]
-        for start, value, shown in finder(data, rule.allow):
+        for start, _end, value, shown in finder(data, rule.allow):
             found.append(Hit(index, lines.at(start), shown, value))
             if len(found) >= limit:
                 break
@@ -774,7 +829,8 @@ def _spaced(data: bytes) -> bytes:
     return data
 
 
-Finder = Callable[[bytes, tuple[str, ...]], Iterable[tuple[int, str, str]]]
+# (start, end, value, as shown) of each piece of data found, in order.
+Finder = Callable[[bytes, tuple[str, ...]], Iterable[tuple[int, int, str, str]]]
 
 
 def _before(data: bytes, start: int) -> str:
@@ -805,7 +861,7 @@ _EMAIL = _compile(
 )
 
 
-def _emails(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]]:
+def _emails(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, int, str, str]]:
     for match in _EMAIL.finditer(data):
         address = match.group(0).decode("ascii", "replace").lower().strip(".")
         local, _, domain = address.rpartition("@")
@@ -815,7 +871,7 @@ def _emails(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str
         allowed = (*EXAMPLE_DOMAINS, *allow)
         if address in allowed or any(domain == d or domain.endswith("." + d) for d in allowed):
             continue
-        yield match.start(), address, f"{local[:1]}{MASK}@{domain}"
+        yield match.start(), match.end(), address, f"{local[:1]}{MASK}@{domain}"
 
 
 _PHONE = _compile(
@@ -825,7 +881,7 @@ _PHONE = _compile(
 )
 
 
-def _phones(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]]:
+def _phones(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, int, str, str]]:
     """International numbers (`+33 6 12 34 56 78`), French national ones (`06 12 34 56 78`)
     and North American ones (`(555) 123-4567`)."""
     allowed = {re.sub(r"\D", "", a) for a in allow}
@@ -841,7 +897,7 @@ def _phones(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str
         digits = re.sub(r"\D", "", text.replace("(0)", ""))
         if not 8 <= len(digits) <= 15 or digits in allowed:
             continue
-        yield start, digits, f"{text[:3]}{MASK}{digits[-2:]}"
+        yield start, end, digits, f"{text[:3]}{MASK}{digits[-2:]}"
 
 
 _CARD = _compile(r"[0-9](?:[ \-]?[0-9]){12,18}")
@@ -874,7 +930,7 @@ def _card_number(text: str) -> str | None:
     return None
 
 
-def _cards(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]]:
+def _cards(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, int, str, str]]:
     allowed = {re.sub(r"\D", "", a) for a in allow}
     for match in _CARD.finditer(data):
         start, end = match.span()
@@ -883,7 +939,7 @@ def _cards(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]
         digits = _card_number(match.group(0).decode("ascii"))
         if digits is None or digits in allowed:
             continue
-        yield start, digits, f"{MASK} {digits[-4:]}"
+        yield start, end, digits, f"{MASK} {digits[-4:]}"
 
 
 # Length of an IBAN per country (ISO 13616 registry).
@@ -919,7 +975,7 @@ def _end_of(text: str, length: int) -> int | None:
     return None
 
 
-def _ibans(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]]:
+def _ibans(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, int, str, str]]:
     allowed = {a.replace(" ", "").upper() for a in allow}
     data = data.upper()  # ASCII letters only: offsets do not move; `fr76 …` is an IBAN too
     for match in _IBAN.finditer(data):
@@ -941,7 +997,7 @@ def _ibans(data: bytes, allow: tuple[str, ...]) -> Iterable[tuple[int, str, str]
         iban = text[:end].replace(" ", "")
         if iban in allowed or not iban_valid(iban):
             continue
-        yield start, iban, f"{iban[:4]} {MASK} {iban[-3:]}"
+        yield start, start + end, iban, f"{iban[:4]} {MASK} {iban[-3:]}"
 
 
 PRESET_FINDERS: dict[str, Finder] = {
