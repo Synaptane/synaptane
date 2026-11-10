@@ -79,8 +79,8 @@ def test_an_expired_login_fails_the_run_and_spares_the_notes_and_the_maintenance
     write(db, database, ctx, wiki, "notes.md", "# Notes\n")  # a page change to review
     name = note(db, database, ctx, wiki, "Une note")
     head = ctx.local_repository(wiki.infra).head()
-    # Reading is not work: the agent read the note, then the provider failed.
-    failing_cli(monkeypatch, expired_login(), [("read_inbox_item", {"item": name})])
+    # An expired login stops the CLI before any tool call.
+    failing_cli(monkeypatch, expired_login(), [])
     for _night in range(tidy.MAX_ITEM_ATTEMPTS + 1):
         record = tidy.run(database, ctx, wiki.infra.id, trigger="schedule")
         assert record is not None and record.status == "failed" and record.commit is None
@@ -187,6 +187,21 @@ def test_a_passing_provider_error_fails_the_run_and_retries_it_without_alert(
     assert record.status == "failed" and record.commit is None
     assert alerts(db) == []
     assert b"tidy_attempts" not in raw_note(ctx, wiki, name)
+
+
+def test_a_provider_error_after_reads_counts_the_attempt_without_immediate_retry(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once the agent has explored (paid reads), a provider error is an interruption, not a
+    failure: the item counts the attempt (an item that breaks every run is given up in the
+    end) and nothing is retried at once, even for a transient error."""
+    subscription(db, ctx, wiki)
+    name = note(db, database, ctx, wiki, "Une note")
+    failing_cli(monkeypatch, expired_login(transient=True), [("read_inbox_item", {"item": name})])
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="schedule")  # no RetryLater
+    assert record is not None and record.status == "done"
+    assert b"tidy_attempts" in raw_note(ctx, wiki, name)
+    assert "alert.tidy_failed" not in alerts(db)
 
 
 def test_work_done_before_the_login_expires_is_kept_and_reported(

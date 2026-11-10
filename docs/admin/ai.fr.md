@@ -381,11 +381,13 @@ haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le pas
   l'en-tête d'une note, en base pour une page modifiée). Après 3 passages interrompus, il
   est laissé avec la raison. Dans les deux cas (arrêt, élément abandonné), les
   administrateurs reçoivent l'alerte `tidy_interrupted`. Un passage interrompu n'enchaîne
-  pas aussitôt un autre passage. Un passage que le fournisseur arrête **avant tout travail**
-  (aucun élément clos, aucune page écrite : connexion expirée, clé refusée, CLI qui ne
-  démarre pas) est au contraire un passage **en échec** : rien n'est commité ni compté, et
-  il est retenté plus tard si l'erreur est passagère (sinon, les administrateurs reçoivent
-  l'alerte `tidy_failed`).
+  pas aussitôt un autre passage. Un passage que le fournisseur arrête **avant que l'agent
+  appelle le moindre outil** (connexion expirée, clé refusée, CLI qui ne démarre pas) est au
+  contraire un passage **en échec** : rien n'est commité ni compté, et il est retenté plus
+  tard si l'erreur est passagère (sinon, les administrateurs reçoivent l'alerte
+  `tidy_failed`). Dès que l'agent a commencé à lire, une erreur du fournisseur est une
+  interruption comme ci-dessus : la tentative est comptée, et un élément qui fait échouer
+  chaque passage finit donc par être laissé.
 - **Langue** : les consignes de l'agent sont en anglais, quelle que soit la langue de
   l'espace. Il écrit les pages, les synthèses et les raisons dans la langue des pages
   existantes de l'espace (détectée sur sa page d'accueil et ses plus longues pages), ou dans

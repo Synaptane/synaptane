@@ -25,18 +25,19 @@ of the target version.
   Tidy-up tab, which follows the run.
 
 ### Fixed
-- **A run the provider stops before any work is a failed run**. With an expired subscription
+- **A run the provider stops before any tool call is a failed run**. With an expired subscription
   login, each run ended in a second as "done", the error tucked away in the log: no banner,
   no badge on the Tidy-up tab, no `tidy_failed` alert, and nothing in `GET …/tidy/runs`,
   the health page or the metrics told it had failed (the CLI counts one turn even when its
   login has expired, which passed for work). Now a run stopped by the provider, or by a CLI
-  that does not start, before closing any item or writing any page is `failed`, with the
+  that does not start, before the agent called any tool is `failed`, with the
   error: retried later if the error is transient, otherwise reported to the administrators.
   Nothing is committed: the notes and changed pages waiting in the inbox no longer count an
   interrupted run (after 3, they were left with the reason "Not processed after 3 interrupted
   runs"), and the nightly maintenance neither moves its watermark nor uses up its attempts.
-  A run stopped after doing some work stays done, its work kept, and still sends the
-  `tidy_interrupted` alert.
+  A run stopped once the agent has started reading stays done, its work kept, and still
+  sends the `tidy_interrupted` alert: the items count the attempt, so one that breaks every
+  run is still given up in the end, and the next try waits for the next run.
 - A rate limit or an overloaded API that Claude Code or Codex reports in its final result is
   a passing error, as it already was on the CLI's error output: the run is retried by the
   queue, and the administrators are not alerted for a provider overloaded for a few minutes.

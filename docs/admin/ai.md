@@ -360,10 +360,12 @@ from where it leads to the log that follows the run).
   with a counter (`tidy_attempts` in a note's header, in the database for a changed page).
   After 3 interrupted runs, it is left with the reason. In both cases (run stopped, item
   given up), administrators get the `tidy_interrupted` alert. An interrupted run does not
-  chain straight into another run. A run the provider stops **before any work** (no item
-  closed, no page written: expired login, refused key, a CLI that does not start) is a
-  **failed** run instead: nothing is committed or counted, and it is retried later if the
-  error is transient (otherwise administrators get the `tidy_failed` alert).
+  chain straight into another run. A run the provider stops **before the agent calls any
+  tool** (expired login, refused key, a CLI that does not start) is a **failed** run
+  instead: nothing is committed or counted, and it is retried later if the error is
+  transient (otherwise administrators get the `tidy_failed` alert). Once the agent has
+  started reading, a provider error is an interruption as above: the attempt is counted, so
+  an item that breaks every run is given up in the end.
 - **Language**: the agent's instructions are in English, whatever the language of the space.
   It writes pages, summaries and reasons in the language of the space's existing pages
   (detected from its home page and longest pages), or the one its purpose sets; in a space
