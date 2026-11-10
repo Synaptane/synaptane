@@ -57,6 +57,9 @@ def test_the_address_cited_by_the_error_wins_over_the_configuration() -> None:
             "cli_login",
         ),
         ("Claude Code: Invalid API key · Please run /login", "cli_login"),
+        # The same, on the CLI's error output when it wrote no result (`cli_agents.interpret`).
+        ("claude_code: OAuth token has expired. Please run /login", "cli_login"),
+        ("codex: Please run codex login", "cli_login"),
         ("Anthropic key refused: Failed to authenticate", "auth"),
         ("Le passage a dépassé le temps maximal.", "run_timeout"),
         ("L'espace est occupé : passage reporté.", "busy"),

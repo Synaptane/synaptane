@@ -158,8 +158,9 @@ RULES = (
         r"n'est pas connecté sur le serveur|connexion de Claude Code a expiré|not logged in on the "
         r"server|login has expired"
         # As the CLI says it during a run: "Claude Code: Failed to authenticate: OAuth session
-        # expired…", "Claude Code: Invalid API key · Please run /login". Bounded by the line.
-        r"|^(?:Claude Code|Codex): [^\n]{0,300}?(?:OAuth|session expired|token (?:has )?expired"
+        # expired…", "Claude Code: Invalid API key · Please run /login"; on its error output,
+        # without a result, after the provider's key ("claude_code: …"). Bounded by the line.
+        r"|^(?:Claude[ _]Code|Codex): [^\n]{0,300}?(?:OAuth|session expired|token (?:has )?expired"
         r"|Failed to authenticate|Please run /login|codex login)",
         "subscription logged out",
         "The subscription is no longer logged in on the server: log it in again (steps on the "
