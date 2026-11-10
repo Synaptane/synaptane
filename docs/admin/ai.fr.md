@@ -303,8 +303,8 @@ Les réglages sont dans **Paramètres → Rangement** de l'espace ; le journal e
 maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet Inbox, et en
 haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le passage).
 
-- **Rangement quotidien** (heure et fuseau) : 02:00 à Paris par défaut. Le passage n'a lieu que s'il y a des
-  éléments dans l'inbox, ou si l'[entretien du wiki](#entretien-du-wiki) trouve des problèmes. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
+- **Rangement quotidien** (heure et fuseau) : 02:00 à Paris par défaut. Le passage n'a lieu que s'il y a de
+  nouveaux éléments dans l'inbox, ou si l'[entretien du wiki](#entretien-du-wiki) trouve des problèmes. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
   espace sur 24 heures, 20 pour un admin de l'organisation : voir
   [Coût et budget](#coût-et-budget)).
 - **Rangement au fil de l'eau** (case « Ranger aussi au fil de l'eau, peu après chaque
@@ -371,8 +371,11 @@ haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le pas
   devient un seul élément « Import : N pages » ; l'agent vérifie l'organisation d'ensemble
   au lieu de relire chaque page.
 - **« Laissé » ou « non traité »** : un élément *laissé* l'est par décision de l'agent, avec
-  sa raison ; il n'est repris que par un rangement manuel ou après modification. Un élément
-  présenté à un passage qui s'arrête avant de le clore (erreur du fournisseur, plafond,
+  sa raison. Il revient dans chaque passage qui a lieu, après les éléments nouveaux
+  (25 éléments au plus par passage) : un rangement manuel, même pour des éléments laissés
+  seuls, ou un passage planifié ou au fil de l'eau, qui n'a lieu que s'il y a du nouveau à
+  ranger ou un problème du wiki à corriger. Modifié, un élément laissé redevient nouveau. Un
+  élément présenté à un passage qui s'arrête avant de le clore (erreur du fournisseur, plafond,
   budget atteint) est *non traité* : le travail déjà fait est commité, l'élément reste
   nouveau et sera repris au passage suivant, avec un compteur (`tidy_attempts` dans
   l'en-tête d'une note, en base pour une page modifiée). Après 3 passages interrompus, il

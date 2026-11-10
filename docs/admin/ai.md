@@ -289,7 +289,7 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
 from where it leads to the log that follows the run).
 
 - **Daily tidy-up** (time and time zone): 02:00 Paris time by default. A run only happens if the inbox has
-  items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
+  new items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
   20 for an organization admin: see [Cost and budget](#cost-and-budget)).
 - **Tidy-up as you go** (the "Also tidy as you go, shortly after each drop" box, off by
   default): a run starts N minutes after a note is dropped (**Delay after a drop**, 15 minutes
@@ -350,8 +350,11 @@ from where it leads to the log that follows the run).
 - **Bulk imports**: a commit that touches more than 20 pages (import, reorganization) becomes
   a single "Import: N pages" item; the agent checks the overall organization instead of
   rereading each page.
-- **"Left" or "not processed"**: an item is *left* by the agent's decision, with its reason;
-  it is only picked up again by a manual tidy-up or after it changes. An item given to a run
+- **"Left" or "not processed"**: an item is *left* by the agent's decision, with its reason.
+  It comes back in every run that takes place, after the new items (25 items per run at
+  most): a manual tidy-up, even for left items alone, or a scheduled or as-you-go run, which
+  only takes place if there is something new to tidy up or a wiki problem to fix. Once
+  changed, a left item is new again. An item given to a run
   that stops before closing it (provider error, limit, budget reached) is *not processed*:
   the work already done is committed, the item stays new and is picked up by the next run,
   with a counter (`tidy_attempts` in a note's header, in the database for a changed page).
