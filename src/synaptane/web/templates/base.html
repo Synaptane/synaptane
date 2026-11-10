@@ -101,6 +101,7 @@
   </header>
   {% endif %}
   <main id="content" tabindex="-1">
+    {% if shell %}{% for org, broken in ai_alerts() %}{% include "ai-alert.html" %}{% endfor %}{% endif %}
     {% if flash %}<div class="notice {{ {'error': 'notice-error', 'warning': 'notice-warning'}.get(flash.kind, 'notice-ok') }}" role="{{ 'alert' if flash.kind == 'error' else 'status' }}" data-flash="{{ flash.kind }}">{{ flash.text }}{% if flash.link and flash.link.url is string and flash.link.url.startswith('/') and not flash.link.url.startswith('//') %} <a href="{{ flash.link.url }}">{{ flash.link.label }}</a>{% endif %}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>

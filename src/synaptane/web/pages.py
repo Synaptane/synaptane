@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from synaptane import version_label
 from synaptane.ai import quota
 from synaptane.config import Settings
-from synaptane.core.access import Action, Limits, SpaceRole, can
+from synaptane.core.access import Action, Limits, OrgRole, SpaceRole, can
 from synaptane.core.errors import ErrorCode, Label, SynaptaneError, forbidden, invalid, not_found
 from synaptane.core.names import without_email
 from synaptane.core.security import SecretBox, same
@@ -549,6 +549,8 @@ class Page:
                 "can": can,
                 "Action": Action,
                 "revealed": revealed,
+                # Called by the layout only inside the workspace: no query elsewhere.
+                "ai_alerts": self.ai_alerts,
                 **context,
             },
             status_code=status_code,
@@ -568,6 +570,28 @@ class Page:
             return self.box.decrypt(base64.urlsafe_b64decode(raw), context)
         except Exception:  # noqa: BLE001 — cookie expired, from another account or forged
             return None
+
+    def ai_alerts(self) -> list[tuple[Organization, Any]]:
+        """Broken AI connections of the organizations this account administers: the banner of
+        every page, so that a nightly tidy-up failing for days does not go unseen. Only for
+        their admins, who can fix it (members see the Tidy-up tab, and the admins are
+        notified). Once per request; no query for an account that administers nothing."""
+        if "_ai_alerts" not in self.__dict__:
+            self.__dict__["_ai_alerts"] = self._ai_alerts()
+        alerts: list[tuple[Organization, Any]] = self.__dict__["_ai_alerts"]
+        return alerts
+
+    def _ai_alerts(self) -> list[tuple[Organization, Any]]:
+        from synaptane.services import tidy_journal
+
+        if self.actor is None:
+            return []
+        roles = self.actor.access.org_roles
+        orgs = [org for org, _ in self.navigation() if roles.get(org.id) is OrgRole.ADMIN]
+        if not orgs:
+            return []
+        broken = tidy_journal.broken_connections(self.db, [org.id for org in orgs])
+        return [(org, broken[org.id]) for org in orgs if org.id in broken]
 
     def navigation(self) -> list[tuple[Organization, list[Space]]]:
         """Visible organizations and spaces (left sidebar, home page), once per request."""

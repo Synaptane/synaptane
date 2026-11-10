@@ -72,6 +72,19 @@ container are running (`docker compose ps`). For Claude, it is a real tiny call 
 smallest model: an expired session is caught this way, even when `claude auth status` says
 it is signed in.
 
+**When the login expires.** Every tidy-up run then fails at once. Such a run is recorded as
+**failed** (never as done with the error tucked away): the space's **Tidy-up** tab shows the
+failure and its badge, administrators get the `tidy_failed` alert, and every page of
+Synaptane shows them a red banner, "The nightly tidy-up of Acme has not been working since
+…: the Claude Code login has expired", with a link to this page. The banner shows to the
+organization's administrators only, as soon as a run fails for a cause on the AI side (login,
+key, model, address, agents container; a rate limit or an overloaded provider only after 3
+failures in a row) or the last **Test the connection** fails; it goes away as soon as a test
+or a run works again. Sign the CLI in again (command above), then **Test the connection**.
+Nothing is lost meanwhile: a run that could not reach the AI counts no attempt against the
+notes and changed pages waiting in the inbox, and the [wiki maintenance](#wiki-maintenance)
+keeps its place.
+
 **Upgrading from a version where the login was in `/data/home`.** It used to sit in the data
 volume, shared with the web container. Synaptane does not move it (only the CLI handles
 credentials); `synaptane doctor` and the Artificial intelligence page report the old folder
@@ -272,7 +285,8 @@ Enterprise plan.
 ## Nightly tidy-up (per space)
 
 Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** are in its
-**Tidy-up** tab (the button is also in the Inbox tab).
+**Tidy-up** tab (the button is also in the Inbox tab, and at the top of **Settings → Tidy-up**,
+from where it leads to the log that follows the run).
 
 - **Daily tidy-up** (time and time zone): 02:00 Paris time by default. A run only happens if the inbox has
   items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
@@ -343,7 +357,10 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
   with a counter (`tidy_attempts` in a note's header, in the database for a changed page).
   After 3 interrupted runs, it is left with the reason. In both cases (run stopped, item
   given up), administrators get the `tidy_interrupted` alert. An interrupted run does not
-  chain straight into another run.
+  chain straight into another run. A run the provider stops **before any work** (no item
+  closed, no page written: expired login, refused key, a CLI that does not start) is a
+  **failed** run instead: nothing is committed or counted, and it is retried later if the
+  error is transient (otherwise administrators get the `tidy_failed` alert).
 - **Language**: the agent's instructions are in English, whatever the language of the space.
   It writes pages, summaries and reasons in the language of the space's existing pages
   (detected from its home page and longest pages), or the one its purpose sets; in a space

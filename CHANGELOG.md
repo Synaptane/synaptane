@@ -10,6 +10,37 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Broken AI connection banner**. When the nightly tidy-up of an organization stops working
+  for a cause on the AI side (an expired Claude Code or Codex login, a refused key, a model
+  not found, an unreachable provider or agents container; a rate limit or an overloaded
+  provider after 3 failures in a row), or its last **Test the connection** failed, its
+  administrators see a red banner on every page: "The nightly tidy-up of Acme has not been
+  working since …: the Claude Code login has expired", what to do, and a link to the
+  organization's Artificial intelligence page (which gives the login command). It goes away
+  as soon as a test or a run works again. Members do not see it (the Tidy-up tab still tells
+  them). A few small queries per page, for organization admins only.
+- **Tidy now in Settings → Tidy-up**: the button is also at the top of the space's tidy-up
+  settings, with the same confirmation and caution as in the log; the request leads to the
+  Tidy-up tab, which follows the run.
+
+### Fixed
+- **A run the provider stops before any work is a failed run**. With an expired subscription
+  login, each run ended in a second as "done", the error tucked away in the log: no banner,
+  no badge on the Tidy-up tab, no `tidy_failed` alert, and nothing in `GET …/tidy/runs`,
+  the health page or the metrics told it had failed (the CLI counts one turn even when its
+  login has expired, which passed for work). Now a run stopped by the provider, or by a CLI
+  that does not start, before closing any item or writing any page is `failed`, with the
+  error: retried later if the error is transient, otherwise reported to the administrators.
+  Nothing is committed: the notes and changed pages waiting in the inbox no longer count an
+  interrupted run (after 3, they were left with the reason "Not processed after 3 interrupted
+  runs"), and the nightly maintenance neither moves its watermark nor uses up its attempts.
+  A run stopped after doing some work stays done, its work kept, and still sends the
+  `tidy_interrupted` alert.
+- The tidy-up log recognizes the CLI's own words for an expired login ("Failed to
+  authenticate: OAuth session expired…", "Please run /login") as a logged-out subscription,
+  with the advice to log in again, instead of a refused API key.
+
 ## [1.16.0] - 2026-11-09
 
 Describe the night in the repository: each agent routine of a space becomes a file of its

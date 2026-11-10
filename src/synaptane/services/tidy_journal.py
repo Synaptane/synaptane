@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from synaptane.ai.base import AIConfig
 from synaptane.core.access import OrgRole
-from synaptane.core.errors import SynaptaneError
+from synaptane.core.errors import Label, SynaptaneError
 from synaptane.services.tidy import NO_PAGE, TIDY, due, parse_time
 from synaptane.services.tidy_tools import Op
 from synaptane.storage.models import (
@@ -156,7 +156,11 @@ RULES = (
     _rule(
         "cli_login",
         r"n'est pas connecté sur le serveur|connexion de Claude Code a expiré|not logged in on the "
-        r"server|login has expired",
+        r"server|login has expired"
+        # As the CLI says it during a run: "Claude Code: Failed to authenticate: OAuth session
+        # expired…", "Claude Code: Invalid API key · Please run /login". Bounded by the line.
+        r"|^(?:Claude Code|Codex): [^\n]{0,300}?(?:OAuth|session expired|token (?:has )?expired"
+        r"|Failed to authenticate|Please run /login|codex login)",
         "subscription logged out",
         "The subscription is no longer logged in on the server: log it in again (steps on the "
         "organization's AI page).",
@@ -522,6 +526,101 @@ def last_test_failed(session: Session, org_id: UUID) -> bool:
     """Did the organization's last "Test the connection" fail?"""
     row = session.get(OrgAISettings, org_id)
     return row is not None and row.test_ok is False
+
+
+# --- Broken AI connection: banner of every page, for the organization's admins ---------------
+
+
+# Causes that break the tidy-up until someone fixes the AI side (login, key, model, address,
+# agents container). Not the budget (its own banner), nor causes on Synaptane's side.
+CONNECTION = frozenset(
+    {
+        "cli_login",
+        "cli_missing",
+        "auth",
+        "model",
+        "timeout",
+        "unreachable",
+        "bad_response",
+        "refused",
+        "no_tools",
+        "agents",
+        "rate_limit",
+        "unavailable",
+    }
+)
+# Passing causes: a banner only once they last (the queue retries them anyway).
+PASSING = frozenset({"rate_limit", "unavailable"})
+CONNECTION_RUNS = 50  # failed runs looked through per organization
+
+
+@dataclass(frozen=True)
+class Broken:
+    """The AI connection of an organization looks broken since `since`. `runs`: tidy-up runs
+    failed for that reason since the last run or test that worked (0: only the last connection
+    test failed)."""
+
+    since: datetime
+    explanation: Explanation
+    provider: str
+    runs: int
+
+
+def broken_connections(session: Session, org_ids: list[UUID]) -> dict[UUID, Broken]:
+    """Organizations whose AI connection looks broken: tidy-up runs failed for a cause on the
+    AI side, or the last "Test the connection" failed, since the last run that reached the AI
+    or the last test that worked. Read on every page by the organizations' admins: a few
+    small queries (one per organization with failures)."""
+    if not org_ids:
+        return {}
+    settings = {
+        row.org_id: row
+        for row in session.scalars(select(OrgAISettings).where(OrgAISettings.org_id.in_(org_ids)))
+    }
+    if not settings:
+        return {}
+    # A run that reached the AI: "done", or "nothing" after the model was called (maintenance
+    # without a decision). Not a "nothing" without a call: an empty inbox proves nothing.
+    reached = (TidyRun.status == "done") | (
+        (TidyRun.status == "nothing") & (TidyRun.output_tokens > 0)
+    )
+    last_ok: dict[UUID, datetime] = {
+        org_id: at
+        for org_id, at in session.execute(
+            select(Space.org_id, func.max(TidyRun.started_at))
+            .join(Space, Space.id == TidyRun.space_id)
+            .where(Space.org_id.in_(list(settings)), reached)
+            .group_by(Space.org_id)
+        )
+    }
+    found: dict[UUID, Broken] = {}
+    for org_id, row in settings.items():
+        config = AIConfig(row.provider, row.model, base_url=row.base_url)
+        ok = last_ok.get(org_id)
+        if row.test_ok and row.tested_at and (ok is None or row.tested_at > ok):
+            ok = row.tested_at
+        where = [Space.org_id == org_id, TidyRun.status == "failed"]
+        if ok is not None:
+            where.append(TidyRun.started_at > ok)
+        failures = [
+            (at, why)
+            for at, error in session.execute(
+                select(TidyRun.started_at, TidyRun.error)
+                .join(Space, Space.id == TidyRun.space_id)
+                .where(*where)
+                .order_by(TidyRun.started_at.desc())
+                .limit(CONNECTION_RUNS)
+            )
+            if (why := explain(error, config)).code in CONNECTION
+        ]
+        if failures and not (
+            failures[0][1].code in PASSING and len(failures) < FAILURES_BEFORE_WARNING
+        ):
+            found[org_id] = Broken(failures[-1][0], failures[0][1], row.provider, len(failures))
+        elif row.test_ok is False and row.tested_at and (ok is None or row.tested_at > ok):
+            message = str(Label.loads(row.test_message)) or None
+            found[org_id] = Broken(row.tested_at, explain(message, config), row.provider, 0)
+    return found
 
 
 def average_cost(session: Session, space_id: UUID, last: int = 10) -> Decimal | None:

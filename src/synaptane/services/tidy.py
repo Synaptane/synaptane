@@ -8,7 +8,8 @@ Course of a run:
 3. Each item is closed by `mark_done` (removed from the inbox) or `leave_in_inbox` (left with
    a reason: a decision of the agent). An item presented but not closed (provider error, cap,
    budget) is "not processed": it stays new, with a counter, and is only left after
-   MAX_ITEM_ATTEMPTS interrupted runs; the admins are notified.
+   MAX_ITEM_ATTEMPTS interrupted runs; the admins are notified. A provider failure before
+   any work (expired login, refused key) fails the run instead, with nothing counted.
 4. A single commit gathers everything, in the name of the tidy-up agent (`AGENT_NAME`), then
    it is pushed. A page modified by a human in the meantime is merged file by file; in case
    of conflict, its human version is kept and the items filed in it are not processed.
@@ -330,6 +331,8 @@ def _drive_cli(
         return
     except OSError as error:  # CLI not found, arguments refused by the system…
         state.interrupted = f"Cannot start the CLI: {error}"
+        # A failure on the provider's side like any other: before any work, the run failed.
+        state.failure = AIError("The CLI could not be started: {error}", error=str(error))
         usage.notes.append(state.interrupted)
         return
     usage.merge(run.usage)
@@ -354,7 +357,8 @@ def tidy_space(
     `spent` receives the usage turn by turn (it stays known if the run fails); `limit` can
     stop the model (budget). If the provider fails along the way, the work already done is
     committed; the items presented but not closed stay new, with a counter of interrupted
-    runs, and are only left beyond MAX_ITEM_ATTEMPTS.
+    runs, and are only left beyond MAX_ITEM_ATTEMPTS. If it fails before any work (`worked`),
+    `TidyFailure` is raised: nothing is committed, nothing counted.
 
     Items never processed come before those the agent already left: otherwise, MAX_ITEMS
     left items would be enough to block the inbox. A scheduled run without any new item does
@@ -431,9 +435,13 @@ def tidy_space(
         _drive_api(conversation, tools, state, usage, limit)
     tools.record_problems()  # end-of-run check: what remains goes to the log, without blocking
     failure = state.failure
-    if failure is not None and not (usage.turns or usage.input_tokens or overlay.changes):
-        # The provider failed before any work (expired login, refused key): a failure, not
-        # a "nothing" run that a scheduled run would erase from the log.
+    if failure is not None and not worked(state, overlay):
+        # The provider failed before any useful work (expired login, refused key, CLI that
+        # does not start): a failure, not a "done" run that would hide it from the banner,
+        # the tab's badge and the alert. Even if the CLI counted a turn or some tokens: an
+        # expired Claude Code login ends with one turn and no work. Nothing is committed, so
+        # the notes keep their attempt counter and the maintenance its watermark: a broken
+        # connection must not make people's notes be given up.
         raise TidyFailure(failure.label, transient=failure.transient)
     # Presented but not closed (provider error, cap, budget, model stopped): an
     # interruption, not a decision. They stay new, with a counter.
@@ -497,6 +505,12 @@ def tidy_space(
             for item, summary in closing.filed:
                 verdicts.record(session, ws, space, item, "filed", summary)
     return outcome
+
+
+def worked(state: RunState, overlay: Overlay) -> bool:
+    """Did the run do anything worth keeping: an item closed (filed or left, the maintenance
+    item included) or a change to the wiki. Reads alone are not work."""
+    return bool(state.done or state.left or overlay.changes)
 
 
 def _maintained(
