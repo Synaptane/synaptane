@@ -10,6 +10,15 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-11-10
+
+A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each
+nightly tidy-up stopped in a second but was logged as done: no banner, no alert, and after
+three nights the pending items were given up. Now such a run is a failure, the
+organization's administrators see a banner on every page until the connection works again,
+and an outage no longer counts against the items waiting in the inbox. No migration: update
+the image and restart.
+
 ### Added
 - **Broken AI connection banner**. When the nightly tidy-up of an organization stops working
   for a cause on the AI side (an expired Claude Code or Codex login, a refused key, a model
@@ -1196,7 +1205,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.16.1...HEAD
+[1.16.1]: https://github.com/synaptane/synaptane/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/synaptane/synaptane/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/synaptane/synaptane/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/synaptane/synaptane/compare/v1.13.0...v1.14.0
