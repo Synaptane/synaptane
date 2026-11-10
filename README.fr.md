@@ -278,11 +278,14 @@ Une application FastAPI sert les trois interfaces : le MCP pour les assistants I
 web et l'API REST. Un worker fait tourner le reste en arrière-plan : rangement nocturne,
 routines, synchronisation Git, indexation et webhooks. Les deux partagent PostgreSQL (avec
 pgvector) et les copies locales du dépôt Git de chaque espace. Le fournisseur d'IA est
-facultatif : seuls le rangement, les routines et la recherche par le sens en ont besoin.
+facultatif : seuls le rangement, les routines et la recherche par le sens en ont besoin. Avec un
+abonnement Claude ou ChatGPT plutôt qu'une clé d'API, le worker lance Claude Code ou Codex dans
+un conteneur `agents` à part, qui ne détient ni les données ni les secrets de l'instance
+([détails](docs/admin/ai.fr.md#le-conteneur-des-agents)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
-  <img src="docs/assets/architecture.svg" alt="Architecture : les assistants IA (MCP, OAuth 2.1), les navigateurs (interface web) et les scripts (API REST) passent par l'application FastAPI ; un worker gère le rangement nocturne, les routines, la synchronisation Git, l'indexation et les webhooks ; les deux partagent PostgreSQL avec pgvector et les copies de travail Git ; le worker synchronise un dépôt Git par espace et appelle un fournisseur d'IA facultatif.">
+  <img src="docs/assets/architecture.svg" alt="Architecture : les assistants IA (MCP, OAuth 2.1), les navigateurs (interface web) et les scripts (API REST) passent par l'application FastAPI ; un worker gère le rangement nocturne, les routines, la synchronisation Git, l'indexation et les webhooks ; les deux partagent PostgreSQL avec pgvector et les copies de travail Git ; le worker synchronise un dépôt Git par espace et appelle un fournisseur d'IA facultatif, avec une clé d'API ou, pour un abonnement Claude ou ChatGPT, par un conteneur des agents isolé, sans données ni secrets.">
 </picture>
 
 ## Documentation

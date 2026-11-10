@@ -265,11 +265,13 @@ One FastAPI app serves the three interfaces: MCP for AI assistants, the web UI a
 API. A worker runs everything in the background: the nightly tidy, agent routines, Git sync,
 indexing and webhooks. Both share PostgreSQL (with pgvector) and local clones of each space's
 Git repository. The AI provider is optional: only the tidy, routines and semantic search need
-one.
+one. With a Claude or ChatGPT plan instead of an API key, the worker runs Claude Code or Codex
+in a separate `agents` container, which holds no data and no secrets of the instance
+([details](docs/admin/ai.md#the-agents-container)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
-  <img src="docs/assets/architecture.svg" alt="Architecture: AI assistants (MCP, OAuth 2.1), browsers (web UI) and scripts (REST API) reach the FastAPI app; a worker handles the nightly tidy, routines, Git sync, indexing and webhooks; both share PostgreSQL with pgvector and local Git working copies; the worker syncs one Git repository per space and calls an optional AI provider.">
+  <img src="docs/assets/architecture.svg" alt="Architecture: AI assistants (MCP, OAuth 2.1), browsers (web UI) and scripts (REST API) reach the FastAPI app; a worker handles the nightly tidy, routines, Git sync, indexing and webhooks; both share PostgreSQL with pgvector and local Git working copies; the worker syncs one Git repository per space and calls an optional AI provider, with an API key or, for a Claude or ChatGPT plan, through an isolated agents container that holds no data and no secrets.">
 </picture>
 
 ## Documentation
