@@ -427,7 +427,8 @@ with an empty inbox.
   - their new pages that no page links to, missing from their folder's index (`README.md`,
     when the folder has one), untitled or empty.
   Synaptane's own commits do not count: what the tidy-up breaks is already handled by its
-  end-of-run check. Nor do imports, that is any commit that touches more than 20 pages (an
+  end-of-run check. Except the pages a routine keeps in its own folders, which count like a
+  person's change (see [Folders a routine keeps](#folders-a-routine-keeps)). Nor do imports, that is any commit that touches more than 20 pages (an
   Obsidian, Notion or Confluence import, a reorganization): the tidy-up already reviews them as
   a whole, with its "Import: N pages" item. Only what people change in those pages afterwards
   counts. A smaller import is reviewed page by page, like any edit.
@@ -525,7 +526,9 @@ A routine is made of:
   after its time of day waits for the next slot; **Run now** runs it right away;
 - a **scope**: folders of the wiki, or the whole space. The agent only reads there (tree,
   pages, search, backlinks, related pages, history);
-- **outputs**, at least one:
+- optionally, **folders it keeps**: the agent writes its own pages there (see
+  [Folders a routine keeps](#folders-a-routine-keeps));
+- **outputs**, at least one (the folders it keeps count as one):
   - a **report page**, rewritten on every run (`reports/consistency.md` for example). Any
     manual change there will be replaced: the page says so in its footer;
   - **inbox items** (10 at most per run), one per fix to make, with the pages concerned: the
@@ -564,6 +567,7 @@ Read the pages changed since the last run…
 | `description` | Optional, one line |
 | `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space. French is read too: `quotidien` or `chaque jour`, `hebdo` or `hebdomadaire` with `lundi` to `dimanche` (or `lun`, `mar`…), `mensuel`, such as `hebdo lundi 06:00` |
 | `scope` | Folders of the wiki, separated by commas, as a JSON list, or one `- folder` line each; missing: the whole space |
+| `writes` | Folders the routine keeps, with the same syntax as `scope` (5 at most); missing: none, the routine only writes its outputs |
 | `report` | Report page rewritten on every run, relative to the wiki |
 | `inbox` | `true`: one inbox item per fix to make |
 | `email` | `admins`, `members` or `none` |
@@ -575,7 +579,8 @@ The name of the routine is the name of the file: lowercase letters, digits and d
 characters at most. A routine created from a template always gets the same name, whatever the
 language of its title: `consistency-check.md`, `weekly-digest.md`; another one gets a name made
 from its title, unless you choose one. 20 routines at most per space, instructions of 20,000 characters at most,
-scope of 20 folders at most, at least one output, and a file of 64,000 bytes at most.
+scope of 20 folders at most, 5 folders kept at most, at least one output, and a file of 64,000
+bytes at most.
 
 - **At each synchronization**, Synaptane reads the files at the space's current commit. A new
   file creates the routine, which waits for its next slot. A changed file updates the
@@ -596,7 +601,60 @@ scope of 20 folders at most, at least one output, and a file of 64,000 bytes at 
 change the tidy-up rules: give push access accordingly. Inside Synaptane, only organization
 administrators write these files: pages, notes, imports, captured emails and assistants
 (MCP, REST) write in `content/` and in the inbox only. A routine stays bound by its safeguards
-whoever wrote it: it writes nowhere except its outputs, within the budget.
+whoever wrote it: it writes nowhere except its outputs and the folders it keeps, within the
+budget.
+
+### Folders a routine keeps
+
+A routine can also keep pages of its own, as modules that each hold their pages: a page per
+week in `digests/`, a watch page, a tracking table. Give it folders in `writes` (Settings →
+Routines: **Folders the routine keeps**, one per line; REST: `writes`):
+
+```markdown
+---
+title: Weekly digest archive
+schedule: weekly friday 16:00
+scope: projects, decisions
+writes: digests
+email: members
+---
+Write the summary of the week in a new page digests/<year>-W<week>.md, then add it at the
+top of digests/README.md.
+```
+
+- **Without `writes`, nothing changes**: the routine writes its outputs only.
+- **What it may do there**: create, rewrite, complete, edit, move and delete Markdown pages,
+  with the tidy-up's writing tools and their safeguards: a page is read in full before it is
+  replaced, the verification fields (`owner`, `verified`, `review_every`) are kept, broken
+  links are reported to the agent. At most 15 pages changed and 5 deletions per run; what it
+  deletes stays in the Git history.
+- **Nowhere else**, whatever a page it read asks: any other folder, `.synaptane/`, a hidden
+  file, a symbolic link of the repository, the routine's own report page (written by
+  `write_report`), a move out of its folders or into them, a move that would rewrite the
+  links of a page outside them (the routine's report page aside). The agent gets the refusal
+  as a tool error, with the reason, and goes on: the run does not fail for it.
+- **Checked like every write by Synaptane**: a likely secret added to a page is refused, and
+  so is a violation of a `block` rule of the team's checks (`.synaptane/checks.md`).
+- **The folders**: 5 at most, relative to the wiki (`content/digests` is read as `digests`).
+  Never the whole wiki, a hidden folder (`.synaptane`, `.git`), a path going up (`..`) or an
+  absolute path: the file is invalid otherwise, and the form or the API refuses it. A folder
+  inside another one given is dropped. Pages kept are an output: a routine that only keeps
+  pages needs no report, inbox, email or webhook.
+- **Scope and folders**: the routine reads its folders even outside its scope. The scope says
+  what it reviews; `writes`, what it keeps.
+- **One commit per run**: the pages written go with the report and the inbox items, in the
+  routine's name. A page someone changed during the run is merged with their change; on a
+  conflict, their version is kept and the log says so. An interrupted run publishes nothing.
+- **Afterwards**: these pages do not come to the tidy-up as changes to review (the folders
+  are the routine's: the tidy-up does not rewrite them behind its back). The
+  [nightly maintenance](#wiki-maintenance) does read them like a person's change: a broken
+  link they bring, or a new page missing from its folder's index, gets fixed. The report page
+  stays out of it, as before: it is rewritten at every run.
+- **Log**: the routine's page, its email, the `routine.done` webhook (`written`) and the REST
+  API (`outputs.written` of a run) list the pages written: path and change (created,
+  modified, moved, deleted).
+- The templates provided keep no folder. Synaptane reads the folders from the file, without a
+  copy in the database: before a space's first synchronization, a routine cannot have any.
 
 ### Built-in templates
 
@@ -636,10 +694,12 @@ regenerated welcome FAQ…).
 
 ### Security
 
-- **A routine writes nowhere except its outputs.** It has no wiki write tool: the report
-  page has a path fixed by the routine (the agent does not choose it), items go to the
-  inbox, and real fixes go through tidy-up. This is also what limits injection: malicious
-  text read in a page can, at worst, only suggest an inbox item, which tidy-up examines.
+- **A routine writes nowhere except its outputs.** Without folders of its own, it has no wiki
+  write tool: the report page has a path fixed by the routine (the agent does not choose it),
+  items go to the inbox, and real fixes go through tidy-up. This is also what limits
+  injection: malicious text read in a page can, at worst, only suggest an inbox item, which
+  tidy-up examines. With folders of its own, the worst is a page changed in those folders,
+  in the Git history (see [Folders a routine keeps](#folders-a-routine-keeps)).
 - Everything the agent reads (pages, search results, history, activity, health check, space
   purpose) is presented to it as data, never as instructions, between tags that text cannot
   close. The routine's instructions come from an administrator and remain subject to these
@@ -668,10 +728,10 @@ regenerated welcome FAQ…).
   `space.alert` webhook). A transient provider error before any work is retried by the
   queue, without an alert; a subscription's quota is read as for tidy-up (`quota_high`
   alert above 90%).
-- **Log** (the routine's page): summary, outputs (page rewritten, items dropped, emails
-  sent, webhook), output text, model, tokens, estimated cost or quota, and for a failure,
+- **Log** (the routine's page): summary, outputs (page rewritten, items dropped, pages
+  written in its folders, emails sent, webhook), output text, model, tokens, estimated cost or quota, and for a failure,
   the translated cause (technical details for administrators).
-- A routine's commit (report page and inbox items together) is made under the name
+- A routine's commit (report page, inbox items and pages written together) is made under the name
   `Synaptane routine (<title>)`, subject `Routine "<title>": …`: it does not show up as a change
   for tidy-up to examine (nor do those of older versions, named `Synaptane – routine`).
   Runs of a deleted routine still count toward the month's budget.

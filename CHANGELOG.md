@@ -10,6 +10,28 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **A routine can keep pages in folders assigned to it**. A new `writes` field of the routine
+  file (Settings → Routines: **Folders the routine keeps**; REST: `writes`) gives it up to 5
+  folders of the wiki, with the syntax of `scope`: a weekly digest writes
+  `digests/2026-W46.md`, a watch routine keeps `watch/` up to date. There, the agent gets the
+  tidy-up's writing tools (write, append, edit, move, delete) and their safeguards (page read
+  in full before it is replaced, verification fields kept, broken links reported), with at
+  most 15 pages changed and 5 deletions per run. Any other path is refused to the agent as a
+  tool error, whatever a page it read asks: another folder, `.synaptane/`, a hidden file, a
+  symbolic link, its own report page, a move out of its folders or one that would rewrite a
+  page outside them. A likely secret and a team `block` check are refused too. The pages go
+  in the run's single commit, with the report and the inbox items; a page someone changed
+  during the run is merged, their version kept on a conflict; an interrupted run publishes
+  nothing. The routine reads its folders even outside its scope. The log, the email, the
+  `routine.done` webhook (`written`) and `GET …/routines/{id}/runs` (`outputs.written`) list
+  the pages written. These pages are not reviewed by the tidy-up as changes, but the nightly
+  maintenance treats them like a person's: it fixes the broken links they bring. Without
+  `writes`, nothing changes; the templates provided keep no folder.
+
+### Upgrade
+- No migration: the folders a routine keeps live in its file only.
+
 ## [1.16.1] - 2026-11-10
 
 A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each

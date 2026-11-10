@@ -165,7 +165,7 @@ def test_a_new_or_rescheduled_file_waits_for_its_next_time(
 def test_an_invalid_file_never_runs_and_says_why(
     client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
-    newer = FILE.replace("report:", "writes:\n  - brouillons\nreport:")
+    newer = FILE.replace("report:", "labels:\n  - brouillons\nreport:")
     wiki.remote.push(
         {
             PATH: FILE,
@@ -191,7 +191,7 @@ def test_an_invalid_file_never_runs_and_says_why(
     root = {"Authorization": f"Bearer {token_for(database, 'root')}", "Accept-Language": "fr"}
     listed = {r["name"]: r for r in client.get(API, headers=root).json()}
     assert "« tous les jours » n'est pas compris" in plain(listed["casse"]["error"])
-    assert [plain(w) for w in listed["futur"]["warnings"]] == ["Champ inconnu, ignoré : writes."]
+    assert [plain(w) for w in listed["futur"]["warnings"]] == ["Champ inconnu, ignoré : labels."]
     assert listed["serveurs"]["error"] is None and listed["serveurs"]["pending"] is False
     assert client.post(f"{API}/{broken.id}/run", headers=root).status_code == 400
     assert client.patch(
@@ -201,14 +201,14 @@ def test_an_invalid_file_never_runs_and_says_why(
     page = plain(html.unescape(client.get(BASE).text))
     assert "Fichier invalide" in page and "« tous les jours » n'est pas compris" in page
     detail = plain(html.unescape(client.get(f"{BASE}/{newer_row.id}").text))
-    assert "Champ inconnu, ignoré : writes." in detail
+    assert "Champ inconnu, ignoré : labels." in detail
 
     # Changed from Synaptane, the newer version's field stays in the file.
     routines.update(
         db, database, wiki.root, ctx, wiki.infra, newer_row, routines.Fields(enabled=False)
     )
     text = (ctx.local_repository(wiki.infra).blob(".synaptane/routines/futur.md") or b"").decode()
-    assert "enabled: false" in text and "writes:\n  - brouillons\n---" in text
+    assert "enabled: false" in text and "labels:\n  - brouillons\n---" in text
 
 
 def test_routines_of_the_database_are_written_to_the_repository_once(

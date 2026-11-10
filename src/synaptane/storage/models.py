@@ -505,7 +505,8 @@ class TidyRun(Base):
 class Routine(Base):
     """Agent routine of a space (`services.routines`): instructions, a schedule, a scope and
     outputs. The agent reads the wiki; it only writes to its outputs (report page, inbox,
-    email, webhook).
+    email, webhook), and to the folders the file assigns to it (`writes`, not copied here:
+    `routine_files.writes_of`).
 
     The routine is described by a file of the repository, `.synaptane/routines/<name>.md`
     (`services.routine_files`): the settings below are a copy of it, kept in step at each
@@ -584,7 +585,8 @@ class RoutineRun(Base):
     finished_at: Mapped[datetime | None]
     summary: Mapped[str] = mapped_column(Text, default="")
     report: Mapped[str] = mapped_column(Text, default="")  # output text (page, email…)
-    # What was output: {"page": path, "inbox": [titles], "emails": n, "webhook": bool}.
+    # What was output: {"page": path, "inbox": [titles], "emails": n, "webhook": bool,
+    # "written": [{"path", "change", "from"?}], "conflicts": [paths]}.
     outputs: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
     commit: Mapped[str | None] = mapped_column(String(64))
     input_tokens: Mapped[int] = mapped_column(default=0)

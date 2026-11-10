@@ -38,7 +38,9 @@ class RoutineRunOut(BaseModel):
     report: str = Field(description="Output text (page, email, webhook)")
     outputs: dict[str, object] = Field(
         description="What was output: page (path), inbox (titles of the dropped items), "
-        "emails (number sent), webhook (true if sent)"
+        "written (pages written in the folders it keeps: path, change created, modified, "
+        "moved with from, or deleted), conflicts (pages a person changed during the run: "
+        "their version kept), emails (number sent), webhook (true if sent)"
     )
     commit: str | None
     input_tokens: int
@@ -77,6 +79,10 @@ class RoutineOut(BaseModel):
     monthday: int | None = Field(description="Monthly: 1 to 28")
     at: str = Field(description="HH:MM, the space's local time (tidy-up time zone)")
     scope: list[str] = Field(description="Folders relative to content/; empty: the whole space")
+    writes: list[str] = Field(
+        description="Folders the routine keeps (relative to content/): it writes its pages "
+        "there, and reads them even outside the scope; empty: it only writes its outputs"
+    )
     output_page: str = Field(description='Page rewritten on each run; "": none')
     output_inbox: bool
     output_email: str = Field(description='"" (none), admins or members')
@@ -92,6 +98,7 @@ class RoutineOut(BaseModel):
         routine: Routine,
         space_next: datetime | None,
         last: RoutineRun | None,
+        writes: list[str],
     ) -> "RoutineOut":
         error = routine_files.error_of(routine)
         return cls(
@@ -111,6 +118,7 @@ class RoutineOut(BaseModel):
             monthday=routine.monthday,
             at=routine.at,
             scope=list(routine.scope or []),
+            writes=writes,
             output_page=routine.output_page,
             output_inbox=routine.output_inbox,
             output_email=routine.output_email,
@@ -140,6 +148,11 @@ class RoutineIn(BaseModel):
     monthday: int | None = Field(default=None, ge=1, le=28)
     at: str | None = Field(default=None, description="HH:MM")
     scope: list[str] | None = None
+    writes: list[str] | None = Field(
+        default=None,
+        description="Folders the routine keeps (5 at most; never the whole wiki nor a hidden "
+        "folder); [] removes them; omitted: unchanged",
+    )
     output_page: str | None = None
     output_inbox: bool | None = None
     output_email: EmailTarget | None = None
@@ -164,7 +177,8 @@ class RoutineIn(BaseModel):
 
 def _out(request: Request, session: DbSession, space: Space, routine: Routine) -> RoutineOut:
     last = routines.last_runs(session, space).get(routine.id)
-    return RoutineOut.of(request, routine, routines.next_run(routine, space), last)
+    writes = routine_files.writes_of(_ws(request), space, routine)
+    return RoutineOut.of(request, routine, routines.next_run(routine, space), last, writes)
 
 
 @router.get(ROUTINES, tags=["routines"])
@@ -173,8 +187,15 @@ def list_routines(
 ) -> list[RoutineOut]:
     found = find_space(session, actor, org, space)
     last = routines.last_runs(session, found)
+    ws = _ws(request)
     return [
-        RoutineOut.of(request, r, routines.next_run(r, found), last.get(r.id))
+        RoutineOut.of(
+            request,
+            r,
+            routines.next_run(r, found),
+            last.get(r.id),
+            routine_files.writes_of(ws, found, r),
+        )
         for r in routines.list_routines(session, actor, found)
     ]
 

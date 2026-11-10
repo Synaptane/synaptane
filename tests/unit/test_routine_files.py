@@ -94,21 +94,68 @@ def test_schedules_lists_and_flags_in_several_spellings() -> None:
 
 def test_an_unknown_field_is_reported_kept_and_harmless() -> None:
     text = DIGEST.replace(
-        "template: digest\n", "template: digest\nwrites:\n  - drafts\n  - notes\norder: after\n"
+        "template: digest\n", "template: digest\nlabels:\n  - drafts\n  - notes\norder: after\n"
     )
     parsed = read(text)
     assert parsed.config is not None and parsed.error is None
     assert [str(w) for w in parsed.warnings] == [
-        "Unknown field, ignored: writes.",
+        "Unknown field, ignored: labels.",
         "Unknown field, ignored: order.",
     ]
-    assert parsed.extra == ["writes:", "  - drafts", "  - notes", "order: after"]
+    assert parsed.extra == ["labels:", "  - drafts", "  - notes", "order: after"]
     rewritten = render(parsed.config, routine_files.extra_lines(text.encode()))
-    assert "writes:\n  - drafts\n  - notes\norder: after\n---" in rewritten
+    assert "labels:\n  - drafts\n  - notes\norder: after\n---" in rewritten
     assert read(rewritten).config == parsed.config
     unknown = read(DIGEST.replace("template: digest", "template: nightly"))
     assert unknown.config is not None and unknown.config.template == ""
     assert [str(w) for w in unknown.warnings] == ["Unknown template, ignored: nightly."]
+
+
+def test_folders_a_routine_keeps_are_read_like_the_scope_and_written_back() -> None:
+    def folders(value: str, header: str = "report: r.md\n") -> list[str] | None:
+        parsed = read(f"---\nschedule: daily 02:00\n{header}writes: {value}\n---\nDo it.\n")
+        assert parsed.config is not None, parsed.error
+        return parsed.config.writes
+
+    assert folders("veille, digests/") == ["veille", "digests"]
+    assert folders('["content/veille", "a, b"]') == ["veille", "a, b"]
+    assert folders("\n  - veille\n  - veille/2026\n  - ./suivi") == ["veille", "suivi"]
+    # Pages kept are an output on their own: no report, inbox, email nor webhook needed.
+    assert folders("digests", header="") == ["digests"]
+    plain = read(DIGEST).config
+    assert plain is not None and plain.writes == []
+    assert "writes:" not in render(plain)
+    config = read(DIGEST.replace("template: digest", "writes: digests, a, b")).config
+    assert config is not None
+    assert "\nwrites: digests, a, b\n" in render(config)
+    config.writes = ["veille", "a, b"]
+    assert '\nwrites: ["veille", "a, b"]\n' in render(config)
+    assert read(render(config)).config == config
+    # A copy made from the database does not know them: unknown, not "none".
+    assert Config.of.__doc__ and "writes" in Config.of.__doc__
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        ("/etc", "absolute path"),
+        ("C:\\wiki", "absolute path"),
+        ("../.synaptane", "goes up out of the wiki"),
+        ("content/../.synaptane/routines", "goes up out of the wiki"),
+        (".synaptane", "hidden folder"),
+        ("veille/.git", "hidden folder"),
+        ("content", "whole wiki"),
+        ("/", "absolute path"),
+        (".", "whole wiki"),
+        ("veille/index.md", "is a page"),
+        ("a, b, c, d, e, f", "5 folders at most"),
+        ('[["a"]]', "a list of folders is expected"),
+    ],
+)
+def test_folders_a_routine_keeps_are_checked(value: str, error: str) -> None:
+    parsed = read(f"---\nschedule: daily 02:00\nreport: r.md\nwrites: {value}\n---\nx\n")
+    assert parsed.config is None and parsed.error is not None
+    assert error in str(parsed.error), parsed.error
 
 
 @pytest.mark.parametrize(

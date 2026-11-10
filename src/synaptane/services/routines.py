@@ -3,8 +3,9 @@
 A routine is a set of instructions, a schedule (daily, weekly or monthly, at a local time of
 the space), a scope (folders of the wiki, or the whole space) and outputs: a report page
 rewritten at each run, items deposited in the inbox, an email, a `routine.done` webhook. The
-agent reads the wiki; it writes nowhere but in its outputs. Actual fixes go through the inbox
-and the nightly tidy-up, with their safeguards (`services.routine_agent`).
+agent reads the wiki; it writes nowhere but in its outputs, and in the folders assigned to it
+if it has any (`writes`: pages it keeps itself, `services.routine_writes`). Actual fixes go
+through the inbox and the nightly tidy-up, with their safeguards (`services.routine_agent`).
 
 Each routine is a file of the space's repository, `.synaptane/routines/<name>.md`
 (`services.routine_files`: format, reading, writing); the database keeps a copy of its

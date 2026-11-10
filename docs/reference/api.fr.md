@@ -290,20 +290,20 @@ anciennes.
 ## Routines d'agent
 
 Une routine est un agent IA planifié qui relit le wiki d'un espace et n'écrit que dans ses
-sorties (voir [Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace)). Chemins sous
+sorties, et dans ses dossiers tenus si elle en a (voir [Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace)). Chemins sous
 `…/spaces/{space}/routines`. Chaque routine est un fichier du dépôt,
 `.synaptane/routines/<nom>.md` : chaque écriture est un commit de ce fichier au nom de
 l'appelant, et un push peut aussi le modifier.
 
 | Méthode et chemin | Droit | Rôle |
 |---|---|---|
-| `GET …/routines` | contributeur | Routines de l'espace : `id`, `name` (nom du fichier), `title`, `description`, `path` (fichier dans le dépôt), `sha` (empreinte du fichier, pour `base_sha` ; `null` tant que la prochaine synchronisation ne l'a pas écrit, `pending` vaut alors `true`), `error` (fichier invalide : pourquoi la routine ne tourne pas ; `null` sinon), `warnings` (ce qui a été ignoré, comme un champ inconnu), `template` (`coherence`, `digest` ou `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = lundi), `monthday` (1 à 28), `at` (`"06:00"`, heure locale de l'espace), `scope` (dossiers ; vide : tout l'espace), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
-| `POST …/routines` | admin | Crée une routine (201). `{"template": "coherence"}` part d'un modèle fourni (ses réglages, puis les champs donnés) ; vierge : `title`, `instructions` et au moins une sortie. `name` : nom du fichier (minuscules, chiffres, tirets), tiré du titre s'il manque ; un texte libre est pris pour le titre, comme avant que les routines soient des fichiers. 409 si le nom est pris, 422 pour un secret probable (`allow_secrets: true` pour confirmer) |
+| `GET …/routines` | contributeur | Routines de l'espace : `id`, `name` (nom du fichier), `title`, `description`, `path` (fichier dans le dépôt), `sha` (empreinte du fichier, pour `base_sha` ; `null` tant que la prochaine synchronisation ne l'a pas écrit, `pending` vaut alors `true`), `error` (fichier invalide : pourquoi la routine ne tourne pas ; `null` sinon), `warnings` (ce qui a été ignoré, comme un champ inconnu), `template` (`coherence`, `digest` ou `""`), `instructions`, `frequency` (`daily`, `weekly`, `monthly`), `weekday` (0 = lundi), `monthday` (1 à 28), `at` (`"06:00"`, heure locale de l'espace), `scope` (dossiers ; vide : tout l'espace), `writes` (dossiers tenus ; vide : aucun), `output_page`, `output_inbox`, `output_email` (`""`, `admins`, `members`), `output_webhook`, `enabled`, `next_run`, `last_run` |
+| `POST …/routines` | admin | Crée une routine (201). `{"template": "coherence"}` part d'un modèle fourni (ses réglages, puis les champs donnés) ; vierge : `title`, `instructions` et au moins une sortie (`writes`, les dossiers tenus, en est une). `name` : nom du fichier (minuscules, chiffres, tirets), tiré du titre s'il manque ; un texte libre est pris pour le titre, comme avant que les routines soient des fichiers. 409 si le nom est pris, 422 pour un secret probable (`allow_secrets: true` pour confirmer) |
 | `GET …/routines/{id}` | contributeur | Une routine |
-| `PATCH …/routines/{id}` | admin | Modifie les champs donnés (`enabled: false` la désactive) et réécrit le fichier. `base_sha` : le `sha` lu avant ; 409 si le fichier a changé entre-temps (push, autre admin). Le nom du fichier ne change pas (400) ; un fichier invalide se corrige dans le dépôt (400) |
+| `PATCH …/routines/{id}` | admin | Modifie les champs donnés (`enabled: false` la désactive ; `writes` absent garde les dossiers, `[]` les retire) et réécrit le fichier. `base_sha` : le `sha` lu avant ; 409 si le fichier a changé entre-temps (push, autre admin). Le nom du fichier ne change pas (400) ; un fichier invalide se corrige dans le dépôt (400) |
 | `DELETE …/routines/{id}` | admin | Retire le fichier de la routine (204 ; `?base_sha=` comme pour `PATCH`) ; ses passages restent comptés dans le budget, sa page de rapport reste dans le wiki |
 | `POST …/routines/{id}/run` | admin | Lance la routine dès que le worker est libre (202) ; refusé (400) si le budget du mois est atteint ou si le fichier est invalide |
-| `GET …/routines/{id}/runs` | contributeur | Passages, du plus récent : `status` (`running`, `done`, `failed`), `trigger`, `model`, `summary`, `report` (texte de sortie), `outputs` (`page`, `inbox` : titres des éléments déposés, `emails` : nombre envoyé, `webhook`), `commit`, jetons, `cost`, `quota`, `error` |
+| `GET …/routines/{id}/runs` | contributeur | Passages, du plus récent : `status` (`running`, `done`, `failed`), `trigger`, `model`, `summary`, `report` (texte de sortie), `outputs` (`page`, `inbox` : titres des éléments déposés, `written` : pages écrites dans ses dossiers, avec `path`, `change` et `from` pour un déplacement, `conflicts` : pages modifiées par quelqu'un pendant le passage, sa version gardée, `emails` : nombre envoyé, `webhook`), `commit`, jetons, `cost`, `quota`, `error` |
 
 ## Recherche par le sens
 

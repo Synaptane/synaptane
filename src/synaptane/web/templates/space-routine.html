@@ -35,6 +35,7 @@
 <div class="card routine-settings">
   <dl class="metadata">
     <div><dt>{{ _("Scope") }}</dt><dd>{% if routine.scope %}{% for folder in routine.scope %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ _("The whole space") }}{% endif %}</dd></div>
+    <div><dt>{{ _("Folders it keeps") }}</dt><dd>{% if writes %}{% for folder in writes %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %} <span class="muted">{{ _("(it writes its pages there)") }}</span>{% else %}{{ _("None: it only writes its outputs") }}{% endif %}</dd></div>
     <div><dt>{{ _("Outputs") }}</dt><dd>{{ outputs(routine, wiki) }}</dd></div>
     <div><dt>{{ _("File") }}</dt><dd><code>{{ routine_path(routine) }}</code>{% if routine.sha is none %} <span class="status status-warn">{{ _("Waiting to be written to the repository") }}</span>{% endif %}</dd></div>
   </dl>
@@ -77,6 +78,8 @@
       {% if out %}
       <ul class="routine-produced">
         {% if out.page %}<li><span class="tidy-op-label">{{ _("Page rewritten") }}</span> <a href="{{ wiki }}/p/{{ out.page|pathurl }}">{{ out.page }}</a></li>{% endif %}
+        {% if out.written %}{% set changes = {'created': _("created"), 'modified': _("modified"), 'moved': _("moved"), 'deleted': _("deleted")} %}<li><span class="tidy-op-label">{{ _(pl(out.written|length, "{n} page written", "{n} pages written"), n=out.written|length) }}</span> {% for p in out.written %}{% if p.change == 'deleted' %}<code>{{ p.path }}</code>{% else %}<a href="{{ wiki }}/p/{{ p.path|pathurl }}">{{ p.path }}</a>{% endif %} <span class="muted">({{ changes.get(p.change, p.change) }}{% if p['from'] %}, {{ _("from {path}", path=p['from']) }}{% endif %})</span>{% if not loop.last %} · {% endif %}{% endfor %}</li>{% endif %}
+        {% if out.conflicts %}<li><span class="tidy-op-label">{{ _("Changed by someone during the run, their version kept") }}</span> <span class="muted">{{ out.conflicts|join(" · ") }}</span></li>{% endif %}
         {% if out.inbox %}<li><span class="tidy-op-label">{{ _(pl(out.inbox|length, "{n} item dropped into the inbox", "{n} items dropped into the inbox"), n=out.inbox|length) }}</span> <span class="muted">{{ out.inbox|join(" · ") }}</span></li>{% endif %}
         {% if out.emails is defined %}<li><span class="tidy-op-label">{{ _(pl(out.emails, "{n} email sent", "{n} emails sent"), n=out.emails) }}</span></li>{% endif %}
         {% if out.webhook %}<li><span class="tidy-op-label">{{ _("routine.done webhook sent") }}</span></li>{% endif %}

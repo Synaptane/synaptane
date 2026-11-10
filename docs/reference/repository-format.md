@@ -149,7 +149,7 @@ ignored and its line is shown in **Health**; the other rules apply. A save from 
 refuses a file with a faulty rule.
 
 A `block` rule refuses the writes of the web UI, the REST API, MCP, the import, the tidy-up,
-the report page of a routine and the undo of a tidy-up or of an assistant's run, when they add
+the report page and the pages a routine keeps, and the undo of a tidy-up or of an assistant's run, when they add
 a violation: a page that already broke the rule stays editable, and a
 page moved into a folder that a rule covers counts as new. A push cannot be refused.
 
@@ -182,7 +182,8 @@ Write the summary of the week…
 Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
 `monthly 1 06:00`; French is read too, such as `hebdo lundi 06:00`, and Synaptane writes English
 back), `scope` (folders separated by commas, a JSON list or one `- folder` line
-each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+each), `writes` (folders the routine keeps, same syntax, 5 at most: it writes its own pages
+there; never the whole wiki nor a hidden folder), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
 `template`. Values are plain text or JSON. An unknown field is reported and ignored; an
 invalid file does not run, and its error shows in Settings → Routines and the REST API.
 
@@ -244,8 +245,11 @@ Git history since the last tidy-up.
 - Tidy-up runs are committed by `Synaptane tidy-up` (`Synaptane – rangement` in older
   histories), subject `Tidy-up: …`: one commit per run. Its commits, like Synaptane's merges
   and the initial files, are never reported to the inbox as changes.
-- A routine commits its report page and inbox items as `Synaptane routine (<title>)`, subject
-  `Routine "<title>": …` (`Synaptane – routine` in older histories).
+- A routine commits its report page, inbox items and the pages written in its folders as
+  `Synaptane routine (<title>)`, subject `Routine "<title>": …` (`Synaptane – routine` in
+  older histories). When it wrote pages in its folders, the message ends with the trailers
+  `Source: routine-pages` and `Via: ["<folder>", …]`: the nightly maintenance reads those
+  pages like a person's change.
 - A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
   the administrator's name. The routines kept in the database by older versions are written by
   `Synaptane: routines written to the repository`, at the first synchronization after the

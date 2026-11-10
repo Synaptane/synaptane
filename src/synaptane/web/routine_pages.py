@@ -15,7 +15,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from synaptane.core.access import Action, can
 from synaptane.core.errors import ErrorCode, SynaptaneError, forbidden, invalid
-from synaptane.services import Actor, ai_settings, budget, routine_files, routines, tidy_journal
+from synaptane.services import (
+    Actor,
+    ai_settings,
+    budget,
+    routine_files,
+    routine_writes,
+    routines,
+    tidy_journal,
+)
 from synaptane.storage.models import Routine, RoutineRun, Space
 from synaptane.web.pages import (
     ERROR_STATUS,
@@ -65,9 +73,11 @@ class Draft:
     name: str = ""  # file name; empty on creation: made from the title
     description: str = ""
     base_sha: str = ""  # hash of the file when the form was opened
+    writes: str = ""  # folders the routine keeps, one per line
 
     @classmethod
-    def of(cls, routine: Routine) -> "Draft":
+    def of(cls, routine: Routine, writes: list[str] | None = None) -> "Draft":
+        """`writes`: the folders read from its file (the database keeps no copy of them)."""
         return cls(
             routine.title,
             routine.instructions,
@@ -85,6 +95,7 @@ class Draft:
             routine.name,
             routine.description,
             routine.sha or "",
+            "\n".join(writes or []),
         )
 
     @classmethod
@@ -125,6 +136,7 @@ class Draft:
             output_email=self.output_email,
             output_webhook=self.output_webhook,
             enabled=self.enabled,
+            writes=[line.strip() for line in self.writes.splitlines() if line.strip()],
         )
 
 
@@ -152,6 +164,7 @@ def posted(
     name: Annotated[str, Form()] = "",
     description: Annotated[str, Form()] = "",
     base_sha: Annotated[str, Form()] = "",
+    writes: Annotated[str, Form()] = "",
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
@@ -171,6 +184,7 @@ def posted(
         name,
         description,
         base_sha,
+        writes,
     )
 
 
@@ -200,6 +214,8 @@ def _common(page: WebPage, space: Space) -> dict[str, Any]:
         "routine_error": routine_files.error_of,
         "routine_warnings": routine_files.warnings_of,
         "routine_path": routines.path_of,
+        "max_written": routine_writes.MAX_PAGES,
+        "max_deletions": routine_writes.MAX_DELETIONS,
     }
 
 
@@ -347,6 +363,7 @@ def routine_page(page: WebPage, org_slug: str, space_slug: str, routine_id: UUID
         "routines",
         "space-routine.html",
         routine=routine,
+        writes=routine_files.writes_of(page.workspace, space, routine),
         runs=_views(page, space, runs),
         version=_version(routine, runs),
         poll=routine.requested is not None or bool(runs and runs[0].status == "running"),
@@ -359,7 +376,8 @@ def routine_edit_page(page: WebPage, org_slug: str, space_slug: str, routine_id:
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
     routine = routines.get(page.db, actor, space, routine_id)
-    return _form(page, actor, space, routine, Draft.of(routine))
+    writes = routine_files.writes_of(page.workspace, space, routine)
+    return _form(page, actor, space, routine, Draft.of(routine, writes))
 
 
 @router.post(BASE + "/{routine_id}")

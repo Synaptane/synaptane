@@ -20,11 +20,11 @@ then the instructions.
 
 The name of a routine is the name of its file (lowercase letters, digits and dashes, like the
 team prompts). The header keeps the conventions of the inbox items (a JSON value, or else
-plain text) and adds lists: `scope` takes folders separated by commas, a JSON list, or one
-`- folder` line each. A field this version does not know (a newer version's) is reported,
-kept when Synaptane rewrites the file, and never prevents the reading: the dedicated reader
-exists for that, and because a line the inbox reader skips silently would here widen what an
-agent reads (a misread `scope` is the whole space).
+plain text) and adds lists: `scope` (and `writes`) take folders separated by commas, a JSON
+list, or one `- folder` line each. A field this version does not know (a newer version's) is
+reported, kept when Synaptane rewrites the file, and never prevents the reading: the dedicated
+reader exists for that, and because a line the inbox reader skips silently would here widen
+what an agent reads (a misread `scope` is the whole space).
 
 Git is the source of truth. The `routines` table keeps a copy of each file's settings, kept in
 step at each synchronization (`synchronize`, under the space lock), and the state of the runs
@@ -42,11 +42,18 @@ state stays on the same row: it neither runs twice nor gets lost.
 Trust: whoever can push to the repository can change the routines, as they can change the
 tidy-up rules. From Synaptane, only the organization's administrators write them; every other
 write path is confined to `content/` and the inbox.
+
+Folders a routine keeps (`writes`): the pages it may write itself, besides its outputs
+(`services.routine_writes`). The database keeps no copy of them (no column for them): they are
+read from the file at the hash the database knows (`writes_of`), and a copy made from the
+database (`Config.of`) leaves them unknown (None), so that a save keeps the file's.
 """
 
 import json
 import logging
 import re
+import threading
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -59,7 +66,7 @@ from sqlalchemy.orm import Session
 from synaptane.core import names
 from synaptane.core.errors import Label, SynaptaneError, conflict, invalid, not_found
 from synaptane.core.secret_scan import added_findings, refuse_secrets
-from synaptane.git.repo import Identity, PathRefused, Repository
+from synaptane.git.repo import GitError, Identity, PathRefused, Repository
 from synaptane.services import Actor, jobs
 from synaptane.services.content import content_path
 from synaptane.services.inbox import CONTENT_DIR
@@ -75,6 +82,9 @@ EMAIL_TARGETS = ("", "admins", "members")
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 MAX_INSTRUCTIONS = 20_000
 MAX_SCOPE = 20  # folders
+# Folders a routine keeps (`writes`): a few topics of its own (a watch, digests, a tracking
+# table), never a share of the wiki large enough to make it a second tidy-up.
+MAX_WRITES = 5
 MAX_ROUTINES = 20  # per space: each routine costs, proliferation is paid for
 MAX_DESCRIPTION = 500
 MAX_FILE_SIZE = 64_000  # bytes: instructions, header and a margin
@@ -86,6 +96,7 @@ KNOWN = (
     "description",
     "schedule",
     "scope",
+    "writes",
     "report",
     "inbox",
     "email",
@@ -120,6 +131,7 @@ class Fields:
     output_email: str | None = None
     output_webhook: bool | None = None
     enabled: bool | None = None
+    writes: list[str] | None = None  # folders the routine keeps; []: none
 
 
 @dataclass
@@ -141,9 +153,13 @@ class Config:
     output_webhook: bool = False
     enabled: bool = True
     template: str = ""
+    # Folders the routine keeps (`writes`). None: unknown, a copy made from the database,
+    # which does not keep them; `save` then keeps the file's.
+    writes: list[str] | None = field(default_factory=list)
 
     @classmethod
     def of(cls, routine: Routine) -> "Config":
+        """The settings the database keeps (`writes` unknown: see `writes_of`)."""
         return cls(
             routine.title,
             routine.description,
@@ -159,11 +175,14 @@ class Config:
             routine.output_webhook,
             routine.enabled,
             routine.template,
+            writes=None,
         )
 
     def store(self, routine: Routine) -> None:
         """Copies the settings onto the database row (the state of the runs stays)."""
         for name in self.__dataclass_fields__:
+            if name in FILE_ONLY:
+                continue
             value = getattr(self, name)
             setattr(routine, name, list(value) if isinstance(value, list) else value)
 
@@ -186,6 +205,45 @@ def clean_scope(folders: list[str]) -> list[str]:
     if len(cleaned) > MAX_SCOPE:
         raise invalid("Scope: {n} folders at most.", n=MAX_SCOPE)
     return cleaned
+
+
+# Settings the file holds and the database does not copy.
+FILE_ONLY = ("writes",)
+
+
+def clean_writes(folders: list[str]) -> list[str]:
+    """Folders a routine keeps, relative to content/: never the whole wiki, a hidden folder
+    (`.synaptane/`, `.git/`), a path going up (`..`) or an absolute one. A folder inside
+    another one given is dropped: the other one already covers it."""
+    cleaned: list[str] = []
+    for raw in folders:
+        text = raw.strip()
+        if not text:
+            continue
+        shown = text[:80]
+        if text.startswith(("/", "\\")) or re.match(r"[A-Za-z]:[\\/]", text):
+            raise invalid("writes: {folder} is an absolute path.", folder=shown)
+        relative = text.replace("\\", "/").removeprefix("./")
+        relative = "" if relative.strip("/") == "content" else relative.removeprefix("content/")
+        parts = [part for part in relative.split("/") if part]
+        if ".." in parts:
+            raise invalid("writes: {folder} goes up out of the wiki (..).", folder=shown)
+        if any(part.startswith(".") for part in parts if part != "."):
+            raise invalid("writes: {folder} is a hidden folder (.synaptane, .git…).", folder=shown)
+        if relative.lower().endswith(".md"):
+            raise invalid("writes: {folder} is a page; give a folder.", folder=shown)
+        folder = clean_folder(relative) if parts and parts != ["."] else ""
+        if not folder:
+            raise invalid(
+                "writes: a routine cannot write in the whole wiki; give its own folders "
+                "(e.g. digests)."
+            )
+        if folder not in cleaned:
+            cleaned.append(folder)
+    kept = [f for f in cleaned if not any(f.startswith(o + "/") for o in cleaned)]
+    if len(kept) > MAX_WRITES:
+        raise invalid("writes: {n} folders at most.", n=MAX_WRITES)
+    return kept
 
 
 def clean_page(page: str) -> str:
@@ -245,6 +303,8 @@ def apply(config: Config, fields: Fields) -> None:
         config.output_webhook = fields.output_webhook
     if fields.enabled is not None:
         config.enabled = fields.enabled
+    if fields.writes is not None:
+        config.writes = clean_writes(fields.writes)
     # Consistency of the whole, once everything is applied.
     if config.frequency == "weekly":
         if config.weekday is None or not 0 <= config.weekday <= 6:
@@ -256,8 +316,15 @@ def apply(config: Config, fields: Fields) -> None:
         config.weekday = None
     else:
         config.weekday = config.monthday = None
+    # Pages kept in its folders are an output too. Unknown folders (a copy made from the
+    # database) are checked again by `save`, once read from the file.
     if not (
-        config.output_page or config.output_inbox or config.output_email or config.output_webhook
+        config.output_page
+        or config.output_inbox
+        or config.output_email
+        or config.output_webhook
+        or config.writes is None
+        or config.writes
     ):
         raise invalid("Choose at least one output: page, inbox, email or webhook.")
 
@@ -355,6 +422,8 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
     lines.append(f"schedule: {schedule_text(config)}")
     if config.scope:
         lines.append(f"scope: {_list(config.scope)}")
+    if config.writes:
+        lines.append(f"writes: {_list(config.writes)}")
     if config.output_page:
         lines.append(f"report: {_scalar(config.output_page)}")
     lines.append(f"inbox: {json.dumps(config.output_inbox)}")
@@ -466,13 +535,13 @@ def _flag(header: _Header, key: str, default: bool) -> bool:
     raise invalid("{field}: true or false.", field=key)
 
 
-def _folders(header: _Header) -> list[str]:
-    value = header.values.get("scope")
+def _folders(header: _Header, key: str = "scope") -> list[str]:
+    value = header.values.get(key)
     if value is None or value == "":
         return []
     items = value if isinstance(value, list) else str(value).split(",")
     if any(isinstance(v, list | dict) for v in items):
-        raise invalid("scope: a list of folders is expected.")
+        raise invalid("{field}: a list of folders is expected.", field=key)
     return [str(v).strip() for v in items if str(v).strip()]
 
 
@@ -552,6 +621,7 @@ def _config(header: _Header, name: str) -> Config:
             output_email="" if email == "none" else email,
             output_webhook=_flag(header, "webhook", False),
             enabled=_flag(header, "enabled", True),
+            writes=_folders(header, "writes"),
         ),
     )
     return config
@@ -834,7 +904,11 @@ def save(
                 )
             data = None
             if config is not None:
-                data = _fits(render(config, extra_lines(repo.blob(path))).encode())
+                old = repo.blob(path)
+                if config.writes is None:  # a copy made from the database: the file's folders
+                    config.writes = [] if creating else _file_writes(old)
+                    apply(config, Fields())  # the whole checked again, folders known
+                data = _fits(render(config, extra_lines(old)).encode())
             verb = "updated" if data is not None else "removed"
             subject = f"Routine {verb}: {name}" + trailers(source, actor.via)
             try:
@@ -871,6 +945,12 @@ def _save_pending(
 ) -> None:
     """The routine of a space not synced yet, kept in the database until its first
     synchronization writes it (`synchronize`)."""
+    if config is not None and config.writes:
+        # The database keeps no copy of them: they would be lost before the first write.
+        raise invalid(
+            "Folders kept by the routine (writes): available once the space has been "
+            "synchronized for the first time."
+        )
     if config is None:
         if row is not None:
             session.delete(row)
@@ -888,6 +968,50 @@ def _save_pending(
             skip_today(row, space)
     row.updated_at = datetime.now(UTC)
     session.flush()
+
+
+# --- Folders a routine keeps ---------------------------------------------------------------------
+
+_WRITES: OrderedDict[str, tuple[str, ...]] = OrderedDict()  # file hash → folders
+_WRITES_LOCK = threading.Lock()
+_WRITES_MAX = 256
+
+
+def _file_writes(data: bytes | None) -> list[str]:
+    """The `writes` folders of a routine file, [] if it has none or they cannot be read. Read
+    on their own: a file invalid for another reason (schedule…) keeps its folders when the
+    form rewrites it."""
+    if not data or len(data) > MAX_FILE_SIZE:
+        return []
+    try:
+        return clean_writes(_folders(_header(data.decode("utf-8", "replace")), "writes"))
+    except SynaptaneError:
+        return []
+
+
+def writes_of(ws: Workspace, space: Space, routine: Routine) -> list[str]:
+    """Folders the routine keeps, read from its file at the hash the database knows
+    (`Routine.sha`): the same version as the other settings copied in the database, even if
+    a push has moved the file since (it is read again at the next synchronization). []: none,
+    a routine not written to the repository yet, or a space not synced."""
+    if routine.sha is None:
+        return []
+    with _WRITES_LOCK:
+        if (cached := _WRITES.get(routine.sha)) is not None:
+            _WRITES.move_to_end(routine.sha)
+            return list(cached)
+    repo = _synced(ws, space)
+    if repo is None:
+        return []
+    try:
+        folders = _file_writes(repo.object_data(routine.sha))
+    except GitError:
+        return []
+    with _WRITES_LOCK:
+        _WRITES[routine.sha] = tuple(folders)
+        while len(_WRITES) > _WRITES_MAX:
+            _WRITES.popitem(last=False)
+    return folders
 
 
 # --- Shown to people ----------------------------------------------------------------------------
