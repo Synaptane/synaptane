@@ -79,7 +79,7 @@ def test_schedules_lists_and_flags_in_several_spellings() -> None:
         ("mensuel 1 06:00", ("monthly", None, 1, "06:00")),
     ):
         read_back = config(f"schedule: {french}")
-        assert read_back.plan[1:] == plan, french
+        assert read_back.plan[1:5] == plan, french
         assert routine_files.schedule_text(read_back).split()[0] in ("daily", "weekly", "monthly")
     assert "schedule: weekly sunday 18:00" in render(config("schedule: hebdo dimanche 18:00"))
     block = config("schedule: daily 02:00\nscope:\n  - infra\n  - 'clients/acme'\n")

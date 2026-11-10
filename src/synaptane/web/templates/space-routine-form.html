@@ -32,9 +32,13 @@
         {% for day in weekdays %}<option value="{{ loop.index0 }}" {% if draft.weekday == loop.index0 %}selected{% endif %}>{{ _(day) }}</option>{% endfor %}
       </select></div>
       <div class="field routine-monthday"><label for="routine-monthday">{{ _("Day of the month") }}</label><input id="routine-monthday" name="monthday" type="number" min="1" max="28" value="{{ draft.monthday or 1 }}"></div>
-      <div class="field"><label for="routine-at">{{ _("Time") }}</label><input id="routine-at" name="at" type="time" value="{{ draft.at }}" required></div>
+      <div class="field"><label for="routine-when">{{ _("When") }}</label><select id="routine-when" name="night" aria-describedby="routine-when-help">
+        {% for value, label in [("", _("At a set time")), ("before", _("In the night, before the tidy-up")), ("after", _("In the night, after the tidy-up"))] %}<option value="{{ value }}" {% if draft.night == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+      <div class="field routine-time"><label for="routine-at">{{ _("Time") }}</label><input id="routine-at" name="at" type="time" value="{{ draft.at }}" required></div>
     </div>
     <p class="muted">{{ _("Local time of the space ({tz}), the same as the tidy-up.", tz=space.tidy_timezone) }}</p>
+    <p class="muted" id="routine-when-help">{{ _("In the night: the routine runs at the tidy-up's time ({time}), just before or after it, and the night's report says what it did. The time above is then unused.", time=space.tidy_time) }}</p>
   </fieldset>
 
   <fieldset class="settings-group">

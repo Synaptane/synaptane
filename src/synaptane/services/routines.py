@@ -10,7 +10,9 @@ Each routine is a file of the space's repository, `.synaptane/routines/<name>.md
 (`services.routine_files`: format, reading, writing); the database keeps a copy of its
 settings and the state of its runs.
 
-The nightly tidy-up stays separate (`services.tidy`): it is not a routine.
+The nightly tidy-up stays separate (`services.tidy`): it is not a routine. A routine can be
+part of the night, though (`night` set): it then runs just before or after the tidy-up, at its
+time, in the sequence of `services.night`, and never through `schedule` below.
 
 Rights: the organization's administrators create, edit, run and delete (from Synaptane: a
 commit in their name); the space's contributors see the routines and their log. Whoever can
@@ -433,6 +435,11 @@ def last_runs(session: Session, space: Space) -> dict[UUID, RoutineRun]:
 # --- Schedule -----------------------------------------------------------------------------
 
 
+def matches(routine: Routine, day: date) -> bool:
+    """Is `day` one of the routine's days (every day, its weekday, its day of the month)?"""
+    return _matches(routine, day)
+
+
 def _matches(routine: Routine, day: date) -> bool:
     if routine.frequency == "weekly":
         return day.weekday() == routine.weekday
@@ -443,8 +450,9 @@ def _matches(routine: Routine, day: date) -> bool:
 
 def due(routine: Routine, space: Space, now: datetime) -> date | None:
     """Local day of the run due, or None (disabled, invalid file, not the right day, already
-    done, or time not reached yet). Time zone of the space, the tidy-up's one."""
-    if not routine.enabled or routine.error is not None or not space.repo_url:
+    done, or time not reached yet). Time zone of the space, the tidy-up's one. A routine of
+    the night is never due here: the night runs it (`services.night`)."""
+    if not routine.enabled or routine.error is not None or not space.repo_url or routine.night:
         return None
     try:
         local = now.astimezone(zone(space.tidy_timezone))
@@ -457,12 +465,13 @@ def due(routine: Routine, space: Space, now: datetime) -> date | None:
 
 
 def next_run(routine: Routine, space: Space, now: datetime | None = None) -> datetime | None:
-    """Next scheduled run (local time of the space), or None if disabled or invalid."""
+    """Next scheduled run (local time of the space), or None if disabled or invalid. A routine
+    of the night: the tidy-up's time, on its next day."""
     if not routine.enabled or routine.error is not None or not space.repo_url:
         return None
     try:
         tz = zone(space.tidy_timezone)
-        at = parse_time(routine.at)
+        at = parse_time(space.tidy_time if routine.night else routine.at)
     except SynaptaneError:
         return None
     local = (now or datetime.now(UTC)).astimezone(tz)

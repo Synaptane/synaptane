@@ -7,8 +7,10 @@ a different kind:
 - indexing: text extraction, OCR, embeddings;
 - tidy-up: a pass with a subscription can last 45 minutes; it no longer delays the indexing
   of other spaces. Agent routines run there too (same cost, same slowness, and never at the
-  same time as a tidy-up of the same space);
-- webhooks: a slow or silent recipient no longer delays syncs;
+  same time as a tidy-up of the same space), and so does the night of a space (its routines
+  and its tidy-up in order, `services.night`);
+- webhooks: a slow or silent recipient no longer delays syncs (the night's Slack report goes
+  there too);
 - backup: the automatic backup of the night, whose off-site copy can last hours;
 - email: the capture by email reads its mailbox every few minutes; a slow mail server no
   longer delays the other jobs.
@@ -46,6 +48,7 @@ from synaptane.services import (
     git_sync,
     instance,
     jobs,
+    night,
     routine_agent,
     routines,
     semantic,
@@ -73,8 +76,8 @@ TOUCH_EVERY = 30.0
 # Dedicated lanes, each for one kind of job; all the others go through the fast lane.
 LANES: dict[str, frozenset[str]] = {
     "index": frozenset({INDEX}),
-    "tidy": frozenset({tidy.TIDY, routines.ROUTINE}),
-    "webhook": frozenset({webhooks.WEBHOOK}),
+    "tidy": frozenset({tidy.TIDY, routines.ROUTINE, night.NIGHT}),
+    "webhook": frozenset({webhooks.WEBHOOK, night.SLACK}),
     "backup": frozenset({backup_schedule.BACKUP}),
     "email": frozenset({email_capture.EMAIL}),
 }
@@ -104,7 +107,9 @@ class Worker:
             INDEX: self._index,
             tidy.TIDY: self._tidy,
             routines.ROUTINE: self._routine,
+            night.NIGHT: self._night,
             webhooks.WEBHOOK: self._webhook,
+            night.SLACK: self._night_slack,
             ai_settings.AI_TEST: self._ai_test,
             backup_schedule.BACKUP: self._backup,
             email_capture.EMAIL: self._email,
@@ -175,6 +180,21 @@ class Worker:
         assert job.space_id is not None
         routine_agent.run_pending(
             self.database, self.ctx, job.space_id, public_url=self.settings.public_url
+        )
+
+    def _night(self, job: Job) -> None:
+        """The night of a space: routines before the tidy-up, the tidy-up, routines after it,
+        then one report."""
+        assert job.space_id is not None
+        night.run(self.database, self.ctx, job.space_id, public_url=self.settings.public_url)
+
+    def _night_slack(self, job: Job) -> None:
+        """The night's report posted to the space's Slack webhook."""
+        night.deliver_slack(
+            self.database,
+            self.ctx.box,
+            job.payload,
+            allow_private=self.settings.allow_private_webhooks,
         )
 
     def _index(self, job: Job) -> None:
@@ -364,8 +384,10 @@ class Worker:
         except Exception:  # noqa: BLE001 — a missed report must not stop the worker
             log.warning("State of the agents container not recorded", exc_info=True)
         self.schedule_polls()
+        night.schedule(self.database)  # first: it takes the tidy-up of the nights it plans
         tidy.schedule(self.database)
         tidy.close_orphans(self.database)
+        night.close_orphans(self.database)
         routines.schedule(self.database)
         routine_agent.close_orphans(self.database)
         backup_schedule.schedule(self.database, self.settings)

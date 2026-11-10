@@ -65,6 +65,7 @@ class Draft:
     name: str = ""  # file name; empty on creation: made from the title
     description: str = ""
     base_sha: str = ""  # hash of the file when the form was opened
+    night: str = ""  # "": at its time; "before" or "after" the tidy-up, in the night
 
     @classmethod
     def of(cls, routine: Routine) -> "Draft":
@@ -85,6 +86,7 @@ class Draft:
             routine.name,
             routine.description,
             routine.sha or "",
+            routine.night,
         )
 
     @classmethod
@@ -125,6 +127,7 @@ class Draft:
             output_email=self.output_email,
             output_webhook=self.output_webhook,
             enabled=self.enabled,
+            night=self.night if self.night in routine_files.NIGHT_PLACES else "",
         )
 
 
@@ -152,6 +155,7 @@ def posted(
     name: Annotated[str, Form()] = "",
     description: Annotated[str, Form()] = "",
     base_sha: Annotated[str, Form()] = "",
+    night: Annotated[str, Form()] = "",
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
@@ -171,6 +175,7 @@ def posted(
         name,
         description,
         base_sha,
+        night,
     )
 
 
