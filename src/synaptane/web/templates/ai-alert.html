@@ -1,0 +1,12 @@
+{# Broken AI connection of an organization the account administers (`Page.ai_alerts`), on
+   every page: the nightly tidy-up must not fail for days without anyone seeing it. #}
+{% from "ui.html" import when %}
+{% set why = broken.explanation %}
+{% set ai_url = "/o/" ~ org.slug ~ "/-/ai" %}
+{% set cli_name = {"claude_code": "Claude Code", "codex": "Codex"}.get(broken.provider) %}
+{% if why.code == "cli_login" and cli_name %}{% set cause = _("the {provider} login has expired", provider=cli_name) %}{% else %}{% set cause = _(why.label) %}{% endif %}
+<div class="notice notice-error ai-alert" role="alert" data-ai-alert="{{ org.slug }}">
+  <p><strong>{% if broken.runs %}{{ (_("The nightly tidy-up of {org} has not been working since {date}: {cause}.")|e).format(org=org.name, date=when(broken.since, 'date'), cause=cause) }}{% else %}{{ (_("The last connection test of the AI of {org} failed on {date}: {cause}.")|e).format(org=org.name, date=when(broken.since, 'date'), cause=cause) }}{% endif %}</strong></p>
+  <p>{{ _(why.message, **why.params) }}</p>
+  {% if request.url.path != ai_url %}<p><a href="{{ ai_url }}">{{ _("Check the organization's AI") }}</a></p>{% endif %}
+</div>

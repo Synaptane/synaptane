@@ -1,9 +1,24 @@
 {% extends "space-settings-base.html" %}
 {% from "ui.html" import csrf_field with context %}
+{% from "tidy-run-now.html" import run_now_button with context %}
 {% set section = "tidy" %}
 {% block section %}
+{# A run right away (its own POST form, outside the settings form), then the settings. #}
+{% if run_now %}
+<div class="card status-card content-narrow tidy-settings-run" data-test="tidy-run-now">
+  <div>
+    <strong>{{ _("Start a run without waiting for the night") }}</strong>
+    <p class="muted">{{ _("The Tidy-up tab follows it and shows its result.") }}</p>
+  </div>
+  <div class="tidy-run-now">
+    {{ run_now_button("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/tidy", run_now.caution, run_now.paid, run_now.average_cost) }}
+    {% if run_now.caution == 'failures' %}<p class="tidy-caution">{{ _("The last {n} runs failed: test the connection first.", n=run_now.failures) }}</p>
+    {% elif run_now.caution == 'test' %}<p class="tidy-caution">{{ _("The last connection test failed: test it again before starting a run.") }} <a href="/o/{{ org.slug }}/-/ai">{{ _("Organization AI page") }}</a></p>{% endif %}
+  </div>
+</div>
+{% endif %}
 {# Two ways to trigger the tidy-up, each in its group, then the model. #}
-<form class="card content-narrow tidy-settings-form" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/tidy-settings">
+<form class="card content-narrow tidy-settings-form{% if run_now %} section-gap-small{% endif %}" method="post" action="/o/{{ org.slug }}/{{ space.slug }}/-/tidy-settings">
   <p class="muted">{{ _("Every day at the chosen time, the AI agent files the inbox into the wiki. Space-specific instructions: the repository file .synaptane/prompts/tidy.md.") }}</p>
   <p class="muted">{{ _("People who drop notes get an email when their notes are filed or left (can be turned off in My account).") }}</p>
   {% if not ai_configured %}<div class="notice notice-warning"><p>{{ _("No AI provider is configured for the organization.") }} <a href="/o/{{ org.slug }}/-/ai">{{ _("Configure") }}</a></p></div>{% endif %}

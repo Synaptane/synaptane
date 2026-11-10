@@ -72,6 +72,19 @@ container are running (`docker compose ps`). For Claude, it is a real tiny call 
 smallest model: an expired session is caught this way, even when `claude auth status` says
 it is signed in.
 
+**When the login expires.** Every tidy-up run then fails at once. Such a run is recorded as
+**failed** (never as done with the error tucked away): the space's **Tidy-up** tab shows the
+failure and its badge, administrators get the `tidy_failed` alert, and every page of
+Synaptane shows them a red banner, "The nightly tidy-up of Acme has not been working since
+…: the Claude Code login has expired", with a link to this page. The banner shows to the
+organization's administrators only, as soon as a run fails for a cause on the AI side (login,
+key, model, address, agents container; a rate limit or an overloaded provider only after 3
+failures in a row) or the last **Test the connection** fails; it goes away as soon as a test
+or a run works again. Sign the CLI in again (command above), then **Test the connection**.
+Nothing is lost meanwhile: a run that could not reach the AI counts no attempt against the
+notes and changed pages waiting in the inbox, and the [wiki maintenance](#wiki-maintenance)
+keeps its place.
+
 **Upgrading from a version where the login was in `/data/home`.** It used to sit in the data
 volume, shared with the web container. Synaptane does not move it (only the CLI handles
 credentials); `synaptane doctor` and the Artificial intelligence page report the old folder
@@ -272,10 +285,11 @@ Enterprise plan.
 ## Nightly tidy-up (per space)
 
 Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** are in its
-**Tidy-up** tab (the button is also in the Inbox tab).
+**Tidy-up** tab (the button is also in the Inbox tab, and at the top of **Settings → Tidy-up**,
+from where it leads to the log that follows the run).
 
 - **Daily tidy-up** (time and time zone): 02:00 Paris time by default. A run only happens if the inbox has
-  items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
+  new items, or if the [wiki maintenance](#wiki-maintenance) finds problems. **Tidy now** starts one right away (5 times per person and per space over 24 hours,
   20 for an organization admin: see [Cost and budget](#cost-and-budget)).
 - **Tidy-up as you go** (the "Also tidy as you go, shortly after each drop" box, off by
   default): a run starts N minutes after a note is dropped (**Delay after a drop**, 15 minutes
@@ -336,14 +350,22 @@ Settings are in the space's **Settings → Tidy-up**; the log and **Tidy now** a
 - **Bulk imports**: a commit that touches more than 20 pages (import, reorganization) becomes
   a single "Import: N pages" item; the agent checks the overall organization instead of
   rereading each page.
-- **"Left" or "not processed"**: an item is *left* by the agent's decision, with its reason;
-  it is only picked up again by a manual tidy-up or after it changes. An item given to a run
+- **"Left" or "not processed"**: an item is *left* by the agent's decision, with its reason.
+  It comes back in every run that takes place, after the new items (25 items per run at
+  most): a manual tidy-up, even for left items alone, or a scheduled or as-you-go run, which
+  only takes place if there is something new to tidy up or a wiki problem to fix. Once
+  changed, a left item is new again. An item given to a run
   that stops before closing it (provider error, limit, budget reached) is *not processed*:
   the work already done is committed, the item stays new and is picked up by the next run,
   with a counter (`tidy_attempts` in a note's header, in the database for a changed page).
   After 3 interrupted runs, it is left with the reason. In both cases (run stopped, item
   given up), administrators get the `tidy_interrupted` alert. An interrupted run does not
-  chain straight into another run.
+  chain straight into another run. A run the provider stops **before the agent calls any
+  tool** (expired login, refused key, a CLI that does not start) is a **failed** run
+  instead: nothing is committed or counted, and it is retried later if the error is
+  transient (otherwise administrators get the `tidy_failed` alert). Once the agent has
+  started reading, a provider error is an interruption as above: the attempt is counted, so
+  an item that breaks every run is given up in the end.
 - **Language**: the agent's instructions are in English, whatever the language of the space.
   It writes pages, summaries and reasons in the language of the space's existing pages
   (detected from its home page and longest pages), or the one its purpose sets; in a space

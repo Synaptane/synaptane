@@ -73,6 +73,20 @@ agents tournent (`docker compose ps`). Pour Claude, c'est un vrai mini-appel au 
 modèle : une session expirée est ainsi détectée, même quand `claude auth status` se dit
 connecté.
 
+**Quand la connexion expire.** Chaque passage de rangement échoue alors aussitôt. Ce passage
+est enregistré **en échec** (jamais comme terminé avec l'erreur cachée dans le journal) :
+l'onglet **Rangement** de l'espace montre l'échec et sa pastille, les administrateurs
+reçoivent l'alerte `tidy_failed`, et chaque page de Synaptane leur affiche un bandeau
+rouge, « Rangement de nuit en panne dans Acme depuis le … : la connexion à Claude Code a
+expiré », avec un lien vers cette page. Le bandeau ne s'affiche qu'aux administrateurs de
+l'organisation, dès qu'un passage échoue pour une cause côté IA (connexion, clé, modèle,
+adresse, conteneur des agents ; une limite de débit ou un fournisseur surchargé seulement
+après 3 échecs de suite) ou que le dernier **Tester la connexion** échoue ; il disparaît dès
+qu'un test ou un passage réussit. Reconnectez le CLI (commande ci-dessus), puis **Tester la
+connexion**. Rien n'est perdu entre-temps : un passage qui n'a pas pu joindre l'IA ne compte
+aucune tentative contre les notes et les pages modifiées en attente dans l'inbox, et
+l'[entretien du wiki](#entretien-du-wiki) garde sa place.
+
 **Mise à jour depuis une version où la connexion était dans `/data/home`.** Elle était
 alors dans le volume des données, partagé avec le conteneur web. Synaptane ne la déplace pas
 (seul le CLI manipule les identifiants) ; `synaptane doctor` et la page Intelligence
@@ -286,10 +300,11 @@ ou un plan Team ou Enterprise.
 ## Rangement nocturne (par espace)
 
 Les réglages sont dans **Paramètres → Rangement** de l'espace ; le journal et **Ranger
-maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet Inbox).
+maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet Inbox, et en
+haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le passage).
 
-- **Rangement quotidien** (heure et fuseau) : 02:00 à Paris par défaut. Le passage n'a lieu que s'il y a des
-  éléments dans l'inbox, ou si l'[entretien du wiki](#entretien-du-wiki) trouve des problèmes. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
+- **Rangement quotidien** (heure et fuseau) : 02:00 à Paris par défaut. Le passage n'a lieu que s'il y a de
+  nouveaux éléments dans l'inbox, ou si l'[entretien du wiki](#entretien-du-wiki) trouve des problèmes. **Ranger maintenant** le lance aussitôt (5 fois par personne et par
   espace sur 24 heures, 20 pour un admin de l'organisation : voir
   [Coût et budget](#coût-et-budget)).
 - **Rangement au fil de l'eau** (case « Ranger aussi au fil de l'eau, peu après chaque
@@ -356,14 +371,23 @@ maintenant**, dans son onglet **Rangement** (le bouton est aussi dans l'onglet I
   devient un seul élément « Import : N pages » ; l'agent vérifie l'organisation d'ensemble
   au lieu de relire chaque page.
 - **« Laissé » ou « non traité »** : un élément *laissé* l'est par décision de l'agent, avec
-  sa raison ; il n'est repris que par un rangement manuel ou après modification. Un élément
-  présenté à un passage qui s'arrête avant de le clore (erreur du fournisseur, plafond,
+  sa raison. Il revient dans chaque passage qui a lieu, après les éléments nouveaux
+  (25 éléments au plus par passage) : un rangement manuel, même pour des éléments laissés
+  seuls, ou un passage planifié ou au fil de l'eau, qui n'a lieu que s'il y a du nouveau à
+  ranger ou un problème du wiki à corriger. Modifié, un élément laissé redevient nouveau. Un
+  élément présenté à un passage qui s'arrête avant de le clore (erreur du fournisseur, plafond,
   budget atteint) est *non traité* : le travail déjà fait est commité, l'élément reste
   nouveau et sera repris au passage suivant, avec un compteur (`tidy_attempts` dans
   l'en-tête d'une note, en base pour une page modifiée). Après 3 passages interrompus, il
   est laissé avec la raison. Dans les deux cas (arrêt, élément abandonné), les
   administrateurs reçoivent l'alerte `tidy_interrupted`. Un passage interrompu n'enchaîne
-  pas aussitôt un autre passage.
+  pas aussitôt un autre passage. Un passage que le fournisseur arrête **avant que l'agent
+  appelle le moindre outil** (connexion expirée, clé refusée, CLI qui ne démarre pas) est au
+  contraire un passage **en échec** : rien n'est commité ni compté, et il est retenté plus
+  tard si l'erreur est passagère (sinon, les administrateurs reçoivent l'alerte
+  `tidy_failed`). Dès que l'agent a commencé à lire, une erreur du fournisseur est une
+  interruption comme ci-dessus : la tentative est comptée, et un élément qui fait échouer
+  chaque passage finit donc par être laissé.
 - **Langue** : les consignes de l'agent sont en anglais, quelle que soit la langue de
   l'espace. Il écrit les pages, les synthèses et les raisons dans la langue des pages
   existantes de l'espace (détectée sur sa page d'accueil et ses plus longues pages), ou dans

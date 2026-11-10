@@ -169,15 +169,25 @@ def org_ai_test_status(page: WebPage, org_slug: str) -> JSONResponse:
 def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> Response:
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
+    config = ai_settings.config_for(page.db, page.box, space)
+    # "Tidy now" here too, where one looks for it after changing a setting: same button and
+    # same prudence as on the log; the request leads to the log, which follows the run.
+    run_now: dict[str, Any] = {}
+    if config is not None and page.can_contribute(actor, space):
+        streak = tidy_journal.streak(page.db, space.id, config)
+        spending = budget.spending(page.db, space.org_id, space.ai_model or "")
+        run_now = run_now_context(page, space, config, spending, streak)
+        run_now["failures"] = streak.count if streak else 0
     return render_space_settings(
         page,
         actor,
         space,
         "tidy",
         "space-tidy-settings.html",
-        ai_configured=ai_settings.config_for(page.db, page.box, space) is not None,
+        ai_configured=config is not None,
         timezones=TIMEZONES,
         max_problems=maintenance.MAX_PROBLEMS,
+        run_now=run_now,
     )
 
 

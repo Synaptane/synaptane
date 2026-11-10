@@ -51,6 +51,16 @@ def test_the_address_cited_by_the_error_wins_over_the_configuration() -> None:
         ("Requête refusée (400) : bad request", "refused"),
         ("Le programme « claude » n'est pas installé sur le serveur.", "cli_missing"),
         ("Claude Code n'est pas connecté sur le serveur : lancez « … »", "cli_login"),
+        # As the CLI ends a run when its login expired: not a refused API key.
+        (
+            "Claude Code: Failed to authenticate: OAuth session expired and could not be refreshed",
+            "cli_login",
+        ),
+        ("Claude Code: Invalid API key · Please run /login", "cli_login"),
+        # The same, on the CLI's error output when it wrote no result (`cli_agents.interpret`).
+        ("claude_code: OAuth token has expired. Please run /login", "cli_login"),
+        ("codex: Please run codex login", "cli_login"),
+        ("Anthropic key refused: Failed to authenticate", "auth"),
         ("Le passage a dépassé le temps maximal.", "run_timeout"),
         ("L'espace est occupé : passage reporté.", "busy"),
         ("Des fichiers ont été modifiés pendant le rangement : a.md.", "conflict"),

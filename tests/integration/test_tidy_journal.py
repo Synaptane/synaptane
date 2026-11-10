@@ -4,12 +4,13 @@ from datetime import UTC, datetime, timedelta
 from html import unescape
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synaptane.core.access import OrgRole
 from synaptane.services import ai_settings, audit, organizations
 from synaptane.services.workspace import Workspace
-from synaptane.storage.models import Space, TidyRun
+from synaptane.storage.models import Job, Space, TidyRun
 from tests.integration.test_web import csrf, login
 from tests.integration.wikidata import Wiki
 
@@ -214,3 +215,36 @@ def test_the_inbox_says_when_the_next_run_is(
     db.commit()
     assert "Prochain rangement" not in unescape(client.get("/o/acme/infra/inbox").text)
     assert "Rangement automatique désactivé" in unescape(client.get("/o/acme/infra/tidy").text)
+
+
+def test_tidy_now_from_the_settings_leads_to_the_journal(
+    client: TestClient, db: Session, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Looked for after changing a setting: the button is there too, outside the settings
+    form, with the same confirmation, and the request leads to the log that follows it."""
+    url = "/o/acme/infra/-/tidy-settings"
+    login(client, "root")
+    assert 'data-test="tidy-run-now"' not in client.get(url).text  # no AI: nothing to start
+    ai_settings.configure(
+        db,
+        wiki.root,
+        ctx.box,
+        wiki.infra.organization,
+        provider="anthropic",
+        model="claude-opus-5-5",
+        api_key="sk-ant-test",
+    )
+    db.commit()
+    page = unescape(client.get(url).text)
+    card = page.index('data-test="tidy-run-now"')
+    settings = page.index('class="card content-narrow tidy-settings-form')
+    run_form = page.index('action="/o/acme/infra/-/tidy"', card)
+    assert card < run_form < page.index("</form>", run_form) < settings  # not nested
+    assert "Lancer un passage sans attendre la nuit" in page
+    assert 'data-confirm="Lancer un passage maintenant' in page  # billed provider
+    response = client.post(
+        "/o/acme/infra/-/tidy", data={"csrf": csrf(client, url)}, follow_redirects=False
+    )
+    assert response.status_code == 303 and response.headers["location"] == "/o/acme/infra/tidy"
+    db.expire_all()
+    assert db.scalars(select(Job).where(Job.kind == "tidy")).one().payload["trigger"] == "manual"
