@@ -118,6 +118,27 @@ def cli_result(result: str) -> str:
     )
 
 
+def test_the_real_cli_output_of_an_expired_login_fails_the_run(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    fake: Fake,  # noqa: F811
+) -> None:
+    """The incident as the CLI wrote it, through the real parsing of its output."""
+    subscription(db, ctx, wiki)
+    name = note(db, database, ctx, wiki, "Une note")
+    fake.configure(behavior="script", stdout=cli_result(EXPIRED), exit=1)
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="schedule")
+    assert record is not None and record.status == "failed" and record.commit is None
+    assert record.error == f"Claude Code: {EXPIRED}" and record.input_tokens == 3
+    assert b"tidy_attempts" not in raw_note(ctx, wiki, name)
+    assert alerts(db) == ["alert.tidy_failed"]
+    org_id = wiki.infra.org_id
+    broken = tidy_journal.broken_connections(db, [org_id])[org_id]
+    assert (broken.explanation.code, broken.runs) == ("cli_login", 1)
+
+
 def test_an_overloaded_api_behind_the_cli_is_retried_without_alert(
     db: Session,
     database: Database,
