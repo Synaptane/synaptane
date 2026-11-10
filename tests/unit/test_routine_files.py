@@ -157,3 +157,27 @@ def test_names() -> None:
     for wrong in ("a/b", "-x", "x" * 41, "é"):
         with pytest.raises(SynaptaneError):
             routine_files.check_name(wrong)
+
+
+def test_the_memory_is_asked_for_in_the_file_only() -> None:
+    """`memory: true` asks for a memory; it is not copied to the database (`Config.store`),
+    and a copy of the database (memory unknown) writes no line."""
+    with_memory = DIGEST.replace("template: digest\n", "template: digest\nmemory: yes\n")
+    parsed = read(with_memory)
+    assert parsed.config is not None and parsed.config.memory is True and parsed.warnings == []
+    plain = read(DIGEST).config
+    assert plain is not None and plain.memory is False
+    assert "\nmemory: true\n" in render(parsed.config)
+    parsed.config.memory = None
+    assert "memory" not in render(parsed.config)
+    assert routine_files.memory_of(with_memory.encode())
+    assert not routine_files.memory_of(DIGEST.encode())
+    assert not routine_files.memory_of(None)
+    # Read from the header alone: an edit of a file invalid for another reason keeps it.
+    assert routine_files.memory_of(with_memory.replace("weekly friday", "never").encode())
+    assert not routine_files.memory_of(with_memory.replace("memory: yes", "memory: [1]").encode())
+    assert not routine_files.memory_of(b"no header")
+    assert "memory" in routine_files.FILE_ONLY and "memory" in routine_files.KNOWN
+    assert routine_files.memory_path("weekly-digest") == ".synaptane/memory/weekly-digest.md"
+    assert routines.from_template("coherence", "fr").memory is True
+    assert routines.from_template("digest", "fr").memory is False

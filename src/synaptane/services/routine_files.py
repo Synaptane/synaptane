@@ -15,6 +15,7 @@ then the instructions.
     webhook: false
     enabled: true
     template: coherence
+    memory: true
     ---
     Read the pages changed since the last run…
 
@@ -42,6 +43,13 @@ state stays on the same row: it neither runs twice nor gets lost.
 Trust: whoever can push to the repository can change the routines, as they can change the
 tidy-up rules. From Synaptane, only the organization's administrators write them; every other
 write path is confined to `content/` and the inbox.
+
+Memory: with `memory: true`, the routine keeps notes from one run to the next in
+`.synaptane/memory/<name>.md` (`services.routine_memory`), a file of its own so that the
+routine's file is never rewritten by a run. The flag lives in the file only (the database
+keeps no copy of it): the run reads it at the commit it works on. The memory follows the
+routine's name: removed with the routine from Synaptane, and by the next synchronization when a
+push removed or renamed the routine without moving its memory (`_drop_orphan_memories`).
 """
 
 import json
@@ -69,6 +77,7 @@ from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import Routine, Space
 
 ROUTINES_DIR = ".synaptane/routines"
+MEMORY_DIR = ".synaptane/memory"  # one file per routine with `memory: true`
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")  # as the team prompts
 FREQUENCIES = ("daily", "weekly", "monthly")
 EMAIL_TARGETS = ("", "admins", "members")
@@ -92,7 +101,10 @@ KNOWN = (
     "webhook",
     "enabled",
     "template",
+    "memory",
 )
+# Settings that live in the file only, never copied to the `routines` table.
+FILE_ONLY = ("memory",)
 _KEY = re.compile(r"[A-Za-z_][\w-]*")
 _TIME = re.compile(r"\d{1,2}:\d{2}")
 _TRUE, _FALSE = ("true", "yes", "on"), ("false", "no", "off")
@@ -120,6 +132,7 @@ class Fields:
     output_email: str | None = None
     output_webhook: bool | None = None
     enabled: bool | None = None
+    memory: bool | None = None
 
 
 @dataclass
@@ -141,6 +154,9 @@ class Config:
     output_webhook: bool = False
     enabled: bool = True
     template: str = ""
+    # In the file only (`FILE_ONLY`). None: not known (a copy of the database), and a rewrite
+    # keeps what the file says (`save`).
+    memory: bool | None = None
 
     @classmethod
     def of(cls, routine: Routine) -> "Config":
@@ -164,6 +180,8 @@ class Config:
     def store(self, routine: Routine) -> None:
         """Copies the settings onto the database row (the state of the runs stays)."""
         for name in self.__dataclass_fields__:
+            if name in FILE_ONLY:
+                continue
             value = getattr(self, name)
             setattr(routine, name, list(value) if isinstance(value, list) else value)
 
@@ -245,6 +263,8 @@ def apply(config: Config, fields: Fields) -> None:
         config.output_webhook = fields.output_webhook
     if fields.enabled is not None:
         config.enabled = fields.enabled
+    if fields.memory is not None:
+        config.memory = fields.memory
     # Consistency of the whole, once everything is applied.
     if config.frequency == "weekly":
         if config.weekday is None or not 0 <= config.weekday <= 6:
@@ -311,6 +331,11 @@ def file_path(name: str) -> str:
     return f"{ROUTINES_DIR}/{name}.md"
 
 
+def memory_path(name: str) -> str:
+    """The memory of the routine `name` (`services.routine_memory`)."""
+    return f"{MEMORY_DIR}/{name}.md"
+
+
 # --- Writing a file -----------------------------------------------------------------------------
 
 
@@ -364,6 +389,8 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
     lines.append(f"enabled: {json.dumps(config.enabled)}")
     if config.template:
         lines.append(f"template: {config.template}")
+    if config.memory:
+        lines.append("memory: true")
     lines.extend(extra)
     lines.append("---")
     return "\n".join(lines) + "\n\n" + config.instructions.strip() + "\n"
@@ -552,6 +579,7 @@ def _config(header: _Header, name: str) -> Config:
             output_email="" if email == "none" else email,
             output_webhook=_flag(header, "webhook", False),
             enabled=_flag(header, "enabled", True),
+            memory=_flag(header, "memory", False),
         ),
     )
     return config
@@ -577,6 +605,19 @@ def extra_lines(data: bytes | None) -> list[str]:
         return _header(data.decode("utf-8", "replace")).extra
     except SynaptaneError:
         return []
+
+
+def memory_of(data: bytes | None) -> bool:
+    """Does a routine file ask for a memory (`memory: true`)? Read from its header alone, so
+    that an edit of a file invalid for another reason keeps it; False for a missing file, an
+    unreadable header or a value that is not a boolean. (An invalid file does not run: its
+    memory is neither read nor written.)"""
+    if not data or len(data) > MAX_FILE_SIZE:
+        return False
+    try:
+        return _flag(_header(data.decode("utf-8", "replace")), "memory", False)
+    except SynaptaneError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -749,10 +790,37 @@ def synchronize(database: Database, repo: Repository, space_id: UUID, committer:
                 return False
             created = _write_pending(session, space, repo, committer)
             reconcile(session, space, repo)
-            return created
+            dropped = _drop_orphan_memories(repo, committer)
+            return created or dropped
     except Exception:  # noqa: BLE001 — the pages' synchronization goes on
         log.exception("Space %s: routines not brought in step with the repository", space_id)
         return False
+
+
+def _drop_orphan_memories(repo: Repository, committer: Identity) -> bool:
+    """Removes the memories whose routine file is gone (removed or renamed by a push that did
+    not move the memory): one commit in Synaptane's name. A routine created later under the
+    same name never inherits notes written for another one; the history keeps them.
+    Returns True if committed."""
+    memories = [
+        b.path
+        for b in repo.files(MEMORY_DIR)
+        if b.path.endswith(".md") and PurePosixPath(b.path).parent.as_posix() == MEMORY_DIR
+    ]
+    if not memories:
+        return False
+    names = {
+        PurePosixPath(b.path).stem
+        for b in repo.files(ROUTINES_DIR)
+        if b.path.endswith(".md") and PurePosixPath(b.path).parent.as_posix() == ROUTINES_DIR
+    }
+    orphans = sorted(p for p in memories if PurePosixPath(p).stem not in names)
+    if not orphans:
+        return False
+    subject = "Synaptane: memories of removed routines deleted\n\n" + "\n".join(
+        f"- {path}" for path in orphans
+    )
+    return repo.commit_changes(dict.fromkeys(orphans), committer, subject) is not None
 
 
 # --- Writing from Synaptane (administrators) ---------------------------------------------------
@@ -833,12 +901,18 @@ def save(
                     path=path,
                 )
             data = None
+            changes: dict[str, bytes | None] = {path: None, memory_path(name): None}
             if config is not None:
-                data = _fits(render(config, extra_lines(repo.blob(path))).encode())
+                old = repo.blob(path)
+                if config.memory is None:  # settings copied from the database: as the file says
+                    config.memory = memory_of(old)
+                data = _fits(render(config, extra_lines(old)).encode())
+                changes = {path: data}
+            # Removed: the routine's memory goes with it, in the same commit.
             verb = "updated" if data is not None else "removed"
             subject = f"Routine {verb}: {name}" + trailers(source, actor.via)
             try:
-                committed = repo.commit_changes({path: data}, author, subject)
+                committed = repo.commit_changes(changes, author, subject)
             except PathRefused as refused:  # the folder made a file or a link by a push
                 raise invalid("Write refused: {detail}", detail=str(refused)) from None
             if committed:
@@ -901,6 +975,12 @@ def error_of(routine: Routine) -> Label | None:
 def warnings_of(routine: Routine) -> list[Label]:
     """What was ignored in the routine's file (unknown field…), to translate when shown."""
     return [Label.loads(w) for w in routine.warnings or []]
+
+
+def memory_enabled(ws: Workspace, space: Space, name: str) -> bool:
+    """Does the routine's file in the local copy now ask for a memory (False: not synced)?"""
+    repo = _synced(ws, space)
+    return memory_of(repo.blob(file_path(name))) if repo is not None else False
 
 
 def current_sha(ws: Workspace, space: Space, name: str) -> str | None:

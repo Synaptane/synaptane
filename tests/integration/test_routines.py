@@ -162,7 +162,8 @@ def test_coherence_check_writes_its_report_and_inbox_items_only(
     )
     assert record is not None and record.status == "done", record and record.error
 
-    # Tools: reading, plus the two chosen outputs; no wiki write tool.
+    # Tools: reading, plus the two chosen outputs and the template's memory; no wiki write
+    # tool.
     assert set(script.tools) == {
         "list_tree",
         "read_page",
@@ -173,6 +174,7 @@ def test_coherence_check_writes_its_report_and_inbox_items_only(
         "wiki_health",
         "write_report",
         "add_to_inbox",
+        "remember",
         "finish",
     }
     assert "Contrôle de cohérence" in script.system and "contradictions" in script.system

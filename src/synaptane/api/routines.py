@@ -2,7 +2,8 @@
 
 Same rules as the web UI: organization admins create, edit, launch and delete (a commit of the
 routine's file `.synaptane/routines/<name>.md` in their name); the space's contributors read
-the routines and their runs."""
+the routines and their runs. The memory of a routine (`.synaptane/memory/<name>.md`) is read
+by contributors and cleared by admins; only the routine's runs write it."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -13,7 +14,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from synaptane.core.errors import invalid
-from synaptane.services import routine_files, routines
+from synaptane.services import routine_files, routine_memory, routines
 from synaptane.storage.models import Routine, RoutineRun, Space
 
 from .content import SPACE, _db, _ws
@@ -38,7 +39,8 @@ class RoutineRunOut(BaseModel):
     report: str = Field(description="Output text (page, email, webhook)")
     outputs: dict[str, object] = Field(
         description="What was output: page (path), inbox (titles of the dropped items), "
-        "emails (number sent), webhook (true if sent)"
+        "emails (number sent), webhook (true if sent), memory (saved, cleared, or changed: "
+        "changed by someone during the run, so kept as it was)"
     )
     commit: str | None
     input_tokens: int
@@ -82,6 +84,10 @@ class RoutineOut(BaseModel):
     output_email: str = Field(description='"" (none), admins or members')
     output_webhook: bool
     enabled: bool
+    memory: bool = Field(
+        description="Keeps notes from one run to the next (`memory: true` in the file), in "
+        "`.synaptane/memory/<name>.md`: see `GET …/memory`"
+    )
     next_run: datetime | None = Field(description="Next scheduled run")
     last_run: RoutineRunOut | None
 
@@ -92,6 +98,7 @@ class RoutineOut(BaseModel):
         routine: Routine,
         space_next: datetime | None,
         last: RoutineRun | None,
+        memory: bool = False,
     ) -> "RoutineOut":
         error = routine_files.error_of(routine)
         return cls(
@@ -116,6 +123,7 @@ class RoutineOut(BaseModel):
             output_email=routine.output_email,
             output_webhook=routine.output_webhook,
             enabled=routine.enabled,
+            memory=memory,
             next_run=space_next,
             last_run=RoutineRunOut.of(last) if last else None,
         )
@@ -145,6 +153,9 @@ class RoutineIn(BaseModel):
     output_email: EmailTarget | None = None
     output_webhook: bool | None = None
     enabled: bool | None = None
+    memory: bool | None = Field(
+        default=None, description="Keep notes from one run to the next (`memory: true`)"
+    )
     base_sha: str | None = Field(
         default=None,
         description="Update: the file's `sha` read before modifying; conflict (409) if it "
@@ -162,9 +173,28 @@ class RoutineIn(BaseModel):
         )
 
 
+class MemoryOut(BaseModel):
+    enabled: bool = Field(description="The routine's file asks for a memory (`memory: true`)")
+    path: str = Field(description="File of the memory in the repository")
+    text: str = Field(description='What the routine noted for its next runs; "": none')
+    sha: str | None = Field(description="Hash of the file; null: no memory yet")
+    size: int = Field(description="Bytes of the file")
+    too_large: bool = Field(description="File too large to be shown (nor read by the routine)")
+
+
+def _memory(request: Request, space: Space, routine: Routine) -> bool:
+    return routine_files.memory_enabled(_ws(request), space, routine.name)
+
+
 def _out(request: Request, session: DbSession, space: Space, routine: Routine) -> RoutineOut:
     last = routines.last_runs(session, space).get(routine.id)
-    return RoutineOut.of(request, routine, routines.next_run(routine, space), last)
+    return RoutineOut.of(
+        request,
+        routine,
+        routines.next_run(routine, space),
+        last,
+        _memory(request, space, routine),
+    )
 
 
 @router.get(ROUTINES, tags=["routines"])
@@ -174,7 +204,9 @@ def list_routines(
     found = find_space(session, actor, org, space)
     last = routines.last_runs(session, found)
     return [
-        RoutineOut.of(request, r, routines.next_run(r, found), last.get(r.id))
+        RoutineOut.of(
+            request, r, routines.next_run(r, found), last.get(r.id), _memory(request, found, r)
+        )
         for r in routines.list_routines(session, actor, found)
     ]
 
@@ -295,3 +327,45 @@ def routine_runs(
     found = find_space(session, actor, org, space)
     routine = routines.get(session, actor, found, routine_id)
     return [RoutineRunOut.of(r) for r in routines.runs(session, actor, found, routine.id)]
+
+
+@router.get(ROUTINES + "/{routine_id}/memory", tags=["routines"])
+def routine_memory_get(
+    org: str,
+    space: str,
+    routine_id: UUID,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> MemoryOut:
+    """What the routine remembers from one run to the next (contributors)."""
+    found = find_space(session, actor, org, space)
+    routine = routines.get(session, actor, found, routine_id)
+    view = routine_memory.view(session, actor, _ws(request), found, routine)
+    return MemoryOut(
+        enabled=view.enabled,
+        path=view.path,
+        text=view.text,
+        sha=view.sha,
+        size=view.size,
+        too_large=view.too_large,
+    )
+
+
+@router.delete(
+    ROUTINES + "/{routine_id}/memory", status_code=status.HTTP_204_NO_CONTENT, tags=["routines"]
+)
+def routine_memory_clear(
+    org: str,
+    space: str,
+    routine_id: UUID,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> Response:
+    """Clears the routine's memory (organization admins): a commit in the caller's name. A
+    run in progress keeps it cleared."""
+    found = find_space(session, actor, org, space)
+    routine = routines.get(session, actor, found, routine_id)
+    routine_memory.clear(session, _db(request), actor, _ws(request), found, routine, source="api")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -18,6 +18,7 @@ content/                          visible: wiki, search, MCP
   prompts/<name>.md               the team's prompts for assistants (optional)
   checks.md                       team checks: rules every page must follow (optional)
   routines/<name>.md              the space's agent routines (optional)
+  memory/<name>.md                what a routine remembers from one run to the next (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -183,13 +184,26 @@ Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`
 `monthly 1 06:00`; French is read too, such as `hebdo lundi 06:00`, and Synaptane writes English
 back), `scope` (folders separated by commas, a JSON list or one `- folder` line
 each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
-`template`. Values are plain text or JSON. An unknown field is reported and ignored; an
-invalid file does not run, and its error shows in Settings → Routines and the REST API.
+`template`, `memory` (`true`: the routine keeps a memory, see below). Values are plain text or
+JSON. An unknown field is reported and ignored; an invalid file does not run, and its error
+shows in Settings → Routines and the REST API.
 
 Written in **Settings → Routines** (organization administrators: a commit in their name) or by
 a push: anyone who can push can change them. Read at each synchronization; the state of the
 runs (last run, run requested) stays in the database, so a changed file never makes a routine
 run again. See [Agent routines](../admin/ai.md#agent-routines-per-space).
+
+## `.synaptane/memory/<name>.md`
+
+The **memory** of the routine `<name>`, when its file says `memory: true`: free Markdown,
+4,000 characters at most, that the routine rewrites in full at the end of a run and reads at
+the start of the next one (topics already reported, pages followed, what remains to watch).
+It goes in the run's commit; a run that is interrupted leaves it as it was, and a memory
+changed during a run (a push, an administrator clearing it) keeps that change. Anyone who can
+push can correct or delete it; the routine reads it as data, never as instructions. Removed
+with its routine from Synaptane, and by the next synchronization when a push removes or
+renames the routine without moving its memory. See
+[Memory](../admin/ai.md#memory).
 
 ## `.synaptane/inbox/`
 
@@ -244,10 +258,12 @@ Git history since the last tidy-up.
 - Tidy-up runs are committed by `Synaptane tidy-up` (`Synaptane – rangement` in older
   histories), subject `Tidy-up: …`: one commit per run. Its commits, like Synaptane's merges
   and the initial files, are never reported to the inbox as changes.
-- A routine commits its report page and inbox items as `Synaptane routine (<title>)`, subject
-  `Routine "<title>": …` (`Synaptane – routine` in older histories).
-- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
-  the administrator's name. The routines kept in the database by older versions are written by
+- A routine commits its report page, inbox items and memory as `Synaptane routine (<title>)`,
+  subject `Routine "<title>": …` (`Synaptane – routine` in older histories).
+- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>` (with
+  its memory), in the administrator's name; a memory cleared: `Routine memory cleared: <name>`.
+  The memories of routines removed by a push: `Synaptane: memories of removed routines
+  deleted`. The routines kept in the database by older versions are written by
   `Synaptane: routines written to the repository`, at the first synchronization after the
   upgrade.
 - Synaptane's own commits have English subjects: `Inbox: <title>` (a note dropped; also

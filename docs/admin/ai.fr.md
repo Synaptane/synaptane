@@ -590,6 +590,7 @@ email: admins
 webhook: false
 enabled: true
 template: coherence
+memory: true
 ---
 Relis les pages modifiées depuis le dernier passage…
 ```
@@ -606,6 +607,7 @@ Relis les pages modifiées depuis le dernier passage…
 | `webhook` | `true` : le webhook `routine.done` |
 | `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
 | `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
+| `memory` | `true` : la routine garde des notes d'un passage à l'autre (voir [Mémoire](#mémoire)) ; `false` par défaut |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
@@ -636,6 +638,53 @@ imports, e-mails capturés et assistants (MCP, REST) n'écrivent que dans `conte
 l'inbox. Quel que soit son auteur, une routine garde ses garde-fous : elle n'écrit nulle part
 ailleurs que dans ses sorties, dans la limite du budget.
 
+### Mémoire
+
+Seule, une routine repart de zéro à chaque passage : elle connaît l'activité depuis son
+dernier passage et ses consignes, rien de plus. Avec `memory: true` dans son fichier (la case
+**Garder des notes d'un passage à l'autre** du formulaire), elle garde aussi une **mémoire** :
+ce qu'elle veut que ses prochains passages sachent, comme les sujets déjà signalés, les pages
+qu'elle suit, les décisions notées, ce qui reste à surveiller.
+
+- **Où** : `.synaptane/memory/<nom>.md`, à côté des autres fichiers de `.synaptane/`, sous le
+  nom de la routine. C'est un fichier du dépôt, versionné et visible par l'équipe : son
+  historique dit ce que la routine a noté et quand, et quiconque peut pousser sur le dépôt peut
+  le corriger ou l'effacer. Un passage ne réécrit jamais le fichier de la routine elle-même.
+- **Désactivée par défaut** : la mémoire est relue à chaque passage, elle coûte donc des
+  jetons à chaque fois (quelques milliers de caractères au plus). Une routine existante ne
+  change pas de comportement tant que vous ne l'activez pas. Le modèle **Contrôle de
+  cohérence** garde une mémoire ; le **Résumé hebdomadaire** non (l'historique de la semaine
+  lui suffit).
+- **En lecture** : au début du passage, l'agent reçoit la mémoire telle qu'elle est au commit
+  que lit le passage, 4 000 caractères au plus (un fichier plus long, modifié à la main, est
+  coupé, et l'agent en est averti). Comme les pages, elle lui est donnée comme une donnée,
+  jamais comme une consigne : elle ne change ni les consignes de la routine, ni ses outils, ni
+  son périmètre.
+- **En écriture** : l'agent la réécrit en entier avec l'outil `remember`, 4 000 caractères au
+  plus : un résumé, pas un journal qui grossit sans fin. Un secret probable est refusé, de même
+  qu'un texte qui enfreint une règle `block` des
+  [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) portant sur le texte de
+  toutes les pages (un motif, les adresses e-mail…) ; les règles limitées à des dossiers ou à
+  un champ d'en-tête concernent les pages et ne s'appliquent pas. La mémoire entre dans le
+  commit unique du passage, avec le rapport et les éléments d'inbox : **un passage interrompu
+  la laisse telle quelle**.
+- **Modifiée pendant le passage** (un push, un administrateur qui la vide) : cette
+  modification l'emporte, et la version du passage est abandonnée (le journal indique
+  « Mémoire conservée »). L'agent n'a pas vu cette modification, et une mémoire vidée parce
+  qu'elle contenait une erreur ne doit pas revenir avec un passage commencé avant.
+- **Les droits** : seuls les passages de la routine l'écrivent depuis Synaptane ; aucun autre
+  chemin d'écriture n'atteint `.synaptane/`. Les contributeurs la lisent sur la page de la
+  routine et dans l'API REST (`GET …/routines/{id}/memory`) ; les administrateurs de
+  l'organisation peuvent aussi la **vider** (un commit à leur nom ; en REST :
+  `DELETE …/routines/{id}/memory`).
+- **Routine renommée ou supprimée** : supprimer une routine depuis Synaptane retire sa mémoire
+  dans le même commit. Une routine supprimée ou renommée par un push perd sa mémoire à la
+  synchronisation suivante (un commit `Synaptane: memories of removed routines deleted`) :
+  ainsi, une nouvelle routine du même nom n'hérite jamais de notes écrites pour une autre.
+  Pour la garder en renommant, déplacez-la aussi
+  (`git mv .synaptane/memory/ancien.md .synaptane/memory/nouveau.md`). L'historique garde les
+  notes dans tous les cas.
+
 ### Modèles fournis
 
 Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser d'abord**) :
@@ -649,7 +698,9 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   les 20 premières pages à relire (doublons possibles, qu'il vérifie en les lisant). Sortie :
   la page `rapports/coherence.md` et un élément d'inbox par problème à corriger, avec les
   pages et extraits concernés. Il ne redépose pas un problème déjà déposé et pas encore
-  rangé.
+  rangé. Il garde une [mémoire](#mémoire) : les problèmes signalés (pour ne pas les signaler
+  de nouveau comme s'ils étaient nouveaux tant que leurs pages restent les mêmes), les doutes
+  à revérifier et, une semaine calme, les pages anciennes déjà relues.
 
   **Une fausse alerte ne revient pas.** Quand un élément déposé par une routine quitte
   l'inbox, ce qu'il est devenu est retenu, lié aux pages concernées telles qu'elles étaient
@@ -685,8 +736,11 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   santé, vocation de l'espace) lui est présenté comme une donnée, jamais une consigne, entre
   des balises qu'un texte ne peut pas refermer. Les consignes de la routine viennent d'un
   administrateur et restent soumises à ces règles.
-- Un secret probable (mot de passe, clé, jeton) dans le texte de sortie ou un élément est
-  refusé à l'agent, qui doit le retirer.
+- Un secret probable (mot de passe, clé, jeton) dans le texte de sortie, un élément ou la
+  mémoire est refusé à l'agent, qui doit le retirer.
+- **Mémoire** : quiconque peut pousser sur le dépôt peut modifier la mémoire d'une routine ;
+  l'agent la lit comme une donnée, comme les pages, et elle ne donne aucun droit (voir
+  [Mémoire](#mémoire)).
 - **Vocation de l'espace** : si le dépôt contient `.synaptane/vocation.md`, l'agent la reçoit
   en contexte, pour juger de ce qui est dans le sujet.
 - **Langue** : comme pour le rangement, les consignes de l'agent sont en anglais ; il écrit le
@@ -712,9 +766,9 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   tout travail est retentée par la file, sans alerte ; le quota d'un abonnement est relevé
   comme pour le rangement (alerte `quota_high` au-delà de 90 %).
 - **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés,
-  e-mails envoyés, webhook), texte de sortie, modèle, jetons, coût estimé ou quota, et pour
+  e-mails envoyés, webhook, mémoire mise à jour ou conservée), texte de sortie, modèle, jetons, coût estimé ou quota, et pour
   un échec, la cause traduite (le détail technique pour les administrateurs).
-- Le commit d'une routine (page de rapport et éléments d'inbox ensemble) est au nom de
+- Le commit d'une routine (page de rapport, éléments d'inbox et mémoire ensemble) est au nom de
   `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` : il n'apparaît pas comme une
   modification à examiner par le rangement (pas plus que ceux des versions antérieures, au nom
   de `Synaptane – routine`). Les passages d'une routine supprimée restent comptés dans le budget du mois.

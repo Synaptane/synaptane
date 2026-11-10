@@ -10,6 +10,32 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **Memory of a routine**. With `memory: true` in its file (or the **Keep notes from one run
+  to the next** box of the form), a routine keeps notes for its next runs in
+  `.synaptane/memory/<name>.md`: topics already reported, pages it follows, decisions
+  noted, what remains to watch. The agent receives it at the start of each run, framed as
+  untrusted data (4,000 characters at most), and rewrites it in full with a new `remember`
+  tool (4,000 characters at most, secrets and the team's `block` checks on page text
+  refused). It goes in the run's single commit: an interrupted run leaves it as it was, and a
+  memory changed during the run (a push, an administrator clearing it) keeps that change,
+  which the log says. The routine's page shows it to contributors; administrators clear it
+  (a commit in their name). REST: `memory` on the routines, `GET` and `DELETE
+  …/routines/{id}/memory`, and `memory` in a run's `outputs`. Deleting a routine removes its
+  memory in the same commit; a routine removed or renamed by a push loses it at the next
+  synchronization (move the file along to keep it). Off by default: a memory is read at every
+  run and costs tokens.
+
+### Changed
+- **The Consistency check template keeps a memory**, so that it no longer reports the same
+  contradiction every week while its pages stay the same, and rereads other old pages in a
+  quiet week. The Weekly digest does not (the week's history is enough).
+
+### Upgrade
+- No migration. Routines created before keep their behavior: to give an existing
+  consistency check its memory, tick the box in its form or add `memory: true` to its file
+  (the new instructions of the template can be copied from a routine created from it).
+
 ## [1.16.1] - 2026-11-10
 
 A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each
