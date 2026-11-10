@@ -118,10 +118,11 @@ def test_usage_parsing() -> None:
         7,
     )
     assert run.text == "Fini"
-    with pytest.raises(AIError):
+    with pytest.raises(AIError) as stopped:
         cli_agents._claude_usage(
             json.dumps({"type": "result", "is_error": True, "result": "Quota atteint"})
         )
+    assert not stopped.value.transient
     events = [
         {
             "type": "turn.completed",
@@ -136,8 +137,32 @@ def test_usage_parsing() -> None:
         7,
     )
     assert codex.text == "Terminé"
-    with pytest.raises(AIError):
+    with pytest.raises(AIError) as stopped:
         cli_agents._codex_usage(json.dumps({"type": "error", "message": "usage limit"}))
+    assert not stopped.value.transient
+
+
+@pytest.mark.parametrize(
+    ("result", "transient"),
+    [
+        # The API overloaded or rate-limiting: retried soon by the queue.
+        ('API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}', True),
+        ("API Error: Request rejected (429) · rate limit exceeded", True),
+        # An expired login, a usage limit with its reset hours away: not retried soon.
+        ("Failed to authenticate: OAuth session expired and could not be refreshed", False),
+        ("Claude AI usage limit reached|1791303600", False),
+    ],
+)
+def test_a_passing_error_in_the_cli_result_is_transient(result: str, transient: bool) -> None:
+    """Claude Code ends a run with an `is_error` result whether the API is overloaded or its
+    login expired: only the first is worth retrying within the hour."""
+    stdout = json.dumps({"type": "result", "is_error": True, "result": result, "num_turns": 1})
+    with pytest.raises(AIError) as stopped:
+        cli_agents._claude_usage(stdout)
+    assert stopped.value.transient is transient
+    with pytest.raises(AIError) as stopped:
+        cli_agents._codex_usage(json.dumps({"type": "turn.failed", "error": {"message": result}}))
+    assert stopped.value.transient is transient
 
 
 def test_tool_server_requires_its_token_and_reports_rejections() -> None:

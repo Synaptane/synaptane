@@ -4,6 +4,7 @@ The incident: a Claude Code login expired, and every nightly run ended in a seco
 and the error tucked away in the log. No banner, no badge, no alert for six nights; and each of
 them counted one more interrupted run against the notes waiting in the inbox."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from html import unescape
 from typing import Any
@@ -21,6 +22,7 @@ from synaptane.services import ai_settings, deposits, organizations, tidy, tidy_
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import AuditEvent, ChangeMark, Job, TidyRun
+from tests.fake_cli import Fake, fake  # noqa: F401 — shared fixture
 from tests.integration.test_maintenance import reviewed, space, write
 from tests.integration.test_tidy import Scripted, configure_ai
 from tests.integration.test_tidy_paths import item_named, subscription
@@ -99,6 +101,43 @@ def test_an_expired_login_fails_the_run_and_spares_the_notes_and_the_maintenance
     assert tidy_journal.failing(db, wiki.infra.id)
     streak = tidy_journal.streak(db, wiki.infra.id)
     assert streak is not None and streak.explanation.code == "cli_login"
+
+
+def cli_result(result: str) -> str:
+    """What Claude Code really writes when the API stops it at once: an `is_error` result,
+    one turn counted, a few tokens."""
+    return json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "result": result,
+            "num_turns": 1,
+            "usage": {"input_tokens": 3, "output_tokens": 0},
+        }
+    )
+
+
+def test_an_overloaded_api_behind_the_cli_is_retried_without_alert(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    fake: Fake,  # noqa: F811
+) -> None:
+    """Same `is_error` result, but a passing cause: the queue retries it, nobody is alerted
+    for a provider overloaded for a few minutes."""
+    subscription(db, ctx, wiki)
+    name = note(db, database, ctx, wiki, "Une note")
+    overloaded = 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'
+    fake.configure(behavior="script", stdout=cli_result(overloaded), exit=1)
+    with pytest.raises(tidy.RetryLater):
+        tidy.run(database, ctx, wiki.infra.id, trigger="schedule")
+    db.expire_all()
+    record = db.scalars(select(TidyRun)).one()
+    assert record.status == "failed" and "overloaded" in (record.error or "")
+    assert alerts(db) == []
+    assert b"tidy_attempts" not in raw_note(ctx, wiki, name)
 
 
 @pytest.mark.parametrize("provider", ["api", "cli"])

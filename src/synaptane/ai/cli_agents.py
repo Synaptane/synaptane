@@ -385,6 +385,17 @@ def _codex_command(config: AIConfig, url: str, token_env: str, workdir: Path) ->
     return command
 
 
+PASSING = ("rate limit", "429", "overloaded", "timeout")  # words of a passing provider error
+
+
+def passing(message: str) -> bool:
+    """A passing error, worth retrying soon (the queue does): rate limit, overloaded provider.
+    Whether the CLI says it on its error output or in its final result: an overloaded API
+    ends a Claude Code run with an `is_error` result, like an expired login, and only the
+    words tell them apart."""
+    return any(word in message.lower() for word in PASSING)
+
+
 def _claude_usage(stdout: str, fallback: str = "") -> CLIRun:
     """Claude Code streamed output: the final `result` event and the quota readings.
     `fallback`: what to show when there is no result (end of the raw output)."""
@@ -418,7 +429,9 @@ def _claude_usage(stdout: str, fallback: str = "") -> CLIRun:
     usage.turns = int(data.get("num_turns", 0))
     if data.get("is_error"):
         message = str(data.get("result") or data.get("subtype"))[:500]
-        raise AIError("Claude Code: {detail}", usage=usage, detail=message)  # tokens, quota counted
+        raise AIError(  # tokens, quota counted
+            "Claude Code: {detail}", transient=passing(message), usage=usage, detail=message
+        )
     return CLIRun(usage, str(data.get("result") or ""))
 
 
@@ -446,7 +459,9 @@ def _codex_usage(stdout: str) -> CLIRun:
                 text = str(item.get("text") or text)
         elif kind in ("error", "turn.failed"):
             message = event.get("message") or (event.get("error") or {}).get("message")
-            raise AIError("Codex: {detail}", detail=str(message)[:500])
+            raise AIError(
+                "Codex: {detail}", transient=passing(str(message)), detail=str(message)[:500]
+            )
     return CLIRun(usage, text)
 
 
@@ -717,12 +732,9 @@ def interpret(provider: str, done: Completed) -> CLIRun:
         )
     if done.returncode != 0 and not done.had_output:
         message = done.stderr.strip()[-600:]
-        transient = any(
-            w in message.lower() for w in ("rate limit", "429", "overloaded", "timeout")
-        )
         raise AIError(
             "{provider}: {detail}",
-            transient=transient,
+            transient=passing(message),
             provider=provider,
             detail=message or "failure without a message",
         )

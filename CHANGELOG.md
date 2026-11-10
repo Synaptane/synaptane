@@ -37,6 +37,9 @@ of the target version.
   runs"), and the nightly maintenance neither moves its watermark nor uses up its attempts.
   A run stopped after doing some work stays done, its work kept, and still sends the
   `tidy_interrupted` alert.
+- A rate limit or an overloaded API that Claude Code or Codex reports in its final result is
+  a passing error, as it already was on the CLI's error output: the run is retried by the
+  queue, and the administrators are not alerted for a provider overloaded for a few minutes.
 - The tidy-up log recognizes the CLI's own words for an expired login ("Failed to
   authenticate: OAuth session expired…", "Please run /login") as a logged-out subscription,
   with the advice to log in again, instead of a refused API key.
