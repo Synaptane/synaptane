@@ -329,6 +329,20 @@ def test_a_passing_cause_waits_before_alarming(db: Session, ctx: Workspace, wiki
     assert tidy_journal.broken_connections(db, [org_id])[org_id].explanation.code == "auth"
 
 
+def test_the_banner_dates_a_long_outage_from_its_first_failure(
+    db: Session, ctx: Workspace, wiki: Wiki
+) -> None:
+    """More failed runs than the banner looks through (several spaces, retries): the date is
+    still that of the first failure since the last success, not of the 50th most recent."""
+    subscription(db, ctx, wiki)
+    org_id = wiki.infra.org_id
+    start = datetime(2026, 9, 1, 2, 0, tzinfo=UTC)
+    for n in range(tidy_journal.CONNECTION_RUNS + 10):
+        failed_run(db, wiki, start + timedelta(hours=n))
+    broken = tidy_journal.broken_connections(db, [org_id])[org_id]
+    assert broken.since == start and broken.explanation.code == "cli_login"
+
+
 def test_the_banner_needs_one_query_set_per_request_and_none_for_members(
     client: TestClient, db: Session, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -603,21 +603,32 @@ def broken_connections(session: Session, org_ids: list[UUID]) -> dict[UUID, Brok
         where = [Space.org_id == org_id, TidyRun.status == "failed"]
         if ok is not None:
             where.append(TidyRun.started_at > ok)
+        rows = session.execute(
+            select(TidyRun.started_at, TidyRun.error)
+            .join(Space, Space.id == TidyRun.space_id)
+            .where(*where)
+            .order_by(TidyRun.started_at.desc())
+            .limit(CONNECTION_RUNS)
+        ).all()
         failures = [
-            (at, why)
-            for at, error in session.execute(
-                select(TidyRun.started_at, TidyRun.error)
-                .join(Space, Space.id == TidyRun.space_id)
-                .where(*where)
-                .order_by(TidyRun.started_at.desc())
-                .limit(CONNECTION_RUNS)
-            )
-            if (why := explain(error, config)).code in CONNECTION
+            (at, why) for at, error in rows if (why := explain(error, config)).code in CONNECTION
         ]
         if failures and not (
             failures[0][1].code in PASSING and len(failures) < FAILURES_BEFORE_WARNING
         ):
-            found[org_id] = Broken(failures[-1][0], failures[0][1], row.provider, len(failures))
+            since = failures[-1][0]
+            if len(rows) == CONNECTION_RUNS:
+                # More failures than looked through (several spaces, retries, weeks): the
+                # tidy-up has not worked since the first one after the last success.
+                since = (
+                    session.scalar(
+                        select(func.min(TidyRun.started_at))
+                        .join(Space, Space.id == TidyRun.space_id)
+                        .where(*where)
+                    )
+                    or since
+                )
+            found[org_id] = Broken(since, failures[0][1], row.provider, len(failures))
         elif row.test_ok is False and row.tested_at and (ok is None or row.tested_at > ok):
             message = str(Label.loads(row.test_message)) or None
             found[org_id] = Broken(row.tested_at, explain(message, config), row.provider, 0)
