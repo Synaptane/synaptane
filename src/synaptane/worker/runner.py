@@ -384,8 +384,12 @@ class Worker:
         except Exception:  # noqa: BLE001 — a missed report must not stop the worker
             log.warning("State of the agents container not recorded", exc_info=True)
         self.schedule_polls()
-        night.schedule(self.database)  # first: it takes the tidy-up of the nights it plans
-        tidy.schedule(self.database)
+        # One clock for both: otherwise the tidy-up's time could pass between the two calls,
+        # and the plain schedule would take the tidy-up of a night not planned yet (out of
+        # its order, or without its report).
+        at = datetime.now(UTC)
+        night.schedule(self.database, at)  # first: it takes the tidy-up of the nights it plans
+        tidy.schedule(self.database, at)
         tidy.close_orphans(self.database)
         night.close_orphans(self.database)
         routines.schedule(self.database)

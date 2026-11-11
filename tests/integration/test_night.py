@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from synaptane.ai.base import AIConfig, AIError, ToolSpec
+from synaptane.config import Settings
 from synaptane.core.access import OrgRole
 from synaptane.services import (
     deposits,
@@ -41,6 +42,7 @@ from synaptane.storage.models import (
     Space,
     TidyRun,
 )
+from synaptane.worker.runner import Worker
 from tests.integration.conftest import make_user, token_for
 from tests.integration.test_alert_mails import received
 from tests.integration.test_invitations import Inbox
@@ -588,3 +590,48 @@ def test_settings_page_test_report_and_the_nights_in_the_journal(
         data={**form, "night_report_webhook": "", "night_webhook_clear": "true"},
     )
     assert not night.has_webhook(db, wiki.infra.id)
+
+
+# --- The clock: one for the night and the plain schedule, changes of time ----------------------
+
+
+def test_the_worker_plans_the_night_and_the_tidy_up_at_the_same_instant(
+    settings: Settings,
+    database: Database,
+    ctx: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two clocks would let the tidy-up's time pass between the two calls: the plain schedule
+    would then take the tidy-up of a night not planned yet (out of its order, or without its
+    report)."""
+    seen: list[tuple[str, datetime | None]] = []
+
+    def recorder(name: str) -> Any:
+        def scheduled(database: Database, now: datetime | None = None) -> int:
+            seen.append((name, now))
+            return 0
+
+        return scheduled
+
+    monkeypatch.setattr(night, "schedule", recorder("night"))
+    monkeypatch.setattr(tidy, "schedule", recorder("tidy"))
+    Worker(settings, database, ctx).maintenance()
+    assert [name for name, _ in seen] == ["night", "tidy"]
+    assert seen[0][1] is not None and seen[0][1] == seen[1][1]
+
+
+def test_changes_of_time_plan_one_night(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Paris, tidy-up at 02:00: on 25 October 2026 that hour comes twice (one night), on
+    29 March 2026 it never comes (the night starts at 03:00)."""
+    configure_ai(db, ctx, wiki)
+    for space in (wiki.infra, wiki.other):
+        space.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+    add_routine(db, database, ctx, wiki, "apres")
+    assert night.schedule(database, datetime(2026, 10, 25, 0, 30, tzinfo=UTC)) == 1  # 02:30 CEST
+    assert night.schedule(database, datetime(2026, 10, 25, 1, 30, tzinfo=UTC)) == 0  # 02:30 CET
+    assert night.schedule(database, datetime(2026, 3, 29, 0, 59, tzinfo=UTC)) == 0  # 01:59 CET
+    assert night.schedule(database, datetime(2026, 3, 29, 1, 0, tzinfo=UTC)) == 1  # 03:00 CEST
+    assert [n.day for n in nights_of(db, wiki)] == [date(2026, 3, 29), date(2026, 10, 25)]
