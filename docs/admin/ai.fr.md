@@ -777,6 +777,9 @@ qu'elle suit, les décisions notées, ce qui reste à surveiller.
   Pour la garder en renommant, déplacez-la aussi
   (`git mv .synaptane/memory/ancien.md .synaptane/memory/nouveau.md`). L'historique garde les
   notes dans tous les cas.
+- **Dans le fichier seulement** : comme les dossiers tenus, `memory: true` se lit dans le
+  fichier de la routine, sans copie en base. Avant la première synchronisation d'un espace, une
+  routine ne peut donc pas garder de mémoire.
 
 ### Modèles fournis
 

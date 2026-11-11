@@ -44,7 +44,8 @@ of the target version.
   …/routines/{id}/memory`, and `memory` in a run's `outputs`. Deleting a routine removes its
   memory in the same commit; a routine removed or renamed by a push loses it at the next
   synchronization (move the file along to keep it). Off by default: a memory is read at every
-  run and costs tokens.
+  run and costs tokens. Like the folders a routine keeps, it lives in the file only, so a
+  space must have been synchronized once.
 - **A routine can keep pages in folders assigned to it**. A new `writes` field of the routine
   file (Settings → Routines: **Folders the routine keeps**; REST: `writes`) gives it up to 5
   folders of the wiki, with the syntax of `scope`: a weekly digest writes

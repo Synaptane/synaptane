@@ -138,6 +138,7 @@
  "Every Friday, the summary of the week as a page of its own in a folder the routine keeps, listed in that folder's index: the weeks stay readable one by one.": "Chaque vendredi, le résumé de la semaine dans une page à lui, au sein d'un dossier que la routine tient, listée dans l'index de ce dossier : les semaines restent lisibles une à une.",
  "Folders it keeps": "Dossiers tenus",
  "Folders kept by the routine (writes): available once the space has been synchronized for the first time.": "Dossiers tenus par la routine (writes) : possibles une fois l'espace synchronisé une première fois.",
+ "Memory of the routine (memory): available once the space has been synchronized for the first time.": "Mémoire de la routine (memory) : possible une fois l'espace synchronisé une première fois.",
  "Folders the routine keeps, one per line (empty: none)": "Dossiers tenus par la routine, un par ligne (vide : aucun)",
  "modified": "modifiée",
  "None: it only writes its outputs": "Aucun : elle n'écrit que ses sorties",

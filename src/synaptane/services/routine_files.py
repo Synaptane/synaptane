@@ -1032,6 +1032,12 @@ def _save_pending(
             "Folders kept by the routine (writes): available once the space has been "
             "synchronized for the first time."
         )
+    if config is not None and config.memory:
+        # The memory flag neither: kept in the file only, it would be dropped silently.
+        raise invalid(
+            "Memory of the routine (memory): available once the space has been synchronized "
+            "for the first time."
+        )
     if config is None:
         if row is not None:
             session.delete(row)

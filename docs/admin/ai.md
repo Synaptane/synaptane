@@ -723,6 +723,9 @@ remains to watch.
   routine of the same name never inherits notes written for another one; to keep it when
   renaming, move it as well (`git mv .synaptane/memory/old.md .synaptane/memory/new.md`). The
   history keeps the notes in any case.
+- **In the file only**: like the folders it keeps, `memory: true` is read from the routine's
+  file, without a copy in the database. Before a space's first synchronization, a routine
+  therefore cannot keep a memory.
 
 ### Built-in templates
 
