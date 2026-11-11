@@ -42,7 +42,7 @@ import logging
 import posixpath
 from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
@@ -58,6 +58,7 @@ from synaptane.services import changes, health
 from synaptane.services import checks as team_checks
 from synaptane.services import links as links_service
 from synaptane.services.inbox import CONTENT_DIR, InboxItem
+from synaptane.services.tidy_metrics import _moves
 from synaptane.services.tidy_tools import FOLDER_INDEXES, Op, Overlay, RunState, _broken_keys
 from synaptane.services.workspace import Workspace
 from synaptane.storage.models import MaintenanceMark, Space
@@ -873,12 +874,19 @@ def close(
         closure, general = Closure("untreated"), ""
     general = scrub(found, view, general)  # the reasons go to the log and the marks
     stuck = {_rel(p) for p in conflicts}
+    # A page the run moved keeps its problems: they are looked for, and left, at its new path
+    # (otherwise personal data in a moved page would be taken for fixed, and never given again).
+    moves = _moves(state.operations, view.current())
+    arrivals = {origin: target for target, origin in moves.items()}
+    problems = [
+        replace(p, page=arrivals[p.page]) if p.page in arrivals else p for p in found.problems
+    ]
     still: set[str] = set()
-    for name in {p.source for p in found.problems}:
+    for name in {p.source for p in problems}:
         if (source := _source(name)) is not None:
-            still |= source.present(view, [p for p in found.problems if p.source == name])
+            still |= source.present(view, [p for p in problems if p.source == name])
     given = reasons(general)
-    for number, problem in enumerate(found.problems, start=1):
+    for number, problem in enumerate(problems, start=1):
         if problem.key not in still and problem.page not in stuck:
             closure.fixed.append(problem)
             closure.operations.append(

@@ -357,3 +357,32 @@ def test_an_address_already_there_under_the_same_mask_does_not_keep_the_fix_open
     one.write("content/contacts.md", both.encode())
     closure = maintenance.close(found, state, one)
     assert [p.kind for p, _ in closure.left] == [maintenance.TEAM_KIND]
+
+
+def test_a_page_moved_by_the_agent_keeps_its_problem(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Moving the page does not remove the data: the problem is left, under its new path."""
+    push(database, ctx, wiki, {".synaptane/checks.md": CHECKS})
+    page = contacts(f"Jean : {ADDRESS}")
+    push(database, ctx, wiki, {"content/contacts.md": page})
+    found = pending(db, ctx, wiki)
+    assert found is not None
+    repo = ctx.local_repository(wiki.infra)
+    head = repo.head()
+    assert head is not None
+    moved = Overlay(repo, head)
+    moved.write("content/contacts.md", None)
+    moved.write("content/people/contacts.md", page.encode())
+    state = RunState(items={}, done={NAME: "Page rangée"})
+    state.operations.append(
+        {"op": Op.MOVED, "path": "people/contacts.md", "detail": "from contacts.md"}
+    )
+    closure = maintenance.close(found, state, moved)
+    assert [(p.kind, p.page) for p, _ in closure.left] == [
+        (maintenance.TEAM_KIND, "people/contacts.md")
+    ]
+    assert [p.kind for p in closure.fixed] == ["not_in_index"]
+    maintenance.settle(db, ctx, space(db, wiki), found, closure, head, None)
+    db.commit()
+    assert [m.page for m in db.scalars(select(MaintenanceMark))] == ["people/contacts.md"]
