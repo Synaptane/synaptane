@@ -31,7 +31,8 @@ Extension point: `SOURCES`, the sources of problems. `WikiChecks` reports what t
 check would; `TeamChecks`, what people broke of the team's own checks (`.synaptane/checks.md`).
 A source only has to return `Problem`s for a `Window`, say which of them are still there,
 which were introduced again, and describe the ones it gives again (`annotate`). A source that
-fails is left out for the night (server log): the others still run.
+fails is left out for the night (server log): the others still run, and the watermark stays,
+so that its window is read again the next night instead of being lost.
 
 Order of the night's places: personal data first, then the team's `block` rules, then the
 wiki's own problems, then the rest (see `rank`).
@@ -707,6 +708,7 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
         _move(session, space, watermark, head)  # first time, or history rewritten
         return None
     candidates: dict[str, Problem] = {}
+    failed = False  # a source left out: its window is read again the next night
     if watermark != head:
         changed = window(repo, watermark, view, ws.committer.email)
         if not changed.empty:
@@ -715,6 +717,7 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
                     introduced = source.introduced(changed)
                 except Exception:  # noqa: BLE001 — one faulty source must not stop the night
                     log.exception("Maintenance source %s failed: left out", source.name)
+                    failed = True
                     continue
                 for problem in introduced:
                     candidates.setdefault(problem.key, problem)
@@ -746,7 +749,7 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
         view, [_problem(m) for m in standing if m.key in back and m.key not in candidates]
     )
     fresh = [p for p in candidates.values() if p.key not in marks or p.key in back]
-    if not fresh and watermark != head:
+    if not fresh and watermark != head and not failed:
         _move(session, space, watermark, head)
         watermark = head
     everything = sorted(fresh + again, key=rank)
@@ -754,7 +757,8 @@ def pending(session: Session, ws: Workspace, space: Space, view: Overlay) -> Fou
     if not given:
         return None
     keys = {p.key for p in given}
-    return Found(given, len(everything), watermark, all(p.key in keys for p in fresh), attempts)
+    complete = not failed and all(p.key in keys for p in fresh)
+    return Found(given, len(everything), watermark, complete, attempts)
 
 
 def _annotated(view: Overlay, problems: list[Problem]) -> list[Problem]:

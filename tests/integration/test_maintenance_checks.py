@@ -386,3 +386,33 @@ def test_a_page_moved_by_the_agent_keeps_its_problem(
     maintenance.settle(db, ctx, space(db, wiki), found, closure, head, None)
     db.commit()
     assert [m.page for m in db.scalars(select(MaintenanceMark))] == ["people/contacts.md"]
+
+
+def test_a_source_that_fails_keeps_its_window_for_the_next_night(
+    db: Session,
+    database: Database,
+    ctx: Workspace,
+    wiki: Wiki,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Moving the watermark past a window a source could not read would lose its problems:
+    an address written that day would never be fixed."""
+    push(database, ctx, wiki, {".synaptane/checks.md": CHECKS})
+    start = start_here(db, ctx, wiki)
+    index = "# Infra\n\n- [Contacts](contacts.md)\n"
+    push(
+        database,
+        ctx,
+        wiki,
+        {"content/README.md": index, "content/contacts.md": contacts(f"Jean : {ADDRESS}")},
+    )
+
+    def broken(self: maintenance.TeamChecks, window: maintenance.Window) -> list[object]:
+        raise RuntimeError("panne")
+
+    monkeypatch.setattr(maintenance.TeamChecks, "introduced", broken)
+    assert pending(db, ctx, wiki) is None
+    assert space(db, wiki).maintain_watermark == start
+    monkeypatch.undo()
+    found = pending(db, ctx, wiki)
+    assert team(found) == [(maintenance.TEAM_KIND, "contacts.md", EMAIL)]
