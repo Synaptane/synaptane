@@ -573,7 +573,7 @@ Read the pages changed since the last run…
 | `email` | `admins`, `members` or `none` |
 | `webhook` | `true`: the `routine.done` webhook |
 | `enabled` | `false`: the routine does not run on schedule (default `true`) |
-| `template` | Original template (`coherence`, `digest`), set by Synaptane |
+| `template` | Original template (`coherence`, `digest`, `archive`), set by Synaptane |
 
 The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
 characters at most. A routine created from a template always gets the same name, whatever the
@@ -653,7 +653,7 @@ top of digests/README.md.
 - **Log**: the routine's page, its email, the `routine.done` webhook (`written`) and the REST
   API (`outputs.written` of a run) list the pages written: path and change (created,
   modified, moved, deleted).
-- The templates provided keep no folder. Synaptane reads the folders from the file, without a
+- Among the templates provided, only **Digest archive** keeps a folder. Synaptane reads the folders from the file, without a
   copy in the database: before a space's first synchronization, a routine cannot have any.
 
 ### Built-in templates
@@ -685,8 +685,12 @@ Added in one click (**Enable**), or after adjusting them (**Customize first**):
   week, based on the wiki's Git history (pages created, heavily changed) and tidy-up runs
   (items filed, left). Output: the `reports/weekly-digest.md` page and an email to the
   space's members.
+- **Digest archive**, every Friday at 16:30: the same summary, but as a page of its own per
+  week, `digests/2026-W46.md`, added at the top of `digests/README.md`; the weeks before stay
+  as they are. It keeps the `digests/` folder (`resumes/` in French): see
+  [Folders a routine keeps](#folders-a-routine-keeps). No report page, no email.
 
-Both templates exist in English and in French: the form is pre-filled with the instructions
+The templates exist in English and in French: the form is pre-filled with the instructions
 and the report page in the language of the person creating the routine (`rapports/coherence.md`
 and `rapports/semaine.md` in French), and a routine enabled in one click takes that language
 too. A **blank routine** takes your own instructions (review of a folder, Monday briefing,

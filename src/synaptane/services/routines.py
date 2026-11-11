@@ -57,6 +57,7 @@ class Text:
 
     instructions: str
     output_page: str = ""
+    writes: tuple[str, ...] = ()  # folders it keeps (`writes`), named in the language
 
 
 @dataclass(frozen=True)
@@ -213,11 +214,61 @@ donnée en entrée (historique Git du wiki, passages du rangement : éléments r
     output_email="members",
 )
 
-TEMPLATES: dict[str, Template] = {t.key: t for t in (COHERENCE, DIGEST)}
+ARCHIVE = Template(
+    key="archive",
+    name="Digest archive",
+    description="Every Friday, the summary of the week as a page of its own in a folder the "
+    "routine keeps, listed in that folder's index: the weeks stay readable one by one.",
+    texts={
+        "en": Text(
+            flow("""\
+Write the summary of the week, from the activity given as input (Git history of the wiki,
+tidy-up runs: items filed and left), as a new page of the digests/ folder named after the
+week: digests/<year>-W<week>.md (for example digests/2026-W46.md, from today's date given as
+input).
+- A level-1 title with the week, then three to five key points, one line each.
+- Then, in short sections: pages created, pages heavily changed (say what changed, by
+  reading the pages), decisions made, open questions (items left in the inbox).
+- Put a link to every page mentioned, relative to the new page (for example
+  [Proxmox](../servers/proxmox.md)).
+- Stay factual and brief: a reader must go through it all in two minutes. Invent nothing; if
+  the week was quiet, say so in one sentence.
+Then add the new page at the top of the list of digests/README.md (create it with a title if
+it does not exist yet), without changing the rest. Leave the digests of the previous weeks as
+they are. Call finish with a one-sentence wrap-up."""),
+            writes=("digests",),
+        ),
+        "fr": Text(
+            flow("""\
+Rédige le résumé de la semaine, à partir de l'activité donnée en entrée (historique Git du
+wiki, passages du rangement : éléments rangés et laissés), dans une nouvelle page du dossier
+resumes/ nommée d'après la semaine : resumes/<année>-S<semaine>.md (par exemple
+resumes/2026-S46.md, d'après la date du jour donnée en entrée).
+- Un titre de niveau 1 avec la semaine, puis trois à cinq points essentiels, en une ligne
+  chacun.
+- Puis, en sections courtes : pages créées, pages très modifiées (dis ce qui a changé, en
+  lisant les pages), décisions prises, questions en suspens (éléments laissés dans l'inbox).
+- Mets un lien vers chaque page citée, relatif à la nouvelle page (par exemple
+  [Proxmox](../serveurs/proxmox.md)).
+- Reste factuel et bref : un lecteur doit tout parcourir en deux minutes. N'invente rien ; si
+  la semaine a été calme, dis-le en une phrase.
+Ajoute ensuite la nouvelle page en tête de la liste de resumes/README.md (crée-la avec un
+titre si elle n'existe pas encore), sans changer le reste. Laisse les résumés des semaines
+précédentes tels quels. Appelle finish avec une phrase de synthèse."""),
+            writes=("resumes",),
+        ),
+    },
+    frequency="weekly",
+    weekday=4,
+    at="16:30",
+)
+
+TEMPLATES: dict[str, Template] = {t.key: t for t in (COHERENCE, DIGEST, ARCHIVE)}
 
 
 def from_template(key: str, locale: str) -> Config:
-    """A template's settings, its title, instructions and report page in a language."""
+    """A template's settings, its title, instructions, report page and folders in a
+    language."""
     model = TEMPLATES.get(key)
     if model is None:
         raise invalid("Unknown routine template.")
@@ -235,6 +286,7 @@ def from_template(key: str, locale: str) -> Config:
             monthday=model.monthday,
             at=model.at,
             output_page=text.output_page,
+            writes=list(text.writes),
             output_inbox=model.output_inbox,
             output_email=model.output_email,
             output_webhook=model.output_webhook,

@@ -119,6 +119,7 @@ class Draft:
             config.output_webhook,
             True,
             key,
+            writes="\n".join(config.writes or []),
         )
 
     def fields(self) -> routines.Fields:

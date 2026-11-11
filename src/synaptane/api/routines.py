@@ -72,7 +72,7 @@ class RoutineOut(BaseModel):
         description="Why the file is invalid (the routine does not run); null: valid"
     )
     warnings: list[str] = Field(description="What was ignored in the file (unknown field…)")
-    template: str = Field(description='Original template (coherence, digest); "": blank')
+    template: str = Field(description='Original template (coherence, digest, archive); "": blank')
     instructions: str
     frequency: str
     weekday: int | None = Field(description="Weekly: 0 = Monday … 6 = Sunday")
@@ -134,7 +134,7 @@ class RoutineIn(BaseModel):
     fields); update: only the given fields change. Every write is a commit of the routine's
     file in the caller's name."""
 
-    template: Literal["", "coherence", "digest"] = ""
+    template: Literal["", "coherence", "digest", "archive"] = ""
     name: str | None = Field(
         default=None,
         description="Creation: file name (lowercase letters, digits, dashes); default: made "

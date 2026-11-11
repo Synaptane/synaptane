@@ -484,5 +484,25 @@ def test_the_folders_in_settings_the_api_and_the_form(
         },
     )
     assert refused.status_code == 400 and "dossier caché" in html.unescape(refused.text)
-    # The templates provided keep no folder.
-    assert all(routines.from_template(key, "fr").writes == [] for key in routines.TEMPLATES)
+    # The templates provided keep no folder, except the digest archive.
+    folders = {key: routines.from_template(key, "fr").writes for key in routines.TEMPLATES}
+    assert folders == {"coherence": [], "digest": [], "archive": ["resumes"]}
+
+
+def test_the_digest_archive_template_keeps_its_folder(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    login(client, "root")
+    base = f"/o/{wiki.infra.organization.slug}/{wiki.infra.slug}/-/routines"
+    listing = html.unescape(client.get(base).text)
+    assert "Archive des résumés" in listing
+    form = client.get(f"{base}/new?template=archive").text
+    assert "resumes</textarea>" in form
+    created = client.post(
+        f"{base}/from/archive", data={"csrf": csrf(client, base)}, follow_redirects=False
+    )
+    assert created.status_code == 303, created.text
+    db.expire_all()
+    [routine] = db.query(Routine).all()
+    assert routine.name == "digest-archive" and routine.template == "archive"
+    assert routine_files.writes_of(ctx, wiki.infra, routine) == ["resumes"]

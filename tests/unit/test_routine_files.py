@@ -196,6 +196,7 @@ def test_names() -> None:
     assert {k: t.file_name for k, t in routines.TEMPLATES.items()} == {
         "coherence": "consistency-check",
         "digest": "weekly-digest",
+        "archive": "digest-archive",
     }
     assert routine_files.name_for("!!!") == "routine"
     assert len(routine_files.name_for("x" * 80)) == 40

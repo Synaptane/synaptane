@@ -27,7 +27,10 @@ of the target version.
   `routine.done` webhook (`written`) and `GET …/routines/{id}/runs` (`outputs.written`) list
   the pages written. These pages are not reviewed by the tidy-up as changes, but the nightly
   maintenance treats them like a person's: it fixes the broken links they bring. Without
-  `writes`, nothing changes; the templates provided keep no folder.
+  `writes`, nothing changes; the two existing templates keep no folder.
+- **Digest archive template**: every Friday at 16:30, the summary of the week as a page of its
+  own, `digests/2026-W46.md` (`resumes/2026-S46.md` in French), added at the top of the
+  folder's `README.md`. It keeps that folder and writes nothing else.
 
 ### Upgrade
 - No migration: the folders a routine keeps live in its file only.

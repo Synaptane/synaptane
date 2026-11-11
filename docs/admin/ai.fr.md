@@ -610,7 +610,7 @@ Relis les pages modifiées depuis le dernier passage…
 | `email` | `admins`, `members` ou `none` |
 | `webhook` | `true` : le webhook `routine.done` |
 | `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
-| `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
+| `template` | Modèle d'origine (`coherence`, `digest`, `archive`), indiqué par Synaptane |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
@@ -697,7 +697,7 @@ ajoute-la en tête de resumes/README.md.
 - **Journal** : la page de la routine, son e-mail, le webhook `routine.done` (`written`) et
   l'API REST (`outputs.written` d'un passage) listent les pages écrites : chemin et nature
   (créée, modifiée, déplacée, supprimée).
-- Les modèles fournis ne tiennent aucun dossier. Synaptane lit les dossiers dans le fichier,
+- Parmi les modèles fournis, seule l'**Archive des résumés** tient un dossier. Synaptane lit les dossiers dans le fichier,
   sans copie en base : avant la première synchronisation d'un espace, une routine ne peut pas
   en avoir.
 
@@ -732,8 +732,13 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   la semaine, d'après l'historique Git du wiki (pages créées, très modifiées) et les passages
   du rangement (éléments rangés, laissés). Sortie : la page `rapports/semaine.md` et un
   e-mail aux membres de l'espace.
+- **Archive des résumés**, chaque vendredi à 16:30 : le même résumé, mais dans une page à lui
+  par semaine, `resumes/2026-S46.md`, ajoutée en tête de `resumes/README.md` ; les semaines
+  précédentes restent telles quelles. Il tient le dossier `resumes/` (`digests/` en anglais) :
+  voir [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine). Ni page de rapport,
+  ni e-mail.
 
-Les deux modèles existent en anglais et en français : le formulaire est pré-rempli avec les
+Les modèles existent en anglais et en français : le formulaire est pré-rempli avec les
 consignes et la page de rapport dans la langue de la personne qui crée la routine
 (`reports/consistency.md` et `reports/weekly-digest.md` en anglais), et une routine activée en
 un clic prend aussi cette langue. Une **routine vierge** prend vos propres consignes (revue
