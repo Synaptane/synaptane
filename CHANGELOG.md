@@ -10,9 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
-The order of the night: a routine can run with the nightly tidy-up, just before or after it,
-and the night sends one report, by email or to a Slack webhook. One migration (`0036`), applied
-at startup; nothing changes for a space until a routine joins its night or its report is set.
+## [1.17.0] - 2026-11-11
+
+The night of a space becomes a sequence the team describes in its repository. A routine can
+keep its own pages in folders given to it, remember from one run to the next, and run during
+the night, just before or after the tidy-up; the night then sends one report, by email or to a
+Slack webhook. The nightly maintenance also fixes what people broke of the team's checks,
+personal data first, masked everywhere outside the page. Upgrading from 1.16.1: one migration
+(`0036`), applied at startup; nothing changes for a space until a routine uses the new fields
+or its night report is set. Back up first: going back to 1.16.1 then means restoring that
+backup.
 
 ### Added
 - **The nightly maintenance fixes the team checks people break**. A push cannot be refused,
@@ -1345,7 +1352,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.16.1...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/synaptane/synaptane/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/synaptane/synaptane/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/synaptane/synaptane/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/synaptane/synaptane/compare/v1.14.0...v1.15.0
