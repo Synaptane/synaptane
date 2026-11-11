@@ -449,9 +449,10 @@ with an empty inbox.
   - Personal data is never in the clear outside the page: the excerpt is masked
     (`j•••@gmail.com`) in the item, the log and what Synaptane remembers of a problem left.
     The agent removes the data or replaces it with a neutral mention, and is told never to
-    copy it elsewhere; should it write it in a reason or its summary anyway, the reason, the
-    summary and the commit message are masked the same way. The agent does read the page,
-    as for any page it files.
+    copy it elsewhere; should it write it anyway in its summary or in the reason of any item
+    of that run, the text is masked the same way, and so is the commit message. A page the
+    agent moves keeps its problems, under its new path. The agent does read the page, as for
+    any page it files.
 - **No flood, no repetition**:
   - no catching up on the past: problems are counted from the end of the last run, or from
     the moment maintenance was turned on (or the upgrade);

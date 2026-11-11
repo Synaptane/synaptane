@@ -478,9 +478,11 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   - Une donnée personnelle n'est jamais en clair hors de la page : l'extrait est masqué
     (`j•••@gmail.com`) dans l'élément, le journal et ce que Synaptane retient d'un problème
     laissé. L'agent retire la donnée ou la remplace par une mention neutre, et il a pour
-    consigne de ne jamais la recopier ailleurs. S'il l'écrit quand même dans une raison ou
-    dans son résumé, la raison, le résumé et le message du commit sont masqués de la même
-    façon. L'agent lit bien la page, comme toute page qu'il range.
+    consigne de ne jamais la recopier ailleurs. S'il l'écrit quand même dans son résumé ou
+    dans la raison d'un élément de ce passage, quel qu'il soit, ce texte est masqué de la
+    même façon, et le message du commit aussi. Une page que l'agent déplace garde ses
+    problèmes, sous son nouveau chemin. L'agent lit bien la page, comme toute page qu'il
+    range.
 - **Ni déluge ni répétition** :
   - pas de rattrapage du passé : les problèmes sont comptés depuis la fin du dernier passage,
     ou depuis l'activation de l'entretien (ou la mise à jour) ;
