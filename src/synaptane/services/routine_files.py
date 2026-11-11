@@ -790,22 +790,30 @@ def synchronize(database: Database, repo: Repository, space_id: UUID, committer:
                 return False
             created = _write_pending(session, space, repo, committer)
             reconcile(session, space, repo)
-            dropped = _drop_orphan_memories(repo, committer)
-            return created or dropped
     except Exception:  # noqa: BLE001 — the pages' synchronization goes on
         log.exception("Space %s: routines not brought in step with the repository", space_id)
         return False
+    # Apart, once the routines are saved: a memory that cannot be removed must not undo them.
+    try:
+        dropped = _drop_orphan_memories(repo, committer)
+    except Exception:  # noqa: BLE001 — the next synchronization tries again
+        log.exception("Space %s: memories of removed routines not deleted", space_id)
+        dropped = False
+    return created or dropped
 
 
 def _drop_orphan_memories(repo: Repository, committer: Identity) -> bool:
     """Removes the memories whose routine file is gone (removed or renamed by a push that did
     not move the memory): one commit in Synaptane's name. A routine created later under the
     same name never inherits notes written for another one; the history keeps them.
+    Only files named as a routine can be (`NAME`): any other one is no memory, never read.
     Returns True if committed."""
     memories = [
         b.path
         for b in repo.files(MEMORY_DIR)
-        if b.path.endswith(".md") and PurePosixPath(b.path).parent.as_posix() == MEMORY_DIR
+        if b.path.endswith(".md")
+        and PurePosixPath(b.path).parent.as_posix() == MEMORY_DIR
+        and NAME.fullmatch(PurePosixPath(b.path).stem)
     ]
     if not memories:
         return False

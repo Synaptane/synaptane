@@ -299,6 +299,37 @@ def test_the_memory_follows_its_routine(
     assert git(clone, "ls-files", ".synaptane/memory") == ""
 
 
+def test_only_orphan_memories_go_and_none_blocks_the_routines(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    review(db, database, ctx, wiki)
+    wiki.remote.push(
+        {
+            # Invalid file: the routine does not run, but it is still there.
+            ".synaptane/routines/revue.md": "---\nschedule: tous les jours\n---\nRelis.\n",
+            MEMORY: "Note de revue.\n",
+            # Not named as a routine (and a path Synaptane refuses to write): left alone.
+            ".synaptane/memory/a\\b.md": "x\n",
+            memory_path("ancienne"): "Note orpheline.\n",
+        }
+    )
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    assert memory_of(ctx, wiki) == "Note de revue.\n"  # its routine is only invalid
+    assert memory_of(ctx, wiki, "ancienne") is None
+    assert len(wiki.remote.files(".synaptane/memory")) == 2  # revue.md and a\b.md
+    db.expire_all()
+    [routine] = db.scalars(select(Routine))
+    assert routine.error is not None  # the routines were brought in step all the same
+
+    # Nothing more to remove: no commit at each synchronization.
+    head = wiki.remote.last_commit()
+    wiki.remote.push({"content/notes.md": "# Notes\n"})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    assert wiki.remote.last_commit() != head
+    assert "memories of removed routines" not in wiki.remote.last_commit()
+
+
 def test_admins_clear_the_memory_contributors_read_it(
     client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
