@@ -27,15 +27,21 @@ source, path, status, size; never a secret, a sensitive query value, nor a body.
 """
 
 import base64
+import codecs
+import contextlib
+import html
 import ipaddress
+import json
 import re
 import socket
+import threading
 import time
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, unquote, urljoin, urlsplit
+from urllib.parse import quote, quote_plus, unquote, urljoin, urlsplit
 
 import httpx2
 
@@ -67,11 +73,15 @@ _SAFE_SEGMENT = "!$&'()*+,;=:@-._~"  # RFC 3986 `pchar`, besides the percent-enc
 _SAFE_QUERY = "!$&'()*+,;=:@-._~/?%"
 _LONE_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _CONTROL = re.compile(r"[\x00-\x20\x7f]")
-_ACCEPT = re.compile(r"[\w.+*/=;, -]{1,200}")
+_ACCEPT = re.compile(r"[\w.+*/=;, -]{1,200}", re.ASCII)
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
 # Query parameters whose value never goes to the log (a token in an address, a signature…).
 _SENSITIVE = re.compile(r"token|key|secret|pass|auth|sig|session|code|credential", re.IGNORECASE)
 _ABSOLUTE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+# A media type (RFC 9110 `token/token`), as a service may send it; anything else: no type.
+_MIME = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,79}/[a-z0-9][a-z0-9!#$&^_.+-]{0,79}")
+# Charsets that read ASCII as ASCII, besides `iso8859-*` and `cp125*` (`_content_type`).
+_CHARSETS = frozenset({"utf-8", "utf-8-sig", "ascii", "koi8-r", "koi8-u"})
 
 
 class Outside(ValueError):
@@ -103,7 +113,8 @@ def ascii_host(raw: str) -> str:
 def _segments(path: str) -> list[str]:
     """The decoded segments of a path. ValueError for a traversal (`.`, `..`), an encoded
     separator (`%2F`, `%5C`), a backslash or a control character, also once decoded twice (a
-    server may decode again)."""
+    server may decode again), with its path parameters dropped (`..;x`, which Tomcat takes
+    for `..`) or after Unicode normalization (`．．／`, which a server may read as `../`)."""
     if "\\" in path:
         raise ValueError("backslash")
     parts = path.split("/")
@@ -113,9 +124,11 @@ def _segments(path: str) -> list[str]:
             continue  # `a//b`: one separator
         once = unquote(raw, errors="strict")
         twice = unquote(once, errors="strict")
-        for form in (once, twice):
+        forms = {once, twice}
+        forms |= {unicodedata.normalize("NFKC", form) for form in forms}
+        for form in forms:
             if (
-                form in (".", "..")
+                form.split(";", 1)[0] in (".", "..")
                 or "/" in form
                 or "\\" in form
                 or _CONTROL.search(form.replace(" ", ""))
@@ -247,15 +260,31 @@ class Endpoint:
         return {self.header: self.secret}
 
     def hidden(self) -> list[str]:
-        """What an answer must never show of the secret: the secret, as written in an address,
-        and for Basic its encoded form and its password. Longest first."""
+        """What an answer must never show of the secret: the secret, and for Basic its encoded
+        form and its password, each also as a service may echo it (in an address, a JSON
+        string, HTML). Longest first; compared regardless of case (`Fetcher`)."""
         if not self.secret:
             return []
-        forms = {self.secret, quote(self.secret, safe="")}
+        values = {self.secret}
         if self.auth == "basic":
-            forms.add(base64.b64encode(self.secret.encode()).decode())
-            forms.add(self.secret.partition(":")[2])
+            values.add(base64.b64encode(self.secret.encode()).decode())
+            values.add(self.secret.partition(":")[2])
+        forms = {form for value in values for form in _echoes(value)}
         return sorted((f for f in forms if len(f) >= 4), key=len, reverse=True)
+
+
+def _echoes(value: str) -> set[str]:
+    """`value` as a service may write it back: as is, percent-encoded (`quote`, `quote_plus`),
+    in a JSON string (`\\/`, `\\u0026`… as PHP or Go escape), in HTML."""
+    found = {value, quote(value, safe=""), quote_plus(value, safe="")}
+    for ascii_only in (True, False):
+        found.add(json.dumps(value, ensure_ascii=ascii_only)[1:-1])
+    escaped = json.dumps(value)[1:-1]
+    found.add(escaped.replace("/", "\\/"))
+    found.add(escaped.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
+    found.add(html.escape(value, quote=True))
+    found.add(html.escape(value, quote=True).replace("&#x27;", "&#39;"))
+    return found
 
 
 @dataclass
@@ -291,14 +320,74 @@ def _resolve(host: str, port: object, *args: Any, **kwargs: Any) -> Sequence[tup
         raise socket.gaierror("name resolution too slow") from None
 
 
+class Watchdog:
+    """Cuts a call's connections when its deadline passes. The timeouts of `httpx2` bound each
+    network operation, not their sum: a service that sends its headers a byte at a time, or
+    drags the TLS handshake, would hold the run (and the routines after it) for hours. The
+    sockets come from the `trace` extension of `httpcore2`; shutting one down wakes the read
+    that waits on it."""
+
+    def __init__(self, deadline: float) -> None:
+        self.fired = False
+        self._sockets: list[socket.socket] = []
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(max(0.0, deadline - time.monotonic()), self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def trace(self, event: str, info: dict[str, Any]) -> None:
+        if not event.endswith(("connect_tcp.complete", "start_tls.complete")):
+            return
+        stream = info.get("return_value")
+        found = stream.get_extra_info("socket") if stream is not None else None
+        if isinstance(found, socket.socket):
+            with self._lock:
+                self._sockets.append(found)
+                if self.fired:
+                    _shut(found)
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            for found in self._sockets:
+                _shut(found)
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+
+def _shut(found: socket.socket) -> None:
+    # The plain socket's method, also for a TLS one: no TLS state touched from this thread.
+    # A socket closed since has no descriptor any more: never another connection's.
+    with contextlib.suppress(OSError):
+        socket.socket.shutdown(found, socket.SHUT_RDWR)
+
+
 def request(endpoint: Endpoint, path: str, accept: str = "", *, read: bool = True) -> Answer:
     """GET `path` (a request target under the source) with the source's secret. Redirects
     under the same source are followed (each hop checked and pinned again), any other one is
     refused: the secret never leaves for another destination. `read`: False reads no body
-    (the administrators' test). Raises Refused."""
+    (the administrators' test). The whole call, redirects included, lasts CALL_SECONDS at
+    most (`Watchdog`). Raises Refused."""
     deadline = time.monotonic() + CALL_SECONDS
+    watchdog = Watchdog(deadline)
+    try:
+        return _request(endpoint, path, accept, read, deadline, watchdog)
+    except Refused:
+        if watchdog.fired:
+            raise Refused("The source did not answer in time.", "timeout") from None
+        raise
+    finally:
+        watchdog.cancel()
+
+
+def _request(
+    endpoint: Endpoint, path: str, accept: str, read: bool, deadline: float, watchdog: Watchdog
+) -> Answer:
     current = path
     for _ in range(MAX_REDIRECTS + 1):
+        if time.monotonic() > deadline:
+            raise Refused("The source did not answer in time.", "timeout")
         url = endpoint.base.origin + current
         try:
             pinned, host, extensions = webhooks.pinned_request(url, _resolve)
@@ -319,7 +408,12 @@ def request(endpoint: Endpoint, path: str, accept: str = "", *, read: bool = Tru
             with httpx2.Client(
                 timeout=TIMEOUT, follow_redirects=False, transport=TRANSPORT
             ) as client:
-                built = client.build_request("GET", pinned, headers=headers, extensions=extensions)
+                built = client.build_request(
+                    "GET",
+                    pinned,
+                    headers=headers,
+                    extensions={**extensions, "trace": watchdog.trace},
+                )
                 response = client.send(built, stream=True)
                 try:
                     if response.status_code in REDIRECTS:
@@ -337,6 +431,8 @@ def request(endpoint: Endpoint, path: str, accept: str = "", *, read: bool = Tru
                         continue
                     mime, charset = _content_type(response.headers.get("content-type", ""))
                     body, truncated = _read(response, deadline) if read else (b"", False)
+                    if watchdog.fired:  # a body cut short by the watchdog is not an answer
+                        raise TimeoutError("deadline reached")
                     return Answer(response.status_code, mime, charset, body, truncated, current)
                 finally:
                     response.close()
@@ -350,9 +446,24 @@ def request(endpoint: Endpoint, path: str, accept: str = "", *, read: bool = Tru
 
 
 def _content_type(value: str) -> tuple[str, str]:
+    """(media type, charset) of a Content-Type header. The type is shown to the model outside
+    the untrusted frame: anything but a media type becomes "" (no type), never a text the
+    service chose. The charset is kept only if it reads ASCII as ASCII (`_CHARSETS`): a
+    secret echoed in another encoding would escape `Fetcher.redact`."""
     mime, _, rest = value.partition(";")
-    found = re.search(r"charset\s*=\s*\"?([\w.:-]+)", rest, re.IGNORECASE)
-    return mime.strip().lower(), found.group(1).lower() if found else ""
+    mime = mime.strip().lower()
+    if not _MIME.fullmatch(mime):
+        mime = ""
+    found = re.search(r"charset\s*=\s*\"?([\w.:-]+)", rest, re.IGNORECASE | re.ASCII)
+    charset = ""
+    if found:
+        try:
+            name = codecs.lookup(found.group(1)).name
+        except LookupError:
+            name = ""
+        if name in _CHARSETS or name.startswith(("iso8859-", "cp125")):
+            charset = name
+    return mime, charset
 
 
 def _read(response: httpx2.Response, deadline: float) -> tuple[bytes, bool]:
@@ -432,17 +543,36 @@ class Fetcher:
         self._hidden = sorted(
             {h for e in self.endpoints.values() for h in e.hidden()}, key=len, reverse=True
         )
+        # Escaped literals, longest first, regardless of case (a hexadecimal token echoed in
+        # capitals): no backtracking to fear.
+        self._pattern = (
+            re.compile("|".join(re.escape(h) for h in self._hidden), re.IGNORECASE)
+            if self._hidden
+            else None
+        )
 
     def redact(self, text: str) -> str:
         """`text` without any form of a source's secret."""
+        return self._pattern.sub(SECRET_MARK, text) if self._pattern else text
+
+    def cut(self, text: str) -> str:
+        """`text`, cut by a cap, without the start of a secret left at its end (the rest of it
+        lay beyond the cut, out of `redact`'s reach)."""
+        end = len(text)
         for secret in self._hidden:
-            text = text.replace(secret, SECRET_MARK)
-        return text
+            tail = text[-(len(secret) - 1) :]
+            first = secret[0].lower()
+            for start, char in enumerate(tail[:-3]):
+                rest = tail[start:]
+                if char.lower() == first and secret[: len(rest)].lower() == rest.lower():
+                    end = min(end, len(text) - len(rest))
+                    break
+        return text if end == len(text) else text[:end] + SECRET_MARK
 
     def leaks(self, value: object) -> bool:
         """A source's secret in a tool's parameters (a text to publish, a page to write)."""
         if isinstance(value, str):
-            return any(secret in value for secret in self._hidden)
+            return bool(self._pattern and self._pattern.search(value))
         if isinstance(value, dict):
             return any(self.leaks(v) for v in value.values())
         if isinstance(value, list | tuple):
@@ -528,6 +658,8 @@ class Fetcher:
         if "\x00" in text:
             return None
         text = self.redact(text)  # before the conversion, which may escape a secret's characters
+        if answer.truncated:
+            text = self.cut(text)
         if kind == "html":
             text = self.redact(html_markdown.to_markdown(text, image=lambda _: None))
         return text
