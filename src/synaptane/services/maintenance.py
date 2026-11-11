@@ -175,10 +175,11 @@ class Source(Protocol):
         ...
 
     def reintroduced(
-        self, repo: Repository, touches: list["Touch"], problems: list[Problem]
+        self, repo: Repository, touches: list["Touch"], problems: list[Problem], head: str
     ) -> set[str]:
         """Keys of those problems (left by the agent) that people introduced again in the
-        commits `touches`, made after the decision. Editing their page is not enough."""
+        commits `touches`, made after the decision and up to `head` (the run's starting
+        commit). Editing their page is not enough."""
         ...
 
     def annotate(self, view: Overlay, problems: list[Problem]) -> list[Problem]:
@@ -337,7 +338,7 @@ class WikiChecks:
         return still
 
     def reintroduced(
-        self, repo: Repository, touches: list[Touch], problems: list[Problem]
+        self, repo: Repository, touches: list[Touch], problems: list[Problem], head: str
     ) -> set[str]:
         """A page created again (deleted, then written anew) brings its form problems back; a
         commit that adds a copy of a broken link (more occurrences of it in the page than
@@ -486,12 +487,13 @@ class TeamChecks:
         return {p.key for p in problems if seen.get(p.page, Counter())[_identity(p)] > p.known}
 
     def reintroduced(
-        self, repo: Repository, touches: list[Touch], problems: list[Problem]
+        self, repo: Repository, touches: list[Touch], problems: list[Problem], head: str
     ) -> set[str]:
         """A commit that writes the excerpt once more than before it (the address removed,
         then written again; the page created anew without its field) brings the problem
-        back; an edit elsewhere in the page does not."""
-        checks = _rules(repo, "HEAD")
+        back; an edit elsewhere in the page does not. Under the rules of `head`, as for the
+        rest of the run."""
+        checks = _rules(repo, head)
         if not checks:
             return set()
         found: set[str] = set()
@@ -795,7 +797,7 @@ def _reintroduced(
         for name in {m.source for m in group}:
             if (source := _source(name)) is not None:
                 problems = [_problem(m) for m in group if m.source == name]
-                found |= source.reintroduced(repo, touches, problems)
+                found |= source.reintroduced(repo, touches, problems, head)
     return found
 
 
