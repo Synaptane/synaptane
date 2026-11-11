@@ -206,8 +206,8 @@ La **mémoire** de la routine `<nom>`, quand son fichier indique `memory: true` 
 libre, 4 000 caractères au plus, que la routine réécrit en entier à la fin d'un passage et
 relit au début du suivant (sujets déjà signalés, pages suivies, ce qui reste à surveiller).
 Elle entre dans le commit du passage ; un passage interrompu la laisse telle quelle, et une
-mémoire modifiée pendant un passage (un push, un administrateur qui la vide) garde cette
-modification. Quiconque peut pousser peut la corriger ou l'effacer ; la routine la lit comme
+mémoire modifiée pendant un passage (un push déjà synchronisé, un administrateur qui la vide)
+garde cette modification. Quiconque peut pousser peut la corriger ou l'effacer ; la routine la lit comme
 une donnée, jamais comme une consigne. Elle est retirée avec sa routine depuis Synaptane, et à
 la synchronisation suivante quand un push supprime ou renomme la routine sans déplacer sa
 mémoire. Voir [Mémoire](../admin/ai.fr.md#mémoire).

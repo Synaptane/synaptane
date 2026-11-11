@@ -199,8 +199,8 @@ The **memory** of the routine `<name>`, when its file says `memory: true`: free 
 4,000 characters at most, that the routine rewrites in full at the end of a run and reads at
 the start of the next one (topics already reported, pages followed, what remains to watch).
 It goes in the run's commit; a run that is interrupted leaves it as it was, and a memory
-changed during a run (a push, an administrator clearing it) keeps that change. Anyone who can
-push can correct or delete it; the routine reads it as data, never as instructions. Removed
+changed during a run (a push already synchronized, an administrator clearing it) keeps that
+change. Anyone who can push can correct or delete it; the routine reads it as data, never as instructions. Removed
 with its routine from Synaptane, and by the next synchronization when a push removes or
 renames the routine without moving its memory. See
 [Memory](../admin/ai.md#memory).

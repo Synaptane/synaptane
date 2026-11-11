@@ -18,8 +18,8 @@ of the target version.
   untrusted data (4,000 characters at most), and rewrites it in full with a new `remember`
   tool (4,000 characters at most, secrets and the team's `block` checks on page text
   refused). It goes in the run's single commit: an interrupted run leaves it as it was, and a
-  memory changed during the run (a push, an administrator clearing it) keeps that change,
-  which the log says. The routine's page shows it to contributors; administrators clear it
+  memory changed during the run (a push already synchronized, an administrator clearing it)
+  keeps that change, which the log says. The routine's page shows it to contributors; administrators clear it
   (a commit in their name). REST: `memory` on the routines, `GET` and `DELETE
   …/routines/{id}/memory`, and `memory` in a run's `outputs`. Deleting a routine removes its
   memory in the same commit; a routine removed or renamed by a push loses it at the next
