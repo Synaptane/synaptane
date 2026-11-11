@@ -182,8 +182,8 @@ Write the summary of the week…
 Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
 `monthly 1 06:00`, or in the night of the space `night`, `night monday`, `night 1`; French is
 read too, such as `hebdo lundi 06:00` or `nuit lundi`, and Synaptane writes English back),
-`night` (`before` or `after` the tidy-up, with a night schedule), `scope` (folders separated by commas, a JSON list or one `- folder` line
-each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
+`night` (`before` or `after` the tidy-up, with a night schedule), `scope` (folders separated
+by commas, a JSON list or one `- folder` line each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
 `template`. Values are plain text or JSON. An unknown field is reported and ignored; an
 invalid file does not run, and its error shows in Settings → Routines and the REST API.
 

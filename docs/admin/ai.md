@@ -691,10 +691,11 @@ runs at the tidy-up's time, just before or just after it, one routine after the 
 night ends with **a single report**.
 
 - **In the file**: `schedule: night` (every night), `night monday` (Monday nights), `night 1`
-  (the night of the 1st, day 1 to 28); in French `nuit`, `chaque nuit`, `nuit lundi`, `nuit 1`,
-  written back in English. Its place: `night: before` or `night: after` the tidy-up (`after`
-  by default; `avant`, `après` are read too). In the form: **When → In the night, before (or
-  after) the tidy-up**.
+  (the night of the 1st, day 1 to 28). The day is that of the tidy-up's time: with the tidy-up
+  at 02:00, `night monday` runs on Monday at 02:00, in the night from Sunday to Monday. In
+  French `nuit`, `chaque nuit`, `nuit lundi`, `nuit 1`, written back in English. Its place:
+  `night: before` or `night: after` the tidy-up (`after` by default; `avant`, `après` are read
+  too). In the form: **When → In the night, before (or after) the tidy-up**.
 - **Order**: the routines placed before the tidy-up, by file name, then the scheduled tidy-up
   (with its [maintenance](#wiki-maintenance)), then the routines placed after it, by file name.
   To choose an order, name the files `10-check.md`, `20-digest.md`.

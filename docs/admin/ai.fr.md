@@ -733,10 +733,11 @@ elle tourne alors à l'heure du rangement, juste avant ou juste après lui, une 
 l'autre, et la nuit se termine par **un seul compte rendu**.
 
 - **Dans le fichier** : `schedule: night` (chaque nuit), `night monday` (la nuit du lundi),
-  `night 1` (la nuit du 1er, jour 1 à 28) ; en français `nuit`, `chaque nuit`, `nuit lundi`,
-  `nuit 1`, réécrits en anglais. Sa place : `night: before` ou `night: after` le rangement
-  (`after` par défaut ; `avant` et `après` sont lus aussi). Dans le formulaire : **Quand → La
-  nuit, avant (ou après) le rangement**.
+  `night 1` (la nuit du 1er, jour 1 à 28). Le jour est celui de l'heure du rangement : avec un
+  rangement à 2 h, `night monday` tourne le lundi à 2 h, dans la nuit du dimanche au lundi. En
+  français : `nuit`, `chaque nuit`, `nuit lundi`, `nuit 1`, réécrits en anglais. Sa place :
+  `night: before` ou `night: after` le rangement (`after` par défaut ; `avant` et `après` sont
+  lus aussi). Dans le formulaire : **Quand → La nuit, avant (ou après) le rangement**.
 - **Ordre** : les routines placées avant le rangement, par nom de fichier, puis le rangement
   planifié (avec son [entretien](#entretien-du-wiki)), puis les routines placées après lui, par
   nom de fichier. Pour choisir un ordre, nommez les fichiers `10-controle.md`, `20-resume.md`.
