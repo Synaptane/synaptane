@@ -878,6 +878,9 @@ administrateurs les écrivent.
 - **Journal** : la page du passage et ses `outputs.fetches` en REST listent chaque appel :
   source, chemin, statut et taille. Les valeurs des paramètres sensibles de la requête
   (`token`, `key`, `secret`, `signature`…) sont masquées, et ni corps ni secret ne sont gardés.
+  Une valeur de plus de 100 caractères est masquée elle aussi, mais garde sa longueur
+  (`q=…(1500)`) : du texte du wiki envoyé à une source dans une requête reste visible dans le
+  journal, sans y être recopié.
   Le compte rendu de la nuit, les e-mails et le webhook `routine.done` ne disent rien de ces
   appels.
 - **Coût** : ce que l'agent lit compte dans ses jetons, comme une page ; les plafonds du

@@ -581,17 +581,26 @@ class Fetcher:
 
     def _shown(self, endpoint: Endpoint, path: str) -> str:
         """A request target as the log keeps it: relative to the source, sensitive query
-        values hidden, no secret, 300 characters at most."""
+        values hidden, no secret, 300 characters at most.
+
+        A long value is hidden but keeps its length, `q=…(1500)`, and so does a cut target:
+        an agent sending a chunk of the wiki to a declared source in its query still shows
+        in the log, without the log becoming a copy of it."""
         relative = path.removeprefix(endpoint.base.path.rstrip("/")).lstrip("/")
         path_part, _, query = relative.partition("?")
         if query:
             pairs = []
             for pair in query.split("&"):
                 key, equal, value = pair.partition("=")
-                hide = equal and (_SENSITIVE.search(unquote(key)) or len(value) > 100)
-                pairs.append(f"{key}=…" if hide else pair)
+                if equal and _SENSITIVE.search(unquote(key)):
+                    pairs.append(f"{key}=…")
+                elif equal and len(value) > 100:
+                    pairs.append(f"{key}=…({len(unquote(value))})")
+                else:
+                    pairs.append(pair)
             path_part += "?" + "&".join(pairs)
-        return self.redact(path_part)[:300]
+        shown = self.redact(path_part)
+        return shown if len(shown) <= 300 else f"{shown[:300]}…({len(shown)})"
 
     def _log(self, endpoint: Endpoint, path: str, status: str, size: int = 0) -> None:
         shown = self._shown(endpoint, path)

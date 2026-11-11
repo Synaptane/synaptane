@@ -816,7 +816,9 @@ secrets live in Synaptane, and only administrators write them.
   agent. The usual secret detector applies too, as to every write.
 - **Log**: the run's page and its REST `outputs.fetches` list each call: source, path, status
   and size. The values of sensitive query parameters (`token`, `key`, `secret`, `signature`…)
-  are hidden, and neither a body nor a secret is kept. The night's report, the emails and the
+  are hidden, and neither a body nor a secret is kept. A value longer than 100 characters
+  is hidden too but keeps its length (`q=…(1500)`): wiki text sent to a source in a query
+  stays visible in the log without being copied there. The night's report, the emails and the
   `routine.done` webhook say nothing of these calls.
 - **Cost**: what the agent reads counts in its tokens, like a page; the run's limits stay the
   same.

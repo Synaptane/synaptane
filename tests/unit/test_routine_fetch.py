@@ -420,6 +420,15 @@ def test_the_log_keeps_no_secret_nor_sensitive_value(service: Service, dns: Dns)
     assert SECRET not in json.dumps(tools.calls)
 
 
+def test_the_log_shows_how_much_text_left_in_a_query(service: Service, dns: Dns) -> None:
+    """Wiki text sent to a declared source in the query stays visible by its length."""
+    service.json("status.example.com", "/api/v2/search", {"hits": []})
+    tools = fetcher()
+    tools.t_fetch("statut", "search?q=" + "a" * 1500 + "&page=2")
+    [call] = tools.calls
+    assert call["path"] == "search?q=…(1500)&page=2"
+
+
 def test_an_unreachable_source(service: Service, dns: Dns, monkeypatch: pytest.MonkeyPatch) -> None:
     def down(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("refused", request=request)
