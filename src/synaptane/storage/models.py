@@ -122,6 +122,9 @@ class Space(Base):
         # Target of the foreign keys that keep a group's roles within its organization.
         UniqueConstraint("id", "org_id"),
         CheckConstraint("sync_status IN ('never', 'ok', 'error', 'conflict')", name="sync_status"),
+        CheckConstraint(
+            "night_report_email IN ('', 'admins', 'members')", name="night_report_email"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -156,6 +159,13 @@ class Space(Base):
     maintain_watermark: Mapped[str | None] = mapped_column(String(64))
     # Runs interrupted in a row before closing the maintenance item: left beyond a few.
     maintain_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Report of the night (`services.night`): emailed to nobody (""), the organization's
+    # admins or the space's members; `always`: sent even when nothing happened. Its Slack
+    # webhook is a secret (`secrets`, purpose `night.REPORT_WEBHOOK`), never a column.
+    night_report_email: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    night_report_always: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     ai_model: Mapped[str | None] = mapped_column(String(200))  # otherwise the organization's
     embeddings_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # hybrid search
     # Default review period of pages (`6m`, `1y`…); empty: never due for review
@@ -520,6 +530,7 @@ class Routine(Base):
         CheckConstraint("weekday IS NULL OR weekday BETWEEN 0 AND 6", name="weekday"),
         CheckConstraint("monthday IS NULL OR monthday BETWEEN 1 AND 28", name="monthday"),
         CheckConstraint("output_email IN ('', 'admins', 'members')", name="output_email"),
+        CheckConstraint("night IN ('', 'before', 'after')", name="night"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -534,6 +545,9 @@ class Routine(Base):
     weekday: Mapped[int | None] = mapped_column(Integer)  # weekly: 0 = Monday
     monthday: Mapped[int | None] = mapped_column(Integer)  # monthly: 1 to 28
     at: Mapped[str] = mapped_column(String(5), default="06:00")  # HH:MM local
+    # Part of the night (`services.night`): "before" or "after" the tidy-up, at its time, on
+    # the days of `frequency` (`at` is then unused); "": at its own time.
+    night: Mapped[str] = mapped_column(String(8), default="", server_default="")
     scope: Mapped[list[str]] = mapped_column(JSONB, default=list)  # folders; empty: everything
     # Outputs: page rewritten on each pass (relative to content/; "": none), items dropped
     # into the inbox, email (organization admins or space members), webhook.
@@ -595,6 +609,31 @@ class RoutineRun(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))  # estimated €; None: subscription
     quota: Mapped[dict[str, object] | None] = mapped_column(JSONB)  # subscription (ai.quota)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class NightRun(Base):
+    """The night of a space (`services.night`): the routines planned before the tidy-up, the
+    tidy-up, the routines after it, then one report. One row per space and local day: a night
+    never runs twice. `steps` is the plan, then what each step did: `kind` (routine or tidy),
+    `when` (before, after; "" for the tidy-up), `name` and `title` of the routine, `routine_id`,
+    `run_id` (its `RoutineRun` or `TidyRun`), `status` (queued, running, done, failed, nothing,
+    skipped) and `reason` (why skipped or failed, a code). `report`: what was sent."""
+
+    __tablename__ = "night_runs"
+    __table_args__ = (
+        UniqueConstraint("space_id", "day"),
+        CheckConstraint("status IN ('queued', 'running', 'done')", name="status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    day: Mapped[date]  # local day of the space
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    steps: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
+    report: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
 
 
 class SSOProvider(Base):

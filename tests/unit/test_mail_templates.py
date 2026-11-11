@@ -14,6 +14,7 @@ status, left "running" until `close_orphans`. Hence three guardrails:
 
 import ast
 import string
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,15 @@ CALLERS: dict[str, dict[str, object]] = {
         "link": "https://brain.example.com/o/acme/infra/p/rapports/semaine.md",
         "account": "https://brain.example.com/account",
     },
+    # services/night.py, _send_emails: the report of a space's night
+    "night_report": {
+        "space": "Infra",
+        "org": "Acme",
+        "day": date(2026, 11, 11),
+        "text": "Nuit du 11 novembre 2026\n\nRangement : 2 éléments rangés.\n",
+        "link": "https://brain.example.com/o/acme/infra/tidy",
+        "account": "https://brain.example.com/account",
+    },
     # services/freshness.py, _send_reminder: an owner's stale pages
     "review_reminder": {
         "count": 2,
@@ -218,8 +228,8 @@ def test_template_renders_with_the_callers_arguments(kind: str, locale: str) -> 
     assert subject.strip() or kind in PARAGRAPHS
     assert "\n" not in subject  # a newline would break the header
     assert "{" not in subject + body and "}" not in subject + body
-    for value in values.values():
-        assert str(value) in subject + body
+    for value in values.values():  # a day is written out in the language
+        assert str(mail.localized(value, locale)) in subject + body
 
 
 def test_unknown_locale_falls_back_to_english() -> None:

@@ -331,6 +331,7 @@ ACTIONS: dict[str, Kind] = {
     "space.git_host_keys_refreshed": Kind("settings", Label("GitHub SSH host keys updated")),
     "space.webhook_secret_rotated": Kind("settings", Label("Git webhook secret renewed")),
     "space.tidy_settings": Kind("settings", Label("Tidy-up settings changed"), ("changed",)),
+    "space.night_report_test": Kind("settings", Label("Test night report sent")),
     "space.embeddings": Kind("settings", Label("Semantic search of the space"), ("enabled",)),
     "space.vocation_updated": Kind(
         "settings", Label("Space purpose changed"), ("vocation_template", "removed")

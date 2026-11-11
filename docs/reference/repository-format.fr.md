@@ -188,14 +188,15 @@ Rédige le résumé de la semaine…
 ```
 
 Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
-`monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
-en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
-`- dossier`), `writes` (dossiers tenus par la routine, même syntaxe, 5 au plus : elle y écrit
-ses propres pages ; jamais tout le wiki ni un dossier caché), `report`, `inbox`, `email`
-(`admins`, `members`, `none`), `webhook`, `enabled`, `template`, `memory` (`true` : la routine
-garde une mémoire, voir plus bas). Les valeurs sont du texte simple ou du JSON. Un champ inconnu
-est signalé et ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans
-Paramètres → Routines et dans l'API REST.
+`monthly 1 06:00`, ou dans la nuit de l'espace `night`, `night monday`, `night 1` ; le
+français est lu aussi, comme `hebdo lundi 06:00` ou `nuit lundi`, et Synaptane réécrit en
+anglais), `night` (`before` ou `after` le rangement, avec un planning de nuit), `scope`
+(dossiers séparés par des virgules, liste JSON ou un par ligne `- dossier`), `writes` (dossiers
+tenus par la routine, même syntaxe, 5 au plus : elle y écrit ses propres pages ; jamais tout le
+wiki ni un dossier caché), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`,
+`enabled`, `template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les
+valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et ignoré ; un fichier
+invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines et dans l'API REST.
 
 Écrites dans **Paramètres → Routines** (administrateurs de l'organisation : un commit à leur
 nom) ou par un push : quiconque peut pousser peut les modifier. Lues à chaque

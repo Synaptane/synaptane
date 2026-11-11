@@ -19,6 +19,11 @@ then the instructions.
     ---
     Read the pages changed since the last run…
 
+A routine can also be part of the night of its space (`services.night`): `schedule: night`
+(every night), `night monday` (Monday nights), `night 1` (the night of the 1st), in French
+`nuit`, `nuit lundi`, `nuit 1`; with `night: before` or `night: after` (the default), it runs
+at the tidy-up's time, just before or after it, and the night's report tells what it did.
+
 The name of a routine is the name of its file (lowercase letters, digits and dashes, like the
 team prompts). The header keeps the conventions of the inbox items (a JSON value, or else
 plain text) and adds lists: `scope` (and `writes`) take folders separated by commas, a JSON
@@ -88,6 +93,7 @@ MEMORY_DIR = ".synaptane/memory"  # one file per routine with `memory: true`
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")  # as the team prompts
 FREQUENCIES = ("daily", "weekly", "monthly")
 EMAIL_TARGETS = ("", "admins", "members")
+NIGHT_PLACES = ("", "before", "after")  # "": at its own time
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 MAX_INSTRUCTIONS = 20_000
 MAX_SCOPE = 20  # folders
@@ -113,6 +119,7 @@ KNOWN = (
     "enabled",
     "template",
     "memory",
+    "night",
 )
 # Settings that live in the file only, never copied to the `routines` table.
 FILE_ONLY = ("memory", "writes")
@@ -145,6 +152,7 @@ class Fields:
     enabled: bool | None = None
     memory: bool | None = None
     writes: list[str] | None = None  # folders the routine keeps; []: none
+    night: str | None = None  # "": at `at`; "before" or "after" the tidy-up, in the night
 
 
 @dataclass
@@ -172,6 +180,7 @@ class Config:
     # Folders the routine keeps (`writes`, in the file only too). None: unknown, a copy made
     # from the database, which does not keep them; `save` then keeps the file's.
     writes: list[str] | None = field(default_factory=list)
+    night: str = ""
 
     @classmethod
     def of(cls, routine: Routine) -> "Config":
@@ -193,6 +202,7 @@ class Config:
             routine.enabled,
             routine.template,
             writes=None,
+            night=routine.night,
         )
 
     def store(self, routine: Routine) -> None:
@@ -204,9 +214,9 @@ class Config:
             setattr(routine, name, list(value) if isinstance(value, list) else value)
 
     @property
-    def plan(self) -> tuple[bool, str, int | None, int | None, str]:
+    def plan(self) -> tuple[bool, str, int | None, int | None, str, str]:
         """What decides when it runs."""
-        return (self.enabled, self.frequency, self.weekday, self.monthday, self.at)
+        return (self.enabled, self.frequency, self.weekday, self.monthday, self.at, self.night)
 
 
 def clean_folder(folder: str) -> str:
@@ -320,6 +330,10 @@ def apply(config: Config, fields: Fields) -> None:
         config.memory = fields.memory
     if fields.writes is not None:
         config.writes = clean_writes(fields.writes)
+    if fields.night is not None:
+        if fields.night not in NIGHT_PLACES:
+            raise invalid("Unknown place in the night (before or after the tidy-up).")
+        config.night = fields.night
     # Consistency of the whole, once everything is applied.
     if config.frequency == "weekly":
         if config.weekday is None or not 0 <= config.weekday <= 6:
@@ -349,7 +363,7 @@ def skip_today(routine: Routine, space: Space, now: datetime | None = None) -> N
     right away (and costs nothing unless asked): "Run now" does that."""
     try:
         local = (now or datetime.now(UTC)).astimezone(zone(space.tidy_timezone))
-        at = parse_time(routine.at)
+        at = parse_time(space.tidy_time if routine.night else routine.at)  # a night: its time
     except SynaptaneError:
         return
     if local.time() >= at:
@@ -402,7 +416,14 @@ def memory_path(name: str) -> str:
 
 
 def schedule_text(config: Config) -> str:
-    """`daily 02:30`, `weekly monday 06:00`, `monthly 1 06:00`."""
+    """`daily 02:30`, `weekly monday 06:00`, `monthly 1 06:00`; in the night: `night`,
+    `night monday`, `night 1`."""
+    if config.night:
+        if config.frequency == "weekly":
+            return f"night {WEEKDAYS[config.weekday or 0]}"
+        if config.frequency == "monthly":
+            return f"night {config.monthday}"
+        return "night"
     if config.frequency == "weekly":
         return f"weekly {WEEKDAYS[config.weekday or 0]} {config.at}"
     if config.frequency == "monthly":
@@ -440,6 +461,8 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
     if config.description:
         lines.append(f"description: {_scalar(config.description)}")
     lines.append(f"schedule: {schedule_text(config)}")
+    if config.night:
+        lines.append(f"night: {config.night}")
     if config.scope:
         lines.append(f"scope: {_list(config.scope)}")
     if config.writes:
@@ -596,7 +619,7 @@ def parse_schedule(text: str) -> tuple[str, int | None, int | None, str]:
         words = ["daily", *words[2:]]
     wrong = invalid(
         "schedule: “{value}” is not understood. Examples: daily 02:30, weekly monday 06:00, "
-        "monthly 1 06:00.",
+        "monthly 1 06:00, night, night monday.",
         value=text[:60],
     )
     if len(words) < 2 or not _TIME.fullmatch(words[-1]):
@@ -614,13 +637,72 @@ def parse_schedule(text: str) -> tuple[str, int | None, int | None, str]:
     raise wrong
 
 
+# The night (`services.night`): `night`, `night monday`, `night 1`; `nuit`, `chaque nuit`,
+# `nuit lundi`, `nuit 1`. Its place: `night: before` or `after` (`avant`, `après`).
+_NIGHT_WORDS = ("night", "nuit")
+_PLACES = {
+    "before": "before",
+    "avant": "before",
+    "after": "after",
+    "après": "after",
+    "apres": "after",
+}
+
+
+def night_schedule(text: str) -> tuple[str, int | None, int | None] | None:
+    """`night`, `night monday` (or `mon`, `nuit lundi`), `night 1` → frequency, day of the
+    week, day of the month. None: not a night schedule (see `parse_schedule`)."""
+    words = text.lower().split()
+    if words[:2] == ["chaque", "nuit"]:
+        words = ["night", *words[2:]]
+    if not words or words[0] not in _NIGHT_WORDS:
+        return None
+    rest = words[1:]
+    if not rest:
+        return "daily", None, None
+    if len(rest) == 1 and (day := _weekday(rest[0])) is not None:
+        return "weekly", day, None
+    if len(rest) == 1 and rest[0].isdigit():
+        if not 1 <= int(rest[0]) <= 28:
+            raise invalid("Day of the month: from 1 to 28.")
+        return "monthly", None, int(rest[0])
+    raise invalid(
+        "schedule: “{value}” is not understood. Examples: daily 02:30, weekly monday 06:00, "
+        "monthly 1 06:00, night, night monday.",
+        value=text[:60],
+    )
+
+
+def _place(header: _Header) -> str:
+    """`night: before` or `after` (the default)."""
+    value = _text(header, "night").lower()
+    if not value:
+        return "after"
+    if value not in _PLACES:
+        raise invalid("night: before or after (the tidy-up).")
+    return _PLACES[value]
+
+
 def _config(header: _Header, name: str) -> Config:
     from synaptane.services.routines import TEMPLATES  # the templates' module reads this one
 
     schedule = _text(header, "schedule")
     if not schedule:
         raise invalid("schedule: missing (e.g. weekly monday 06:00).")
-    frequency, weekday, monthday, at = parse_schedule(schedule)
+    in_night = night_schedule(schedule)
+    if in_night is not None:
+        (frequency, weekday, monthday), at = in_night, None
+        night = _place(header)
+    else:
+        frequency, weekday, monthday, fixed = parse_schedule(schedule)
+        at, night = fixed, ""
+        if _text(header, "night"):
+            header.warnings.append(
+                Label(
+                    "night: ignored, the schedule is not in the night ({value}).",
+                    value=schedule[:60],
+                )
+            )
     template = _text(header, "template")
     if template and template not in TEMPLATES:
         header.warnings.append(Label("Unknown template, ignored: {field}.", field=template[:40]))
@@ -645,6 +727,7 @@ def _config(header: _Header, name: str) -> Config:
             enabled=_flag(header, "enabled", True),
             memory=_flag(header, "memory", False),
             writes=_folders(header, "writes"),
+            night=night,
         ),
     )
     return config

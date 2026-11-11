@@ -80,6 +80,11 @@ class RoutineOut(BaseModel):
     weekday: int | None = Field(description="Weekly: 0 = Monday … 6 = Sunday")
     monthday: int | None = Field(description="Monthly: 1 to 28")
     at: str = Field(description="HH:MM, the space's local time (tidy-up time zone)")
+    night: str = Field(
+        default="",
+        description='"before" or "after": part of the night, at the tidy-up\'s time, just '
+        'before or after it (`at` unused); "": at `at`',
+    )
     scope: list[str] = Field(description="Folders relative to content/; empty: the whole space")
     writes: list[str] = Field(
         description="Folders the routine keeps (relative to content/): it writes its pages "
@@ -124,6 +129,7 @@ class RoutineOut(BaseModel):
             weekday=routine.weekday,
             monthday=routine.monthday,
             at=routine.at,
+            night=routine.night,
             scope=list(routine.scope or []),
             writes=writes,
             output_page=routine.output_page,
@@ -168,6 +174,10 @@ class RoutineIn(BaseModel):
     enabled: bool | None = None
     memory: bool | None = Field(
         default=None, description="Keep notes from one run to the next (`memory: true`)"
+    )
+    night: Literal["", "before", "after"] | None = Field(
+        default=None,
+        description='"before" or "after" the tidy-up, in the night of the space; "": at `at`',
     )
     base_sha: str | None = Field(
         default=None,

@@ -10,6 +10,7 @@ Events:
 - `sync.conflict`: a space is in conflict with its remote repository;
 - `routine.done`: a routine run finished (or failed), with its output text, if the routine
   has the webhook among its outputs;
+- `night.completed`: the night of a space finished (`services.night`): its steps in order;
 - `ping`: test delivery.
 
 Deliveries have their own thread in the worker: a slow or silent receiver delays neither
@@ -50,6 +51,7 @@ EVENTS = (
     "space.alert",
     "sync.conflict",
     "routine.done",
+    "night.completed",
 )
 WEBHOOK = "webhook"
 TIMEOUT = httpx2.Timeout(10.0, connect=5.0)

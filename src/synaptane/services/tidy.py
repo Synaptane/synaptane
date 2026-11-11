@@ -827,6 +827,29 @@ def run(
 BUSY_DELAY = timedelta(minutes=2)  # new attempt when a run is already under way
 
 
+def run_held(
+    database: Database,
+    ws: Workspace,
+    space_id: UUID,
+    *,
+    factory: ConversationFactory = open_conversation,
+    public_url: str = "",
+) -> TidyRun | None:
+    """The scheduled run, for a caller that already holds the space's pass lock: the night
+    (`services.night`) runs it between its routines, without letting another run slip in
+    between. Same log, alerts and chained runs as `run`."""
+    return _run(
+        database,
+        ws,
+        space_id,
+        trigger="schedule",
+        requested_by=None,
+        factory=factory,
+        chain=0,
+        public_url=public_url,
+    )
+
+
 def _run(
     database: Database,
     ws: Workspace,

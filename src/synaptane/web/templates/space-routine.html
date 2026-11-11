@@ -5,7 +5,7 @@
 {% set section = "routines" %}
 {% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
 {% set wiki = "/o/" ~ org.slug ~ "/" ~ space.slug %}
-{% set triggers = {'schedule': _("scheduled"), 'manual': _("manual")} %}
+{% set triggers = {'schedule': _("scheduled"), 'manual': _("manual"), 'night': _("in the night")} %}
 {% block section %}
 <p class="routine-back"><a href="{{ base }}">{{ icon('chevron-left', 14) }}{{ _("All routines") }}</a></p>
 <div class="section-heading routine-title">

@@ -889,6 +889,12 @@ details.menu[open]>summary{background:var(--hover)}
 .tidy-attempts ol{margin:6px 0 0;padding-left:22px;font-size:12.5px;color:var(--ink-2)}
 .tidy-ops ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
 .tidy-op{overflow-wrap:anywhere}
+/* The last nights (Tidy-up tab) and the order of the night (Settings → Tidy-up) */
+.tidy-nights{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.tidy-nights h3{margin:0;font-size:15px}
+.tidy-night summary{cursor:pointer;font-size:13.5px}
+.night-steps,.night-order{margin:6px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:4px;font-size:13px;overflow-wrap:anywhere}
+.night-report{margin:6px 0 0;font-size:12.5px}
 .tidy-op-label{font-weight:600;margin-right:4px}
 .tidy-op-warn .tidy-op-label{color:var(--warn-ink)}
 .tidy-op-pages{display:block;margin-top:2px;padding-left:12px;font-size:12.5px;color:var(--ink-2)}

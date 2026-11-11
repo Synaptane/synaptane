@@ -66,6 +66,31 @@
 <div class="notice notice-warning">{{ _("Monthly AI budget almost reached: {spent} of {budget}.", spent=spending.spent|euros, budget=spending.budget|euros) }}</div>
 {% endif %}
 {% if activity and activity.poll %}<div hidden data-tidy-state="{{ base }}/-/tidy/state" data-version="{{ version }}"></div>{% endif %}
+{% if nights %}
+{# The night of the space: its steps in order, then what the report sent. #}
+<section class="card tidy-nights" aria-labelledby="tidy-nights-title" data-test="tidy-nights">
+  <h3 id="tidy-nights-title">{{ _("The last nights") }}</h3>
+  {% for n in nights %}
+  <details class="tidy-night"{% if loop.first %} open{% endif %}>
+    <summary>{{ _("Night of {day}", day=n.day) }}{% if n.status != 'done' %} · <span class="status status-warn">{{ _("in progress") }}</span>{% endif %}</summary>
+    <ol class="night-steps">{% for s in n.steps %}
+      <li class="night-step night-{{ s.status }}">
+        {%- set name = _("Tidy-up") if s.kind == 'tidy' else s.title -%}
+        {% if s.link %}<a href="{{ s.link }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+        {%- if s.when == 'before' %} <span class="muted">({{ _("before the tidy-up") }})</span>{% elif s.when == 'after' %} <span class="muted">({{ _("after the tidy-up") }})</span>{% endif %}
+        · <span class="status status-{{ {'done': 'ok', 'failed': 'error', 'running': 'warn'}.get(s.status, 'quiet') }}">{{ _(s.label) }}</span>
+      </li>{% endfor %}
+    </ol>
+    {% if n.status == 'done' %}<p class="muted night-report">
+      {%- if 'emails' in n.report or n.report.slack -%}
+        {{ _("Report sent:") }} {{ _(pl(n.report.emails or 0, "{n} email", "{n} emails"), n=n.report.emails or 0) }}{% if n.report.slack %} · {{ _("Slack webhook") }} ({{ _("sent") if n.report.slack == 'sent' else _("queued") if n.report.slack == 'queued' else n.report.slack }}){% endif %}
+      {%- elif n.report.quiet -%}{{ _("Quiet night: no report sent.") }}
+      {%- else -%}{{ _("No report configured.") }}{%- endif -%}
+    </p>{% endif %}
+  </details>
+  {% endfor %}
+</section>
+{% endif %}
 <div class="stack tidy-journal" data-tidy-journal data-more="{{ _('Details') }}">
   {# Request not logged yet: the card appears on click, the page waits for the result. #}
   {% if activity and not activity.run %}

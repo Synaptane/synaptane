@@ -77,6 +77,7 @@ class Draft:
     base_sha: str = ""  # hash of the file when the form was opened
     writes: str = ""  # folders the routine keeps, one per line
     memory: bool = False  # in the file only (`routine_files.memory_enabled`)
+    night: str = ""  # "": at its time; "before" or "after" the tidy-up, in the night
 
     @classmethod
     def of(cls, routine: Routine, writes: list[str] | None = None, memory: bool = False) -> "Draft":
@@ -100,6 +101,7 @@ class Draft:
             routine.sha or "",
             "\n".join(writes or []),
             memory,
+            routine.night,
         )
 
     @classmethod
@@ -144,6 +146,7 @@ class Draft:
             enabled=self.enabled,
             writes=[line.strip() for line in self.writes.splitlines() if line.strip()],
             memory=self.memory,
+            night=self.night if self.night in routine_files.NIGHT_PLACES else "",
         )
 
 
@@ -173,6 +176,7 @@ def posted(
     base_sha: Annotated[str, Form()] = "",
     writes: Annotated[str, Form()] = "",
     memory: Annotated[bool, Form()] = False,
+    night: Annotated[str, Form()] = "",
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
@@ -194,6 +198,7 @@ def posted(
         base_sha,
         writes,
         memory,
+        night,
     )
 
 
