@@ -111,6 +111,8 @@ CHANGED = {
     "model": Label("Model"),
     "delay": Label("Delay"),
     "maintain": Label("Nightly maintenance"),
+    "url": Label("Address"),
+    "auth": Label("Authentication"),
 }
 
 
@@ -195,6 +197,7 @@ FIELDS = {
     "capture_address": Field(_value("address"), subject=True),
     "prompt": Field(_prompt, subject=True),
     "group": Field(_value("group", "Group {value}"), subject=True),
+    "source": Field(_value("source"), subject=True),  # external, of routines
     # Details
     "role": Field(_choice("role", ROLES)),
     "default_role": Field(_choice("role", {**ROLES, "none": Label("No access")})),
@@ -234,6 +237,7 @@ FIELDS = {
     "error": Field(_value("error")),
     "reason": Field(_value("reason")),
     "status": Field(_value("status")),
+    "source_host": Field(_value("host", "Host: {value}")),  # never the secret
     "removed": Field(_flag("removed", Label("Text removed"))),
     "previous_name": Field(_value("previous", "Formerly: {value}")),
     # The groups an invitation makes the person join (their names at the time).
@@ -345,6 +349,18 @@ ACTIONS: dict[str, Kind] = {
     "routine.updated": Kind("settings", Label("Routine changed"), ("routine",)),
     "routine.deleted": Kind("settings", Label("Routine deleted"), ("routine",)),
     "routine.memory_cleared": Kind("settings", Label("Routine memory cleared"), ("routine",)),
+    "space.source_created": Kind(
+        "settings", Label("External source added"), ("source", "source_host")
+    ),
+    "space.source_updated": Kind(
+        "settings", Label("External source changed"), ("source", "source_host", "changed")
+    ),
+    "space.source_secret_replaced": Kind(
+        "settings", Label("External source secret replaced"), ("source", "source_host")
+    ),
+    "space.source_deleted": Kind(
+        "settings", Label("External source removed"), ("source", "source_host")
+    ),
     "sso.provider_saved": Kind(
         "settings", Label("SSO provider saved"), ("sso", "auto_create", "domains")
     ),

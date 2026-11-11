@@ -50,6 +50,8 @@ x-synaptane: &synaptane
     SYNAPTANE_BACKUP_AGE_RECIPIENTS: ${BACKUP_AGE_RECIPIENTS:-}
     SYNAPTANE_BACKUP_REMOTES: ${BACKUP_REMOTES:-}
     SYNAPTANE_BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    # External HTTP sources of the routines (docs/admin/ai.md); false: off for the instance.
+    SYNAPTANE_ROUTINE_SOURCES: ${ROUTINE_SOURCES:-true}
     # Prometheus (docs/admin/configuration.md, Monitoring); empty: no /metrics.
     SYNAPTANE_METRICS_TOKEN: ${METRICS_TOKEN:-}
     TZ: ${TZ:-Europe/Paris}

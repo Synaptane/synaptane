@@ -48,6 +48,15 @@
   </fieldset>
 
   <fieldset class="settings-group">
+    <legend>{{ _("External sources") }}</legend>
+    {% set known = space_sources|map(attribute="name")|list %}
+    {% for source in space_sources %}<label class="checkbox"><input type="checkbox" name="sources" value="{{ source.name }}" {% if source.name in draft.sources %}checked{% endif %}><code>{{ source.name }}</code>&nbsp;<span class="muted">{{ source.base_url }}</span></label>{% endfor %}
+    {% for name in draft.sources if name not in known %}<label class="checkbox"><input type="checkbox" name="sources" value="{{ name }}" checked><code>{{ name }}</code>&nbsp;<span class="muted">{{ _("unknown in this space: untick it, or add the source") }}</span></label>{% endfor %}
+    {% if not space_sources and not draft.sources %}<p class="muted">{{ _("No external source in this space.") }} <a href="/o/{{ org.slug }}/{{ space.slug }}/-/sources">{{ _("Add one") }}</a></p>{% endif %}
+    <p class="muted">{{ _("The agent reads the ticked sources over HTTP with the fetch tool (GET only), under their address. Synaptane adds the secret: the agent never sees it.") }}</p>
+  </fieldset>
+
+  <fieldset class="settings-group">
     <legend>{{ _("Outputs") }}</legend>
     <p class="muted">{{ _("Besides the folders it keeps, the routine writes nowhere else. Fixes to the wiki go through the inbox, which the tidy-up handles with its safeguards.") }}</p>
     <div class="field"><label for="routine-page">{{ _("Report page, rewritten on every run (empty: none)") }}</label><input id="routine-page" name="output_page" value="{{ draft.output_page }}" placeholder="{{ _('reports/consistency.md') }}" autocomplete="off"></div>

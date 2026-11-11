@@ -43,6 +43,10 @@ class Settings(BaseModel):
     # Capture by email over an unencrypted IMAP connection: development only (a local test
     # server); the password and every email would otherwise travel in clear.
     allow_insecure_imap: bool = False
+    # Routines may read the external HTTP sources the organization's administrators declare
+    # (`services.routine_sources`). On by default: only administrators declare a source, and
+    # a routine's file only chooses among them. False turns the feature off for the instance.
+    routine_sources: bool = True
     api_docs: bool = False  # publish /api/docs and the OpenAPI schema (lists every route)
     # Bearer token of /metrics (Prometheus); empty: /metrics does not exist.
     metrics_token: str = ""

@@ -23,7 +23,9 @@ rules (CHANGELOG):
   file name unique in its space, waiting to be written to the repository;
 - 0035: the nightly maintenance is on everywhere and starts from each space's last
   synchronized head (nothing is caught up, and the edit that triggers the next sync is not
-  taken for the past); a space never synchronized waits for its first sync.
+  taken for the past); a space never synchronized waits for its first sync;
+- 0037: every routine reads no external source, and going down removes the sources and their
+  secrets, the routines staying as they were.
 
 Same principle for every future migration that touches data.
 """
@@ -708,5 +710,73 @@ def test_routines_migration_goes_down_with_long_twin_titles(
             )
         command.upgrade(config, "0034")
         assert names() == ["routine", "routine-2", "routine-3"]
+    finally:
+        engine.dispose()
+
+
+def test_sources_migration_adds_no_source_and_goes_down_cleanly(
+    new_database: Callable[[], str],
+) -> None:
+    """0037 on an instance in service: the existing routines read no external source; going
+    down removes the sources (and their secrets) and keeps the routines."""
+    url = new_database()
+    config = alembic_config(url)
+    command.upgrade(config, "0036")
+    org, space, routine = uuid4(), uuid4(), uuid4()
+    engine = create_engine(url)
+
+    def run(sql: str, **values: object) -> None:
+        with engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+    def rows(sql: str) -> list[tuple[object, ...]]:
+        with engine.connect() as connection:
+            return [tuple(row) for row in connection.execute(text(sql))]
+
+    try:
+        run(
+            "INSERT INTO organizations (id, slug, name, description, created_at) "
+            "VALUES (:id, 'acme', 'Acme', '', now())",
+            id=org,
+        )
+        run(
+            "INSERT INTO spaces (id, org_id, slug, name, description, branch, created_at, "
+            "sync_status, conflict_paths, tidy_enabled, tidy_time, tidy_timezone) VALUES "
+            "(:id, :org, 'infra', 'Infra', '', 'main', now(), 'never', '[]', true, '02:00', "
+            "'Europe/Paris')",
+            id=space,
+            org=org,
+        )
+        run(
+            "INSERT INTO routines (id, space_id, name, title, description, template, "
+            "instructions, frequency, weekday, at, scope, output_page, output_inbox, "
+            "output_email, output_webhook, enabled, warnings, created_at, updated_at) VALUES "
+            "(:id, :space, 'etat', 'État', '', '', 'Relis.', 'daily', NULL, '06:00', '[]', "
+            "'etat.md', false, '', false, true, '[]', now(), now())",
+            id=routine,
+            space=space,
+        )
+        command.upgrade(config, "0037")
+        assert rows("SELECT name, sources FROM routines") == [("etat", [])]
+        run(
+            "INSERT INTO routine_sources (id, space_id, name, base_url, auth, header, secret, "
+            "created_at, updated_at) VALUES (:id, :space, 'statut', "
+            "'https://status.example.com/', 'bearer', '', 'chiffré', now(), now())",
+            id=uuid4(),
+            space=space,
+        )
+        with pytest.raises(IntegrityError):  # one name per space
+            run(
+                "INSERT INTO routine_sources (id, space_id, name, base_url, auth, header, "
+                "created_at, updated_at) VALUES (:id, :space, 'statut', 'https://x.example/', "
+                "'', '', now(), now())",
+                id=uuid4(),
+                space=space,
+            )
+        command.downgrade(config, "0036")
+        assert rows("SELECT name FROM routines") == [("etat",)]
+        assert rows("SELECT to_regclass('routine_sources')") == [(None,)]
+        command.upgrade(config, "head")
+        assert rows("SELECT count(*) FROM routine_sources") == [(0,)]
     finally:
         engine.dispose()

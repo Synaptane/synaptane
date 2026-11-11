@@ -37,6 +37,7 @@
   <dl class="metadata">
     <div><dt>{{ _("Scope") }}</dt><dd>{% if routine.scope %}{% for folder in routine.scope %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ _("The whole space") }}{% endif %}</dd></div>
     <div><dt>{{ _("Folders it keeps") }}</dt><dd>{% if writes %}{% for folder in writes %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %} <span class="muted">{{ _("(it writes its pages there)") }}</span>{% else %}{{ _("None: it only writes its outputs") }}{% endif %}</dd></div>
+    {% if routine.sources %}<div><dt>{{ _("External sources") }}</dt><dd>{% for name in routine.sources %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %} <span class="muted">{{ _("(read over HTTP, GET only)") }}</span></dd></div>{% endif %}
     <div><dt>{{ _("Outputs") }}</dt><dd>{{ outputs(routine, wiki) }}</dd></div>
     <div><dt>{{ _("Memory") }}</dt><dd>{% if memory.enabled %}{{ _("Notes kept from one run to the next") }}{% else %}{{ _("None") }}{% endif %}{% if memory.enabled or memory.sha %} · <code>{{ memory.path }}</code>{% endif %}</dd></div>
     <div><dt>{{ _("File") }}</dt><dd><code>{{ routine_path(routine) }}</code>{% if routine.sha is none %} <span class="status status-warn">{{ _("Waiting to be written to the repository") }}</span>{% endif %}</dd></div>
@@ -93,6 +94,7 @@
         {% if out.conflicts %}<li><span class="tidy-op-label">{{ _("Changed by someone during the run, their version kept") }}</span> <span class="muted">{{ out.conflicts|join(" · ") }}</span></li>{% endif %}
         {% if out.inbox %}<li><span class="tidy-op-label">{{ _(pl(out.inbox|length, "{n} item dropped into the inbox", "{n} items dropped into the inbox"), n=out.inbox|length) }}</span> <span class="muted">{{ out.inbox|join(" · ") }}</span></li>{% endif %}
         {% if out.emails is defined %}<li><span class="tidy-op-label">{{ _(pl(out.emails, "{n} email sent", "{n} emails sent"), n=out.emails) }}</span></li>{% endif %}
+        {% if out.fetches %}<li><span class="tidy-op-label">{{ _(pl(out.fetches|length, "{n} call to the external sources", "{n} calls to the external sources"), n=out.fetches|length) }}</span> <span class="muted">{% for call in out.fetches %}<code>{{ call.source }} /{{ call.path }}</code> → {{ call.status }}{% if call.size %} ({{ _("{n} bytes", n=call.size) }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endif %}
         {% if out.webhook %}<li><span class="tidy-op-label">{{ _("routine.done webhook sent") }}</span></li>{% endif %}
         {% if out.memory == 'saved' %}<li><span class="tidy-op-label">{{ _("Memory updated") }}</span></li>
         {% elif out.memory == 'cleared' %}<li><span class="tidy-op-label">{{ _("Memory cleared by the routine") }}</span></li>
