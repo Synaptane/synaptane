@@ -79,7 +79,7 @@ def test_schedules_lists_and_flags_in_several_spellings() -> None:
         ("mensuel 1 06:00", ("monthly", None, 1, "06:00")),
     ):
         read_back = config(f"schedule: {french}")
-        assert read_back.plan[1:] == plan, french
+        assert read_back.plan[1:5] == plan, french
         assert routine_files.schedule_text(read_back).split()[0] in ("daily", "weekly", "monthly")
     assert "schedule: weekly sunday 18:00" in render(config("schedule: hebdo dimanche 18:00"))
     block = config("schedule: daily 02:00\nscope:\n  - infra\n  - 'clients/acme'\n")
@@ -94,21 +94,68 @@ def test_schedules_lists_and_flags_in_several_spellings() -> None:
 
 def test_an_unknown_field_is_reported_kept_and_harmless() -> None:
     text = DIGEST.replace(
-        "template: digest\n", "template: digest\nwrites:\n  - drafts\n  - notes\norder: after\n"
+        "template: digest\n", "template: digest\nlabels:\n  - drafts\n  - notes\norder: after\n"
     )
     parsed = read(text)
     assert parsed.config is not None and parsed.error is None
     assert [str(w) for w in parsed.warnings] == [
-        "Unknown field, ignored: writes.",
+        "Unknown field, ignored: labels.",
         "Unknown field, ignored: order.",
     ]
-    assert parsed.extra == ["writes:", "  - drafts", "  - notes", "order: after"]
+    assert parsed.extra == ["labels:", "  - drafts", "  - notes", "order: after"]
     rewritten = render(parsed.config, routine_files.extra_lines(text.encode()))
-    assert "writes:\n  - drafts\n  - notes\norder: after\n---" in rewritten
+    assert "labels:\n  - drafts\n  - notes\norder: after\n---" in rewritten
     assert read(rewritten).config == parsed.config
     unknown = read(DIGEST.replace("template: digest", "template: nightly"))
     assert unknown.config is not None and unknown.config.template == ""
     assert [str(w) for w in unknown.warnings] == ["Unknown template, ignored: nightly."]
+
+
+def test_folders_a_routine_keeps_are_read_like_the_scope_and_written_back() -> None:
+    def folders(value: str, header: str = "report: r.md\n") -> list[str] | None:
+        parsed = read(f"---\nschedule: daily 02:00\n{header}writes: {value}\n---\nDo it.\n")
+        assert parsed.config is not None, parsed.error
+        return parsed.config.writes
+
+    assert folders("veille, digests/") == ["veille", "digests"]
+    assert folders('["content/veille", "a, b"]') == ["veille", "a, b"]
+    assert folders("\n  - veille\n  - veille/2026\n  - ./suivi") == ["veille", "suivi"]
+    # Pages kept are an output on their own: no report, inbox, email nor webhook needed.
+    assert folders("digests", header="") == ["digests"]
+    plain = read(DIGEST).config
+    assert plain is not None and plain.writes == []
+    assert "writes:" not in render(plain)
+    config = read(DIGEST.replace("template: digest", "writes: digests, a, b")).config
+    assert config is not None
+    assert "\nwrites: digests, a, b\n" in render(config)
+    config.writes = ["veille", "a, b"]
+    assert '\nwrites: ["veille", "a, b"]\n' in render(config)
+    assert read(render(config)).config == config
+    # A copy made from the database does not know them: unknown, not "none".
+    assert Config.of.__doc__ and "writes" in Config.of.__doc__
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        ("/etc", "absolute path"),
+        ("C:\\wiki", "absolute path"),
+        ("../.synaptane", "goes up out of the wiki"),
+        ("content/../.synaptane/routines", "goes up out of the wiki"),
+        (".synaptane", "hidden folder"),
+        ("veille/.git", "hidden folder"),
+        ("content", "whole wiki"),
+        ("/", "absolute path"),
+        (".", "whole wiki"),
+        ("veille/index.md", "is a page"),
+        ("a, b, c, d, e, f", "5 folders at most"),
+        ('[["a"]]', "a list of folders is expected"),
+    ],
+)
+def test_folders_a_routine_keeps_are_checked(value: str, error: str) -> None:
+    parsed = read(f"---\nschedule: daily 02:00\nreport: r.md\nwrites: {value}\n---\nx\n")
+    assert parsed.config is None and parsed.error is not None
+    assert error in str(parsed.error), parsed.error
 
 
 @pytest.mark.parametrize(
@@ -149,6 +196,7 @@ def test_names() -> None:
     assert {k: t.file_name for k, t in routines.TEMPLATES.items()} == {
         "coherence": "consistency-check",
         "digest": "weekly-digest",
+        "archive": "digest-archive",
     }
     assert routine_files.name_for("!!!") == "routine"
     assert len(routine_files.name_for("x" * 80)) == 40
@@ -157,3 +205,27 @@ def test_names() -> None:
     for wrong in ("a/b", "-x", "x" * 41, "é"):
         with pytest.raises(SynaptaneError):
             routine_files.check_name(wrong)
+
+
+def test_the_memory_is_asked_for_in_the_file_only() -> None:
+    """`memory: true` asks for a memory; it is not copied to the database (`Config.store`),
+    and a copy of the database (memory unknown) writes no line."""
+    with_memory = DIGEST.replace("template: digest\n", "template: digest\nmemory: yes\n")
+    parsed = read(with_memory)
+    assert parsed.config is not None and parsed.config.memory is True and parsed.warnings == []
+    plain = read(DIGEST).config
+    assert plain is not None and plain.memory is False
+    assert "\nmemory: true\n" in render(parsed.config)
+    parsed.config.memory = None
+    assert "memory" not in render(parsed.config)
+    assert routine_files.memory_of(with_memory.encode())
+    assert not routine_files.memory_of(DIGEST.encode())
+    assert not routine_files.memory_of(None)
+    # Read from the header alone: an edit of a file invalid for another reason keeps it.
+    assert routine_files.memory_of(with_memory.replace("weekly friday", "never").encode())
+    assert not routine_files.memory_of(with_memory.replace("memory: yes", "memory: [1]").encode())
+    assert not routine_files.memory_of(b"no header")
+    assert "memory" in routine_files.FILE_ONLY and "memory" in routine_files.KNOWN
+    assert routine_files.memory_path("weekly-digest") == ".synaptane/memory/weekly-digest.md"
+    assert routines.from_template("coherence", "fr").memory is True
+    assert routines.from_template("digest", "fr").memory is False

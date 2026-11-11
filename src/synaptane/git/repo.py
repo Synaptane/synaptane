@@ -801,6 +801,17 @@ class Repository:
                 blobs.append(Blob(name.decode("utf-8", "replace"), sha.decode(), int(size)))
         return blobs
 
+    def symlinks(self, prefix: str, rev: str = "HEAD") -> set[str]:
+        """Paths under `prefix` that are symbolic links at commit `rev` (mode 120000). The
+        local copy checks them out as plain files (`core.symlinks=false`), so only Git knows."""
+        out = self._git("ls-tree", "-r", "-z", rev, "--", prefix, check=False).stdout
+        found = set()
+        for record in filter(None, out.split(b"\0")):
+            meta, _, name = record.partition(b"\t")
+            if meta.startswith(b"120000 "):
+                found.add(name.decode("utf-8", "replace"))
+        return found
+
     def blob(self, path: str, rev: str = "HEAD") -> bytes | None:
         result = self._git("cat-file", "blob", f"{rev}:{safe_path(path)}", check=False)
         return result.stdout if result.returncode == 0 else None

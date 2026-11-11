@@ -18,6 +18,7 @@ content/                          visible: wiki, search, MCP
   prompts/<name>.md               the team's prompts for assistants (optional)
   checks.md                       team checks: rules every page must follow (optional)
   routines/<name>.md              the space's agent routines (optional)
+  memory/<name>.md                what a routine remembers from one run to the next (optional)
   inbox/
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a.md     one note
     2026-10-03T14-12-05Z-note-wifi-password-policy-3f2a/       its attachments, if any
@@ -138,6 +139,7 @@ value that holds a backtick).
 | `level` | `warn` (default): reported. `block`: a write that breaks the rule is refused |
 | `message` | What to do, shown with each violation and with a refusal |
 | `mask` | `yes`: the excerpt of a `pattern` is masked, as for presets |
+| `fix` | `yes` or `no`: whether the [nightly maintenance](../admin/ai.md#wiki-maintenance) fixes what people break of this rule. By default, `yes` for a `block` rule and for personal data (a preset, or `mask: yes`), `no` for the other `warn` rules, only reported in **Health** |
 
 Limits: 50 rules, 500 characters per pattern, 3,000 RE2 steps per compiled pattern and 15,000
 for the whole file (a counted repetition such as `.{0,1000}` costs that many: RE2 stays
@@ -149,7 +151,7 @@ ignored and its line is shown in **Health**; the other rules apply. A save from 
 refuses a file with a faulty rule.
 
 A `block` rule refuses the writes of the web UI, the REST API, MCP, the import, the tidy-up,
-the report page of a routine and the undo of a tidy-up or of an assistant's run, when they add
+the report page and the pages a routine keeps, and the undo of a tidy-up or of an assistant's run, when they add
 a violation: a page that already broke the rule stays editable, and a
 page moved into a folder that a rule covers counts as new. A push cannot be refused.
 
@@ -180,16 +182,32 @@ Write the summary of the week…
 ```
 
 Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
-`monthly 1 06:00`; French is read too, such as `hebdo lundi 06:00`, and Synaptane writes English
-back), `scope` (folders separated by commas, a JSON list or one `- folder` line
-each), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
-`template`. Values are plain text or JSON. An unknown field is reported and ignored; an
-invalid file does not run, and its error shows in Settings → Routines and the REST API.
+`monthly 1 06:00`, or in the night of the space `night`, `night monday`, `night 1`; French is
+read too, such as `hebdo lundi 06:00` or `nuit lundi`, and Synaptane writes English back),
+`night` (`before` or `after` the tidy-up, with a night schedule), `scope` (folders separated
+by commas, a JSON list or one `- folder` line each), `writes` (folders the routine keeps, same
+syntax, 5 at most: it writes its own pages there; never the whole wiki, a hidden folder, nor
+a folder another routine keeps), `report`, `inbox`, `email` (`admins`, `members`, `none`),
+`webhook`, `enabled`, `template`, `memory` (`true`: the routine keeps a memory, see below). Values are plain text or JSON. An
+unknown field is reported and ignored; an invalid file does not run, and its error shows in
+Settings → Routines and the REST API.
 
 Written in **Settings → Routines** (organization administrators: a commit in their name) or by
 a push: anyone who can push can change them. Read at each synchronization; the state of the
 runs (last run, run requested) stays in the database, so a changed file never makes a routine
 run again. See [Agent routines](../admin/ai.md#agent-routines-per-space).
+
+## `.synaptane/memory/<name>.md`
+
+The **memory** of the routine `<name>`, when its file says `memory: true`: free Markdown,
+4,000 characters at most, that the routine rewrites in full at the end of a run and reads at
+the start of the next one (topics already reported, pages followed, what remains to watch).
+It goes in the run's commit; a run that is interrupted leaves it as it was, and a memory
+changed during a run (a push already synchronized, an administrator clearing it) keeps that
+change. Anyone who can push can correct or delete it; the routine reads it as data, never as instructions. Removed
+with its routine from Synaptane, and by the next synchronization when a push removes or
+renames the routine without moving its memory. See
+[Memory](../admin/ai.md#memory).
 
 ## `.synaptane/inbox/`
 
@@ -244,10 +262,16 @@ Git history since the last tidy-up.
 - Tidy-up runs are committed by `Synaptane tidy-up` (`Synaptane – rangement` in older
   histories), subject `Tidy-up: …`: one commit per run. Its commits, like Synaptane's merges
   and the initial files, are never reported to the inbox as changes.
-- A routine commits its report page and inbox items as `Synaptane routine (<title>)`, subject
-  `Routine "<title>": …` (`Synaptane – routine` in older histories).
-- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
-  the administrator's name. The routines kept in the database by older versions are written by
+- A routine commits its report page, inbox items, the pages written in its folders and its
+  memory as `Synaptane routine (<title>)`, subject `Routine "<title>": …` (`Synaptane –
+  routine` in older histories). When it wrote pages in its folders, the message ends with the
+  trailers `Source: routine-pages` and `Via: {"folders": ["<folder>", …], "report": "<page>"}`
+  (`report` when it has a report page): the nightly maintenance reads the pages of those
+  folders like a person's change, its report page aside.
+- A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>` (with
+  its memory), in the administrator's name; a memory cleared: `Routine memory cleared: <name>`.
+  The memories of routines removed by a push: `Synaptane: memories of removed routines
+  deleted`. The routines kept in the database by older versions are written by
   `Synaptane: routines written to the repository`, at the first synchronization after the
   upgrade.
 - Synaptane's own commits have English subjects: `Inbox: <title>` (a note dropped; also

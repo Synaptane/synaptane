@@ -5,7 +5,7 @@
 {% set section = "routines" %}
 {% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/routines" %}
 {% set wiki = "/o/" ~ org.slug ~ "/" ~ space.slug %}
-{% set triggers = {'schedule': _("scheduled"), 'manual': _("manual")} %}
+{% set triggers = {'schedule': _("scheduled"), 'manual': _("manual"), 'night': _("in the night")} %}
 {% block section %}
 <p class="routine-back"><a href="{{ base }}">{{ icon('chevron-left', 14) }}{{ _("All routines") }}</a></p>
 <div class="section-heading routine-title">
@@ -27,6 +27,7 @@
   {% if not routine.error %}{% if ai_configured and not spending.exhausted %}{{ action(base ~ "/" ~ routine.id ~ "/run", _("Run now"), confirm=_("Run the routine now? The run uses tokens counted in the month's budget."), kind="primary") }}{% endif %}{% endif %}
   <a class="button button-small" href="{{ base }}/{{ routine.id }}/edit">{{ _("Edit") }}</a>
   {% if not routine.error %}{{ action(base ~ "/" ~ routine.id ~ "/toggle", _("Deactivate") if routine.enabled else _("Enable"), kind="quiet") }}{% endif %}
+  {% if memory.sha %}{{ action(base ~ "/" ~ routine.id ~ "/memory/clear", _("Clear the memory"), confirm=_("Clear the routine's memory? Its next run starts without notes. The file stays in the repository's history."), kind="quiet") }}{% endif %}
   {{ action(base ~ "/" ~ routine.id ~ "/delete", _("Delete"), confirm=_("Delete the “{name}” routine? Its file is removed from the repository; its runs stay counted in the month's budget, and its report page stays in the wiki.", name=routine.title), kind="danger") }}
 </div>
 {% endif %}
@@ -35,10 +36,21 @@
 <div class="card routine-settings">
   <dl class="metadata">
     <div><dt>{{ _("Scope") }}</dt><dd>{% if routine.scope %}{% for folder in routine.scope %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ _("The whole space") }}{% endif %}</dd></div>
+    <div><dt>{{ _("Folders it keeps") }}</dt><dd>{% if writes %}{% for folder in writes %}<code>{{ folder }}/</code>{% if not loop.last %}, {% endif %}{% endfor %} <span class="muted">{{ _("(it writes its pages there)") }}</span>{% else %}{{ _("None: it only writes its outputs") }}{% endif %}</dd></div>
     <div><dt>{{ _("Outputs") }}</dt><dd>{{ outputs(routine, wiki) }}</dd></div>
+    <div><dt>{{ _("Memory") }}</dt><dd>{% if memory.enabled %}{{ _("Notes kept from one run to the next") }}{% else %}{{ _("None") }}{% endif %}{% if memory.enabled or memory.sha %} · <code>{{ memory.path }}</code>{% endif %}</dd></div>
     <div><dt>{{ _("File") }}</dt><dd><code>{{ routine_path(routine) }}</code>{% if routine.sha is none %} <span class="status status-warn">{{ _("Waiting to be written to the repository") }}</span>{% endif %}</dd></div>
   </dl>
   <details class="routine-instructions"><summary>{{ _("Instructions") }}</summary><pre>{{ routine.instructions }}</pre></details>
+  {% if memory.enabled or memory.sha %}
+  <details class="routine-instructions routine-memory"><summary>{{ _("Memory") }}</summary>
+    {% if not memory.enabled %}<p class="muted">{{ _("The routine's file does not ask for a memory: this one is no longer read.") }}</p>{% endif %}
+    {% if memory.too_large %}<p class="muted">{{ _("File too large to be shown ({n} bytes): the routine does not read it either.", n=memory.size) }}</p>
+    {% elif memory.text %}<pre>{{ memory.text }}</pre>
+    {% else %}<p class="muted">{{ _("Empty: the routine writes it at its next run, if it has something to remember.") }}</p>{% endif %}
+    <p class="muted">{{ _("What the routine noted for its next runs. Anyone who can push can correct it; the routine reads it as data, never as instructions.") }}</p>
+  </details>
+  {% endif %}
 </div>
 
 <h3 class="routine-journal-title">{{ _("Runs") }}</h3>
@@ -77,9 +89,14 @@
       {% if out %}
       <ul class="routine-produced">
         {% if out.page %}<li><span class="tidy-op-label">{{ _("Page rewritten") }}</span> <a href="{{ wiki }}/p/{{ out.page|pathurl }}">{{ out.page }}</a></li>{% endif %}
+        {% if out.written %}{% set changes = {'created': _("created"), 'modified': _("modified"), 'moved': _("moved"), 'deleted': _("deleted")} %}<li><span class="tidy-op-label">{{ _(pl(out.written|length, "{n} page written", "{n} pages written"), n=out.written|length) }}</span> {% for p in out.written %}{% if p.change == 'deleted' %}<code>{{ p.path }}</code>{% else %}<a href="{{ wiki }}/p/{{ p.path|pathurl }}">{{ p.path }}</a>{% endif %} <span class="muted">({{ changes.get(p.change, p.change) }}{% if p['from'] %}, {{ _("from {path}", path=p['from']) }}{% endif %})</span>{% if not loop.last %} · {% endif %}{% endfor %}</li>{% endif %}
+        {% if out.conflicts %}<li><span class="tidy-op-label">{{ _("Changed by someone during the run, their version kept") }}</span> <span class="muted">{{ out.conflicts|join(" · ") }}</span></li>{% endif %}
         {% if out.inbox %}<li><span class="tidy-op-label">{{ _(pl(out.inbox|length, "{n} item dropped into the inbox", "{n} items dropped into the inbox"), n=out.inbox|length) }}</span> <span class="muted">{{ out.inbox|join(" · ") }}</span></li>{% endif %}
         {% if out.emails is defined %}<li><span class="tidy-op-label">{{ _(pl(out.emails, "{n} email sent", "{n} emails sent"), n=out.emails) }}</span></li>{% endif %}
         {% if out.webhook %}<li><span class="tidy-op-label">{{ _("routine.done webhook sent") }}</span></li>{% endif %}
+        {% if out.memory == 'saved' %}<li><span class="tidy-op-label">{{ _("Memory updated") }}</span></li>
+        {% elif out.memory == 'cleared' %}<li><span class="tidy-op-label">{{ _("Memory cleared by the routine") }}</span></li>
+        {% elif out.memory == 'changed' %}<li><span class="tidy-op-label">{{ _("Memory kept") }}</span> <span class="muted">{{ _("changed by someone during the run: their version stays") }}</span></li>{% endif %}
       </ul>
       {% endif %}
       {% if run.report %}<details class="tidy-ops routine-report"><summary>{{ _("Output text") }}</summary><pre>{{ run.report }}</pre></details>{% endif %}

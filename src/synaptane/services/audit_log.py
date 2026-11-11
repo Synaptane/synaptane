@@ -331,6 +331,7 @@ ACTIONS: dict[str, Kind] = {
     "space.git_host_keys_refreshed": Kind("settings", Label("GitHub SSH host keys updated")),
     "space.webhook_secret_rotated": Kind("settings", Label("Git webhook secret renewed")),
     "space.tidy_settings": Kind("settings", Label("Tidy-up settings changed"), ("changed",)),
+    "space.night_report_test": Kind("settings", Label("Test night report sent")),
     "space.embeddings": Kind("settings", Label("Semantic search of the space"), ("enabled",)),
     "space.vocation_updated": Kind(
         "settings", Label("Space purpose changed"), ("vocation_template", "removed")
@@ -343,6 +344,7 @@ ACTIONS: dict[str, Kind] = {
     "routine.created": Kind("settings", Label("Routine created"), ("routine", "routine_template")),
     "routine.updated": Kind("settings", Label("Routine changed"), ("routine",)),
     "routine.deleted": Kind("settings", Label("Routine deleted"), ("routine",)),
+    "routine.memory_cleared": Kind("settings", Label("Routine memory cleared"), ("routine",)),
     "sso.provider_saved": Kind(
         "settings", Label("SSO provider saved"), ("sso", "auto_create", "domains")
     ),

@@ -38,3 +38,22 @@ def test_problems_in_words_and_their_translation() -> None:
     assert Problem("team", "custom", "a.md", "dates out of order").describe() == (
         "dates out of order"
     )
+
+
+def test_a_team_check_in_words_and_in_french() -> None:
+    french: Any = translator("fr")
+    email = "No personal email\nj•••@gmail.com"
+    problem = Problem("team", maintenance.TEAM_KIND, "a.md", email, rank=maintenance.RANK_PRIVATE)
+    assert problem.describe() == 'team check "No personal email" `j•••@gmail.com`'
+    assert maintenance.localize(problem.describe() + " — contact client", french) == (
+        'contrôle de l\'équipe "No personal email" `j•••@gmail.com` — contact client'
+    )
+    missing = Problem("team", maintenance.TEAM_KIND, "notes/a.md", "A type\n")
+    assert missing.describe() == 'team check "A type"'
+    # Personal data first, then what blocks, then the wiki's own problems.
+    link = Problem("wiki", "broken_link", "a.md", "b.md")
+    ranked = sorted(
+        [link, Problem("team", "check", "z.md", "B\n", rank=maintenance.RANK_BLOCK), problem],
+        key=maintenance.rank,
+    )
+    assert ranked == [problem, ranked[1], link] and ranked[1].page == "z.md"

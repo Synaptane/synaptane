@@ -311,6 +311,9 @@ haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le pas
   dépôt », décochée par défaut) : un passage part N minutes après un dépôt (**Délai après un
   dépôt**, 15 minutes par défaut, de 1 à 1 440), en plus de celui de l'heure planifiée. Les
   notes déposées pendant ce délai rejoignent le même passage. Rien n'est programmé quand le budget du mois est épuisé.
+- **La nuit et son compte rendu** : des routines peuvent tourner à l'heure du rangement, juste
+  avant ou après lui, et la nuit envoie alors un seul compte rendu (e-mail, webhook Slack) :
+  voir [La nuit](#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu).
 - **Avis aux déposants** : après chaque passage commité, la personne qui a déposé une note
   reçoit un e-mail (un seul par passage) qui dit où elle a été rangée, avec les liens des
   pages, ou pourquoi elle a été laissée. Actif par défaut, désactivable par chacun dans
@@ -449,10 +452,18 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   - les liens cassés introduits dans les pages qu'ils ont modifiées, ou dans les pages qui
     menaient à une page qu'ils ont supprimée ou déplacée ;
   - leurs nouvelles pages vers lesquelles aucune page ne mène, absentes de l'index de leur
-    dossier (`README.md`, si le dossier en a un), sans titre ou vides.
+    dossier (`README.md`, si le dossier en a un), sans titre ou vides ;
+  - les [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) qu'ils ont
+    enfreints dans les pages qu'ils ont modifiées : les règles `block` et celles de données
+    personnelles (un préréglage, ou `mask: yes`). Les autres règles `warn` sont seulement
+    signalées dans **Santé** : un avertissement dit « bon à savoir », pas « à corriger ».
+    Une règle en décide autrement avec `fix: yes` ou `fix: no`. Une règle fautive est
+    écartée, comme partout : **Santé** nomme sa ligne, et les autres règles s'appliquent.
   Les commits de Synaptane ne comptent pas : ce que casse le rangement est déjà repris par
-  sa vérification de fin de passage. Les imports non plus, c'est-à-dire tout commit qui touche
-  plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
+  sa vérification de fin de passage. Seule exception : les pages qu'une routine tient dans
+  ses propres dossiers comptent comme la modification d'une personne (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)). Les imports ne
+  comptent pas non plus, c'est-à-dire tout commit qui touche plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
   rangement les relit déjà d'un bloc, avec son élément « Import : N pages ». Seul compte ce
   que les membres changent ensuite dans ces pages. Un import plus petit est relu page par
   page, comme toute modification.
@@ -464,12 +475,34 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   corriger un problème. Sinon, il laisse le problème, avec une raison. Ses pouvoirs ne
   changent pas : mêmes outils, même plafond de suppressions, mêmes alertes et même
   annulation que pour tout passage.
+  - Pour un contrôle de l'équipe, il reçoit la règle (titre, niveau, message), la page, la
+    ligne et un extrait. Il corrige la page elle-même : il retire ce que la règle interdit,
+    ou le réécrit comme le dit le message. Il ne complète un champ du front matter qu'avec
+    une valeur que la page donne elle-même (une date déjà écrite, remise au bon format) ; il
+    n'en invente jamais.
+  - Une donnée personnelle n'est jamais en clair hors de la page : l'extrait est masqué
+    (`j•••@gmail.com`) dans l'élément, le journal et ce que Synaptane retient d'un problème
+    laissé. L'agent retire la donnée ou la remplace par une mention neutre, et il a pour
+    consigne de ne jamais la recopier ailleurs. S'il l'écrit quand même dans son résumé ou
+    dans la raison d'un élément de ce passage, quel qu'il soit, ce texte est masqué de la
+    même façon, et le message du commit aussi. Ce masquage s'applique à **tout** passage de
+    rangement (planifié, **Ranger maintenant**, au fil de l'eau ou enchaîné) dès que l'espace a
+    une règle masquée (un préréglage, ou `mask: yes`), même si l'entretien ne lui a rien
+    donné : une adresse lue dans une note n'arrive jamais dans le journal, une note laissée en
+    inbox, le message du commit, l'avis à l'auteur de la note ni le webhook `tidy.completed`.
+    Une page que l'agent déplace garde ses
+    problèmes, sous son nouveau chemin. L'agent lit bien la page, comme toute page qu'il
+    range.
 - **Ni déluge ni répétition** :
   - pas de rattrapage du passé : les problèmes sont comptés depuis la fin du dernier passage,
     ou depuis l'activation de l'entretien (ou la mise à jour) ;
   - **10 problèmes au plus par nuit** : assez pour une journée ordinaire de modifications,
     une petite part des limites d'un passage, et une liste facile à vérifier dans le journal.
-    Les autres attendent les nuits suivantes ;
+    Les autres attendent les nuits suivantes. Les plus urgents passent d'abord : les données
+    personnelles (chaque nuit où elles restent, la page est lue, indexée, synchronisée et
+    sauvegardée), puis les règles `block` de l'équipe, puis les liens cassés, les pages
+    absentes d'un index, les pages isolées, sans titre et vides, et enfin les règles `warn`
+    avec `fix: yes` ;
   - un problème laissé par l'agent n'est reproposé que s'il est **réintroduit** : il a
     disparu puis est revenu, ou quelqu'un l'écrit de nouveau (le même lien cassé ajouté une
     fois de plus, la page recréée). Modifier la page ne suffit pas : une page de journal
@@ -555,12 +588,15 @@ Une routine, c'est :
 
 - des **consignes** : ce que l'agent doit faire et ce que doit contenir sa sortie ;
 - un **planning** : chaque jour, chaque semaine (un jour) ou chaque mois (jour 1 à 28), à une
-  heure locale de l'espace (le fuseau du rangement). Une routine créée, réactivée ou
-  replanifiée après son heure du jour attend le prochain créneau ; **Lancer maintenant** la
-  fait tourner aussitôt ;
+  heure locale de l'espace (le fuseau du rangement), ou **la nuit**, juste avant ou après le
+  rangement (voir [La nuit](#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu)). Une
+  routine créée, réactivée ou replanifiée après son heure du jour attend le prochain créneau ;
+  **Lancer maintenant** la fait tourner aussitôt ;
 - un **périmètre** : des dossiers du wiki, ou tout l'espace. L'agent ne lit que là
   (arborescence, pages, recherche, rétroliens, pages proches, historique) ;
-- des **sorties**, au moins une :
+- au besoin, des **dossiers tenus** : l'agent y écrit ses propres pages (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)) ;
+- des **sorties**, au moins une (les dossiers tenus en sont une) :
   - une **page de rapport**, réécrite à chaque passage (`rapports/coherence.md` par exemple).
     Une modification faite à la main y sera remplacée : la page le dit en pied ;
   - des **éléments dans l'inbox** (10 au plus par passage), un par correction à faire, avec
@@ -590,6 +626,7 @@ email: admins
 webhook: false
 enabled: true
 template: coherence
+memory: true
 ---
 Relis les pages modifiées depuis le dernier passage…
 ```
@@ -598,20 +635,24 @@ Relis les pages modifiées depuis le dernier passage…
 |---|---|
 | `title` | Nom affiché dans Synaptane (par défaut : tiré du nom du fichier) |
 | `description` | Facultative, sur une ligne |
-| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00` |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00`. La nuit : `night`, `night monday`, `night 1` (`nuit`, `nuit lundi`…) |
+| `night` | Avec un planning de nuit : `before` ou `after` le rangement (`after` par défaut) |
 | `scope` | Dossiers du wiki, séparés par des virgules, en liste JSON, ou un par ligne `- dossier` ; absent : tout l'espace |
+| `writes` | Dossiers tenus par la routine, avec la même syntaxe que `scope` (5 au plus) ; absent : aucun, la routine n'écrit que dans ses sorties |
 | `report` | Page de rapport réécrite à chaque passage, relative au wiki |
 | `inbox` | `true` : un élément dans l'inbox par correction à faire |
 | `email` | `admins`, `members` ou `none` |
 | `webhook` | `true` : le webhook `routine.done` |
 | `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
-| `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
+| `template` | Modèle d'origine (`coherence`, `digest`, `archive`), indiqué par Synaptane |
+| `memory` | `true` : la routine garde des notes d'un passage à l'autre (voir [Mémoire](#mémoire)) ; `false` par défaut |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
 son titre : `consistency-check.md`, `weekly-digest.md` ; une autre prend un nom tiré de son
 titre, sauf si vous en choisissez un. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
-de 20 dossiers au plus, au moins une sortie, et un fichier de 64 000 octets au plus.
+de 20 dossiers au plus, 5 dossiers tenus au plus, au moins une sortie, et un fichier de
+64 000 octets au plus.
 
 - **À chaque synchronisation**, Synaptane lit les fichiers au commit courant de l'espace. Un
   nouveau fichier crée la routine, qui attend son prochain créneau. Un fichier modifié change
@@ -634,7 +675,135 @@ peut modifier les consignes de rangement : accordez le droit de pousser en cons�
 Synaptane, seuls les administrateurs de l'organisation écrivent ces fichiers : pages, notes,
 imports, e-mails capturés et assistants (MCP, REST) n'écrivent que dans `content/` et dans
 l'inbox. Quel que soit son auteur, une routine garde ses garde-fous : elle n'écrit nulle part
-ailleurs que dans ses sorties, dans la limite du budget.
+ailleurs que dans ses sorties et ses dossiers tenus, dans la limite du budget.
+
+### Dossiers tenus par une routine
+
+Une routine peut aussi tenir ses propres pages, comme des modules qui tiennent chacun les
+leurs : une page par semaine dans `resumes/`, une page de veille, un tableau de suivi.
+Donnez-lui des dossiers dans `writes` (Paramètres → Routines : **Dossiers tenus par la
+routine**, un par ligne ; REST : `writes`) :
+
+```markdown
+---
+title: Archive des résumés
+schedule: hebdo vendredi 16:00
+scope: projets, decisions
+writes: resumes
+email: members
+---
+Écris le résumé de la semaine dans une nouvelle page resumes/<année>-S<semaine>.md, puis
+ajoute-la en tête de resumes/README.md.
+```
+
+- **Sans `writes`, rien ne change** : la routine n'écrit que dans ses sorties.
+- **Ce qu'elle peut y faire** : créer, réécrire, compléter, modifier, déplacer et supprimer
+  des pages Markdown, avec les outils d'écriture du rangement et leurs garde-fous : une page
+  est lue en entier avant d'être remplacée, les champs de vérification (`owner`, `verified`,
+  `review_every`) sont gardés, les liens cassés sont signalés à l'agent. Au plus 15 pages
+  modifiées et 5 suppressions par passage ; ce qu'elle supprime reste dans l'historique Git.
+- **Nulle part ailleurs**, quoi que demande une page lue : un autre dossier, `.synaptane/`, un
+  fichier caché, un lien symbolique du dépôt, sa propre page de rapport (écrite par
+  `write_report`), un déplacement qui fait sortir une page de ses dossiers ou en fait entrer
+  une, un déplacement qui réécrirait les liens d'une page située ailleurs (sa page de rapport
+  mise à part). L'agent
+  reçoit le refus comme une erreur d'outil, avec la raison, et continue : le passage n'échoue
+  pas pour autant.
+- **Contrôlée comme toute écriture de Synaptane** : un secret probable ajouté dans une page
+  est refusé, tout comme ce qui enfreint une règle `block` des contrôles de l'équipe
+  (`.synaptane/checks.md`). Une règle `warn` n'arrête pas la routine : comme pour une
+  personne, ce qu'elle enfreint s'affiche dans **Santé**, et l'entretien de la nuit le corrige
+  si la règle est de celles qu'il corrige (données personnelles, `fix: yes`).
+- **Les dossiers** : 5 au plus, relatifs au wiki (`content/resumes` se lit `resumes`). Jamais
+  tout le wiki, un dossier caché (`.synaptane`, `.git`), un chemin qui remonte (`..`) ni un
+  chemin absolu : sinon le fichier est invalide, et le formulaire ou l'API le refusent. Un
+  dossier inclus dans un autre déjà donné est retiré. Les pages tenues sont une sortie : une
+  routine qui ne fait que tenir des pages n'a besoin ni de rapport, ni d'inbox, ni d'e-mail,
+  ni de webhook.
+- **Une routine par dossier** : un dossier tenu par une routine ne peut pas être tenu par une
+  autre routine de l'espace, ni être inclus dans l'un de ses dossiers, ni en inclure un, ni
+  contenir la page de rapport d'une autre routine (une routine peut garder son propre rapport
+  dans son dossier) ; une page de rapport ne peut pas non plus être dans un dossier tenu par
+  une autre routine. Le formulaire et l'API le refusent, en nommant l'autre routine. Un push ne
+  peut pas être refusé : à la synchronisation suivante, les **deux** routines qui se
+  chevauchent deviennent invalides, chacune nommant l'autre, et aucune ne tourne tant qu'un
+  fichier n'est pas corrigé. Git ne dit pas laquelle des deux modifications était fautive, et
+  faire tourner l'une ou l'autre réécrirait des pages que l'autre tient. Un dossier qui contient
+  la page de rapport d'une autre routine rend invalide sa propre routine.
+- **Périmètre et dossiers tenus** : la routine lit ses dossiers même hors de son périmètre. Le
+  périmètre dit ce qu'elle relit ; `writes`, ce qu'elle tient.
+- **Un seul commit par passage** : les pages écrites partent avec le rapport, les éléments
+  d'inbox et la [mémoire](#mémoire) si elle en garde une, au nom de la routine. Une page
+  modifiée par quelqu'un pendant le passage est fusionnée avec sa modification ; en cas de
+  conflit, sa version est gardée et le journal le dit. Un passage interrompu ne publie rien.
+- **Ensuite** : ces pages n'arrivent pas au rangement comme des modifications à examiner (les
+  dossiers sont ceux de la routine : le rangement ne les réécrit pas dans son dos).
+  L'[entretien de la nuit](#entretien-du-wiki), lui, les lit comme la modification d'une
+  personne : un lien cassé qu'elles apportent, une nouvelle page absente de l'index de son
+  dossier, ou une donnée personnelle qui y est écrite (un contrôle de l'équipe qu'il corrige),
+  est corrigé. La page de rapport reste en dehors, comme avant (elle est réécrite à chaque
+  passage), tout comme la mémoire, qui n'est pas une page du wiki.
+- **Journal** : la page de la routine, son e-mail, le webhook `routine.done` (`written`) et
+  l'API REST (`outputs.written` d'un passage) listent les pages écrites : chemin et nature
+  (créée, modifiée, déplacée, supprimée).
+- **Dans le fichier seulement** : Synaptane lit les dossiers dans le fichier de la routine,
+  sans copie en base. Avant la première synchronisation d'un espace, une routine ne peut donc
+  pas en avoir.
+- Parmi les modèles fournis, seule l'**Archive des résumés** tient un dossier.
+
+### Mémoire
+
+Sans mémoire, une routine repart de zéro à chaque passage : elle connaît l'activité depuis son
+dernier passage et ses consignes, rien de plus. Avec `memory: true` dans son fichier (la case
+**Garder des notes d'un passage à l'autre** du formulaire), elle garde aussi une **mémoire** :
+ce qu'elle veut que ses prochains passages sachent, comme les sujets déjà signalés, les pages
+qu'elle suit, les décisions notées, ce qui reste à surveiller.
+
+- **Où** : `.synaptane/memory/<nom>.md`, à côté des autres fichiers de `.synaptane/`, sous le
+  nom de la routine. C'est un fichier du dépôt, versionné et visible par l'équipe : son
+  historique dit ce que la routine a noté et quand, et quiconque peut pousser sur le dépôt peut
+  le corriger ou l'effacer. Un passage ne réécrit jamais le fichier de la routine elle-même.
+- **Désactivée par défaut** : la mémoire est relue à chaque passage, elle coûte donc des
+  jetons à chaque fois (quelques milliers de caractères au plus). Une routine existante ne
+  change pas de comportement tant que vous ne l'activez pas. Le modèle **Contrôle de
+  cohérence** garde une mémoire ; le **Résumé hebdomadaire** et l'**Archive des résumés** non
+  (l'historique de la semaine leur suffit).
+- **En lecture** : au début du passage, l'agent reçoit la mémoire telle qu'elle est au commit
+  que lit le passage, 4 000 caractères au plus (un fichier plus long, modifié à la main, est
+  coupé, et l'agent en est averti). Comme les pages, elle lui est donnée comme une donnée,
+  jamais comme une consigne : elle ne change ni les consignes de la routine, ni ses outils, ni
+  son périmètre.
+- **En écriture** : l'agent la réécrit en entier avec l'outil `remember`, 4 000 caractères au
+  plus : un résumé, pas un journal qui grossit sans fin. Un secret probable est refusé, de même
+  qu'un texte qui enfreint une règle `block` des
+  [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) portant sur le texte de
+  toutes les pages (un motif, les adresses e-mail…) ; les règles limitées à des dossiers ou à
+  un champ d'en-tête concernent les pages et ne s'appliquent pas. La mémoire entre dans le
+  commit unique du passage, avec le rapport, les éléments d'inbox et les pages écrites dans les
+  [dossiers tenus](#dossiers-tenus-par-une-routine) : **un passage interrompu la laisse telle
+  quelle**, et n'en publie aucun.
+- **Modifiée pendant le passage** (un push, un administrateur qui la vide) : cette
+  modification l'emporte, et la version du passage est abandonnée (le journal indique
+  « Mémoire conservée »). L'agent n'a pas vu cette modification, et une mémoire vidée parce
+  qu'elle contenait une erreur ne doit pas revenir avec un passage commencé avant. Un push n'est
+  vu que lorsque Synaptane l'a synchronisé : s'il arrive après la fin du passage, les deux
+  versions de la mémoire sont en [conflit](git.fr.md#conflits), et un administrateur choisit
+  celle à garder.
+- **Les droits** : seuls les passages de la routine l'écrivent depuis Synaptane ; aucun autre
+  chemin d'écriture n'atteint `.synaptane/`. Les contributeurs la lisent sur la page de la
+  routine et dans l'API REST (`GET …/routines/{id}/memory`) ; les administrateurs de
+  l'organisation peuvent aussi la **vider** (un commit à leur nom ; en REST :
+  `DELETE …/routines/{id}/memory`).
+- **Routine renommée ou supprimée** : supprimer une routine depuis Synaptane retire sa mémoire
+  dans le même commit. Une routine supprimée ou renommée par un push perd sa mémoire à la
+  synchronisation suivante (un commit `Synaptane: memories of removed routines deleted`) :
+  ainsi, une nouvelle routine du même nom n'hérite jamais de notes écrites pour une autre.
+  Pour la garder en renommant, déplacez-la aussi
+  (`git mv .synaptane/memory/ancien.md .synaptane/memory/nouveau.md`). L'historique garde les
+  notes dans tous les cas.
+- **Dans le fichier seulement** : comme les dossiers tenus, `memory: true` se lit dans le
+  fichier de la routine, sans copie en base. Avant la première synchronisation d'un espace, une
+  routine ne peut donc pas garder de mémoire.
 
 ### Modèles fournis
 
@@ -649,7 +818,9 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   les 20 premières pages à relire (doublons possibles, qu'il vérifie en les lisant). Sortie :
   la page `rapports/coherence.md` et un élément d'inbox par problème à corriger, avec les
   pages et extraits concernés. Il ne redépose pas un problème déjà déposé et pas encore
-  rangé.
+  rangé. Il garde une [mémoire](#mémoire) : les problèmes signalés (pour ne plus les présenter
+  comme nouveaux tant que leurs pages ne changent pas), les doutes
+  à revérifier et, une semaine calme, les pages anciennes déjà relues.
 
   **Une fausse alerte ne revient pas.** Quand un élément déposé par une routine quitte
   l'inbox, ce qu'il est devenu est retenu, lié aux pages concernées telles qu'elles étaient
@@ -667,8 +838,13 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   la semaine, d'après l'historique Git du wiki (pages créées, très modifiées) et les passages
   du rangement (éléments rangés, laissés). Sortie : la page `rapports/semaine.md` et un
   e-mail aux membres de l'espace.
+- **Archive des résumés**, chaque vendredi à 16:30 : le même résumé, mais dans une page à lui
+  par semaine, `resumes/2026-S46.md`, ajoutée en tête de `resumes/README.md` ; les semaines
+  précédentes restent telles quelles. Il tient le dossier `resumes/` (`digests/` en anglais) :
+  voir [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine). Ni page de rapport,
+  ni e-mail.
 
-Les deux modèles existent en anglais et en français : le formulaire est pré-rempli avec les
+Les modèles existent en anglais et en français : le formulaire est pré-rempli avec les
 consignes et la page de rapport dans la langue de la personne qui crée la routine
 (`reports/consistency.md` et `reports/weekly-digest.md` en anglais), et une routine activée en
 un clic prend aussi cette langue. Une **routine vierge** prend vos propres consignes (revue
@@ -676,17 +852,22 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
 
 ### Sécurité
 
-- **Une routine n'écrit nulle part ailleurs que dans ses sorties.** Elle n'a aucun outil
-  d'écriture du wiki : la page de rapport a un chemin fixé par la routine (l'agent ne le
-  choisit pas), les éléments vont dans l'inbox, et les vraies corrections passent par le
+- **Une routine n'écrit nulle part ailleurs que dans ses sorties.** Sans dossier tenu, elle n'a
+  aucun outil d'écriture du wiki : la page de rapport a un chemin fixé par la routine (l'agent
+  ne le choisit pas), les éléments vont dans l'inbox, et les vraies corrections passent par le
   rangement. C'est aussi ce qui limite l'injection : un texte malveillant lu dans une page ne
-  peut, au pire, que proposer un élément d'inbox, que le rangement examine.
+  peut, au pire, que proposer un élément d'inbox, que le rangement examine. Avec des dossiers
+  tenus, le pire est une page modifiée dans ces dossiers, inscrite dans l'historique Git (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)).
 - Tout ce que l'agent lit (pages, résultats de recherche, historique, activité, contrôle de
   santé, vocation de l'espace) lui est présenté comme une donnée, jamais une consigne, entre
   des balises qu'un texte ne peut pas refermer. Les consignes de la routine viennent d'un
   administrateur et restent soumises à ces règles.
-- Un secret probable (mot de passe, clé, jeton) dans le texte de sortie ou un élément est
-  refusé à l'agent, qui doit le retirer.
+- Un secret probable (mot de passe, clé, jeton) dans le texte de sortie, un élément ou la
+  mémoire est refusé à l'agent, qui doit le retirer.
+- **Mémoire** : quiconque peut pousser sur le dépôt peut modifier la mémoire d'une routine ;
+  l'agent la lit comme une donnée, comme les pages, et elle ne donne aucun droit (voir
+  [Mémoire](#mémoire)).
 - **Vocation de l'espace** : si le dépôt contient `.synaptane/vocation.md`, l'agent la reçoit
   en contexte, pour juger de ce qui est dans le sujet.
 - **Langue** : comme pour le rangement, les consignes de l'agent sont en anglais ; il écrit le
@@ -711,17 +892,111 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   `routine_failed` (e-mail, webhook `space.alert`). Une erreur passagère du fournisseur avant
   tout travail est retentée par la file, sans alerte ; le quota d'un abonnement est relevé
   comme pour le rangement (alerte `quota_high` au-delà de 90 %).
-- **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés,
-  e-mails envoyés, webhook), texte de sortie, modèle, jetons, coût estimé ou quota, et pour
-  un échec, la cause traduite (le détail technique pour les administrateurs).
-- Le commit d'une routine (page de rapport et éléments d'inbox ensemble) est au nom de
+- **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés, pages
+  écrites dans ses dossiers, e-mails envoyés, webhook, mémoire mise à jour ou conservée),
+  texte de sortie, modèle, jetons, coût estimé ou quota, et pour un échec, la cause traduite
+  (le détail technique pour les administrateurs).
+- Le commit d'une routine (page de rapport, éléments d'inbox, pages écrites et mémoire ensemble) est au nom de
   `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` : il n'apparaît pas comme une
   modification à examiner par le rangement (pas plus que ceux des versions antérieures, au nom
   de `Synaptane – routine`). Les passages d'une routine supprimée restent comptés dans le budget du mois.
 - Sans fournisseur d'IA configuré, une routine planifiée ne tourne pas (pas d'échec inscrit) ;
   lancée à la main, elle échoue en le disant.
 
-Le rangement nocturne reste à part : il n'est pas une routine et garde ses réglages.
+### La nuit : routines et rangement, puis un seul compte rendu
+
+Une routine peut **faire partie de la nuit** de son espace au lieu d'avoir sa propre heure :
+elle tourne alors à l'heure du rangement, juste avant ou juste après lui, une routine après
+l'autre, et la nuit se termine par **un seul compte rendu**.
+
+- **Dans le fichier** : `schedule: night` (chaque nuit), `night monday` (la nuit du lundi),
+  `night 1` (la nuit du 1er, jour 1 à 28). Le jour est celui de l'heure du rangement : avec un
+  rangement à 2 h, `night monday` tourne le lundi à 2 h, dans la nuit du dimanche au lundi. En
+  français : `nuit`, `chaque nuit`, `nuit lundi`, `nuit 1`, réécrits en anglais. Sa place :
+  `night: before` ou `night: after` le rangement (`after` par défaut ; `avant` et `après` sont
+  lus aussi). Dans le formulaire : **Quand → La nuit, avant (ou après) le rangement**.
+- **Ordre** : les routines placées avant le rangement, par nom de fichier, puis le rangement
+  planifié (avec son [entretien](#entretien-du-wiki)), puis les routines placées après lui, par
+  nom de fichier. Pour choisir un ordre, nommez les fichiers `10-controle.md`, `20-resume.md`.
+- **Une séquence, un verrou** : la nuit est une seule tâche de la file lente du worker, qui
+  tient le verrou de l'espace du début à la fin : aucun rangement ni aucune autre routine de
+  l'espace ne s'intercale. Si l'espace est occupé, la nuit démarre deux minutes plus tard.
+- **Une nuit ne tourne jamais deux fois** : elle est planifiée une fois par espace et par jour
+  local, et chaque étape est notée avant et après son passage. Une étape en cours quand le
+  worker s'est arrêté n'est pas relancée (elle a peut-être déjà coûté) : elle est marquée
+  interrompue, et la nuit continue. Une nuit encore en attente quand la suivante arrive est
+  sautée ; une nuit restée ouverte 12 heures est close, sauf si elle tourne encore (elle tient
+  le verrou de l'espace) : une nuit lente n'est jamais coupée.
+- **Un échec n'arrête jamais la nuit** : les étapes suivantes tournent. Une erreur passagère
+  du fournisseur (limite de débit, API surchargée) est retentée plus tard, seule, hors de la
+  nuit. Une connexion à l'IA cassée pour de bon (connexion expirée, clé refusée, modèle
+  introuvable, conteneur des agents absent) saute les étapes d'IA restantes, qui échoueraient
+  de la même façon. Un fournisseur qui ne répond pas à temps, ou injoignable un moment, ne fait
+  rien sauter : l'étape suivante réessaie.
+  Une fois le budget du mois épuisé, les routines restantes sont sautées.
+- **Rangement désactivé** : les routines de la nuit tournent quand même à son heure, et le
+  compte rendu dit que le rangement est désactivé. **Sans fournisseur d'IA**, rien n'est tenté.
+- **Les routines à heure fixe** ne changent pas : elles gardent leur heure et leur tâche.
+- **Les sorties d'une routine de nuit restent les siennes** : sa page, ses éléments d'inbox,
+  son e-mail et son webhook `routine.done`, comme le dit son fichier. Le compte rendu ne les
+  répète pas : il donne le statut de chaque routine, son résumé en une ligne et un lien vers sa
+  page de rapport. Une routine de nuit à qui le compte rendu suffit n'a pas d'`email`.
+- **Les alertes ne changent pas** (`tidy_failed`, `routine_failed`…, au plus une fois par jour
+  et par type).
+
+**Le compte rendu** (**Paramètres → Rangement → La nuit et son compte rendu**,
+`…/tidy-settings` en REST) dit, pour la nuit :
+- le rangement : éléments rangés et laissés, problèmes du wiki corrigés et laissés, son
+  résumé, ou son échec avec la cause ;
+- chaque routine : son statut, avant ou après le rangement, son résumé, un lien vers sa page
+  de rapport, les éléments qu'elle a déposés dans l'inbox, les pages écrites dans ses
+  [dossiers tenus](#dossiers-tenus-par-une-routine), si sa [mémoire](#mémoire) a été mise à
+  jour, et un lien vers son journal en cas d'échec ;
+- ce que l'[entretien](#entretien-du-wiki) a fait des
+  [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) enfreints par des
+  personnes : corrigés, laissés, s'il y en a. Pas tous les écarts encore présents dans le wiki,
+  les mêmes chaque nuit : l'onglet **Santé** les liste ;
+- le coût de la nuit (et du mois, avec un budget), ou le quota de l'abonnement ;
+- un lien vers le journal de la nuit (l'onglet **Rangement**, qui montre **Les dernières
+  nuits**, étape par étape ; les étapes des routines seulement à qui voit les routines, à
+  partir des contributeurs : un lecteur n'y voit que le rangement, là comme dans
+  `GET …/nights`).
+
+La cause d'un échec donne l'adresse du fournisseur d'IA (un modèle hébergé chez vous, par
+exemple) dans les e-mails aux administrateurs de l'organisation seulement : les membres, et le
+canal Slack, reçoivent la même cause sans elle.
+
+Il part :
+- **par e-mail** à personne, aux administrateurs de l'organisation ou aux membres de l'espace,
+  comme l'e-mail d'une routine (adresses vérifiées, préférence « Recevoir les e-mails des
+  routines »). En texte brut, dans la langue de chacun ;
+- vers un **webhook Slack** (un webhook entrant ; Mattermost et les autres outils compatibles
+  acceptent le même `{"text": …}`), dans la langue de la personne qui l'a réglé. **Son adresse
+  est un secret** : gardée chiffrée en base, jamais réaffichée (seulement « configuré »),
+  jamais écrite dans le dépôt. Un champ vide la garde ; **Supprimer le webhook Slack** l'efface.
+  Mêmes protections que les webhooks de l'organisation : HTTPS, adresses internes refusées,
+  pas de redirection ; nouvel essai sur une erreur passagère ;
+- et aux webhooks de l'organisation abonnés à `night.completed` (JSON).
+
+**Une nuit calme n'envoie rien** : rien de rangé, corrigé ou lancé, aucun échec. Cochez
+**L'envoyer aussi quand rien ne s'est passé** pour le recevoir chaque nuit. **Envoyer un
+compte rendu d'essai** envoie le compte rendu de la dernière nuit, marqué comme essai, par
+e-mail à vous seul (jamais à tous les membres) et au webhook Slack, 5 fois par heure au plus
+pour un espace.
+
+Une nuit n'est planifiée que si l'espace a des routines de nuit ce jour-là, ou un compte rendu
+à envoyer : sinon le rangement tourne seul, comme avant.
+
+**Les textes des agents sont des données.** Résumés, titres d'éléments d'inbox et erreurs
+viennent des modèles : dans Slack, `&`, `<` et `>` sont échappés, si bien qu'aucun
+`<!channel>`, `<@…>` ni lien ne peut en venir, et `@channel`, `@here`, `@everyone` sont
+désamorcés ; les liens sont ceux de Synaptane. Le compte rendu ne cite jamais le contenu d'une
+page : il est fait des compteurs et du journal. Une donnée personnelle qu'un agent aurait
+recopiée dans l'un de ces textes est masquée avec les
+[contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) de l'espace (préréglages,
+`mask: yes`), comme dans le journal : `j•••@gmail.com`.
+
+Le rangement nocturne lui-même n'est pas une routine et garde ses réglages.
 
 ## Coût et budget
 

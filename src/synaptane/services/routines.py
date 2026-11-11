@@ -3,14 +3,17 @@
 A routine is a set of instructions, a schedule (daily, weekly or monthly, at a local time of
 the space), a scope (folders of the wiki, or the whole space) and outputs: a report page
 rewritten at each run, items deposited in the inbox, an email, a `routine.done` webhook. The
-agent reads the wiki; it writes nowhere but in its outputs. Actual fixes go through the inbox
-and the nightly tidy-up, with their safeguards (`services.routine_agent`).
+agent reads the wiki; it writes nowhere but in its outputs, and in the folders assigned to it
+if it has any (`writes`: pages it keeps itself, `services.routine_writes`). Actual fixes go
+through the inbox and the nightly tidy-up, with their safeguards (`services.routine_agent`).
 
 Each routine is a file of the space's repository, `.synaptane/routines/<name>.md`
 (`services.routine_files`: format, reading, writing); the database keeps a copy of its
 settings and the state of its runs.
 
-The nightly tidy-up stays separate (`services.tidy`): it is not a routine.
+The nightly tidy-up stays separate (`services.tidy`): it is not a routine. A routine can be
+part of the night, though (`night` set): it then runs just before or after the tidy-up, at its
+time, in the sequence of `services.night`, and never through `schedule` below.
 
 Rights: the organization's administrators create, edit, run and delete (from Synaptane: a
 commit in their name); the space's contributors see the routines and their log. Whoever can
@@ -56,6 +59,7 @@ class Text:
 
     instructions: str
     output_page: str = ""
+    writes: tuple[str, ...] = ()  # folders it keeps (`writes`), named in the language
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,7 @@ class Template:
     output_inbox: bool = False
     output_email: str = ""
     output_webhook: bool = False
+    memory: bool = False  # keeps notes from one run to the next (`services.routine_memory`)
 
     def text_for(self, locale: str) -> Text:
         """Instructions and report page in a language; English for any language missing."""
@@ -137,7 +142,13 @@ health points most worth fixing. If all is well, say so in one sentence.
 For each problem that requires a fix in the wiki, deposit an item in the inbox
 (add_to_inbox): what is wrong, the pages and excerpts concerned, and the fix suggested. The
 nightly tidy-up will process it. No item for a mere doubt (mention it in the report), nor for
-a problem already deposited by this routine and not filed yet."""),
+a problem already deposited by this routine and not filed yet.
+
+Memory (given as input, if the routine keeps one): do not report again, as new, a problem
+already reported at an earlier run whose pages have not changed since; say in one line that it
+is still there. Before finish, rewrite the memory with remember: the problems reported (date,
+pages, item deposited or not), the doubts to check again at the next run, and, in a quiet week,
+the old pages already reread, so as to reread others next time. Drop what has been fixed."""),
             "reports/consistency.md",
         ),
         "fr": Text(
@@ -163,7 +174,14 @@ phrase.
 Pour chaque problème qui demande une correction dans le wiki, dépose un élément dans l'inbox
 (add_to_inbox) : ce qui ne va pas, les pages et extraits concernés, et la correction proposée.
 Le rangement de la nuit le traitera. Pas d'élément pour un simple doute (mentionne-le dans le
-rapport), ni pour un problème déjà déposé par cette routine et pas encore rangé."""),
+rapport), ni pour un problème déjà déposé par cette routine et pas encore rangé.
+
+Mémoire (donnée en entrée, si la routine en garde une) : ne présente pas comme nouveau un
+problème déjà signalé lors d'un passage précédent, si ses pages n'ont pas changé depuis ; dis
+en une ligne qu'il est toujours là. Avant finish, réécris la mémoire avec
+remember : les problèmes signalés (date, pages, élément déposé ou non), les doutes à revérifier
+au prochain passage et, une semaine calme, les pages anciennes déjà relues, pour en relire
+d'autres la fois suivante. Retire ce qui a été corrigé."""),
             "rapports/coherence.md",
         ),
     },
@@ -171,6 +189,7 @@ rapport), ni pour un problème déjà déposé par cette routine et pas encore r
     weekday=0,
     at="06:00",
     output_inbox=True,
+    memory=True,
 )
 
 DIGEST = Template(
@@ -212,11 +231,60 @@ donnée en entrée (historique Git du wiki, passages du rangement : éléments r
     output_email="members",
 )
 
-TEMPLATES: dict[str, Template] = {t.key: t for t in (COHERENCE, DIGEST)}
+ARCHIVE = Template(
+    key="archive",
+    name="Digest archive",
+    description="Every Friday, the summary of the week as a page of its own in a folder the "
+    "routine keeps, listed in that folder's index: the weeks stay readable one by one.",
+    texts={
+        "en": Text(
+            flow("""\
+Write the summary of the week, from the activity given as input (Git history of the wiki,
+tidy-up runs: items filed and left), as a new page of the digests/ folder named after the
+ISO week given as input: digests/<year>-W<week>.md (for example digests/2026-W46.md).
+- A level-1 title with the week, then three to five key points, one line each.
+- Then, in short sections: pages created, pages heavily changed (say what changed, by
+  reading the pages), decisions made, open questions (items left in the inbox).
+- Put a link to every page mentioned, relative to the new page (for example
+  [Proxmox](../servers/proxmox.md)).
+- Stay factual and brief: a reader must go through it all in two minutes. Invent nothing; if
+  the week was quiet, say so in one sentence.
+Then add the new page at the top of the list of digests/README.md (create it with a title if
+it does not exist yet), without changing the rest. Leave the digests of the previous weeks as
+they are. Call finish with a one-sentence wrap-up."""),
+            writes=("digests",),
+        ),
+        "fr": Text(
+            flow("""\
+Rédige le résumé de la semaine, à partir de l'activité donnée en entrée (historique Git du
+wiki, passages du rangement : éléments rangés et laissés), dans une nouvelle page du dossier
+resumes/ nommée d'après la semaine ISO donnée en entrée : resumes/<année>-S<semaine>.md (par
+exemple resumes/2026-S46.md).
+- Un titre de niveau 1 avec la semaine, puis trois à cinq points essentiels, en une ligne
+  chacun.
+- Puis, en sections courtes : pages créées, pages très modifiées (dis ce qui a changé, en
+  lisant les pages), décisions prises, questions en suspens (éléments laissés dans l'inbox).
+- Mets un lien vers chaque page citée, relatif à la nouvelle page (par exemple
+  [Proxmox](../serveurs/proxmox.md)).
+- Reste factuel et bref : un lecteur doit tout parcourir en deux minutes. N'invente rien ; si
+  la semaine a été calme, dis-le en une phrase.
+Ajoute ensuite la nouvelle page en tête de la liste de resumes/README.md (crée-la avec un
+titre si elle n'existe pas encore), sans changer le reste. Laisse les résumés des semaines
+précédentes tels quels. Appelle finish avec une phrase de synthèse."""),
+            writes=("resumes",),
+        ),
+    },
+    frequency="weekly",
+    weekday=4,
+    at="16:30",
+)
+
+TEMPLATES: dict[str, Template] = {t.key: t for t in (COHERENCE, DIGEST, ARCHIVE)}
 
 
 def from_template(key: str, locale: str) -> Config:
-    """A template's settings, its title, instructions and report page in a language."""
+    """A template's settings, its title, instructions, report page and folders in a
+    language."""
     model = TEMPLATES.get(key)
     if model is None:
         raise invalid("Unknown routine template.")
@@ -234,9 +302,11 @@ def from_template(key: str, locale: str) -> Config:
             monthday=model.monthday,
             at=model.at,
             output_page=text.output_page,
+            writes=list(text.writes),
             output_inbox=model.output_inbox,
             output_email=model.output_email,
             output_webhook=model.output_webhook,
+            memory=model.memory,
         ),
     )
     return config
@@ -370,8 +440,8 @@ def delete(
     base_sha: str | None = None,
     source: str = "web",
 ) -> None:
-    """Removes the routine's file. Its runs stay in the log (and in the month's budget); the
-    report page stays in the wiki, like any page."""
+    """Removes the routine's file, and its memory in the same commit. Its runs stay in the
+    log (and in the month's budget); the report page stays in the wiki, like any page."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     title = routine.title
     save(session, database, actor, ws, space, routine.name, None, base_sha=base_sha, source=source)
@@ -433,6 +503,11 @@ def last_runs(session: Session, space: Space) -> dict[UUID, RoutineRun]:
 # --- Schedule -----------------------------------------------------------------------------
 
 
+def matches(routine: Routine, day: date) -> bool:
+    """Is `day` one of the routine's days (every day, its weekday, its day of the month)?"""
+    return _matches(routine, day)
+
+
 def _matches(routine: Routine, day: date) -> bool:
     if routine.frequency == "weekly":
         return day.weekday() == routine.weekday
@@ -443,8 +518,9 @@ def _matches(routine: Routine, day: date) -> bool:
 
 def due(routine: Routine, space: Space, now: datetime) -> date | None:
     """Local day of the run due, or None (disabled, invalid file, not the right day, already
-    done, or time not reached yet). Time zone of the space, the tidy-up's one."""
-    if not routine.enabled or routine.error is not None or not space.repo_url:
+    done, or time not reached yet). Time zone of the space, the tidy-up's one. A routine of
+    the night is never due here: the night runs it (`services.night`)."""
+    if not routine.enabled or routine.error is not None or not space.repo_url or routine.night:
         return None
     try:
         local = now.astimezone(zone(space.tidy_timezone))
@@ -457,12 +533,13 @@ def due(routine: Routine, space: Space, now: datetime) -> date | None:
 
 
 def next_run(routine: Routine, space: Space, now: datetime | None = None) -> datetime | None:
-    """Next scheduled run (local time of the space), or None if disabled or invalid."""
+    """Next scheduled run (local time of the space), or None if disabled or invalid. A routine
+    of the night: the tidy-up's time, on its next day."""
     if not routine.enabled or routine.error is not None or not space.repo_url:
         return None
     try:
         tz = zone(space.tidy_timezone)
-        at = parse_time(routine.at)
+        at = parse_time(space.tidy_time if routine.night else routine.at)
     except SynaptaneError:
         return None
     local = (now or datetime.now(UTC)).astimezone(tz)

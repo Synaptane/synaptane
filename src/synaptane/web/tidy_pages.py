@@ -6,7 +6,8 @@ tidy-up fails, grouped retries, an "In progress" card as soon as a run is reques
 polls `/-/tidy/state` every 3 s, see `preferences.js`), next run."""
 
 import zoneinfo
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -24,13 +25,14 @@ from synaptane.services import (
     ai_settings,
     budget,
     maintenance,
+    night,
     organizations,
     semantic,
     tidy,
     tidy_journal,
     tidy_undo,
 )
-from synaptane.storage.models import Space
+from synaptane.storage.models import NightRun, Space
 from synaptane.web.pages import (
     Csrf,
     WebPage,
@@ -178,6 +180,8 @@ def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> R
         spending = budget.spending(page.db, space.org_id, space.ai_model or "")
         run_now = run_now_context(page, space, config, spending, streak)
         run_now["failures"] = streak.count if streak else 0
+    # For the organization's admins only: `render_space_settings` answers 404 to the others.
+    admin = actor.access.is_org_admin(space.org_id)
     return render_space_settings(
         page,
         actor,
@@ -188,6 +192,8 @@ def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> R
         timezones=TIMEZONES,
         max_problems=maintenance.MAX_PROBLEMS,
         run_now=run_now,
+        report=night.view(page.db, actor, space) if admin else None,
+        night_routines=night.routines_of(page.db, actor, space) if admin else [],
     )
 
 
@@ -219,6 +225,10 @@ def space_tidy_settings(
     tidy_soon: Annotated[bool, Form()] = False,
     tidy_delay: Annotated[str, Form()] = "15",
     tidy_maintain: Annotated[bool, Form()] = False,
+    night_report_email: Annotated[str, Form()] = "",
+    night_report_always: Annotated[bool, Form()] = False,
+    night_report_webhook: Annotated[str, Form()] = "",
+    night_webhook_clear: Annotated[bool, Form()] = False,
 ) -> Response:
     actor = page.check_csrf(csrf)
     space = find_space(page, actor, org_slug, space_slug)
@@ -244,9 +254,42 @@ def space_tidy_settings(
             delay=minutes,
             maintain=tidy_maintain,
         )
+        night.update_report(
+            page.db,
+            actor,
+            page.box,
+            space,
+            email=night_report_email,
+            always=night_report_always,
+            # Empty field: the saved webhook stays (it is never shown again).
+            webhook_url="" if night_webhook_clear else (night_report_webhook.strip() or None),
+            allow_private=page.settings.allow_private_webhooks,
+        )
     except SynaptaneError as error:
         return failure(space_settings_url(space, "tidy-settings"), page, error)
     return redirect(space_settings_url(space, "tidy-settings"), page, "Tidy-up settings saved.")
+
+
+@router.post("/o/{org_slug}/{space_slug}/-/night-report/test")
+def space_night_report_test(page: WebPage, org_slug: str, space_slug: str, csrf: Csrf) -> Response:
+    """ "Send a test report": by email to the person asking, and to the Slack webhook."""
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    target = space_settings_url(space, "tidy-settings")
+    try:
+        emailed, posted = night.send_test(
+            page.db, actor, page.workspace, space, page.settings.public_url
+        )
+    except SynaptaneError as error:
+        return failure(target, page, error)
+    message = (
+        "Test report sent to your email address, and queued for Slack."
+        if emailed and posted
+        else "Test report sent to your email address."
+        if emailed
+        else "Test report queued for Slack: it arrives in a moment."
+    )
+    return redirect(target, page, message)
 
 
 @router.post("/o/{org_slug}/{space_slug}/-/tidy")
@@ -259,6 +302,49 @@ def space_tidy_now(page: WebPage, org_slug: str, space_slug: str, csrf: Csrf) ->
     except SynaptaneError as error:
         return failure(target, page, error)
     return redirect(target, page, "Tidy-up requested: it starts as soon as the worker is free.")
+
+
+@dataclass(frozen=True)
+class StepView:
+    """A step of a night, as the journal shows it."""
+
+    kind: str
+    title: str
+    when: str
+    label: str  # interface text, translated by the template
+    status: str
+    link: str
+
+
+@dataclass(frozen=True)
+class NightView:
+    day: date
+    status: str
+    steps: list[StepView]
+    report: dict[str, object]
+
+    @classmethod
+    def of(cls, run: NightRun, space: Space, shown: list[dict[str, object]]) -> "NightView":
+        """`shown`: the steps the person may see (`night.shown_steps`)."""
+        base = space_url(space)
+        steps = []
+        for step in shown:
+            run_id, routine_id = step.get("run_id"), step.get("routine_id")
+            if step.get("kind") == "tidy":
+                link = f"#tidy-run-{run_id}" if run_id else ""
+            else:
+                link = f"{base}/-/routines/{routine_id}" if routine_id else ""
+            steps.append(
+                StepView(
+                    str(step.get("kind", "")),
+                    str(step.get("title") or step.get("name") or ""),
+                    str(step.get("when", "")),
+                    night.step_label(step),
+                    str(step.get("status", "")),
+                    link,
+                )
+            )
+        return cls(run.day, run.status, steps, dict(run.report or {}))
 
 
 def run_now_context(
@@ -299,6 +385,10 @@ def space_tidy_journal(page: WebPage, org_slug: str, space_slug: str) -> Respons
     runs = tidy.runs(page.db, actor, space, limit=JOURNAL_SIZE)
     return page.render(
         "tidy.html",
+        nights=[
+            NightView.of(n, space, night.shown_steps(actor, space, n))
+            for n in night.nights(page.db, actor, space)
+        ],
         org=space.organization,
         space=space,
         entries=tidy_journal.entries(runs, tidy_journal.zone_of(space), config),

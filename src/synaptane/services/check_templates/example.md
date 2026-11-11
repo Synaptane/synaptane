@@ -10,6 +10,8 @@ describes it:
 - paths and except: folders or globs, relative to content/ (`clients/`, `notes/**/*.md`);
 - level: warn (reported) or block (the write is refused);
 - message: what to do.
+- fix: yes or no, whether the nightly maintenance fixes what people break (by default,
+  the block rules and personal data).
 Delete the rules you do not need, adapt the others. -->
 
 ## No nested brackets in a link label

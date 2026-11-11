@@ -462,12 +462,22 @@ est un commentaire. Les clés restent en anglais :
   déjà une règle reste modifiable.
 - **Ce qu'on en voit** : l'onglet **Santé** liste chaque page qui enfreint une règle, avec la
   ligne et un extrait. Les données personnelles (préréglages, ou règle avec `mask: yes`) sont
-  masquées : `j•••@gmail.com`, `••• 1111`.
+  masquées : `j•••@gmail.com`, `••• 1111`. Elles le sont de la même façon dans tout texte que
+  l'agent de rangement écrit sur un passage (résumé, raisons, message du commit, avis), s'il
+  en recopie une depuis une note ou une page.
 
-Un push Git ne peut pas être refusé : ce qu'il apporte apparaît dans **Santé**. L'agent de
-rangement reçoit les règles avec ses consignes ; une écriture qu'une règle `block` refuse lui
-est renvoyée, et ce qu'il enfreint d'une règle `warn` revient dans son contrôle de fin de
-passage, pour qu'il le corrige, puis dans le bloc **Qualité** de son journal.
+Un push Git ne peut pas être refusé : ce qu'il apporte apparaît dans **Santé**, et
+l'[entretien de nuit](../admin/ai.fr.md#entretien-du-wiki), s'il est activé, reprend ce qui
+compte le plus. Chaque nuit, l'agent de rangement reçoit ce que les membres ont enfreint depuis
+le dernier passage : les règles `block` et les données personnelles, avec l'extrait masqué. Il
+retire la donnée ou la remplace par une mention neutre. Il ne complète un champ qu'avec une
+valeur que la page donne. Sinon, il laisse le problème, avec une raison. Les autres règles
+`warn` sont seulement signalées ; `fix: yes` ou `fix: no` sur une règle en décide autrement.
+
+L'agent de rangement reçoit aussi les règles avec ses consignes : une écriture qu'une règle
+`block` refuse lui est renvoyée, et ce qu'il enfreint d'une règle `warn` revient dans son
+contrôle de fin de passage, pour qu'il le corrige, puis dans le bloc **Qualité** de son
+journal.
 
 Les expressions suivent la [syntaxe RE2](https://github.com/google/re2/wiki/Syntax), qui
 s'exécute en temps linéaire : aucun motif ne peut bloquer le serveur, quel que soit le texte.

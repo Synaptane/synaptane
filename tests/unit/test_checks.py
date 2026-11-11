@@ -377,3 +377,57 @@ def test_a_comment_mark_between_backticks_is_a_value() -> None:
     start = time.monotonic()
     assert parse("`" + "<!--" * 15_000 + "\n## R\n- pattern: `x`\n").rules
     assert time.monotonic() - start < 2
+
+
+def test_what_the_nightly_maintenance_fixes() -> None:
+    """By default the `block` rules and personal data; `fix` says otherwise."""
+    found = rules(
+        "## Block\n- pattern: `x`\n- level: block\n\n## Warn\n- pattern: `y`\n\n"
+        "## Email\n- preset: email\n\n## Masked\n- pattern: `secret-\\d+`\n- mask: yes\n\n"
+        "## Opted in\n- pattern: `z`\n- fix: yes\n\n"
+        "## Opted out\n- pattern: `w`\n- level: block\n- fix: non\n"
+    )
+    assert {r.title: r.fixes for r in found.rules} == {
+        "Block": True,
+        "Warn": False,
+        "Email": True,
+        "Masked": True,
+        "Opted in": True,
+        "Opted out": False,
+    }
+    faulty = parse("## Odd\n- pattern: `x`\n- fix: maybe\n")
+    assert faulty.rules == ()
+    assert [(e.line, str(e.message)) for e in faulty.errors] == [
+        (3, "Unknown value “maybe” for fix: yes or no.")
+    ]
+    french = translator("fr")
+    assert "inconnue pour fix" in french(faulty.errors[0].message)
+    # Told to the agent only when some rule is fixed at night.
+    assert "never copy it" in team_checks.for_prompt(found)
+    quiet = rules("## Warn\n- pattern: `y`\n")
+    assert "never copy it" not in team_checks.for_prompt(quiet)
+
+
+def test_a_text_about_the_pages_is_scrubbed_of_personal_data() -> None:
+    found = rules(
+        "## Email\n- preset: email\n- allow: acme.com\n\n## Phone\n- preset: phone\n\n"
+        "## IBAN\n- preset: iban\n\n## Card\n- preset: card\n\n"
+        "## Code\n- pattern: `CLIENT-\\d{4}`\n- mask: yes\n\n## Plain\n- pattern: `scratchpad`\n"
+    )
+    text = (
+        "P1: jean.dupont@gmail.com kept (bob@acme.com is fine); P2: call 06 12 34 56 78; "
+        "P3: FR76 3000 6000 0112 3456 7890 189; card 4111 1111 1111 1111; CLIENT-1234; scratchpad"
+    )
+    clean = found.scrub(text)
+    for raw in ("jean.dupont", "12 34 56", "3000 6000", "1111 1111", "CLIENT-1234"):
+        assert raw not in clean, raw
+    assert "j•••@gmail.com" in clean and "bob@acme.com" in clean and "FR76 ••• 189" in clean
+    assert "••• 1111" in clean and "CL•••34" in clean and "scratchpad" in clean
+    assert clean.startswith("P1: ") and "; P2: call 06" in clean  # the reasons still read
+    assert rules("## Plain\n- pattern: `x`\n").scrub("x marks") == "x marks"
+
+
+def test_a_masked_field_never_shows_its_value() -> None:
+    found = rules("## Birth date\n- field: born\n- expect: date\n- mask: yes\n")
+    [violation] = found.violations("p.md", b"---\nborn: 12 mars 1980\n---\n# P\n")
+    assert "1980" not in violation.excerpt and violation.excerpt.startswith("born: 12")

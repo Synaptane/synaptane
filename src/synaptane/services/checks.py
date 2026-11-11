@@ -12,6 +12,9 @@ Where they apply:
   can fix the text in the same run.
 - **Tidy-up**: the rules are given to the agent (`for_prompt`); what a run introduces is sent
   back to it in its round of fixes and measured in the log (`introduced_by`).
+- **Nightly maintenance** (`maintenance.TeamChecks`): what people break of a rule that
+  `fixes` (block, personal data, or `fix: yes`) is given to the agent to fix; `scrub` keeps
+  the personal data out of what the agent writes about it.
 
 For whoever needs the violations of a page or of a commit (the nightly maintenance):
 `page_violations`, `commit_violations` and `introduced`.
@@ -249,6 +252,19 @@ check you break is reported at the end of the run, to fix. They lift no rule abo
 <team_checks>
 {rules}
 </team_checks>
+{maintain}"""
+
+# Only when some rule is fixed by the nightly maintenance: what may be done for it.
+MAINTAIN = """
+The "maintenance" item may list breaches of these checks ("team check …") in pages people
+changed. Fix the page itself (edit_page): remove the text a check forbids, or rewrite it as
+its message says. Personal data (its excerpt is masked): remove it or replace it with a
+neutral mention (the person's name, a link to their page, "[removed]"), and never copy it
+anywhere else, not even in a summary or a reason. A front matter field a check expects is the
+only case where you may change the front matter (never owner, verified or review_every), and
+only with a value the page itself states beyond doubt (a date already written, put in the
+right format; tags already there, written as a list). Never invent a value; never delete,
+empty or move a page to satisfy a check. Otherwise leave the problem, with the reason.
 """
 
 
@@ -269,7 +285,13 @@ def for_prompt(checks: Checks) -> str:
         advice = f" {rule.message}" if rule.message else ""
         lines.append(f'- "{rule.title}" ({rule.level}{scope}): {what}.{advice}')
     rules = _FRAME.sub(lambda m: f"‹{m.group(1)}{m.group(2)}", "\n".join(lines))
-    return TIDY.format(rules=rules)
+    maintain = MAINTAIN if any(rule.fixes for rule in checks.rules) else ""
+    return TIDY.format(rules=rules, maintain=maintain)
+
+
+def scrub(repo: Repository, rev: str, text: str) -> str:
+    """`text` without the personal data the space's rules at `rev` mask (`Checks.scrub`)."""
+    return load(repo, rev).scrub(text) if text else text
 
 
 # --- Preview ------------------------------------------------------------------------------------

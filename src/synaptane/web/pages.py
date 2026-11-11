@@ -121,6 +121,7 @@ EVENT_LABELS = {
     "space.alert": "Space alert (tidy-up, sync)",
     "sync.conflict": "Git conflict",
     "routine.done": "Routine finished",
+    "night.completed": "Night finished (routines and tidy-up)",
 }
 
 

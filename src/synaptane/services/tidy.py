@@ -434,6 +434,7 @@ def tidy_space(
         conversation = factory(config, system, first, TOOLS)
         _drive_api(conversation, tools, state, usage, limit)
     tools.record_problems()  # end-of-run check: what remains goes to the log, without blocking
+    maintenance.scrub_run(overlay, state)  # the masked rules: never copied out, any run
     failure = state.failure
     if failure is not None and not tools.calls:
         # The provider failed before the agent called a single tool (expired login, refused
@@ -523,6 +524,8 @@ def _maintained(
     if found is None:
         return None
     kept = maintenance.close(found, state, overlay, interruption=interruption, conflicts=conflicts)
+    # Masked data stays out of the summary too (commit message, log, webhook).
+    outcome.summary = maintenance.scrub(found, overlay, outcome.summary)
     outcome.operations += kept.operations
     outcome.maintenance = kept
     return kept
@@ -822,6 +825,29 @@ def run(
 
 
 BUSY_DELAY = timedelta(minutes=2)  # new attempt when a run is already under way
+
+
+def run_held(
+    database: Database,
+    ws: Workspace,
+    space_id: UUID,
+    *,
+    factory: ConversationFactory = open_conversation,
+    public_url: str = "",
+) -> TidyRun | None:
+    """The scheduled run, for a caller that already holds the space's pass lock: the night
+    (`services.night`) runs it between its routines, without letting another run slip in
+    between. Same log, alerts and chained runs as `run`."""
+    return _run(
+        database,
+        ws,
+        space_id,
+        trigger="schedule",
+        requested_by=None,
+        factory=factory,
+        chain=0,
+        public_url=public_url,
+    )
 
 
 def _run(

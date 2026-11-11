@@ -304,14 +304,27 @@ _TEXTS = {
         "fr": (
             "{routine} · {space}",
             "Bonjour,\n\nVoici la sortie de la routine « {routine} » de l'espace « {space} » "
-            "({org}) :\n\n{text}\n\n—\nDans Synaptane : {link}\nPour ne plus recevoir ces "
+            "({org}) :\n\n{text}{pages}\n\n—\nDans Synaptane : {link}\nPour ne plus recevoir ces "
             "e-mails : {account}\n",
         ),
         "en": (
             "{routine} · {space}",
             "Hello,\n\nHere is the output of the “{routine}” routine of the “{space}” space "
-            "({org}):\n\n{text}\n\n—\nIn Synaptane: {link}\nTo stop receiving these emails: "
+            "({org}):\n\n{text}{pages}\n\n—\nIn Synaptane: {link}\nTo stop receiving these emails: "
             "{account}\n",
+        ),
+    },
+    "night_report": {
+        "fr": (
+            "Nuit du {day} · {space}",
+            "Bonjour,\n\nVoici le compte rendu de la nuit de l'espace « {space} » ({org}) :\n\n"
+            "{text}\n—\nJournal de la nuit : {link}\nPour ne plus recevoir ces e-mails : "
+            "{account}\n",
+        ),
+        "en": (
+            "Night of {day} · {space}",
+            "Hello,\n\nHere is the report of the night of the “{space}” space ({org}):\n\n"
+            "{text}\n—\nLog of the night: {link}\nTo stop receiving these emails: {account}\n",
         ),
     },
     "review_reminder": {

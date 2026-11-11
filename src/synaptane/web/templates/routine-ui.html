@@ -3,7 +3,12 @@
 
 {# "Every Monday at 06:00", in the space's time zone. #}
 {% macro schedule(r, weekdays) -%}
-{%- if r.frequency == 'daily' -%}{{ _("Every day at {time}", time=r.at) }}
+{%- if r.night -%}
+{%- set place = _("before the tidy-up") if r.night == 'before' else _("after the tidy-up") -%}
+{%- if r.frequency == 'daily' -%}{{ _("Every night, {place}", place=place) }}
+{%- elif r.frequency == 'weekly' -%}{{ _("Every {day} night, {place}", day=_(weekdays[r.weekday or 0]), place=place) }}
+{%- else -%}{{ _("The night of day {n} of every month, {place}", n=r.monthday, place=place) }}{%- endif -%}
+{%- elif r.frequency == 'daily' -%}{{ _("Every day at {time}", time=r.at) }}
 {%- elif r.frequency == 'weekly' -%}{{ _("Every {day} at {time}", day=_(weekdays[r.weekday or 0]), time=r.at) }}
 {%- else -%}{{ _("On day {n} of every month at {time}", n=r.monthday, time=r.at) }}{%- endif -%}
 {%- endmacro %}

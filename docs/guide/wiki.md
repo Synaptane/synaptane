@@ -426,12 +426,20 @@ a comment:
   counts: a page that already broke a rule stays editable.
 - **What it shows**: the **Health** tab lists every page that breaks a rule, with the line and
   an excerpt. Personal data (presets, or a rule with `mask: yes`) is masked: `j•••@gmail.com`,
-  `••• 1111`.
+  `••• 1111`. It is masked the same way in every text the tidy-up agent writes about a run
+  (summary, reasons, commit message, notices), should it copy some from a note or a page.
 
-A Git push cannot be refused: what it brings shows in **Health**. The tidy-up agent receives
-the rules with its instructions; a write of its own that a `block` rule refuses is sent back
-to it, and what it breaks of a `warn` rule comes back in its end-of-run check, to fix, then
-in the **Quality** block of its log.
+A Git push cannot be refused: what it brings shows in **Health**, and the
+[nightly maintenance](../admin/ai.md#wiki-maintenance), when turned on, takes up what matters
+most. Each night, the tidy-up agent gets what people broke since the last run of the `block`
+rules and of personal data, with the excerpt masked. It removes the data or replaces it with a
+neutral mention, completes a field only with a value the page states, and otherwise leaves the
+problem with a reason. The other `warn` rules are only reported; `fix: yes` or `fix: no` on a
+rule says otherwise.
+
+The tidy-up agent also receives the rules with its instructions: a write of its own that a
+`block` rule refuses is sent back to it, and what it breaks of a `warn` rule comes back in its
+end-of-run check, to fix, then in the **Quality** block of its log.
 
 Expressions use the [RE2 syntax](https://github.com/google/re2/wiki/Syntax), which runs in
 linear time: no pattern can freeze the server, whatever the text. Lookarounds and

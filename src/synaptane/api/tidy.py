@@ -1,7 +1,8 @@
 """REST API for the tidy-up: the organization's AI provider, settings, runs."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Request, Response, status
@@ -11,7 +12,15 @@ from pydantic import BaseModel, Field
 from synaptane.ai.base import SUBSCRIPTION_PROVIDERS, AIError
 from synaptane.ai.providers import check_connection
 from synaptane.core.errors import invalid
-from synaptane.services import ai_settings, budget, organizations, semantic, tidy, tidy_undo
+from synaptane.services import (
+    ai_settings,
+    budget,
+    night,
+    organizations,
+    semantic,
+    tidy,
+    tidy_undo,
+)
 from synaptane.storage.models import TidyRun
 
 from .content import SPACE, _db, _ws
@@ -77,6 +86,63 @@ class TidySettingsIn(BaseModel):
         description="Nightly maintenance: fix the problems people introduced since the last "
         "run (broken links, new pages isolated, missing from their folder's index, untitled or "
         "empty), even with an empty inbox",
+    )
+    report_email: Literal["", "admins", "members"] | None = Field(
+        default=None,
+        description='Report of the night by email: "" (nobody), admins (of the organization) '
+        "or members (of the space)",
+    )
+    report_always: bool | None = Field(
+        default=None, description="Send the report even when nothing happened in the night"
+    )
+    report_webhook_url: str | None = Field(
+        default=None,
+        description="Slack (or compatible) incoming webhook for the report; null: unchanged, "
+        '"": removed. Stored encrypted, never returned',
+    )
+
+
+class TidySettingsOut(BaseModel):
+    enabled: bool
+    time: str = Field(description="HH:MM, local time")
+    timezone: str
+    model: str = Field(description='"": the organization\'s model')
+    delay: int = Field(description="Minutes between a drop and the continuous tidy-up; 0: off")
+    maintain: bool
+    report_email: str = Field(description='"", admins or members')
+    report_always: bool
+    report_webhook: bool = Field(
+        description="A Slack webhook is configured for the report (its address is never returned)"
+    )
+
+
+class NightStepOut(BaseModel):
+    kind: str = Field(description="routine or tidy")
+    when: str = Field(description='before or after the tidy-up; "" for the tidy-up')
+    name: str = Field(default="", description="File name of the routine")
+    title: str = ""
+    routine_id: UUID | None = None
+    run_id: UUID | None = Field(
+        default=None, description="Its run: GET …/tidy/runs or …/routines/{id}/runs"
+    )
+    status: str = Field(description="queued, running, done, failed, nothing or skipped")
+    reason: str = Field(
+        default="",
+        description="Why skipped or failed: disabled, earlier, no_ai, budget, connection, "
+        "changed, retry, interrupted, superseded, internal",
+    )
+
+
+class NightOut(BaseModel):
+    id: UUID
+    day: date = Field(description="Local day of the space")
+    status: str = Field(description="queued, running or done")
+    started_at: datetime | None
+    finished_at: datetime | None
+    steps: list[NightStepOut] = Field(description="In order")
+    report: dict[str, object] = Field(
+        description="What the report sent: quiet (nothing happened), emails (number), slack "
+        "(queued, sent, or the error)"
     )
 
 
@@ -183,9 +249,34 @@ async def test_ai(
         raise invalid(error.label.template, **error.label.params) from None
 
 
+@router.get(SPACE + "/tidy-settings", tags=["tidy"])
+def get_tidy_settings(
+    org: str, space: str, session: DbSession, actor: CurrentActor
+) -> TidySettingsOut:
+    found = find_space(session, actor, org, space)
+    report = night.view(session, actor, found)  # organization admins
+    return TidySettingsOut(
+        enabled=found.tidy_enabled,
+        time=found.tidy_time,
+        timezone=found.tidy_timezone,
+        model=found.ai_model or "",
+        delay=found.tidy_delay or 0,
+        maintain=found.tidy_maintain,
+        report_email=report.email,
+        report_always=report.always,
+        report_webhook=report.webhook,
+    )
+
+
 @router.patch(SPACE + "/tidy-settings", status_code=status.HTTP_204_NO_CONTENT, tags=["tidy"])
 def tidy_settings(
-    org: str, space: str, body: TidySettingsIn, session: DbSession, actor: CurrentActor
+    org: str,
+    space: str,
+    body: TidySettingsIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+    box: Box,
 ) -> Response:
     found = find_space(session, actor, org, space)
     tidy.update_settings(
@@ -199,7 +290,56 @@ def tidy_settings(
         delay=body.delay,
         maintain=body.maintain,
     )
+    night.update_report(
+        session,
+        actor,
+        box,
+        found,
+        email=body.report_email,
+        always=body.report_always,
+        webhook_url=body.report_webhook_url,
+        allow_private=request.app.state.settings.allow_private_webhooks,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    SPACE + "/tidy-settings/test-report", status_code=status.HTTP_202_ACCEPTED, tags=["tidy"]
+)
+def tidy_test_report(
+    org: str, space: str, request: Request, session: DbSession, actor: CurrentActor
+) -> MessageOut:
+    """The last night's report, marked as a test: by email to the caller only, and to the
+    Slack webhook (queued)."""
+    found = find_space(session, actor, org, space)
+    emailed, posted = night.send_test(
+        session, actor, _ws(request), found, request.app.state.settings.public_url
+    )
+    parts = (["email"] if emailed else []) + (["Slack"] if posted else [])
+    return MessageOut(
+        message=api_text(request, "Test report sent: {targets}.", targets=", ".join(parts))
+    )
+
+
+@router.get(SPACE + "/nights", tags=["tidy"])
+def tidy_nights(org: str, space: str, session: DbSession, actor: CurrentActor) -> list[NightOut]:
+    """The last nights of the space: routines of the night and tidy-up, in order (the
+    routines' steps for contributors only, who see the routines)."""
+    found = find_space(session, actor, org, space)
+    return [
+        NightOut(
+            id=n.id,
+            day=n.day,
+            status=n.status,
+            started_at=n.started_at,
+            finished_at=n.finished_at,
+            steps=[
+                NightStepOut.model_validate(step) for step in night.shown_steps(actor, found, n)
+            ],
+            report=dict(n.report or {}),
+        )
+        for n in night.nights(session, actor, found)
+    ]
 
 
 @router.post(SPACE + "/tidy", status_code=status.HTTP_202_ACCEPTED, tags=["tidy"])

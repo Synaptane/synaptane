@@ -10,6 +10,146 @@ of the target version.
 
 ## [Unreleased]
 
+The order of the night: a routine can run with the nightly tidy-up, just before or after it,
+and the night sends one report, by email or to a Slack webhook. One migration (`0036`), applied
+at startup; nothing changes for a space until a routine joins its night or its report is set.
+
+### Added
+- **The nightly maintenance fixes the team checks people break**. A push cannot be refused,
+  and a page someone edits can bring a customer's address or lose its `type`: Health showed
+  it, nobody fixed it. Now, with **Maintain the wiki every night**, what people broke since
+  the last run of a `block` rule or of personal data (a preset, or `mask: yes`) becomes one
+  more problem of the "Wiki maintenance (N)" item: the rule (title, level, message), the
+  page, the line and an excerpt. The agent removes the data or replaces it with a neutral
+  mention, completes a field only with a value the page states, never deletes or moves a
+  page, and otherwise leaves the problem with a reason. The other `warn` rules are only
+  reported in Health. Same limits as for the wiki's problems: 10 a night, imports and
+  Synaptane's own commits left out, a problem left not given again unless written again.
+  The most urgent come first: personal data, then `block` rules, then broken links and the
+  rest. The data itself is never in the clear outside the page: the excerpt is masked in the
+  item, the log and what Synaptane remembers of a problem left, and a summary, a reason (of
+  any item of that run) or a commit message in which the agent copied it anyway is masked the
+  same way. This masking covers every tidy-up run (scheduled, manual, continuous, chained) as
+  soon as the space has a masked rule, even without a maintenance problem: an address read in
+  a note stays out of the log, the notes left, the commit, the notices and `tidy.completed`.
+  A page the agent moves keeps its problems, under its new path. A faulty rule is
+  left out (Health names its line), and a source of problems that fails is left out for the
+  night: the others still run, and its window is read again the next night.
+- **`fix` key in `.synaptane/checks.md`**: `fix: yes` lets the nightly maintenance fix a
+  `warn` rule, `fix: no` keeps it from fixing a `block` or personal data one. The examples
+  mention it.
+- **Memory of a routine**. With `memory: true` in its file (or the **Keep notes from one run
+  to the next** box of the form), a routine keeps notes for its next runs in
+  `.synaptane/memory/<name>.md`: topics already reported, pages it follows, decisions
+  noted, what remains to watch. The agent receives it at the start of each run, framed as
+  untrusted data (4,000 characters at most), and rewrites it in full with a new `remember`
+  tool (4,000 characters at most, secrets and the team's `block` checks on page text
+  refused). It goes in the run's single commit: an interrupted run leaves it as it was, and a
+  memory changed during the run (a push already synchronized, an administrator clearing it)
+  keeps that change, which the log says. The routine's page shows it to contributors; administrators clear it
+  (a commit in their name). REST: `memory` on the routines, `GET` and `DELETE
+  …/routines/{id}/memory`, and `memory` in a run's `outputs`. Deleting a routine removes its
+  memory in the same commit; a routine removed or renamed by a push loses it at the next
+  synchronization (move the file along to keep it). Off by default: a memory is read at every
+  run and costs tokens. Like the folders a routine keeps, it lives in the file only, so a
+  space must have been synchronized once.
+- **A routine can keep pages in folders assigned to it**. A new `writes` field of the routine
+  file (Settings → Routines: **Folders the routine keeps**; REST: `writes`) gives it up to 5
+  folders of the wiki, with the syntax of `scope`: a weekly digest writes
+  `digests/2026-W46.md`, a watch routine keeps `watch/` up to date. There, the agent gets the
+  tidy-up's writing tools (write, append, edit, move, delete) and their safeguards (page read
+  in full before it is replaced, verification fields kept, broken links reported), with at
+  most 15 pages changed and 5 deletions per run. Any other path is refused to the agent as a
+  tool error, whatever a page it read asks: another folder, `.synaptane/`, a hidden file, a
+  symbolic link, its own report page, a move out of its folders or one that would rewrite a
+  page outside them. A likely secret and a team `block` check are refused too. Two routines
+  never keep the same pages: a folder equal to, inside or around one another routine of the
+  space keeps, or holding its report page, is refused by the form and the API, naming that
+  routine; brought by a push, it makes both routines of the pair invalid until a file is fixed
+  (a folder holding another routine's report: its own routine only). The pages go
+  in the run's single commit, with the report and the inbox items; a page someone changed
+  during the run is merged, their version kept on a conflict; an interrupted run publishes
+  nothing. The routine reads its folders even outside its scope. The log, the email, the
+  `routine.done` webhook (`written`) and `GET …/routines/{id}/runs` (`outputs.written`) list
+  the pages written. These pages are not reviewed by the tidy-up as changes, but the nightly
+  maintenance treats them like a person's: it fixes the broken links and the personal data
+  they bring (a team `warn` rule does not stop the routine). Without `writes`, nothing
+  changes; the two existing templates keep no folder.
+- **Digest archive template**: every Friday at 16:30, the summary of the week as a page of its
+  own, `digests/2026-W46.md` (`resumes/2026-S46.md` in French), added at the top of the
+  folder's `README.md`. It keeps that folder and writes nothing else. Every routine is now
+  given the ISO week along with today's date, so that it does not have to compute it.
+- **Routines of the night.** A routine's file can say `schedule: night` (every night),
+  `night monday`, `night 1` (day 1 to 28), in French `nuit`, `chaque nuit`, `nuit lundi`,
+  `nuit 1` (written back in English), with `night: before` or `night: after` the tidy-up
+  (`after` by default; `avant`, `après` read too); in the form, **When → In the night, before
+  (or after) the tidy-up**; `night` in the REST routines. At the tidy-up's time, the space's
+  night runs, in one task of the worker's slow lane that holds the space's lock throughout: the
+  routines placed before the tidy-up by file name, the scheduled tidy-up and its maintenance,
+  then the routines placed after it. A night is planned once per space and local day
+  (`night_runs`) and each step is recorded: it never runs twice, and a step cut off by a stopped
+  worker is not run again. A failed step never stops the next ones; a transient provider error
+  is retried later on its own; an AI connection broken for good (expired login, refused key,
+  model not found, agents container missing) skips the AI steps left, a timeout does not;
+  once the month's budget is used up, the routines left are skipped. With the tidy-up turned
+  off, the routines of the night still run at its time. A night still waiting when the next
+  one comes is skipped; one left open for 12 hours is closed, unless it is still running. A
+  routine at a set time does not change, and a night routine is never run by the routines' own
+  schedule. Routine runs started by the night are logged with the trigger "in the night".
+- **The night's report.** **Settings → Tidy-up → The night and its report**: by email to
+  nobody, the organization's administrators or the space's members (verified addresses, the
+  routines' email preference, plain text in each person's language), and/or to a **Slack
+  webhook** (incoming webhook, `{"text": …}` in mrkdwn, without link previews; Mattermost and
+  other compatible tools work too). It gives the tidy-up (items filed and left, wiki problems
+  fixed and left, or its failure and cause), each routine (status, summary, link to its report
+  page, items dropped, pages written in its folders, memory updated, link to its log on
+  failure), what the maintenance did of the team checks people broke (fixed, left), the cost
+  of the night and of the month, or the subscription's quota, and a link to the log. A quiet
+  night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
+  when nothing happened** is ticked. **Send a test report**: the last night's report, marked as
+  a test, by email to you only and to the Slack webhook (5 an hour at most per space). The
+  webhook's address is a secret: encrypted in the database (`secrets`, bound to the space),
+  never shown again (only "configured"), never written to the repository; HTTPS, internal
+  addresses refused, no redirect, retried on a transient error. The cause of a failure names
+  the AI provider's address in the emails to the organization's administrators only. Texts
+  from the agents are data: in Slack, `&`, `<` and `>` are escaped (no `<!channel>`, `<@…>`
+  or link can come from them) and `@channel`, `@here`, `@everyone` are defused; personal data
+  copied into them is masked with the space's team checks. REST: `GET …/tidy-settings` (new: `report_email`,
+  `report_always`, `report_webhook` true or false), `PATCH …/tidy-settings` (`report_email`,
+  `report_always`, `report_webhook_url`), `POST …/tidy-settings/test-report`, `GET …/nights`.
+- **The last nights** in the space's **Tidy-up** tab: each night's steps in order, with their
+  status and links, and what the report sent. The routines' steps are shown to those who see
+  the routines (contributors), as in `GET …/nights`; a reader sees the tidy-up.
+- `night.completed` event for the organization's webhooks: the night's steps (`kind`, `when`,
+  `name`, `title`, `status`, `reason`, `run_id`), `quiet`, `checks` (`fixed`, `left` by the
+  maintenance), `cost`.
+
+### Changed
+- **The Consistency check template keeps a memory**, so that it no longer reports the same
+  contradiction every week while its pages stay the same, and rereads other old pages in a
+  quiet week. The Weekly digest does not (the week's history is enough).
+- A routine of the night keeps its own outputs (page, inbox, email, `routine.done`): its file
+  chose them. The report does not repeat its text; a routine that only needs the report has no
+  `email`. Alerts (`tidy_failed`, `routine_failed`…) do not change.
+
+### Fixed
+- A front matter rule with `mask: yes` showed the field's value in its excerpt when the
+  value had the wrong form (`expect: date`, `list`): it is masked now, in Health too.
+
+### Upgrade
+- One migration (`0036`), applied at startup: `routines.night` (`""` for every existing
+  routine: they keep their time), `spaces.night_report_email` and `spaces.night_report_always`
+  (off), and the `night_runs` table. No existing value changes. Going back to 1.16.1: downgrade
+  to `0035` first (`night_runs` and the report's settings are dropped, the Slack webhook's
+  secret stays unused), and turn the routines of the night back into set times, since 1.16.1
+  does not read `schedule: night` (the file shows as invalid).
+- No other migration: the memory and the folders of a routine live in its file only, the
+  `fix` key in `.synaptane/checks.md`.
+- Routines created before keep their behavior: to give an existing
+  consistency check its memory, tick the box in its form or add `memory: true` to its file
+  (the new instructions of the template can be copied from a routine created from it).
+
+
 ## [1.16.1] - 2026-11-10
 
 A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each

@@ -15,16 +15,22 @@ then the instructions.
     webhook: false
     enabled: true
     template: coherence
+    memory: true
     ---
     Read the pages changed since the last run…
 
+A routine can also be part of the night of its space (`services.night`): `schedule: night`
+(every night), `night monday` (Monday nights), `night 1` (the night of the 1st), in French
+`nuit`, `nuit lundi`, `nuit 1`; with `night: before` or `night: after` (the default), it runs
+at the tidy-up's time, just before or after it, and the night's report tells what it did.
+
 The name of a routine is the name of its file (lowercase letters, digits and dashes, like the
 team prompts). The header keeps the conventions of the inbox items (a JSON value, or else
-plain text) and adds lists: `scope` takes folders separated by commas, a JSON list, or one
-`- folder` line each. A field this version does not know (a newer version's) is reported,
-kept when Synaptane rewrites the file, and never prevents the reading: the dedicated reader
-exists for that, and because a line the inbox reader skips silently would here widen what an
-agent reads (a misread `scope` is the whole space).
+plain text) and adds lists: `scope` (and `writes`) take folders separated by commas, a JSON
+list, or one `- folder` line each. A field this version does not know (a newer version's) is
+reported, kept when Synaptane rewrites the file, and never prevents the reading: the dedicated
+reader exists for that, and because a line the inbox reader skips silently would here widen
+what an agent reads (a misread `scope` is the whole space).
 
 Git is the source of truth. The `routines` table keeps a copy of each file's settings, kept in
 step at each synchronization (`synchronize`, under the space lock), and the state of the runs
@@ -42,11 +48,25 @@ state stays on the same row: it neither runs twice nor gets lost.
 Trust: whoever can push to the repository can change the routines, as they can change the
 tidy-up rules. From Synaptane, only the organization's administrators write them; every other
 write path is confined to `content/` and the inbox.
+
+Memory: with `memory: true`, the routine keeps notes from one run to the next in
+`.synaptane/memory/<name>.md` (`services.routine_memory`), a file of its own so that the
+routine's file is never rewritten by a run. The flag lives in the file only (the database
+keeps no copy of it): the run reads it at the commit it works on. The memory follows the
+routine's name: removed with the routine from Synaptane, and by the next synchronization when a
+push removed or renamed the routine without moving its memory (`_drop_orphan_memories`).
+
+Folders a routine keeps (`writes`): the pages it may write itself, besides its outputs
+(`services.routine_writes`). The database keeps no copy of them (no column for them): they are
+read from the file at the hash the database knows (`writes_of`), and a copy made from the
+database (`Config.of`) leaves them unknown (None), so that a save keeps the file's.
 """
 
 import json
 import logging
 import re
+import threading
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -59,7 +79,7 @@ from sqlalchemy.orm import Session
 from synaptane.core import names
 from synaptane.core.errors import Label, SynaptaneError, conflict, invalid, not_found
 from synaptane.core.secret_scan import added_findings, refuse_secrets
-from synaptane.git.repo import Identity, PathRefused, Repository
+from synaptane.git.repo import GitError, Identity, PathRefused, Repository
 from synaptane.services import Actor, jobs
 from synaptane.services.content import content_path
 from synaptane.services.inbox import CONTENT_DIR
@@ -69,12 +89,17 @@ from synaptane.storage.db import Database, try_space_lock
 from synaptane.storage.models import Routine, Space
 
 ROUTINES_DIR = ".synaptane/routines"
+MEMORY_DIR = ".synaptane/memory"  # one file per routine with `memory: true`
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")  # as the team prompts
 FREQUENCIES = ("daily", "weekly", "monthly")
 EMAIL_TARGETS = ("", "admins", "members")
+NIGHT_PLACES = ("", "before", "after")  # "": at its own time
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 MAX_INSTRUCTIONS = 20_000
 MAX_SCOPE = 20  # folders
+# Folders a routine keeps (`writes`): a few topics of its own (a watch, digests, a tracking
+# table), never a share of the wiki large enough to make it a second tidy-up.
+MAX_WRITES = 5
 MAX_ROUTINES = 20  # per space: each routine costs, proliferation is paid for
 MAX_DESCRIPTION = 500
 MAX_FILE_SIZE = 64_000  # bytes: instructions, header and a margin
@@ -86,13 +111,18 @@ KNOWN = (
     "description",
     "schedule",
     "scope",
+    "writes",
     "report",
     "inbox",
     "email",
     "webhook",
     "enabled",
     "template",
+    "memory",
+    "night",
 )
+# Settings that live in the file only, never copied to the `routines` table.
+FILE_ONLY = ("memory", "writes")
 _KEY = re.compile(r"[A-Za-z_][\w-]*")
 _TIME = re.compile(r"\d{1,2}:\d{2}")
 _TRUE, _FALSE = ("true", "yes", "on"), ("false", "no", "off")
@@ -120,6 +150,9 @@ class Fields:
     output_email: str | None = None
     output_webhook: bool | None = None
     enabled: bool | None = None
+    memory: bool | None = None
+    writes: list[str] | None = None  # folders the routine keeps; []: none
+    night: str | None = None  # "": at `at`; "before" or "after" the tidy-up, in the night
 
 
 @dataclass
@@ -141,9 +174,18 @@ class Config:
     output_webhook: bool = False
     enabled: bool = True
     template: str = ""
+    # In the file only (`FILE_ONLY`). None: not known (a copy of the database), and a rewrite
+    # keeps what the file says (`save`).
+    memory: bool | None = None
+    # Folders the routine keeps (`writes`, in the file only too). None: unknown, a copy made
+    # from the database, which does not keep them; `save` then keeps the file's.
+    writes: list[str] | None = field(default_factory=list)
+    night: str = ""
 
     @classmethod
     def of(cls, routine: Routine) -> "Config":
+        """The settings the database keeps (`memory` and `writes` unknown: see `memory_of`
+        and `writes_of`)."""
         return cls(
             routine.title,
             routine.description,
@@ -159,18 +201,22 @@ class Config:
             routine.output_webhook,
             routine.enabled,
             routine.template,
+            writes=None,
+            night=routine.night,
         )
 
     def store(self, routine: Routine) -> None:
         """Copies the settings onto the database row (the state of the runs stays)."""
         for name in self.__dataclass_fields__:
+            if name in FILE_ONLY:
+                continue
             value = getattr(self, name)
             setattr(routine, name, list(value) if isinstance(value, list) else value)
 
     @property
-    def plan(self) -> tuple[bool, str, int | None, int | None, str]:
+    def plan(self) -> tuple[bool, str, int | None, int | None, str, str]:
         """What decides when it runs."""
-        return (self.enabled, self.frequency, self.weekday, self.monthday, self.at)
+        return (self.enabled, self.frequency, self.weekday, self.monthday, self.at, self.night)
 
 
 def clean_folder(folder: str) -> str:
@@ -186,6 +232,97 @@ def clean_scope(folders: list[str]) -> list[str]:
     if len(cleaned) > MAX_SCOPE:
         raise invalid("Scope: {n} folders at most.", n=MAX_SCOPE)
     return cleaned
+
+
+def clean_writes(folders: list[str]) -> list[str]:
+    """Folders a routine keeps, relative to content/: never the whole wiki, a hidden folder
+    (`.synaptane/`, `.git/`), a path going up (`..`) or an absolute one. A folder inside
+    another one given is dropped: the other one already covers it."""
+    cleaned: list[str] = []
+    for raw in folders:
+        text = raw.strip()
+        if not text:
+            continue
+        shown = text[:80]
+        if text.startswith(("/", "\\")) or re.match(r"[A-Za-z]:[\\/]", text):
+            raise invalid("writes: {folder} is an absolute path.", folder=shown)
+        relative = text.replace("\\", "/").removeprefix("./")
+        relative = "" if relative.strip("/") == "content" else relative.removeprefix("content/")
+        parts = [part for part in relative.split("/") if part]
+        if ".." in parts:
+            raise invalid("writes: {folder} goes up out of the wiki (..).", folder=shown)
+        if any(part.startswith(".") for part in parts if part != "."):
+            raise invalid("writes: {folder} is a hidden folder (.synaptane, .git…).", folder=shown)
+        if relative.lower().endswith(".md"):
+            raise invalid("writes: {folder} is a page; give a folder.", folder=shown)
+        folder = clean_folder(relative) if parts and parts != ["."] else ""
+        if not folder:
+            raise invalid(
+                "writes: a routine cannot write in the whole wiki; give its own folders "
+                "(e.g. digests)."
+            )
+        if folder not in cleaned:
+            cleaned.append(folder)
+    kept = [f for f in cleaned if not any(f.startswith(o + "/") for o in cleaned)]
+    if len(kept) > MAX_WRITES:
+        raise invalid("writes: {n} folders at most.", n=MAX_WRITES)
+    return kept
+
+
+def _nested(a: str, b: str) -> bool:
+    """Two folders (relative to content/) share pages: equal, or one inside the other."""
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def clash(name: str, config: Config, others: dict[str, Config]) -> Label | None:
+    """Why the folders `config` keeps cannot sit next to the other routines of the space
+    (`others`, by name; `name` itself left out): a folder another routine keeps too (equal,
+    inside or around one of its folders), or one that holds another routine's report page.
+    Two routines writing the same pages would undo each other's work at every run, and a
+    routine never writes another one's report (its own may lie in its folders). None: no
+    clash. The first one found, in the order of the names, so that the message is stable."""
+    for folder in config.writes or []:
+        for other_name in sorted(others):
+            if other_name == name:
+                continue
+            other = others[other_name]
+            for theirs in other.writes or []:
+                if _nested(folder, theirs):
+                    return Label(
+                        "writes: the folder {folder} overlaps {other}, kept by the routine "
+                        "{routine}: two routines never keep the same pages.",
+                        folder=folder,
+                        other=theirs,
+                        routine=other_name,
+                    )
+            if other.output_page and other.output_page.startswith(folder + "/"):
+                return Label(
+                    "writes: the folder {folder} holds {page}, the report page of the routine "
+                    "{routine}.",
+                    folder=folder,
+                    page=other.output_page,
+                    routine=other_name,
+                )
+    return None
+
+
+def report_clash(name: str, config: Config, others: dict[str, Config]) -> Label | None:
+    """Why `config`'s report page cannot be where it is: in a folder another routine keeps
+    (that routine would rewrite it)."""
+    page = config.output_page
+    for other_name in sorted(others):
+        if other_name == name or not page:
+            continue
+        for theirs in others[other_name].writes or []:
+            if page.startswith(theirs + "/"):
+                return Label(
+                    "report: {page} is in the folder {folder}, kept by the routine {routine}: "
+                    "choose another page.",
+                    page=page,
+                    folder=theirs,
+                    routine=other_name,
+                )
+    return None
 
 
 def clean_page(page: str) -> str:
@@ -245,6 +382,14 @@ def apply(config: Config, fields: Fields) -> None:
         config.output_webhook = fields.output_webhook
     if fields.enabled is not None:
         config.enabled = fields.enabled
+    if fields.memory is not None:
+        config.memory = fields.memory
+    if fields.writes is not None:
+        config.writes = clean_writes(fields.writes)
+    if fields.night is not None:
+        if fields.night not in NIGHT_PLACES:
+            raise invalid("Unknown place in the night (before or after the tidy-up).")
+        config.night = fields.night
     # Consistency of the whole, once everything is applied.
     if config.frequency == "weekly":
         if config.weekday is None or not 0 <= config.weekday <= 6:
@@ -256,8 +401,15 @@ def apply(config: Config, fields: Fields) -> None:
         config.weekday = None
     else:
         config.weekday = config.monthday = None
+    # Pages kept in its folders are an output too. Unknown folders (a copy made from the
+    # database) are checked again by `save`, once read from the file.
     if not (
-        config.output_page or config.output_inbox or config.output_email or config.output_webhook
+        config.output_page
+        or config.output_inbox
+        or config.output_email
+        or config.output_webhook
+        or config.writes is None
+        or config.writes
     ):
         raise invalid("Choose at least one output: page, inbox, email or webhook.")
 
@@ -267,7 +419,7 @@ def skip_today(routine: Routine, space: Space, now: datetime | None = None) -> N
     right away (and costs nothing unless asked): "Run now" does that."""
     try:
         local = (now or datetime.now(UTC)).astimezone(zone(space.tidy_timezone))
-        at = parse_time(routine.at)
+        at = parse_time(space.tidy_time if routine.night else routine.at)  # a night: its time
     except SynaptaneError:
         return
     if local.time() >= at:
@@ -311,11 +463,23 @@ def file_path(name: str) -> str:
     return f"{ROUTINES_DIR}/{name}.md"
 
 
+def memory_path(name: str) -> str:
+    """The memory of the routine `name` (`services.routine_memory`)."""
+    return f"{MEMORY_DIR}/{name}.md"
+
+
 # --- Writing a file -----------------------------------------------------------------------------
 
 
 def schedule_text(config: Config) -> str:
-    """`daily 02:30`, `weekly monday 06:00`, `monthly 1 06:00`."""
+    """`daily 02:30`, `weekly monday 06:00`, `monthly 1 06:00`; in the night: `night`,
+    `night monday`, `night 1`."""
+    if config.night:
+        if config.frequency == "weekly":
+            return f"night {WEEKDAYS[config.weekday or 0]}"
+        if config.frequency == "monthly":
+            return f"night {config.monthday}"
+        return "night"
     if config.frequency == "weekly":
         return f"weekly {WEEKDAYS[config.weekday or 0]} {config.at}"
     if config.frequency == "monthly":
@@ -353,8 +517,12 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
     if config.description:
         lines.append(f"description: {_scalar(config.description)}")
     lines.append(f"schedule: {schedule_text(config)}")
+    if config.night:
+        lines.append(f"night: {config.night}")
     if config.scope:
         lines.append(f"scope: {_list(config.scope)}")
+    if config.writes:
+        lines.append(f"writes: {_list(config.writes)}")
     if config.output_page:
         lines.append(f"report: {_scalar(config.output_page)}")
     lines.append(f"inbox: {json.dumps(config.output_inbox)}")
@@ -364,6 +532,8 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
     lines.append(f"enabled: {json.dumps(config.enabled)}")
     if config.template:
         lines.append(f"template: {config.template}")
+    if config.memory:
+        lines.append("memory: true")
     lines.extend(extra)
     lines.append("---")
     return "\n".join(lines) + "\n\n" + config.instructions.strip() + "\n"
@@ -466,13 +636,13 @@ def _flag(header: _Header, key: str, default: bool) -> bool:
     raise invalid("{field}: true or false.", field=key)
 
 
-def _folders(header: _Header) -> list[str]:
-    value = header.values.get("scope")
+def _folders(header: _Header, key: str = "scope") -> list[str]:
+    value = header.values.get(key)
     if value is None or value == "":
         return []
     items = value if isinstance(value, list) else str(value).split(",")
     if any(isinstance(v, list | dict) for v in items):
-        raise invalid("scope: a list of folders is expected.")
+        raise invalid("{field}: a list of folders is expected.", field=key)
     return [str(v).strip() for v in items if str(v).strip()]
 
 
@@ -505,7 +675,7 @@ def parse_schedule(text: str) -> tuple[str, int | None, int | None, str]:
         words = ["daily", *words[2:]]
     wrong = invalid(
         "schedule: “{value}” is not understood. Examples: daily 02:30, weekly monday 06:00, "
-        "monthly 1 06:00.",
+        "monthly 1 06:00, night, night monday.",
         value=text[:60],
     )
     if len(words) < 2 or not _TIME.fullmatch(words[-1]):
@@ -523,13 +693,72 @@ def parse_schedule(text: str) -> tuple[str, int | None, int | None, str]:
     raise wrong
 
 
+# The night (`services.night`): `night`, `night monday`, `night 1`; `nuit`, `chaque nuit`,
+# `nuit lundi`, `nuit 1`. Its place: `night: before` or `after` (`avant`, `après`).
+_NIGHT_WORDS = ("night", "nuit")
+_PLACES = {
+    "before": "before",
+    "avant": "before",
+    "after": "after",
+    "après": "after",
+    "apres": "after",
+}
+
+
+def night_schedule(text: str) -> tuple[str, int | None, int | None] | None:
+    """`night`, `night monday` (or `mon`, `nuit lundi`), `night 1` → frequency, day of the
+    week, day of the month. None: not a night schedule (see `parse_schedule`)."""
+    words = text.lower().split()
+    if words[:2] == ["chaque", "nuit"]:
+        words = ["night", *words[2:]]
+    if not words or words[0] not in _NIGHT_WORDS:
+        return None
+    rest = words[1:]
+    if not rest:
+        return "daily", None, None
+    if len(rest) == 1 and (day := _weekday(rest[0])) is not None:
+        return "weekly", day, None
+    if len(rest) == 1 and rest[0].isdigit():
+        if not 1 <= int(rest[0]) <= 28:
+            raise invalid("Day of the month: from 1 to 28.")
+        return "monthly", None, int(rest[0])
+    raise invalid(
+        "schedule: “{value}” is not understood. Examples: daily 02:30, weekly monday 06:00, "
+        "monthly 1 06:00, night, night monday.",
+        value=text[:60],
+    )
+
+
+def _place(header: _Header) -> str:
+    """`night: before` or `after` (the default)."""
+    value = _text(header, "night").lower()
+    if not value:
+        return "after"
+    if value not in _PLACES:
+        raise invalid("night: before or after (the tidy-up).")
+    return _PLACES[value]
+
+
 def _config(header: _Header, name: str) -> Config:
     from synaptane.services.routines import TEMPLATES  # the templates' module reads this one
 
     schedule = _text(header, "schedule")
     if not schedule:
         raise invalid("schedule: missing (e.g. weekly monday 06:00).")
-    frequency, weekday, monthday, at = parse_schedule(schedule)
+    in_night = night_schedule(schedule)
+    if in_night is not None:
+        (frequency, weekday, monthday), at = in_night, None
+        night = _place(header)
+    else:
+        frequency, weekday, monthday, fixed = parse_schedule(schedule)
+        at, night = fixed, ""
+        if _text(header, "night"):
+            header.warnings.append(
+                Label(
+                    "night: ignored, the schedule is not in the night ({value}).",
+                    value=schedule[:60],
+                )
+            )
     template = _text(header, "template")
     if template and template not in TEMPLATES:
         header.warnings.append(Label("Unknown template, ignored: {field}.", field=template[:40]))
@@ -552,6 +781,9 @@ def _config(header: _Header, name: str) -> Config:
             output_email="" if email == "none" else email,
             output_webhook=_flag(header, "webhook", False),
             enabled=_flag(header, "enabled", True),
+            memory=_flag(header, "memory", False),
+            writes=_folders(header, "writes"),
+            night=night,
         ),
     )
     return config
@@ -577,6 +809,19 @@ def extra_lines(data: bytes | None) -> list[str]:
         return _header(data.decode("utf-8", "replace")).extra
     except SynaptaneError:
         return []
+
+
+def memory_of(data: bytes | None) -> bool:
+    """Does a routine file ask for a memory (`memory: true`)? Read from its header alone, so
+    that an edit of a file invalid for another reason keeps it; False for a missing file, an
+    unreadable header or a value that is not a boolean. (An invalid file does not run: its
+    memory is neither read nor written.)"""
+    if not data or len(data) > MAX_FILE_SIZE:
+        return False
+    try:
+        return _flag(_header(data.decode("utf-8", "replace")), "memory", False)
+    except SynaptaneError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -649,12 +894,15 @@ def reconcile(
     }
     seen: set[str] = set()
     now = now or datetime.now(UTC)
-    for index, file in enumerate(f for f in read_files(repo) if len(f.name) <= 120):
+    files = [f for f in read_files(repo) if len(f.name) <= 120]
+    read = {file.name: _read(file, index) for index, file in enumerate(files)}
+    _mark_clashes(read)
+    for file in files:
         seen.add(file.name)
         row = rows.get(file.name)
         if row is not None and row.sha is None and file.data != render(Config.of(row)).encode():
             continue  # a routine still to write has this name: `_write_pending` settles it
-        parsed = _read(file, index)
+        parsed = read[file.name]
         error = parsed.error.dumps() if parsed.error else None
         warnings = [w.dumps() for w in parsed.warnings]
         if (
@@ -685,6 +933,20 @@ def reconcile(
             log.info("Space %s: routine %s removed (file removed)", space.id, name)
             session.delete(row)
     session.flush()
+
+
+def _mark_clashes(read: dict[str, Parsed]) -> None:
+    """Routines whose folders clash (`clash`) after a push, which cannot be refused: each of
+    them is invalid, with a message naming the other routine, and does not run until a file is
+    fixed. Both of an overlapping pair, not "the most recent": Git does not say which of the
+    two files was wrong (a push may move an old routine's folders onto a new one's), and
+    running either would keep writing pages the other one keeps. A folder holding another
+    routine's report page makes its own routine invalid, not the one that reports there."""
+    valid = {name: p.config for name, p in read.items() if p.config is not None}
+    for name, config in valid.items():
+        if (why := clash(name, config, valid)) is not None:
+            found = read[name]
+            read[name] = Parsed(None, why, found.warnings, found.extra)
 
 
 def _write_pending(session: Session, space: Space, repo: Repository, committer: Identity) -> bool:
@@ -749,10 +1011,45 @@ def synchronize(database: Database, repo: Repository, space_id: UUID, committer:
                 return False
             created = _write_pending(session, space, repo, committer)
             reconcile(session, space, repo)
-            return created
     except Exception:  # noqa: BLE001 — the pages' synchronization goes on
         log.exception("Space %s: routines not brought in step with the repository", space_id)
         return False
+    # Apart, once the routines are saved: a memory that cannot be removed must not undo them.
+    try:
+        dropped = _drop_orphan_memories(repo, committer)
+    except Exception:  # noqa: BLE001 — the next synchronization tries again
+        log.exception("Space %s: memories of removed routines not deleted", space_id)
+        dropped = False
+    return created or dropped
+
+
+def _drop_orphan_memories(repo: Repository, committer: Identity) -> bool:
+    """Removes the memories whose routine file is gone (removed or renamed by a push that did
+    not move the memory): one commit in Synaptane's name. A routine created later under the
+    same name never inherits notes written for another one; the history keeps them.
+    Only files named as a routine can be (`NAME`): any other one is no memory, never read.
+    Returns True if committed."""
+    memories = [
+        b.path
+        for b in repo.files(MEMORY_DIR)
+        if b.path.endswith(".md")
+        and PurePosixPath(b.path).parent.as_posix() == MEMORY_DIR
+        and NAME.fullmatch(PurePosixPath(b.path).stem)
+    ]
+    if not memories:
+        return False
+    names = {
+        PurePosixPath(b.path).stem
+        for b in repo.files(ROUTINES_DIR)
+        if b.path.endswith(".md") and PurePosixPath(b.path).parent.as_posix() == ROUTINES_DIR
+    }
+    orphans = sorted(p for p in memories if PurePosixPath(p).stem not in names)
+    if not orphans:
+        return False
+    subject = "Synaptane: memories of removed routines deleted\n\n" + "\n".join(
+        f"- {path}" for path in orphans
+    )
+    return repo.commit_changes(dict.fromkeys(orphans), committer, subject) is not None
 
 
 # --- Writing from Synaptane (administrators) ---------------------------------------------------
@@ -833,12 +1130,22 @@ def save(
                     path=path,
                 )
             data = None
+            changes: dict[str, bytes | None] = {path: None, memory_path(name): None}
             if config is not None:
-                data = _fits(render(config, extra_lines(repo.blob(path))).encode())
+                old = repo.blob(path)
+                if config.memory is None:  # settings copied from the database: as the file says
+                    config.memory = memory_of(old)
+                if config.writes is None:  # a copy made from the database: the file's folders
+                    config.writes = [] if creating else _file_writes(old)
+                    apply(config, Fields())  # the whole checked again, folders known
+                _refuse_clash(repo, name, config)
+                data = _fits(render(config, extra_lines(old)).encode())
+                changes = {path: data}
+            # Removed: the routine's memory goes with it, in the same commit.
             verb = "updated" if data is not None else "removed"
             subject = f"Routine {verb}: {name}" + trailers(source, actor.via)
             try:
-                committed = repo.commit_changes({path: data}, author, subject)
+                committed = repo.commit_changes(changes, author, subject)
             except PathRefused as refused:  # the folder made a file or a link by a push
                 raise invalid("Write refused: {detail}", detail=str(refused)) from None
             if committed:
@@ -851,6 +1158,20 @@ def save(
             saved.created_by = actor.user.id
         session.commit()  # under the lock: the next synchronization sees it
     return saved
+
+
+def _refuse_clash(repo: Repository, name: str, config: Config) -> None:
+    """Refuses folders another routine of the space keeps (or holding its report page), and a
+    report page in a folder another routine keeps (`clash`, `report_clash`), against the
+    other routine files at HEAD, valid ones only (an invalid file keeps nothing)."""
+    others = {
+        file.name: parsed.config
+        for index, file in enumerate(read_files(repo))
+        if file.name != name and (parsed := _read(file, index)).config is not None
+    }
+    why = clash(name, config, others) or report_clash(name, config, others)
+    if why is not None:
+        raise invalid(why.template, **why.params)
 
 
 def _fits(data: bytes) -> bytes:
@@ -871,6 +1192,23 @@ def _save_pending(
 ) -> None:
     """The routine of a space not synced yet, kept in the database until its first
     synchronization writes it (`synchronize`)."""
+    if config is not None and config.writes is None:
+        # A copy made from the database: a routine not written yet has no folders. Checked
+        # again as a whole, as `save` does once the folders are known (at least one output).
+        config.writes = []
+        apply(config, Fields())
+    if config is not None and config.writes:
+        # The database keeps no copy of them: they would be lost before the first write.
+        raise invalid(
+            "Folders kept by the routine (writes): available once the space has been "
+            "synchronized for the first time."
+        )
+    if config is not None and config.memory:
+        # The memory flag neither: kept in the file only, it would be dropped silently.
+        raise invalid(
+            "Memory of the routine (memory): available once the space has been synchronized "
+            "for the first time."
+        )
     if config is None:
         if row is not None:
             session.delete(row)
@@ -890,6 +1228,50 @@ def _save_pending(
     session.flush()
 
 
+# --- Folders a routine keeps ---------------------------------------------------------------------
+
+_WRITES: OrderedDict[str, tuple[str, ...]] = OrderedDict()  # file hash → folders
+_WRITES_LOCK = threading.Lock()
+_WRITES_MAX = 256
+
+
+def _file_writes(data: bytes | None) -> list[str]:
+    """The `writes` folders of a routine file, [] if it has none or they cannot be read. Read
+    on their own: a file invalid for another reason (schedule…) keeps its folders when the
+    form rewrites it."""
+    if not data or len(data) > MAX_FILE_SIZE:
+        return []
+    try:
+        return clean_writes(_folders(_header(data.decode("utf-8", "replace")), "writes"))
+    except SynaptaneError:
+        return []
+
+
+def writes_of(ws: Workspace, space: Space, routine: Routine) -> list[str]:
+    """Folders the routine keeps, read from its file at the hash the database knows
+    (`Routine.sha`): the same version as the other settings copied in the database, even if
+    a push has moved the file since (it is read again at the next synchronization). []: none,
+    a routine not written to the repository yet, or a space not synced."""
+    if routine.sha is None:
+        return []
+    with _WRITES_LOCK:
+        if (cached := _WRITES.get(routine.sha)) is not None:
+            _WRITES.move_to_end(routine.sha)
+            return list(cached)
+    repo = _synced(ws, space)
+    if repo is None:
+        return []
+    try:
+        folders = _file_writes(repo.object_data(routine.sha))
+    except GitError:
+        return []
+    with _WRITES_LOCK:
+        _WRITES[routine.sha] = tuple(folders)
+        while len(_WRITES) > _WRITES_MAX:
+            _WRITES.popitem(last=False)
+    return folders
+
+
 # --- Shown to people ----------------------------------------------------------------------------
 
 
@@ -901,6 +1283,18 @@ def error_of(routine: Routine) -> Label | None:
 def warnings_of(routine: Routine) -> list[Label]:
     """What was ignored in the routine's file (unknown field…), to translate when shown."""
     return [Label.loads(w) for w in routine.warnings or []]
+
+
+def memory_enabled(ws: Workspace, space: Space, name: str) -> bool:
+    """Does the routine's file in the local copy now ask for a memory (False: not synced)?"""
+    repo = _synced(ws, space)
+    return memory_of(repo.blob(file_path(name))) if repo is not None else False
+
+
+def memory_flags(ws: Workspace, space: Space) -> dict[str, bool]:
+    """`memory_enabled` of every routine file, read in a single call (a list of routines)."""
+    repo = _synced(ws, space)
+    return {f.name: memory_of(f.data) for f in read_files(repo)} if repo is not None else {}
 
 
 def current_sha(ws: Workspace, space: Space, name: str) -> str | None:

@@ -1,5 +1,5 @@
 {% extends "space-settings-base.html" %}
-{% from "ui.html" import csrf_field with context %}
+{% from "ui.html" import action, csrf_field with context %}
 {% from "tidy-run-now.html" import run_now_button with context %}
 {% set section = "tidy" %}
 {% block section %}
@@ -31,16 +31,39 @@
       <div class="field"><label for="tidy-tz">{{ _("Time zone") }}</label><input id="tidy-tz" name="tidy_timezone" value="{{ space.tidy_timezone }}" required list="timezones" autocomplete="off"><datalist id="timezones">{% for zone in timezones %}<option value="{{ zone }}">{% endfor %}</datalist></div>
     </div>
     <label class="checkbox"><input type="checkbox" name="tidy_maintain" value="true" aria-describedby="tidy-maintain-help" {% if space.tidy_maintain %}checked{% endif %}>{{ _("Maintain the wiki every night") }}</label>
-    <p class="muted" id="tidy-maintain-help">{{ _("Even with an empty inbox, the agent fixes the problems people introduced since the last run: broken links, new pages that nothing links to, missing from their folder's index, untitled or empty. At most {count} a night; it only costs when there are some.", count=max_problems) }}</p>
+    <p class="muted" id="tidy-maintain-help">{{ _("Even with an empty inbox, the agent fixes the problems people introduced since the last run: broken links, new pages that nothing links to, missing from their folder's index, untitled or empty, and the team checks they break (blocking ones and personal data). At most {count} a night; it only costs when there are some.", count=max_problems) }}</p>
   </fieldset>
   <fieldset class="settings-group">
     <legend>{{ _("Tidy-up as you go") }}</legend>
     <label class="checkbox"><input type="checkbox" name="tidy_soon" value="true" {% if space.tidy_delay %}checked{% endif %}>{{ _("Also tidy as you go, shortly after each drop") }}</label>
     <div class="field field-short"><label for="tidy-delay">{{ _("Delay after a drop (minutes)") }}</label><input id="tidy-delay" name="tidy_delay" type="number" min="1" max="1440" value="{{ space.tidy_delay or 15 }}" aria-describedby="tidy-delay-help"><p class="muted" id="tidy-delay-help">{{ _("Notes dropped during this delay are tidied together, in a single run. The monthly budget applies.") }}</p></div>
   </fieldset>
+  <fieldset class="settings-group" data-test="night-report">
+    <legend>{{ _("The night and its report") }}</legend>
+    <p class="muted">{{ _("Routines whose schedule is “night” run at the tidy-up's time, just before or after it, one after the other. After the night, one report: what was filed and fixed, each routine's status and report, failures and their cause, the cost.") }}</p>
+    {% if night_routines %}<ol class="night-order">{% for r in night_routines %}<li><a href="/o/{{ org.slug }}/{{ space.slug }}/-/routines/{{ r.id }}">{{ r.title or r.name }}</a> <span class="muted">({{ _("before the tidy-up") if r.night == 'before' else _("after the tidy-up") }}{% if not r.enabled %}, {{ _("Disabled", context="routine") }}{% endif %})</span></li>{% endfor %}</ol>
+    {% else %}<p class="muted">{{ _("No routine of the night yet: give a routine the schedule “night” (Settings → Routines).") }}</p>{% endif %}
+    <div class="field field-short"><label for="night-email">{{ _("Send the report by email") }}</label><select id="night-email" name="night_report_email" aria-describedby="night-email-help">
+      {% for value, label in [("", _("to no one")), ("admins", _("to the organization's administrators")), ("members", _("to the space's members"))] %}<option value="{{ value }}" {% if report.email == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select><p class="muted" id="night-email-help">{{ _("Verified addresses only; anyone can unsubscribe in My account.") }}</p></div>
+    <div class="field"><label for="night-webhook">{{ _("Slack webhook (incoming webhook address)") }}</label><input id="night-webhook" name="night_report_webhook" type="password" autocomplete="off" spellcheck="false" placeholder="{% if report.webhook %}{{ _('Configured: leave empty to keep it') }}{% else %}https://hooks.slack.com/services/…{% endif %}" aria-describedby="night-webhook-help"><p class="muted" id="night-webhook-help">{{ _("Stored encrypted, never shown again and never written to the repository. Mattermost and other Slack-compatible webhooks work too.") }}</p></div>
+    {% if report.webhook %}<p class="muted"><span class="status status-ok">{{ _("Slack webhook configured") }}</span></p>
+    <label class="checkbox"><input type="checkbox" name="night_webhook_clear" value="true">{{ _("Remove the Slack webhook") }}</label>{% endif %}
+    <label class="checkbox"><input type="checkbox" name="night_report_always" value="true" {% if report.always %}checked{% endif %} aria-describedby="night-always-help">{{ _("Also send it when nothing happened") }}</label>
+    <p class="muted" id="night-always-help">{{ _("Otherwise a quiet night (nothing filed, fixed or run, no failure) sends nothing.") }}</p>
+  </fieldset>
   <div class="settings-group">
     <div class="field"><label for="tidy-model">{{ _("Model for this space (optional)") }}</label><input id="tidy-model" name="ai_model" value="{{ space.ai_model or '' }}" placeholder="{{ _("the organization's") }}"></div>
   </div>
   <button class="button button-primary" type="submit">{{ _("Save") }}</button>
 </form>
+{% if report.active %}
+<div class="card status-card content-narrow section-gap-small" data-test="night-report-test">
+  <div>
+    <strong>{{ _("Try the report") }}</strong>
+    <p class="muted">{{ _("The last night's report, marked as a test: by email to you only, and to the Slack webhook.") }}</p>
+  </div>
+  {{ action("/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/night-report/test", _("Send a test report")) }}
+</div>
+{% endif %}
 {% endblock %}

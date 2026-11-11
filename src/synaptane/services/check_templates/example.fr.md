@@ -12,6 +12,8 @@ liste juste en dessous la décrit (les clés restent en anglais) :
   `notes/**/*.md`) ;
 - level : warn (signalé) ou block (l'écriture est refusée) ;
 - message : ce qu'il faut faire.
+- fix : yes ou no, si l'entretien de nuit corrige ce que les membres enfreignent (par
+  défaut, les règles block et les données personnelles).
 Supprimez les règles inutiles, adaptez les autres. -->
 
 ## Pas de crochets imbriqués dans un libellé de lien

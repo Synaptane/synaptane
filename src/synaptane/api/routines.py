@@ -2,7 +2,8 @@
 
 Same rules as the web UI: organization admins create, edit, launch and delete (a commit of the
 routine's file `.synaptane/routines/<name>.md` in their name); the space's contributors read
-the routines and their runs."""
+the routines and their runs. The memory of a routine (`.synaptane/memory/<name>.md`) is read
+by contributors and cleared by admins; only the routine's runs write it."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -13,7 +14,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from synaptane.core.errors import invalid
-from synaptane.services import routine_files, routines
+from synaptane.services import routine_files, routine_memory, routines
 from synaptane.storage.models import Routine, RoutineRun, Space
 
 from .content import SPACE, _db, _ws
@@ -38,7 +39,10 @@ class RoutineRunOut(BaseModel):
     report: str = Field(description="Output text (page, email, webhook)")
     outputs: dict[str, object] = Field(
         description="What was output: page (path), inbox (titles of the dropped items), "
-        "emails (number sent), webhook (true if sent)"
+        "written (pages written in the folders it keeps: path, change created, modified, "
+        "moved with from, or deleted), conflicts (pages a person changed during the run: "
+        "their version kept), emails (number sent), webhook (true if sent), memory (saved, "
+        "cleared, or changed: changed by someone during the run, so kept as it was)"
     )
     commit: str | None
     input_tokens: int
@@ -70,18 +74,31 @@ class RoutineOut(BaseModel):
         description="Why the file is invalid (the routine does not run); null: valid"
     )
     warnings: list[str] = Field(description="What was ignored in the file (unknown field…)")
-    template: str = Field(description='Original template (coherence, digest); "": blank')
+    template: str = Field(description='Original template (coherence, digest, archive); "": blank')
     instructions: str
     frequency: str
     weekday: int | None = Field(description="Weekly: 0 = Monday … 6 = Sunday")
     monthday: int | None = Field(description="Monthly: 1 to 28")
     at: str = Field(description="HH:MM, the space's local time (tidy-up time zone)")
+    night: str = Field(
+        default="",
+        description='"before" or "after": part of the night, at the tidy-up\'s time, just '
+        'before or after it (`at` unused); "": at `at`',
+    )
     scope: list[str] = Field(description="Folders relative to content/; empty: the whole space")
+    writes: list[str] = Field(
+        description="Folders the routine keeps (relative to content/): it writes its pages "
+        "there, and reads them even outside the scope; empty: it only writes its outputs"
+    )
     output_page: str = Field(description='Page rewritten on each run; "": none')
     output_inbox: bool
     output_email: str = Field(description='"" (none), admins or members')
     output_webhook: bool
     enabled: bool
+    memory: bool = Field(
+        description="Keeps notes from one run to the next (`memory: true` in the file), in "
+        "`.synaptane/memory/<name>.md`: see `GET …/memory`"
+    )
     next_run: datetime | None = Field(description="Next scheduled run")
     last_run: RoutineRunOut | None
 
@@ -92,6 +109,8 @@ class RoutineOut(BaseModel):
         routine: Routine,
         space_next: datetime | None,
         last: RoutineRun | None,
+        writes: list[str],
+        memory: bool = False,
     ) -> "RoutineOut":
         error = routine_files.error_of(routine)
         return cls(
@@ -110,12 +129,15 @@ class RoutineOut(BaseModel):
             weekday=routine.weekday,
             monthday=routine.monthday,
             at=routine.at,
+            night=routine.night,
             scope=list(routine.scope or []),
+            writes=writes,
             output_page=routine.output_page,
             output_inbox=routine.output_inbox,
             output_email=routine.output_email,
             output_webhook=routine.output_webhook,
             enabled=routine.enabled,
+            memory=memory,
             next_run=space_next,
             last_run=RoutineRunOut.of(last) if last else None,
         )
@@ -126,7 +148,7 @@ class RoutineIn(BaseModel):
     fields); update: only the given fields change. Every write is a commit of the routine's
     file in the caller's name."""
 
-    template: Literal["", "coherence", "digest"] = ""
+    template: Literal["", "coherence", "digest", "archive"] = ""
     name: str | None = Field(
         default=None,
         description="Creation: file name (lowercase letters, digits, dashes); default: made "
@@ -140,11 +162,23 @@ class RoutineIn(BaseModel):
     monthday: int | None = Field(default=None, ge=1, le=28)
     at: str | None = Field(default=None, description="HH:MM")
     scope: list[str] | None = None
+    writes: list[str] | None = Field(
+        default=None,
+        description="Folders the routine keeps (5 at most; never the whole wiki nor a hidden "
+        "folder); [] removes them; omitted: unchanged",
+    )
     output_page: str | None = None
     output_inbox: bool | None = None
     output_email: EmailTarget | None = None
     output_webhook: bool | None = None
     enabled: bool | None = None
+    memory: bool | None = Field(
+        default=None, description="Keep notes from one run to the next (`memory: true`)"
+    )
+    night: Literal["", "before", "after"] | None = Field(
+        default=None,
+        description='"before" or "after" the tidy-up, in the night of the space; "": at `at`',
+    )
     base_sha: str | None = Field(
         default=None,
         description="Update: the file's `sha` read before modifying; conflict (409) if it "
@@ -162,9 +196,29 @@ class RoutineIn(BaseModel):
         )
 
 
+class MemoryOut(BaseModel):
+    enabled: bool = Field(description="The routine's file asks for a memory (`memory: true`)")
+    path: str = Field(description="File of the memory in the repository")
+    text: str = Field(description='What the routine noted for its next runs; "": none')
+    sha: str | None = Field(description="Hash of the file; null: no memory yet")
+    size: int = Field(description="Bytes of the file")
+    too_large: bool = Field(description="File too large to be shown (nor read by the routine)")
+
+
+def _memory(request: Request, space: Space, routine: Routine) -> bool:
+    return routine_files.memory_enabled(_ws(request), space, routine.name)
+
+
 def _out(request: Request, session: DbSession, space: Space, routine: Routine) -> RoutineOut:
     last = routines.last_runs(session, space).get(routine.id)
-    return RoutineOut.of(request, routine, routines.next_run(routine, space), last)
+    return RoutineOut.of(
+        request,
+        routine,
+        routines.next_run(routine, space),
+        last,
+        routine_files.writes_of(_ws(request), space, routine),
+        _memory(request, space, routine),
+    )
 
 
 @router.get(ROUTINES, tags=["routines"])
@@ -172,10 +226,20 @@ def list_routines(
     org: str, space: str, request: Request, session: DbSession, actor: CurrentActor
 ) -> list[RoutineOut]:
     found = find_space(session, actor, org, space)
+    listed = routines.list_routines(session, actor, found)
     last = routines.last_runs(session, found)
+    ws = _ws(request)
+    memory = routine_files.memory_flags(ws, found)  # one read, not one per routine
     return [
-        RoutineOut.of(request, r, routines.next_run(r, found), last.get(r.id))
-        for r in routines.list_routines(session, actor, found)
+        RoutineOut.of(
+            request,
+            r,
+            routines.next_run(r, found),
+            last.get(r.id),
+            routine_files.writes_of(ws, found, r),
+            memory.get(r.name, False),
+        )
+        for r in listed
     ]
 
 
@@ -295,3 +359,45 @@ def routine_runs(
     found = find_space(session, actor, org, space)
     routine = routines.get(session, actor, found, routine_id)
     return [RoutineRunOut.of(r) for r in routines.runs(session, actor, found, routine.id)]
+
+
+@router.get(ROUTINES + "/{routine_id}/memory", tags=["routines"])
+def routine_memory_get(
+    org: str,
+    space: str,
+    routine_id: UUID,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> MemoryOut:
+    """What the routine remembers from one run to the next (contributors)."""
+    found = find_space(session, actor, org, space)
+    routine = routines.get(session, actor, found, routine_id)
+    view = routine_memory.view(session, actor, _ws(request), found, routine)
+    return MemoryOut(
+        enabled=view.enabled,
+        path=view.path,
+        text=view.text,
+        sha=view.sha,
+        size=view.size,
+        too_large=view.too_large,
+    )
+
+
+@router.delete(
+    ROUTINES + "/{routine_id}/memory", status_code=status.HTTP_204_NO_CONTENT, tags=["routines"]
+)
+def routine_memory_clear(
+    org: str,
+    space: str,
+    routine_id: UUID,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> Response:
+    """Clears the routine's memory (organization admins): a commit in the caller's name. A
+    run in progress keeps it cleared."""
+    found = find_space(session, actor, org, space)
+    routine = routines.get(session, actor, found, routine_id)
+    routine_memory.clear(session, _db(request), actor, _ws(request), found, routine, source="api")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

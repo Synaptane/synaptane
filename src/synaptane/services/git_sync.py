@@ -402,6 +402,7 @@ CARRIED = (
     vocation.VOCATION_FILE,
     vocation.PROMPTS_DIR,  # tidy-up rules and team prompts
     routine_files.ROUTINES_DIR,
+    routine_files.MEMORY_DIR,  # what the routines remember (`routine_memory`)
 )
 
 
