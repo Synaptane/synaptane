@@ -840,7 +840,9 @@ administrateurs les écrivent.
   journal d'audit nomme la source et son hôte. Passer l'adresse sur un autre hôte demande de
   saisir à nouveau le secret : un secret enregistré ne part jamais vers une autre destination ;
   choisir aucune authentification le supprime. **Tester** fait un GET sur l'adresse de base,
-  avec le secret, et affiche le statut et le type de la réponse, jamais son contenu.
+  avec le secret, et affiche le statut et le type de la réponse, jamais son contenu. Un secret
+  envoyé dans un en-tête (jeton Bearer, en-tête nommé) s'écrit en ASCII : lettres sans accents,
+  chiffres, ponctuation.
 - **Choisir dans le fichier** : `sources: statut, tickets` (5 au plus ; même syntaxe que
   `scope`), ou les cases **Sources extérieures** du formulaire de la routine. Un nom que
   l'espace ne déclare pas rend le fichier **invalide**, avec le nom dans l'erreur : une faute de
@@ -852,21 +854,26 @@ administrateurs les écrivent.
   (`incidents/unresolved.json?limit=20`), et au besoin un en-tête `Accept`. **GET seulement** :
   une routine lit ; pas de corps, ni aucun autre en-tête (Synaptane ajoute le secret lui-même).
   - L'adresse appelée reste toujours **sous l'adresse de base** : même schéma, même hôte, même
-    port, un chemin sous son préfixe, après normalisation (segments `..` et `.`, séparateur ou
+    port, un chemin sous son préfixe, après normalisation (segments `..` et `.`, y compris avec
+    des paramètres de chemin comme `..;x` ou sous des formes Unicode comme `．．`, séparateur ou
     point encodé, barre oblique inverse, casse de l'hôte, noms internationaux) : tout le reste
     est refusé par une erreur d'outil, avant tout appel.
   - **Réseau** : adresses internes refusées (bouclage, réseaux privés, lien local,
     métadonnées du cloud), l'adresse vérifiée étant celle à laquelle on se connecte (pas de
     DNS rebinding), une redirection suivie seulement sous la même source (3 au plus, chacune
-    vérifiée à nouveau), 20 secondes par appel.
+    vérifiée à nouveau), 20 secondes par appel en tout, redirections comprises, même face à
+    un service qui envoie sa réponse octet par octet.
   - **Réponses** : 200 Ko lus au plus ; du texte seulement (JSON, texte, HTML converti en texte,
     XML, Markdown), tout autre type refusé ; 40 000 caractères donnés à l'agent, puis une note
     pour resserrer la requête. Au plus **30 appels par passage**.
   - Ce que répond une source est encadré comme **donnée non fiable**, comme les pages : les
     règles de l'agent lui rappellent que ce n'est jamais une consigne.
 - **L'agent ne voit jamais le secret.** Une réponse qui le renvoie en écho porte `[secret]` à
-  sa place ; un rapport, un élément d'inbox, une page, la mémoire ou un résumé qui le
-  contiennent sont refusés à l'agent. Le détecteur de secrets habituel s'applique aussi, comme à
+  sa place, même écrit autrement (en majuscules, dans une adresse, une chaîne JSON ou du HTML)
+  ou quand seul son début précède la coupure des 200 Ko ; le type d'une réponse n'est affiché
+  que s'il s'agit d'un type de média, et un jeu de caractères qui déguiserait le secret n'est
+  pas utilisé. Un rapport, un élément d'inbox, une page, la mémoire ou un résumé qui le
+  contiennent, sous l'une de ces formes, sont refusés à l'agent. Le détecteur de secrets habituel s'applique aussi, comme à
   toute écriture.
 - **Journal** : la page du passage et ses `outputs.fetches` en REST listent chaque appel :
   source, chemin, statut et taille. Les valeurs des paramètres sensibles de la requête
@@ -882,7 +889,8 @@ administrateurs les écrivent.
   recherche), jamais à un autre.
 - **Pour toute l'instance** : `SYNAPTANE_ROUTINE_SOURCES=false` (`ROUTINE_SOURCES` avec Docker,
   voir [Configuration](configuration.fr.md)) coupe la fonction. Les routines tournent alors sans
-  `fetch`, leur agent en est prévenu et leur page le dit. Activée par défaut : seuls les
+  `fetch`, leur agent en est prévenu et leur page le dit ; **Tester** n'appelle rien non
+  plus. Activée par défaut : seuls les
   administrateurs déclarent une source.
 - Un service qui ne répond qu'à un POST (GraphQL, certaines API de recherche) n'est pas pris en
   charge.

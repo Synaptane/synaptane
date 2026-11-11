@@ -35,16 +35,19 @@ of the target version.
   space. A name the space does not declare, or an address written instead of a name, makes
   the file invalid; removing a source makes the routines that name it invalid at once.
 - **Every request stays under its source**: same scheme (HTTPS), host and port, and a path
-  under its prefix once normalized (`..`, encoded separators and dots, backslashes, an `@` that
-  never reaches the authority, case of the host, international names); internal addresses
+  under its prefix once normalized (`..`, also as `..;x` or in Unicode forms, encoded
+  separators and dots, backslashes, an `@` that never reaches the authority, case of the host,
+  international names); 20 seconds per call in all, even against a service that sends its
+  answer a byte at a time; internal addresses
   refused and the address checked being the one connected to (no DNS rebinding), as for the
   webhooks, which also refuse an IPv4 address written as IPv6 (`::ffff:10.0.0.1`) from now on;
   a redirect followed only under the same source, so the secret never leaves for another host.
 - **The secret never reaches the model nor an output.** Encrypted at rest, bound to its source
   and its host (moving the address to another host asks for it again), never shown again
-  (pages, REST, audit log, run log). An answer that echoes it gets `[secret]` in its place; a
+  (pages, REST, audit log, run log). An answer that echoes it gets `[secret]` in its place,
+  also in capitals, percent-encoded, in a JSON string or in HTML, or cut by the 200 KB cap; a
   report, an inbox item, a page, the memory or a summary that holds it is refused to the
-  agent. The log hides the values of sensitive query parameters and keeps no body. The audit
+  agent. The type of an answer, shown next to its frame, is only ever a media type. The log hides the values of sensitive query parameters and keeps no body. The audit
   log records each source added, changed, removed, and each secret replaced.
 
 ### Upgrade

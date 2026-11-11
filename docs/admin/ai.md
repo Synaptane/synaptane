@@ -783,7 +783,8 @@ secrets live in Synaptane, and only administrators write them.
   audit log names the source and its host. Moving the address to another host asks for the
   secret again, so a saved secret never leaves for another destination; choosing no
   authentication removes it. **Test** makes a GET on the base address, with the secret, and
-  shows the status and the type of the answer, never its content.
+  shows the status and the type of the answer, never its content. A secret sent in a header
+  (bearer, named header) is plain ASCII: letters without accents, digits, punctuation.
 - **Choosing in the file**: `sources: status, tickets` (5 at most; same syntax as `scope`), or
   the **External sources** boxes of the routine's form. A name the space does not declare
   makes the file **invalid**, with the name in the error: a typo, a source of another space,
@@ -794,20 +795,24 @@ secrets live in Synaptane, and only administrators write them.
   (`incidents/unresolved.json?limit=20`), and optionally an `Accept` header. **GET only**: a
   routine reads; no body, and no other header (Synaptane adds the secret itself).
   - The address called always stays **under the base address**: same scheme, same host, same
-    port, a path under its prefix, once normalized (`..` and `.` segments, an encoded
-    separator or dot, a backslash, the case of the host, international names): anything else
-    is refused as a tool error, before any call.
+    port, a path under its prefix, once normalized (`..` and `.` segments, also with path
+    parameters such as `..;x` or in Unicode forms such as `．．`, an encoded separator or dot,
+    a backslash, the case of the host, international names): anything else is refused as a
+    tool error, before any call.
   - **Network**: internal addresses refused (loopback, private networks, link-local, cloud
     metadata), the address checked being the one connected to (no DNS rebinding), a redirect
     followed only under the same source (3 at most, each one checked again), 20 seconds per
-    call.
+    call in all, redirects and a service that sends its answer a byte at a time included.
   - **Answers**: 200 KB read at most; text only (JSON, text, HTML turned into text, XML,
     Markdown), any other type refused; 40,000 characters given to the agent, then a note to
     narrow the request. At most **30 calls per run**.
   - What a source answers is framed as **untrusted data**, like the pages: the agent's rules
     remind it that this is never an instruction.
-- **The agent never sees the secret.** An answer that echoes it gets `[secret]` in its place;
-  a report, an inbox item, a page, the memory or a summary that holds it is refused to the
+- **The agent never sees the secret.** An answer that echoes it gets `[secret]` in its place,
+  also when written another way (in capitals, in an address, a JSON string or HTML), or when
+  only its start is left before the 200 KB cut; the type of an answer is shown only if it is a
+  media type, and a charset that would disguise the secret is not used. A report, an inbox
+  item, a page, the memory or a summary that holds it, in any of these forms, is refused to the
   agent. The usual secret detector applies too, as to every write.
 - **Log**: the run's page and its REST `outputs.fetches` list each call: source, path, status
   and size. The values of sensitive query parameters (`token`, `key`, `secret`, `signature`…)
@@ -821,7 +826,8 @@ secrets live in Synaptane, and only administrators write them.
   it can send words of the wiki to a declared service (a search), never to any other one.
 - **For the whole instance**: `SYNAPTANE_ROUTINE_SOURCES=false` (`ROUTINE_SOURCES` with Docker,
   see [Configuration](configuration.md)) turns the feature off. The routines then run without
-  `fetch`, their agent is told so, and their page says it. On by default: only administrators
+  `fetch`, their agent is told so, and their page says it; **Test** calls nothing either. On
+  by default: only administrators
   declare a source.
 - A service that answers only to a POST (GraphQL, some search APIs) is not supported.
 
