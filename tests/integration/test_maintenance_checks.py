@@ -309,3 +309,51 @@ def test_a_faulty_checks_file_does_not_break_the_maintenance(
     monkeypatch.undo()
     push(database, ctx, wiki, {".synaptane/checks.md": "## Only\n- level: loud\n"})
     assert [p[0] for p in problems(pending(db, ctx, wiki))] == ["broken_link", "not_in_index"]
+
+
+def start_here(db: Session, ctx: Workspace, wiki: Wiki) -> str:
+    """The watermark at the head: what the pages hold now is the past."""
+    head = ctx.local_repository(wiki.infra).head()
+    assert head is not None
+    found = space(db, wiki)
+    found.maintain_watermark = head
+    db.commit()
+    return head
+
+
+def test_an_address_already_there_under_the_same_mask_does_not_keep_the_fix_open(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Two addresses can share a masked excerpt (`j•••@gmail.com`): once the one introduced
+    is removed, the problem is fixed, even if the one already there stays."""
+    push(database, ctx, wiki, {".synaptane/checks.md": CHECKS})
+    push(database, ctx, wiki, {"content/contacts.md": contacts(f"Jean : {ADDRESS}")})
+    start_here(db, ctx, wiki)
+    both = contacts(f"Jean : {ADDRESS}", "Jules : jules@gmail.com")
+    push(database, ctx, wiki, {"content/contacts.md": both})
+    found = pending(db, ctx, wiki)
+    assert team(found) == [(maintenance.TEAM_KIND, "contacts.md", EMAIL)]
+    assert found is not None
+    repo = ctx.local_repository(wiki.infra)
+    head = repo.head()
+    assert head is not None
+    state = RunState(items={}, done={NAME: "Adresse retirée"})
+    untouched = maintenance.close(found, state, Overlay(repo, head))
+    assert [p.kind for p, _ in untouched.left] == [maintenance.TEAM_KIND]
+    fixed = Overlay(repo, head)
+    fixed.write("content/contacts.md", contacts(f"Jean : {ADDRESS}", "Jules").encode())
+    closure = maintenance.close(found, state, fixed)
+    assert [p.kind for p in closure.fixed] == [maintenance.TEAM_KIND]
+    # Two introduced under the same mask: one removed is not enough.
+    push(database, ctx, wiki, {"content/contacts.md": contacts(f"Jean : {ADDRESS}")})
+    start_here(db, ctx, wiki)
+    three = contacts(f"Jean : {ADDRESS}", "Jules : jules@gmail.com", "Jo : jo@gmail.com")
+    push(database, ctx, wiki, {"content/contacts.md": three})
+    found = pending(db, ctx, wiki)
+    assert found is not None
+    head = repo.head()
+    assert head is not None
+    one = Overlay(repo, head)
+    one.write("content/contacts.md", both.encode())
+    closure = maintenance.close(found, state, one)
+    assert [p.kind for p, _ in closure.left] == [maintenance.TEAM_KIND]

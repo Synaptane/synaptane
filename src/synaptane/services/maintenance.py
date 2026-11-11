@@ -40,6 +40,7 @@ wiki's own problems, then the rest (see `rank`).
 import hashlib
 import logging
 import posixpath
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -49,7 +50,7 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from synaptane.core.checks import EMPTY, Checks, Rule, Violation, is_page
+from synaptane.core.checks import EMPTY, MAX_HITS, Checks, Rule, Violation, is_page
 from synaptane.core.errors import Label
 from synaptane.core.markdown import WikiIndex, broken_among, broken_links, link_targets
 from synaptane.git.repo import GitError, Repository
@@ -92,9 +93,11 @@ RANK_PRIVATE, RANK_BLOCK, RANK_TEAM = -2, -1, 5
 class Problem:
     """A problem in a page. `detail`: what identifies it in the page (the link as written,
     the index concerned; for a team check, its title and excerpt); `suggestion`: a possible
-    fix (closest file of the same name). `note`, `rank` and `private` are set by the source
-    for the run (`annotate`), never stored: the text for the agent, the place in the night's
-    order (`RANK` by default), and personal data concerned (the agent's texts are scrubbed)."""
+    fix (closest file of the same name). `note`, `rank`, `private` and `known` are set by the
+    source for the run (`annotate`), never stored: the text for the agent, the place in the
+    night's order (`RANK` by default), personal data concerned (the agent's texts are
+    scrubbed), and how many equal ones were there before people's changes and stay (a masked
+    excerpt can be shared by two addresses: the problem is fixed once no more than those)."""
 
     source: str
     kind: str
@@ -104,6 +107,7 @@ class Problem:
     note: str = field(default="", compare=False)
     rank: int | None = field(default=None, compare=False)
     private: bool = field(default=False, compare=False)
+    known: int = field(default=0, compare=False)
 
     @property
     def key(self) -> str:
@@ -429,13 +433,23 @@ class TeamChecks:
                 continue
             origin = window.origins.get(page, page)
             old = olds[window.baselines.get(page, window.since)].get(origin)
-            for violation in checks.introduced(page, data, old, origin):
-                rule = checks.rules[violation.index]
-                if rule.fixes:
-                    found.append(self._problem(rule, violation))
+            fresh = [
+                v for v in checks.introduced(page, data, old, origin) if checks.rules[v.index].fixes
+            ]
+            if not fresh:
+                continue
+            # Equal excerpts already there and kept (`Problem.known`): all of them now, less
+            # those introduced; none when the introduced ones were cut at MAX_HITS.
+            now = Counter((v.rule, v.excerpt) for v in self._violations(checks, page, data))
+            new = Counter((v.rule, v.excerpt) for v in fresh)
+            full = {i for i, n in Counter(v.index for v in fresh).items() if n >= MAX_HITS}
+            for violation in fresh:
+                identity = (violation.rule, violation.excerpt)
+                known = 0 if violation.index in full else now[identity] - new[identity]
+                found.append(self._problem(checks.rules[violation.index], violation, known))
         return found
 
-    def _problem(self, rule: Rule, violation: Violation) -> Problem:
+    def _problem(self, rule: Rule, violation: Violation, known: int = 0) -> Problem:
         order = RANK_PRIVATE if rule.masked else RANK_BLOCK if rule.blocks else RANK_TEAM
         kind = "personal data, masked" if rule.masked else ""
         what = f"{rule.level}, {kind}" if kind else rule.level
@@ -452,6 +466,7 @@ class TeamChecks:
             note=note,
             rank=order,
             private=rule.masked,
+            known=known,
         )
 
     def _violations(self, checks: Checks, page: str, data: bytes | None) -> list[Violation]:
@@ -463,10 +478,10 @@ class TeamChecks:
             return set()
         contents = _read(view, {p.page for p in problems})
         seen = {
-            page: {(v.rule, v.excerpt) for v in self._violations(checks, page, data)}
+            page: Counter((v.rule, v.excerpt) for v in self._violations(checks, page, data))
             for page, data in contents.items()
         }
-        return {p.key for p in problems if _identity(p) in seen.get(p.page, set())}
+        return {p.key for p in problems if seen.get(p.page, Counter())[_identity(p)] > p.known}
 
     def reintroduced(
         self, repo: Repository, touches: list[Touch], problems: list[Problem]
