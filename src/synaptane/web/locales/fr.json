@@ -2438,6 +2438,8 @@
  "Test report sent to your email address.": "Compte rendu d'essai envoyé à votre adresse e-mail.",
  "Test report queued for Slack: it arrives in a moment.": "Compte rendu d'essai mis en file pour Slack : il arrive dans un instant.",
  "Test report sent: {targets}.": "Compte rendu d'essai envoyé : {targets}.",
+ "At most {limit} test reports per hour for a space: try again later.": "Au plus {limit} comptes rendus d'essai par heure pour un espace : réessayez plus tard.",
+ "Test night report sent": "Compte rendu de nuit d'essai envoyé",
  "The night and its report": "La nuit et son compte rendu",
  "Routines whose schedule is “night” run at the tidy-up's time, just before or after it, one after the other. After the night, one report: what was filed and fixed, each routine's status and report, failures and their cause, the cost.": "Les routines dont le planning est « night » tournent à l'heure du rangement, juste avant ou juste après lui, l'une après l'autre. Après la nuit, un seul compte rendu : ce qui a été rangé et corrigé, le statut et le rapport de chaque routine, les échecs et leur cause, le coût.",
  "No routine of the night yet: give a routine the schedule “night” (Settings → Routines).": "Aucune routine de nuit pour l'instant : donnez à une routine le planning « night » (Paramètres → Routines).",

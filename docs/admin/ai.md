@@ -746,7 +746,7 @@ It goes:
 **A quiet night sends nothing**: nothing filed, fixed or run, no failure. Tick **Also send it
 when nothing happened** to get it every night. **Send a test report** sends the last night's
 report, marked as a test, by email to you only (never to every member) and to the Slack
-webhook.
+webhook, 5 times an hour at most per space.
 
 A night is planned only when the space has routines of the night for that day, or a report to
 send: otherwise the tidy-up runs alone, as before.

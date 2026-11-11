@@ -54,7 +54,7 @@ from urllib.parse import quote, urlsplit
 from uuid import UUID
 
 import httpx2
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -62,7 +62,7 @@ from synaptane import __version__
 from synaptane.ai import quota
 from synaptane.ai.providers import open_conversation
 from synaptane.core.access import Action, require
-from synaptane.core.errors import SynaptaneError, invalid
+from synaptane.core.errors import SynaptaneError, invalid, too_many
 from synaptane.core.security import SecretBox
 from synaptane.services import (
     Actor,
@@ -83,7 +83,16 @@ from synaptane.services.ai_settings import config_for
 from synaptane.services.tidy_tools import Op
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
-from synaptane.storage.models import NightRun, Routine, RoutineRun, Secret, Space, TidyRun, User
+from synaptane.storage.models import (
+    AuditEvent,
+    NightRun,
+    Routine,
+    RoutineRun,
+    Secret,
+    Space,
+    TidyRun,
+    User,
+)
 
 log = logging.getLogger("synaptane.night")
 
@@ -97,6 +106,8 @@ MAX_SUMMARY = 300  # characters of an agent's summary in the report
 MAX_TITLES = 10  # inbox items named per routine
 MAX_TITLE = 120
 MAX_SLACK = 12_000  # characters of the Slack text (Slack accepts 40,000)
+TEST_ACTION = "space.night_report_test"  # audit action of "Send a test report"
+TESTS_PER_HOUR = 5  # per space: enough to try a webhook, not to flood its channel
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")  # but \t and \n
 
 # Why a step did not run, or how it failed (`steps[].reason`).
@@ -1014,12 +1025,27 @@ def send_test(
     session: Session, actor: Actor, ws: Workspace, space: Space, public_url: str
 ) -> tuple[bool, bool]:
     """ "Send a test report": the last night's report (or an empty one), marked as a test, by
-    email to the person asking only (never to every member), and to the Slack webhook.
-    Returns (emailed, posted)."""
+    email to the person asking only (never to every member), and to the Slack webhook;
+    TESTS_PER_HOUR per space, so that the button cannot flood a channel. Returns (emailed,
+    posted)."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     settings = report_settings(session, space)
     if not settings.active:
         raise invalid("Choose who receives the report first: by email, or a Slack webhook.")
+    recent = session.scalar(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(
+            AuditEvent.space_id == space.id,
+            AuditEvent.action == TEST_ACTION,
+            AuditEvent.at >= datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    if (recent or 0) >= TESTS_PER_HOUR:
+        raise too_many(
+            "At most {limit} test reports per hour for a space: try again later.",
+            limit=TESTS_PER_HOUR,
+        )
     last = session.scalars(
         select(NightRun)
         .where(NightRun.space_id == space.id, NightRun.status == "done")
@@ -1050,6 +1076,7 @@ def send_test(
         if not emailed:
             raise invalid("The test email could not be sent: see the server log.")
     posted = _queue_slack(session, space, report, None)
+    audit(session, actor, TEST_ACTION, space=space)
     return emailed, posted
 
 

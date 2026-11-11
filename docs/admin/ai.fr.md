@@ -791,7 +791,8 @@ Il part :
 **Une nuit calme n'envoie rien** : rien de rangé, corrigé ou lancé, aucun échec. Cochez
 **L'envoyer aussi quand rien ne s'est passé** pour le recevoir chaque nuit. **Envoyer un
 compte rendu d'essai** envoie le compte rendu de la dernière nuit, marqué comme essai, par
-e-mail à vous seul (jamais à tous les membres) et au webhook Slack.
+e-mail à vous seul (jamais à tous les membres) et au webhook Slack, 5 fois par heure au plus
+pour un espace.
 
 Une nuit n'est planifiée que si l'espace a des routines de nuit ce jour-là, ou un compte rendu
 à envoyer : sinon le rangement tourne seul, comme avant.

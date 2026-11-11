@@ -40,10 +40,10 @@ at startup; nothing changes for a space until a routine joins its night or its r
   the cost of the night and of the month, or the subscription's quota, and a link to the log. A
   quiet night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
   when nothing happened** is ticked. **Send a test report**: the last night's report, marked as
-  a test, by email to you only and to the Slack webhook. The webhook's address is a secret:
-  encrypted in the database (`secrets`, bound to the space), never shown again (only
-  "configured"), never written to the repository; HTTPS, internal addresses refused, no
-  redirect, retried on a transient error. Texts from the agents are data: in Slack, `&`, `<`
+  a test, by email to you only and to the Slack webhook (5 an hour at most per space). The
+  webhook's address is a secret: encrypted in the database (`secrets`, bound to the space),
+  never shown again (only "configured"), never written to the repository; HTTPS, internal
+  addresses refused, no redirect, retried on a transient error. Texts from the agents are data: in Slack, `&`, `<`
   and `>` are escaped (no `<!channel>`, `<@…>` or link can come from them) and `@channel`,
   `@here`, `@everyone` are defused. REST: `GET …/tidy-settings` (new: `report_email`,
   `report_always`, `report_webhook` true or false), `PATCH …/tidy-settings` (`report_email`,

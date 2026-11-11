@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from synaptane.ai.base import AIConfig, AIError, ToolSpec
 from synaptane.config import Settings
 from synaptane.core.access import OrgRole
+from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
     deposits,
     night,
@@ -635,3 +636,25 @@ def test_changes_of_time_plan_one_night(
     assert night.schedule(database, datetime(2026, 3, 29, 0, 59, tzinfo=UTC)) == 0  # 01:59 CET
     assert night.schedule(database, datetime(2026, 3, 29, 1, 0, tzinfo=UTC)) == 1  # 03:00 CEST
     assert [n.day for n in nights_of(db, wiki)] == [date(2026, 3, 29), date(2026, 10, 25)]
+
+
+def test_the_test_report_cannot_flood_a_channel(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    space = db.get(Space, wiki.infra.id)
+    assert space is not None
+    night.update_report(db, wiki.root, ctx.box, space, webhook_url=HOOK)
+    db.commit()
+    for _ in range(night.TESTS_PER_HOUR):
+        assert night.send_test(db, wiki.root, ctx, space, "https://b") == (False, True)
+        db.commit()
+    with pytest.raises(SynaptaneError, match="test reports per hour"):
+        night.send_test(db, wiki.root, ctx, space, "https://b")
+    db.rollback()
+    queued = db.scalars(select(Job).where(Job.kind == night.SLACK)).all()
+    assert len(queued) == night.TESTS_PER_HOUR
+    # Another space keeps its own tries.
+    other = db.get(Space, wiki.other.id)
+    assert other is not None
+    night.update_report(db, wiki.root, ctx.box, other, webhook_url=HOOK)
+    assert night.send_test(db, wiki.root, ctx, other, "https://b") == (False, True)
