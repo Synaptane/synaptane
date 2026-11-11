@@ -485,7 +485,12 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
     laissé. L'agent retire la donnée ou la remplace par une mention neutre, et il a pour
     consigne de ne jamais la recopier ailleurs. S'il l'écrit quand même dans son résumé ou
     dans la raison d'un élément de ce passage, quel qu'il soit, ce texte est masqué de la
-    même façon, et le message du commit aussi. Une page que l'agent déplace garde ses
+    même façon, et le message du commit aussi. Ce masquage s'applique à **tout** passage de
+    rangement (planifié, **Ranger maintenant**, au fil de l'eau ou enchaîné) dès que l'espace a
+    une règle masquée (un préréglage, ou `mask: yes`), même si l'entretien ne lui a rien
+    donné : une adresse lue dans une note n'arrive jamais dans le journal, une note laissée en
+    inbox, le message du commit, l'avis à l'auteur de la note ni le webhook `tidy.completed`.
+    Une page que l'agent déplace garde ses
     problèmes, sous son nouveau chemin. L'agent lit bien la page, comme toute page qu'il
     range.
 - **Ni déluge ni répétition** :

@@ -942,22 +942,31 @@ def close(
     return closure
 
 
-def scrub(found: Found, view: Overlay, text: str) -> str:
-    """A text of the agent about the run (reasons, summary) without the personal data the
-    team's rules mask, when it was given some to fix: told never to copy it, it still could."""
-    if not text or not any(p.private for p in found.problems):
-        return text
-    return _rules(view.repo, view.base).scrub(text)
-
-
-def scrub_run(found: Found | None, view: Overlay, state: RunState) -> None:
-    """The agent's own texts in a run given personal data to fix (its summary, and the summary
-    or reason of every item) without that data. Told never to copy it, it still could, and in
-    any of them: they go to the log, to a note left in the inbox (in Git), to the notice sent
-    to the note's author, not only to the maintenance item's reasons."""
-    if found is None or not any(p.private for p in found.problems):
-        return
+def _masking(view: Overlay) -> Checks | None:
+    """The team's rules at the run's starting commit, if one of them masks what it finds
+    (a preset, or `mask: yes`); None otherwise: nothing to scrub. Cached by the file's hash
+    (`team_checks.load`): no cost on a space without checks."""
     checks = _rules(view.repo, view.base)
+    return checks if any(rule.masked for rule in checks.rules) else None
+
+
+def scrub(found: Found, view: Overlay, text: str) -> str:
+    """A text of the agent about the run (reasons, summary) without what the team's masked
+    rules find in it (`scrub_run`)."""
+    checks = _masking(view) if text else None
+    return checks.scrub(text) if checks is not None else text
+
+
+def scrub_run(view: Overlay, state: RunState) -> None:
+    """The agent's own texts of any tidy-up run (its summary, and the summary or reason of
+    every item) without what the space's masked rules find in them, as soon as the space has
+    one (a preset, or `mask: yes`): not only on the nights the maintenance gave it personal
+    data to fix. The agent reads notes and pages full of addresses, and may copy one into any
+    of these texts; they go to the log, to a note left in the inbox (in Git), to the commit
+    message, to the notice sent to the note's author and to the `tidy.completed` webhook."""
+    checks = _masking(view)
+    if checks is None:
+        return
     for texts in (state.done, state.left):
         for name, text in texts.items():
             texts[name] = checks.scrub(text)

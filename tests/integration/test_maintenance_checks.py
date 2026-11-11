@@ -6,11 +6,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from synaptane.services import git_sync, health, maintenance, tidy
+from synaptane.services import deposits, git_sync, health, maintenance, tidy
 from synaptane.services.tidy_tools import Op, Overlay, RunState
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import MaintenanceMark, TidyRun
+from tests.integration.gitutil import git
 from tests.integration.test_maintenance import leave_all, pending, problems, reviewed, space
 from tests.integration.test_tidy import Scripted, configure_ai, deposit_note
 from tests.integration.test_web import login
@@ -447,3 +448,50 @@ def test_no_text_of_the_agent_carries_the_data(
     repo = ctx.local_repository(wiki.infra)
     left = repo.blob(f".synaptane/inbox/{note}") or b""
     assert left and ADDRESS.encode() not in left and MASKED.encode() in left
+
+
+def test_any_run_masks_what_the_agent_copies_when_the_space_has_masked_rules(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """No maintenance problem at all: a plain run filing notes. The agent copies an address
+    read in a note into its summary and into a reason; every text that leaves the run is
+    masked as soon as the space has a masked rule (here a `warn` preset)."""
+    configure_ai(db, ctx, wiki)
+    push(database, ctx, wiki, {".synaptane/checks.md": "## Personal email\n- preset: email\n"})
+    reviewed(db, ctx, wiki)
+    names = []
+    for title in ("Contact NAS", "Contact sauvegardes"):
+        path = deposits.deposit(
+            db,
+            database,
+            wiki.alice,
+            ctx,
+            wiki.infra,
+            title=title,
+            body=f"Le prestataire : {ADDRESS}.",
+            source="web",
+        )
+        db.commit()
+        names.append(path.rsplit("/", 1)[-1])
+    filed, left = names
+    script = Scripted(
+        [
+            [("read_inbox_item", {"item": filed}), ("read_inbox_item", {"item": left})],
+            [
+                ("mark_done", {"item": filed, "summary": f"Rien à ranger ({ADDRESS})."}),
+                ("leave_in_inbox", {"item": left, "reason": f"Écrire d'abord à {ADDRESS}."}),
+                ("finish", {"summary": f"Deux notes sur {ADDRESS}."}),
+            ],
+        ]
+    )
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="manual", factory=script.factory)
+    assert record is not None and record.status == "done" and record.commit, record
+    assert MASKED in record.summary and ADDRESS not in record.summary
+    assert all(op["op"] != Op.FIXED for op in record.operations)  # no maintenance at all
+    logged = " ".join(str(op.get("detail", "")) for op in record.operations)
+    assert ADDRESS not in logged and MASKED in logged
+    clone = ctx.clone_path(wiki.infra.id)
+    message = git(clone, "log", "-1", "--format=%B")
+    assert ADDRESS not in message and MASKED in message
+    note = git(clone, "show", f"HEAD:.synaptane/inbox/{left}")
+    assert f"Écrire d'abord à {MASKED}." in note

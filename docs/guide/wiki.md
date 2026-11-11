@@ -426,7 +426,8 @@ a comment:
   counts: a page that already broke a rule stays editable.
 - **What it shows**: the **Health** tab lists every page that breaks a rule, with the line and
   an excerpt. Personal data (presets, or a rule with `mask: yes`) is masked: `j•••@gmail.com`,
-  `••• 1111`.
+  `••• 1111`. It is masked the same way in every text the tidy-up agent writes about a run
+  (summary, reasons, commit message, notices), should it copy some from a note or a page.
 
 A Git push cannot be refused: what it brings shows in **Health**, and the
 [nightly maintenance](../admin/ai.md#wiki-maintenance), when turned on, takes up what matters

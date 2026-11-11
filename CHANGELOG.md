@@ -29,7 +29,10 @@ at startup; nothing changes for a space until a routine joins its night or its r
   rest. The data itself is never in the clear outside the page: the excerpt is masked in the
   item, the log and what Synaptane remembers of a problem left, and a summary, a reason (of
   any item of that run) or a commit message in which the agent copied it anyway is masked the
-  same way. A page the agent moves keeps its problems, under its new path. A faulty rule is
+  same way. This masking covers every tidy-up run (scheduled, manual, continuous, chained) as
+  soon as the space has a masked rule, even without a maintenance problem: an address read in
+  a note stays out of the log, the notes left, the commit, the notices and `tidy.completed`.
+  A page the agent moves keeps its problems, under its new path. A faulty rule is
   left out (Health names its line), and a source of problems that fails is left out for the
   night: the others still run, and its window is read again the next night.
 - **`fix` key in `.synaptane/checks.md`**: `fix: yes` lets the nightly maintenance fix a

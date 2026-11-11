@@ -455,7 +455,11 @@ with an empty inbox.
     (`j•••@gmail.com`) in the item, the log and what Synaptane remembers of a problem left.
     The agent removes the data or replaces it with a neutral mention, and is told never to
     copy it elsewhere; should it write it anyway in its summary or in the reason of any item
-    of that run, the text is masked the same way, and so is the commit message. A page the
+    of that run, the text is masked the same way, and so is the commit message. This masking
+    applies to **every** tidy-up run (scheduled, **Tidy now**, continuous or chained) as soon
+    as the space has a masked rule (a preset, or `mask: yes`), even when the maintenance gave
+    it nothing: an address read in a note never reaches the log, a note left in the inbox, the
+    commit message, the notice to the note's author or the `tidy.completed` webhook. A page the
     agent moves keeps its problems, under its new path. The agent does read the page, as for
     any page it files.
 - **No flood, no repetition**:

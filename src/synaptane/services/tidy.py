@@ -434,7 +434,7 @@ def tidy_space(
         conversation = factory(config, system, first, TOOLS)
         _drive_api(conversation, tools, state, usage, limit)
     tools.record_problems()  # end-of-run check: what remains goes to the log, without blocking
-    maintenance.scrub_run(found, overlay, state)  # personal data given to fix: never copied out
+    maintenance.scrub_run(overlay, state)  # the masked rules: never copied out, any run
     failure = state.failure
     if failure is not None and not tools.calls:
         # The provider failed before the agent called a single tool (expired login, refused
@@ -524,7 +524,7 @@ def _maintained(
     if found is None:
         return None
     kept = maintenance.close(found, state, overlay, interruption=interruption, conflicts=conflicts)
-    # Personal data given to fix stays out of the summary too (commit message, log, webhook).
+    # Masked data stays out of the summary too (commit message, log, webhook).
     outcome.summary = maintenance.scrub(found, overlay, outcome.summary)
     outcome.operations += kept.operations
     outcome.maintenance = kept
