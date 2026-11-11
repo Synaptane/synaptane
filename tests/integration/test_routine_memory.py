@@ -131,7 +131,8 @@ def test_the_memory_is_capped_and_refuses_secrets_and_blocked_text(
             ".synaptane/checks.md": "## No personal email\n- preset: email\n- level: block\n"
             "- message: Name the person instead.\n\n"
             "## Clients only\n- pattern: `confidentiel`\n- level: block\n- paths: clients/\n\n"
-            "## Owner\n- field: owner\n- expect: present\n- level: block\n",
+            "## Owner\n- field: owner\n- expect: present\n- level: block\n\n"
+            "## Code name\n- pattern: `projet-x`\n- level: block\n- except: archives/\n",
             MEMORY: "x" * (routine_memory.MAX_MEMORY + 500),  # written by hand, too long
         }
     )
@@ -142,6 +143,8 @@ def test_the_memory_is_capped_and_refuses_secrets_and_blocked_text(
                 ("remember", {"content": "y" * (routine_memory.MAX_MEMORY + 1)}),
                 ("remember", {"content": "Accès : password: hunter22"}),
                 ("remember", {"content": "Voir avec jeanne.martin@client-acme.fr"}),
+                # A rule for every page but some folders: for the memory too.
+                ("remember", {"content": "Suivre le projet-x."}),
                 # Rules for folders of the wiki or a front matter field: not for the memory.
                 ("remember", {"content": "Dossier confidentiel suivi, sans propriétaire."}),
             ],
@@ -150,11 +153,12 @@ def test_the_memory_is_capped_and_refuses_secrets_and_blocked_text(
     )
     record = run(database, ctx, routine, script)
     assert record.status == "done", record.error
-    errors = [r.content for r in script.results[:3]]
+    errors = [r.content for r in script.results[:4]]
     assert "Memory too long" in errors[0]
     assert "Likely secret in the memory" in errors[1]
     assert "No personal email" in errors[2] and "Name the person instead" in errors[2]
-    assert not script.results[3].is_error
+    assert "Code name" in errors[3]
+    assert not script.results[4].is_error
     assert memory_of(ctx, wiki) == "Dossier confidentiel suivi, sans propriétaire.\n"
     # The memory pushed by hand was given truncated, with a word on it.
     framed = re.search(r'<memory_\w+ untrusted="true">\n(.*?)\n</memory_\w+>', script.first, re.S)

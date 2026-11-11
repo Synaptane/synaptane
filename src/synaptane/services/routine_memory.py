@@ -99,14 +99,12 @@ def refusal(repo: Repository, rev: str, name: str, text: str) -> str | None:
     """Why the team's checks refuse this memory, for the model (None: accepted).
 
     Only the `block` rules on the text of every page apply (a pattern, or personal data such
-    as email addresses): the memory is no page, so the rules on a front matter field or
-    restricted to folders of the wiki do not concern it. As for a page, a violation already
-    in the memory may stay."""
+    as email addresses), some folders excepted (`except`) or not: the memory is no page, so
+    the rules on a front matter field or restricted to folders of the wiki (`paths`) do not
+    concern it. As for a page, a violation already in the memory may stay."""
     checks = team_checks.load(repo, rev)
     rules = tuple(
-        rule
-        for rule in checks.rules
-        if rule.blocks and not rule.field_name and not rule.paths and not rule.skip
+        rule for rule in checks.rules if rule.blocks and not rule.field_name and not rule.paths
     )
     if not rules:
         return None
