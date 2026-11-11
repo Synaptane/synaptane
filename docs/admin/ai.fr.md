@@ -311,6 +311,9 @@ haut de **Paramètres → Rangement**, d'où il mène au journal qui suit le pas
   dépôt », décochée par défaut) : un passage part N minutes après un dépôt (**Délai après un
   dépôt**, 15 minutes par défaut, de 1 à 1 440), en plus de celui de l'heure planifiée. Les
   notes déposées pendant ce délai rejoignent le même passage. Rien n'est programmé quand le budget du mois est épuisé.
+- **La nuit et son compte rendu** : des routines peuvent tourner à l'heure du rangement, juste
+  avant ou après lui, et la nuit envoie alors un seul compte rendu (e-mail, webhook Slack) :
+  voir [La nuit](#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu).
 - **Avis aux déposants** : après chaque passage commité, la personne qui a déposé une note
   reçoit un e-mail (un seul par passage) qui dit où elle a été rangée, avec les liens des
   pages, ou pourquoi elle a été laissée. Actif par défaut, désactivable par chacun dans
@@ -555,9 +558,10 @@ Une routine, c'est :
 
 - des **consignes** : ce que l'agent doit faire et ce que doit contenir sa sortie ;
 - un **planning** : chaque jour, chaque semaine (un jour) ou chaque mois (jour 1 à 28), à une
-  heure locale de l'espace (le fuseau du rangement). Une routine créée, réactivée ou
-  replanifiée après son heure du jour attend le prochain créneau ; **Lancer maintenant** la
-  fait tourner aussitôt ;
+  heure locale de l'espace (le fuseau du rangement), ou **la nuit**, juste avant ou après le
+  rangement (voir [La nuit](#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu)). Une
+  routine créée, réactivée ou replanifiée après son heure du jour attend le prochain créneau ;
+  **Lancer maintenant** la fait tourner aussitôt ;
 - un **périmètre** : des dossiers du wiki, ou tout l'espace. L'agent ne lit que là
   (arborescence, pages, recherche, rétroliens, pages proches, historique) ;
 - des **sorties**, au moins une :
@@ -598,7 +602,8 @@ Relis les pages modifiées depuis le dernier passage…
 |---|---|
 | `title` | Nom affiché dans Synaptane (par défaut : tiré du nom du fichier) |
 | `description` | Facultative, sur une ligne |
-| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00` |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00`. La nuit : `night`, `night monday`, `night 1` (`nuit`, `nuit lundi`…) |
+| `night` | Avec un planning de nuit : `before` ou `after` le rangement (`after` par défaut) |
 | `scope` | Dossiers du wiki, séparés par des virgules, en liste JSON, ou un par ligne `- dossier` ; absent : tout l'espace |
 | `report` | Page de rapport réécrite à chaque passage, relative au wiki |
 | `inbox` | `true` : un élément dans l'inbox par correction à faire |
@@ -721,7 +726,83 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
 - Sans fournisseur d'IA configuré, une routine planifiée ne tourne pas (pas d'échec inscrit) ;
   lancée à la main, elle échoue en le disant.
 
-Le rangement nocturne reste à part : il n'est pas une routine et garde ses réglages.
+### La nuit : routines et rangement, puis un seul compte rendu
+
+Une routine peut **faire partie de la nuit** de son espace au lieu d'avoir sa propre heure :
+elle tourne alors à l'heure du rangement, juste avant ou juste après lui, une routine après
+l'autre, et la nuit se termine par **un seul compte rendu**.
+
+- **Dans le fichier** : `schedule: night` (chaque nuit), `night monday` (la nuit du lundi),
+  `night 1` (la nuit du 1er, jour 1 à 28) ; en français `nuit`, `chaque nuit`, `nuit lundi`,
+  `nuit 1`, réécrits en anglais. Sa place : `night: before` ou `night: after` le rangement
+  (`after` par défaut ; `avant` et `après` sont lus aussi). Dans le formulaire : **Quand → La
+  nuit, avant (ou après) le rangement**.
+- **Ordre** : les routines placées avant le rangement, par nom de fichier, puis le rangement
+  planifié (avec son [entretien](#entretien-du-wiki)), puis les routines placées après lui, par
+  nom de fichier. Pour choisir un ordre, nommez les fichiers `10-controle.md`, `20-resume.md`.
+- **Une séquence, un verrou** : la nuit est une seule tâche de la file lente du worker, qui
+  tient le verrou de l'espace du début à la fin : aucun rangement ni aucune autre routine de
+  l'espace ne s'intercale. Si l'espace est occupé, la nuit démarre deux minutes plus tard.
+- **Une nuit ne tourne jamais deux fois** : elle est planifiée une fois par espace et par jour
+  local, et chaque étape est notée avant et après son passage. Une étape en cours quand le
+  worker s'est arrêté n'est pas relancée (elle a peut-être déjà coûté) : elle est marquée
+  interrompue, et la nuit continue. Une nuit encore en attente quand la suivante arrive est
+  sautée ; une nuit restée ouverte 12 heures est close.
+- **Un échec n'arrête jamais la nuit** : les étapes suivantes tournent. Une erreur passagère
+  du fournisseur (limite de débit, API surchargée) est retentée plus tard, seule, hors de la
+  nuit. Une connexion à l'IA cassée (connexion expirée, clé refusée, modèle introuvable,
+  fournisseur injoignable) saute les étapes d'IA restantes, qui échoueraient de la même façon.
+  Une fois le budget du mois épuisé, les routines restantes sont sautées.
+- **Rangement désactivé** : les routines de la nuit tournent quand même à son heure, et le
+  compte rendu dit que le rangement est désactivé. **Sans fournisseur d'IA**, rien n'est tenté.
+- **Les routines à heure fixe** ne changent pas : elles gardent leur heure et leur tâche.
+- **Les sorties d'une routine de nuit restent les siennes** : sa page, ses éléments d'inbox,
+  son e-mail et son webhook `routine.done`, comme le dit son fichier. Le compte rendu ne les
+  répète pas : il donne le statut de chaque routine, son résumé en une ligne et un lien vers sa
+  page de rapport. Une routine de nuit à qui le compte rendu suffit n'a pas d'`email`.
+- **Les alertes ne changent pas** (`tidy_failed`, `routine_failed`…, au plus une fois par jour
+  et par type).
+
+**Le compte rendu** (**Paramètres → Rangement → La nuit et son compte rendu**,
+`…/tidy-settings` en REST) dit, pour la nuit :
+- le rangement : éléments rangés et laissés, problèmes du wiki corrigés et laissés, son
+  résumé, ou son échec avec la cause ;
+- chaque routine : son statut, avant ou après le rangement, son résumé, un lien vers sa page
+  de rapport, les éléments qu'elle a déposés dans l'inbox, et un lien vers son journal en cas
+  d'échec ;
+- les [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) enfreints au dernier
+  commit, s'il y en a (l'onglet **Santé** les liste) ;
+- le coût de la nuit (et du mois, avec un budget), ou le quota de l'abonnement ;
+- un lien vers le journal de la nuit (l'onglet **Rangement**, qui montre **Les dernières
+  nuits**, étape par étape).
+
+Il part :
+- **par e-mail** à personne, aux administrateurs de l'organisation ou aux membres de l'espace,
+  comme l'e-mail d'une routine (adresses vérifiées, préférence « Recevoir les e-mails des
+  routines »). En texte brut, dans la langue de chacun ;
+- vers un **webhook Slack** (un webhook entrant ; Mattermost et les autres outils compatibles
+  acceptent le même `{"text": …}`), dans la langue de la personne qui l'a réglé. **Son adresse
+  est un secret** : gardée chiffrée en base, jamais réaffichée (seulement « configuré »),
+  jamais écrite dans le dépôt. Un champ vide la garde ; **Supprimer le webhook Slack** l'efface.
+  Mêmes protections que les webhooks de l'organisation : HTTPS, adresses internes refusées,
+  pas de redirection ; nouvel essai sur une erreur passagère ;
+- et aux webhooks de l'organisation abonnés à `night.completed` (JSON).
+
+**Une nuit calme n'envoie rien** : rien de rangé, corrigé ou lancé, aucun échec. Cochez
+**L'envoyer aussi quand rien ne s'est passé** pour le recevoir chaque nuit. **Envoyer un
+compte rendu d'essai** envoie le compte rendu de la dernière nuit, marqué comme essai, par
+e-mail à vous seul (jamais à tous les membres) et au webhook Slack.
+
+Une nuit n'est planifiée que si l'espace a des routines de nuit ce jour-là, ou un compte rendu
+à envoyer : sinon le rangement tourne seul, comme avant.
+
+**Les textes des agents sont des données.** Résumés, titres d'éléments d'inbox et erreurs
+viennent des modèles : dans Slack, `&`, `<` et `>` sont échappés, si bien qu'aucun
+`<!channel>`, `<@…>` ni lien ne peut en venir, et `@channel`, `@here`, `@everyone` sont
+désamorcés ; les liens sont ceux de Synaptane. Le compte rendu ne cite jamais le contenu d'une
+page : il est fait des compteurs et du journal.
+
+Le rangement nocturne lui-même n'est pas une routine et garde ses réglages.
 
 ## Coût et budget
 

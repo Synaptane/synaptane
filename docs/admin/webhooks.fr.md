@@ -14,6 +14,7 @@ l'organisation, section **Webhooks**, ou par l'API (`/api/v1/organizations/{org}
 | `content.changed` | Le contenu change : web, REST, MCP, rangement ou push sur le dépôt | `paths`, `action` (`written`, `imported`, `deleted`, `moved`, `tidied`, `pushed`), `by`, `source`, `via` (écritures web, REST, MCP) |
 | `tidy.completed` | Un passage de rangement se termine, réussi ou non | `status`, `items_done`, `items_left`, `summary`, `commit`, `error` |
 | `routine.done` | Un passage de routine se termine, réussi ou non (seulement pour les routines qui ont le webhook parmi leurs sorties) | `routine`, `template`, `status`, `summary`, `text` (texte de sortie), `page`, `inbox` (titres des éléments déposés), `commit`, `error` |
+| `night.completed` | La nuit d'un espace se termine : ses routines de nuit et son rangement, dans l'ordre (voir [La nuit](ai.fr.md#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu)) | `day`, `quiet` (rien ne s'est passé), `steps` (`kind`, `when`, `name`, `title`, `status`, `reason`, `run_id`), `checks`, `cost` |
 | `tidy.budget` | Le budget mensuel d'IA de l'organisation franchit 80 % ou 100 % | `level`, `spent`, `budget` |
 | `space.alert` | Alerte aux administrateurs : `deletion_cap` (plafond de suppressions du rangement), `tidy_failed` (rangement en échec durable), `sync_error` (synchronisation en échec durable, ou en erreur passagère depuis plus de 6 h), `tidy_interrupted` (rangement arrêté avant la fin : erreur du fournisseur, plafond, budget ; ou éléments laissés après 3 passages interrompus), `job_abandoned` (tâche de fond abandonnée après 5 essais sur une erreur passagère : `task`, `attempts`, `error`), `inbox_backlog` (éléments en attente depuis plus de 3 jours), `quota_high` (quota d'un abonnement d'IA au-delà de 90 %), `big_changes` (rangement qui a fait de gros changements : pages fortement réduites, nombreux déplacements), `routine_failed` (routine d'agent en échec : `routine`, `error`), `git_token_expiring` (le jeton d'accès Git de l'espace expire dans 30 jours, 7 jours ou demain, une fois par palier : `date` au format ISO, `when`), `git_token_expired` (il a expiré, une fois : `date` au format ISO) | `kind`, détails selon le type |
 | `sync.conflict` | Un espace entre en conflit avec son dépôt distant | `paths` |
@@ -64,6 +65,11 @@ Les envois partent du worker.
 - Les redirections ne sont pas suivies.
 
 Le dernier statut est affiché sur la page de l'organisation.
+
+Le compte rendu de la nuit peut aussi partir vers un webhook Slack de l'espace, réglé dans ses
+**Paramètres → Rangement** (pas ici) : il reçoit le format `{"text": …}` de Slack, sans
+signature, et son adresse est gardée comme un secret chiffré. Voir
+[La nuit](ai.fr.md#la-nuit--routines-et-rangement-puis-un-seul-compte-rendu).
 
 L'adresse doit être en HTTPS. Pour éviter qu'un webhook serve à sonder le réseau interne du
 serveur, les adresses privées, de boucle locale ou de lien local sont refusées au moment de

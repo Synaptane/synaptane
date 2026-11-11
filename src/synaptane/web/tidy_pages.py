@@ -180,6 +180,8 @@ def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> R
         spending = budget.spending(page.db, space.org_id, space.ai_model or "")
         run_now = run_now_context(page, space, config, spending, streak)
         run_now["failures"] = streak.count if streak else 0
+    # For the organization's admins only: `render_space_settings` answers 404 to the others.
+    admin = actor.access.is_org_admin(space.org_id)
     return render_space_settings(
         page,
         actor,
@@ -190,8 +192,8 @@ def space_tidy_settings_page(page: WebPage, org_slug: str, space_slug: str) -> R
         timezones=TIMEZONES,
         max_problems=maintenance.MAX_PROBLEMS,
         run_now=run_now,
-        report=night.view(page.db, actor, space),
-        night_routines=night.routines_of(page.db, actor, space),
+        report=night.view(page.db, actor, space) if admin else None,
+        night_routines=night.routines_of(page.db, actor, space) if admin else [],
     )
 
 

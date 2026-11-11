@@ -186,8 +186,9 @@ Rédige le résumé de la semaine…
 ```
 
 Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
-`monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
-en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
+`monthly 1 06:00`, ou dans la nuit de l'espace `night`, `night monday`, `night 1` ; le
+français est lu aussi, comme `hebdo lundi 06:00` ou `nuit lundi`, et Synaptane réécrit en
+anglais), `night` (`before` ou `after` le rangement, avec un planning de nuit), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
 `- dossier`), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
 `template`. Les valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et
 ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines

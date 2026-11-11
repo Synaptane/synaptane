@@ -10,6 +10,62 @@ of the target version.
 
 ## [Unreleased]
 
+The order of the night: a routine can run with the nightly tidy-up, just before or after it,
+and the night sends one report, by email or to a Slack webhook. One migration (`0036`), applied
+at startup; nothing changes for a space until a routine joins its night or its report is set.
+
+### Added
+- **Routines of the night.** A routine's file can say `schedule: night` (every night),
+  `night monday`, `night 1` (day 1 to 28), in French `nuit`, `chaque nuit`, `nuit lundi`,
+  `nuit 1` (written back in English), with `night: before` or `night: after` the tidy-up
+  (`after` by default; `avant`, `après` read too); in the form, **When → In the night, before
+  (or after) the tidy-up**; `night` in the REST routines. At the tidy-up's time, the space's
+  night runs, in one task of the worker's slow lane that holds the space's lock throughout: the
+  routines placed before the tidy-up by file name, the scheduled tidy-up and its maintenance,
+  then the routines placed after it. A night is planned once per space and local day
+  (`night_runs`) and each step is recorded: it never runs twice, and a step cut off by a stopped
+  worker is not run again. A failed step never stops the next ones; a transient provider error
+  is retried later on its own; a broken AI connection skips the AI steps left; once the month's
+  budget is used up, the routines left are skipped. With the tidy-up turned off, the routines of
+  the night still run at its time. A night still waiting when the next one comes is skipped. A
+  routine at a set time does not change, and a night routine is never run by the routines' own
+  schedule. Routine runs started by the night are logged with the trigger "in the night".
+- **The night's report.** **Settings → Tidy-up → The night and its report**: by email to
+  nobody, the organization's administrators or the space's members (verified addresses, the
+  routines' email preference, plain text in each person's language), and/or to a **Slack
+  webhook** (incoming webhook, `{"text": …}` in mrkdwn, without link previews; Mattermost and
+  other compatible tools work too). It gives the tidy-up (items filed and left, wiki problems
+  fixed and left, or its failure and cause), each routine (status, summary, link to its report
+  page, items dropped, link to its log on failure), the team checks broken at the last commit,
+  the cost of the night and of the month, or the subscription's quota, and a link to the log. A
+  quiet night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
+  when nothing happened** is ticked. **Send a test report**: the last night's report, marked as
+  a test, by email to you only and to the Slack webhook. The webhook's address is a secret:
+  encrypted in the database (`secrets`, bound to the space), never shown again (only
+  "configured"), never written to the repository; HTTPS, internal addresses refused, no
+  redirect, retried on a transient error. Texts from the agents are data: in Slack, `&`, `<`
+  and `>` are escaped (no `<!channel>`, `<@…>` or link can come from them) and `@channel`,
+  `@here`, `@everyone` are defused. REST: `GET …/tidy-settings` (new: `report_email`,
+  `report_always`, `report_webhook` true or false), `PATCH …/tidy-settings` (`report_email`,
+  `report_always`, `report_webhook_url`), `POST …/tidy-settings/test-report`, `GET …/nights`.
+- **The last nights** in the space's **Tidy-up** tab: each night's steps in order, with their
+  status and links, and what the report sent.
+- `night.completed` event for the organization's webhooks: the night's steps (`kind`, `when`,
+  `name`, `title`, `status`, `reason`, `run_id`), `quiet`, `checks`, `cost`.
+
+### Changed
+- A routine of the night keeps its own outputs (page, inbox, email, `routine.done`): its file
+  chose them. The report does not repeat its text; a routine that only needs the report has no
+  `email`. Alerts (`tidy_failed`, `routine_failed`…) do not change.
+
+### Upgrade
+- One migration (`0036`), applied at startup: `routines.night` (`""` for every existing
+  routine: they keep their time), `spaces.night_report_email` and `spaces.night_report_always`
+  (off), and the `night_runs` table. No existing value changes. Going back to 1.16.1: downgrade
+  to `0035` first (`night_runs` and the report's settings are dropped, the Slack webhook's
+  secret stays unused), and turn the routines of the night back into set times, since 1.16.1
+  does not read `schedule: night` (the file shows as invalid).
+
 ## [1.16.1] - 2026-11-10
 
 A broken AI connection no longer goes unnoticed. With an expired Claude Code login, each

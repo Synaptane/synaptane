@@ -295,6 +295,9 @@ from where it leads to the log that follows the run).
   default): a run starts N minutes after a note is dropped (**Delay after a drop**, 15 minutes
   by default, from 1 to 1,440), on top of the scheduled one. Notes dropped during that delay join the same run. Nothing is scheduled
   once the month's budget is used up.
+- **The night and its report**: routines can run at the tidy-up's time, just before or after
+  it, and the night then sends one report (email, Slack webhook): see
+  [The night](#the-night-routines-with-the-tidy-up-and-one-report).
 - **Notices to contributors**: after each committed run, the person who dropped a note gets
   an email (one per run) saying where it was filed, with links to the pages, or why it was
   left. On by default; anyone can turn it off in **My account**. Sent only to a verified
@@ -521,8 +524,10 @@ A routine is made of:
 
 - **instructions**: what the agent must do and what its output must contain;
 - a **schedule**: every day, every week (one day) or every month (day 1 to 28), at a local
-  time of the space (the tidy-up time zone). A routine created, re-enabled or rescheduled
-  after its time of day waits for the next slot; **Run now** runs it right away;
+  time of the space (the tidy-up time zone), or **in the night**, just before or after the
+  tidy-up (see [The night](#the-night-routines-with-the-tidy-up-and-one-report)). A routine
+  created, re-enabled or rescheduled after its time of day waits for the next slot; **Run now**
+  runs it right away;
 - a **scope**: folders of the wiki, or the whole space. The agent only reads there (tree,
   pages, search, backlinks, related pages, history);
 - **outputs**, at least one:
@@ -562,7 +567,8 @@ Read the pages changed since the last run…
 |---|---|
 | `title` | Name shown in Synaptane (default: made from the file name) |
 | `description` | Optional, one line |
-| `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space. French is read too: `quotidien` or `chaque jour`, `hebdo` or `hebdomadaire` with `lundi` to `dimanche` (or `lun`, `mar`…), `mensuel`, such as `hebdo lundi 06:00` |
+| `schedule` | `daily 02:30`, `weekly monday 06:00` (or `mon`), `monthly 1 06:00` (day 1 to 28); local time of the space. French is read too: `quotidien` or `chaque jour`, `hebdo` or `hebdomadaire` with `lundi` to `dimanche` (or `lun`, `mar`…), `mensuel`, such as `hebdo lundi 06:00`. In the night: `night`, `night monday`, `night 1` (`nuit`, `nuit lundi`…) |
+| `night` | With a night schedule: `before` or `after` the tidy-up (default `after`) |
 | `scope` | Folders of the wiki, separated by commas, as a JSON list, or one `- folder` line each; missing: the whole space |
 | `report` | Report page rewritten on every run, relative to the wiki |
 | `inbox` | `true`: one inbox item per fix to make |
@@ -678,7 +684,79 @@ regenerated welcome FAQ…).
 - Without a configured AI provider, a scheduled routine does not run (no failure recorded);
   started by hand, it fails and says why.
 
-Nightly tidy-up stays separate: it is not a routine and keeps its own settings.
+### The night: routines with the tidy-up, and one report
+
+A routine can be **part of the night** of its space instead of having its own time: it then
+runs at the tidy-up's time, just before or just after it, one routine after the other, and the
+night ends with **a single report**.
+
+- **In the file**: `schedule: night` (every night), `night monday` (Monday nights), `night 1`
+  (the night of the 1st, day 1 to 28); in French `nuit`, `chaque nuit`, `nuit lundi`, `nuit 1`,
+  written back in English. Its place: `night: before` or `night: after` the tidy-up (`after`
+  by default; `avant`, `après` are read too). In the form: **When → In the night, before (or
+  after) the tidy-up**.
+- **Order**: the routines placed before the tidy-up, by file name, then the scheduled tidy-up
+  (with its [maintenance](#wiki-maintenance)), then the routines placed after it, by file name.
+  To choose an order, name the files `10-check.md`, `20-digest.md`.
+- **One sequence, one lock**: the night is one task of the worker's slow lane that holds the
+  space's lock from start to end: no tidy-up or other routine of the space slips in between.
+  If the space is busy, the night starts two minutes later.
+- **A night never runs twice**: it is planned once per space and local day, and each step is
+  recorded before and after it runs. A step that was running when the worker stopped is not run
+  again (it may have cost already): it is marked interrupted, and the night goes on. A night
+  still waiting when the next one comes is skipped; one left open for 12 hours is closed.
+- **A failure never stops the night**: the next steps run. A transient provider error (rate
+  limit, overloaded API) is retried later on its own, outside the night. A broken AI
+  connection (expired login, refused key, model not found, unreachable provider) skips the
+  AI steps left, which would fail the same way. Once the month's budget is used up, the
+  routines left are skipped.
+- **Tidy-up turned off**: the routines of the night still run at its time, and the report says
+  the tidy-up is off. **Without an AI provider**, nothing is tried.
+- **Routines at a set time** do not change: they keep their own time and their own task.
+- **Outputs of a routine of the night stay its own**: its page, its inbox items, its email and
+  its `routine.done` webhook, as its file says. The report does not repeat them: it gives each
+  routine's status, its summary in one line and a link to its report page. A routine of the
+  night that only needs the report has no `email`.
+- **Alerts do not change** (`tidy_failed`, `routine_failed`…, at most once a day per kind).
+
+**The report** (**Settings → Tidy-up → The night and its report**, `…/tidy-settings` in
+REST) says, for the night:
+- the tidy-up: items filed and left, wiki problems fixed and left, its summary, or its failure
+  with the cause;
+- each routine: its status, before or after the tidy-up, its summary, a link to its report
+  page, the items it dropped into the inbox, and a link to its log when it failed;
+- the [team checks](../guide/wiki.md#team-checks) broken at the last commit, if any (the
+  **Health** tab lists them);
+- the cost of the night (and of the month, with a budget), or the subscription's quota;
+- a link to the night's log (the **Tidy-up** tab, which shows **The last nights**, step by
+  step).
+
+It goes:
+- **by email** to nobody, the organization's administrators or the space's members, as a
+  routine's email (verified addresses, the "Receive emails from the routines of my spaces"
+  preference). Plain text, in each person's language;
+- to a **Slack webhook** (an incoming webhook; Mattermost and other compatible tools accept the
+  same `{"text": …}`), in the language of the person who set it. **Its address is a secret**:
+  stored encrypted in the database, never shown again (only "configured"), never written to the
+  repository. An empty field keeps it; **Remove the Slack webhook** removes it. Same
+  protections as the organization's webhooks: HTTPS, internal addresses refused, no redirect;
+  retried on a transient error;
+- and to the organization's webhooks subscribed to `night.completed` (JSON).
+
+**A quiet night sends nothing**: nothing filed, fixed or run, no failure. Tick **Also send it
+when nothing happened** to get it every night. **Send a test report** sends the last night's
+report, marked as a test, by email to you only (never to every member) and to the Slack
+webhook.
+
+A night is planned only when the space has routines of the night for that day, or a report to
+send: otherwise the tidy-up runs alone, as before.
+
+**Texts from the agents are data.** Summaries, titles of inbox items and errors come from the
+models: in Slack, `&`, `<` and `>` are escaped, so no `<!channel>`, `<@…>` or link can come from
+them, and `@channel`, `@here`, `@everyone` are defused; the links are Synaptane's own. The
+report never quotes a page's content: it is built from the counters and the log.
+
+The nightly tidy-up itself is not a routine and keeps its own settings.
 
 ## Cost and budget
 

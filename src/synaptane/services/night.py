@@ -313,7 +313,6 @@ def run(
     *,
     factory: ConversationFactory = open_conversation,
     public_url: str = "",
-    allow_private: bool = False,
 ) -> NightRun | None:
     """Runs the waiting night of a space (worker). Returns it, or None if there was none or
     the space was busy (queued again a little later)."""
