@@ -224,8 +224,7 @@ ARCHIVE = Template(
             flow("""\
 Write the summary of the week, from the activity given as input (Git history of the wiki,
 tidy-up runs: items filed and left), as a new page of the digests/ folder named after the
-week: digests/<year>-W<week>.md (for example digests/2026-W46.md, from today's date given as
-input).
+ISO week given as input: digests/<year>-W<week>.md (for example digests/2026-W46.md).
 - A level-1 title with the week, then three to five key points, one line each.
 - Then, in short sections: pages created, pages heavily changed (say what changed, by
   reading the pages), decisions made, open questions (items left in the inbox).
@@ -242,8 +241,8 @@ they are. Call finish with a one-sentence wrap-up."""),
             flow("""\
 Rédige le résumé de la semaine, à partir de l'activité donnée en entrée (historique Git du
 wiki, passages du rangement : éléments rangés et laissés), dans une nouvelle page du dossier
-resumes/ nommée d'après la semaine : resumes/<année>-S<semaine>.md (par exemple
-resumes/2026-S46.md, d'après la date du jour donnée en entrée).
+resumes/ nommée d'après la semaine ISO donnée en entrée : resumes/<année>-S<semaine>.md (par
+exemple resumes/2026-S46.md).
 - Un titre de niveau 1 avec la semaine, puis trois à cinq points essentiels, en une ligne
   chacun.
 - Puis, en sections courtes : pages créées, pages très modifiées (dis ce qui a changé, en

@@ -427,8 +427,9 @@ with an empty inbox.
   - their new pages that no page links to, missing from their folder's index (`README.md`,
     when the folder has one), untitled or empty.
   Synaptane's own commits do not count: what the tidy-up breaks is already handled by its
-  end-of-run check. Except the pages a routine keeps in its own folders, which count like a
-  person's change (see [Folders a routine keeps](#folders-a-routine-keeps)). Nor do imports, that is any commit that touches more than 20 pages (an
+  end-of-run check. The one exception: the pages a routine keeps in its own folders count
+  like a person's change (see [Folders a routine keeps](#folders-a-routine-keeps)). Nor do
+  imports count, that is any commit that touches more than 20 pages (an
   Obsidian, Notion or Confluence import, a reorganization): the tidy-up already reviews them as
   a whole, with its "Import: N pages" item. Only what people change in those pages afterwards
   counts. A smaller import is reviewed page by page, like any edit.
@@ -653,8 +654,10 @@ top of digests/README.md.
 - **Log**: the routine's page, its email, the `routine.done` webhook (`written`) and the REST
   API (`outputs.written` of a run) list the pages written: path and change (created,
   modified, moved, deleted).
-- Among the templates provided, only **Digest archive** keeps a folder. Synaptane reads the folders from the file, without a
-  copy in the database: before a space's first synchronization, a routine cannot have any.
+- **In the file only**: Synaptane reads the folders from the routine's file, without a copy
+  in the database. Before a space's first synchronization, a routine therefore cannot have
+  any.
+- Among the templates provided, only **Digest archive** keeps a folder.
 
 ### Built-in templates
 

@@ -451,10 +451,10 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
   - leurs nouvelles pages vers lesquelles aucune page ne mène, absentes de l'index de leur
     dossier (`README.md`, si le dossier en a un), sans titre ou vides.
   Les commits de Synaptane ne comptent pas : ce que casse le rangement est déjà repris par
-  sa vérification de fin de passage. Sauf les pages qu'une routine tient dans ses propres
-  dossiers, qui comptent comme la modification d'une personne (voir
-  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)). Les imports non plus, c'est-à-dire tout commit qui touche
-  plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
+  sa vérification de fin de passage. Seule exception : les pages qu'une routine tient dans
+  ses propres dossiers comptent comme la modification d'une personne (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)). Les imports ne
+  comptent pas non plus, c'est-à-dire tout commit qui touche plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
   rangement les relit déjà d'un bloc, avec son élément « Import : N pages ». Seul compte ce
   que les membres changent ensuite dans ces pages. Un import plus petit est relu page par
   page, comme toute modification.
@@ -669,8 +669,9 @@ ajoute-la en tête de resumes/README.md.
   modifiées et 5 suppressions par passage ; ce qu'elle supprime reste dans l'historique Git.
 - **Nulle part ailleurs**, quoi que demande une page lue : un autre dossier, `.synaptane/`, un
   fichier caché, un lien symbolique du dépôt, sa propre page de rapport (écrite par
-  `write_report`), un déplacement hors de ses dossiers ou vers eux, un déplacement qui
-  réécrirait les liens d'une page située ailleurs (sa page de rapport mise à part). L'agent
+  `write_report`), un déplacement qui fait sortir une page de ses dossiers ou en fait entrer
+  une, un déplacement qui réécrirait les liens d'une page située ailleurs (sa page de rapport
+  mise à part). L'agent
   reçoit le refus comme une erreur d'outil, avec la raison, et continue : le passage n'échoue
   pas pour autant.
 - **Contrôlée comme toute écriture de Synaptane** : un secret probable ajouté dans une page
@@ -697,9 +698,10 @@ ajoute-la en tête de resumes/README.md.
 - **Journal** : la page de la routine, son e-mail, le webhook `routine.done` (`written`) et
   l'API REST (`outputs.written` d'un passage) listent les pages écrites : chemin et nature
   (créée, modifiée, déplacée, supprimée).
-- Parmi les modèles fournis, seule l'**Archive des résumés** tient un dossier. Synaptane lit les dossiers dans le fichier,
-  sans copie en base : avant la première synchronisation d'un espace, une routine ne peut pas
-  en avoir.
+- **Dans le fichier seulement** : Synaptane lit les dossiers dans le fichier de la routine,
+  sans copie en base. Avant la première synchronisation d'un espace, une routine ne peut donc
+  pas en avoir.
+- Parmi les modèles fournis, seule l'**Archive des résumés** tient un dossier.
 
 ### Modèles fournis
 

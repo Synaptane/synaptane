@@ -30,7 +30,8 @@ of the target version.
   `writes`, nothing changes; the two existing templates keep no folder.
 - **Digest archive template**: every Friday at 16:30, the summary of the week as a page of its
   own, `digests/2026-W46.md` (`resumes/2026-S46.md` in French), added at the top of the
-  folder's `README.md`. It keeps that folder and writes nothing else.
+  folder's `README.md`. It keeps that folder and writes nothing else. Every routine is now
+  given the ISO week along with today's date, so that it does not have to compute it.
 
 ### Upgrade
 - No migration: the folders a routine keeps live in its file only.

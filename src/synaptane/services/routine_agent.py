@@ -924,8 +924,12 @@ def first_message(
             + tools.wrap("verdicts", "\n".join(v.line() for v in context.verdicts))
         )
     last = f"{spec.last_run_at:%Y-%m-%d %H:%M} (UTC)" if spec.last_run_at else "none"
+    # The ISO week, computed here: a model often gets it wrong, around New Year above all,
+    # and a routine may name its pages after it (`routines.ARCHIVE`).
+    year, week, _ = now.isocalendar()
     parts.append(
-        f"Last run of the routine: {last}. Today's date: {now:%Y-%m-%d}.\n"
+        f"Last run of the routine: {last}. Today's date: {now:%Y-%m-%d} (ISO week "
+        f"{year}-W{week:02d}).\n"
         "Run the routine with the tools, then call finish."
     )
     return "\n\n".join(parts)

@@ -7,6 +7,7 @@ The model is simulated (`RoutineScript`): each test sets the tool calls."""
 
 import html
 import os
+import re
 from typing import Any
 
 import pytest
@@ -121,6 +122,7 @@ def test_a_routine_keeps_its_pages_in_one_commit_with_its_report(
     assert "you write only in the folders this routine keeps (digests/)" in script.system
     assert "within the routine's scope (serveurs), plus the folders" in script.system
     assert "the tools refuse any path outside these folders" in script.system
+    assert re.search(r"Today's date: \d{4}-\d{2}-\d{2} \(ISO week \d{4}-W\d{2}\)", script.first)
 
     # A single commit: report and pages together, in the routine's name.
     title, files = head_files(ctx, wiki)
