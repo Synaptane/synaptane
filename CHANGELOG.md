@@ -40,7 +40,8 @@ of the target version.
   international names); 20 seconds per call in all, even against a service that sends its
   answer a byte at a time; internal addresses
   refused and the address checked being the one connected to (no DNS rebinding), as for the
-  webhooks, which also refuse an IPv4 address written as IPv6 (`::ffff:10.0.0.1`) from now on;
+  webhooks, which also refuse from now on an IPv4 address written as IPv6 (`::ffff:10.0.0.1`,
+  NAT64 `64:ff9b::a00:1`, IPv4-compatible `::a00:1`) and multicast;
   a redirect followed only under the same source, so the secret never leaves for another host.
 - **The secret never reaches the model nor an output.** Encrypted at rest, bound to its source
   and its host (moving the address to another host asks for it again), never shown again

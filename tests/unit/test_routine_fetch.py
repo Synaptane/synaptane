@@ -262,6 +262,9 @@ def test_an_address_outside_the_source_reaches_nothing(service: Service, dns: Dn
         "::1",
         "::ffff:10.0.0.1",
         "fd00::1",
+        "64:ff9b::a9fe:a9fe",  # NAT64 of 169.254.169.254: Python counts it as global
+        "::a00:5",  # IPv4-compatible 10.0.0.5
+        "ff0e::1",  # global multicast
     ],
 )
 def test_an_internal_address_is_refused(service: Service, dns: Dns, address: str) -> None:
@@ -464,6 +467,12 @@ def test_a_traversal_some_servers_read_is_refused(asked: str) -> None:
         target(BASE, asked)
     with pytest.raises(Outside):
         locate(BASE, f"https://status.example.com/api/v2/{asked}")
+
+
+def test_a_public_address_behind_nat64_is_reached(service: Service, dns: Dns) -> None:
+    dns.answers["status.example.com"] = ["64:ff9b::5db8:d822"]  # 93.184.216.34
+    service.json("status.example.com", "/api/v2/x", {})
+    assert "HTTP 200" in fetcher().t_fetch("statut", "x")
 
 
 def test_a_redirect_through_path_parameters_is_refused(service: Service, dns: Dns) -> None:
