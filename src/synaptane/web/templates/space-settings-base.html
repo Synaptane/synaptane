@@ -6,6 +6,7 @@
 {% set items = items + [("git", "/-/git", _("Git repository")), ("members", "/-/members", _("Members"))] %}
 {% if manage %}{% set items = items + [("tidy", "/-/tidy-settings", _("Tidy-up")), ("semantic", "/-/semantic", _("Semantic search"))] %}{% endif %}
 {% if contribute %}{% set items = items + [("routines", "/-/routines", _("Routines"))] %}{% endif %}
+{% if manage %}{% set items = items + [("sources", "/-/sources", _("External sources"))] %}{% endif %}
 {% set section_title =items|selectattr(0, "equalto", section)|map(attribute=2)|first %}
 {% block title %}{{ section_title }} · {{ space.name }} · Synaptane{% endblock %}
 {% block crumbs %}{{ sep() }}<a href="/o/{{ org.slug }}">{{ org.name }}</a>{{ sep() }}<a href="/o/{{ org.slug }}/{{ space.slug }}">{{ space.name }}</a>{{ sep() }}<span>{{ _("Settings") }}</span>{{ sep() }}<span aria-current="page">{{ section_title }}</span>{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "space-settings-base.html" %}
+{% from "ui.html" import csrf_field, action, when with context %}
+{% set section = "sources" %}
+{% set base = "/o/" ~ org.slug ~ "/" ~ space.slug ~ "/-/sources" %}
+{% set auths = {"": _("None"), "bearer": _("Bearer token (Authorization header)"), "header": _("Named header"), "basic": _("Basic (user:password)")} %}
+{% macro auth_fields(prefix, auth, header) -%}
+<div class="field field-short"><label for="{{ prefix }}-auth">{{ _("Authentication") }}</label><select id="{{ prefix }}-auth" name="auth">
+  {% for value, label in auths.items() %}<option value="{{ value }}" {% if auth == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+</select></div>
+<div class="field field-short"><label for="{{ prefix }}-header">{{ _("Header name (named header only)") }}</label><input id="{{ prefix }}-header" name="header" value="{{ header }}" placeholder="X-Api-Key" maxlength="64" autocomplete="off"></div>
+{%- endmacro %}
+{% block section %}
+<div class="content-narrow">
+  <p class="muted">{{ _("Services the routines of this space may read over HTTP (GET only): a status page, a ticket tool, another tool's API. A routine's file only names the sources it reads; the address and the secret stay here, and the agent never sees the secret.") }}</p>
+  {% if not enabled %}<div class="notice notice-warning"><p>{{ _("External sources are turned off on this instance (SYNAPTANE_ROUTINE_SOURCES): the routines run without them.") }}</p></div>{% endif %}
+  {% if error %}<div class="notice notice-error" role="alert"><p>{{ _(error.template, **error.params) }}</p></div>{% endif %}
+  <div class="stack">
+    {% for source in sources %}{% set saved = secret_saved(source) %}
+    <article class="card token-card source-card">
+      <div class="token-head"><h3><code>{{ source.name }}</code></h3><span class="muted">{{ auths.get(source.auth, source.auth) }}{% if source.auth == "header" %} · <code>{{ source.header }}</code>{% endif %}</span></div>
+      <p><code>{{ source.base_url }}</code></p>
+      <p class="muted">{% if saved %}{{ (_("Secret saved on {when}")|e).format(when=when(saved)) }}{% elif source.auth %}{{ _("No secret saved") }}{% else %}{{ _("No secret") }}{% endif %}
+        · {% if used_by[source.name] %}{{ _("Read by: {routines}", routines=used_by[source.name]|join(", ")) }}{% else %}{{ _("No routine reads it yet") }}{% endif %}</p>
+      <div class="actions">
+        {{ action(base ~ "/" ~ source.name ~ "/test", _("Test")) }}
+        {{ action(base ~ "/" ~ source.name ~ "/delete", _("Delete"), confirm=_("Delete the source {name} and its secret? The routines that read it stop running until their file no longer names it.", name=source.name), kind="danger") }}
+      </div>
+      <details class="source-edit"><summary>{{ _("Change") }}</summary>
+        <form method="post" action="{{ base }}/{{ source.name }}">
+          {{ csrf_field() }}
+          <div class="field"><label for="source-{{ source.name }}-url">{{ _("Base address (HTTPS)") }}</label><input id="source-{{ source.name }}-url" name="url" type="url" value="{{ source.base_url }}" required maxlength="500"></div>
+          {{ auth_fields("source-" ~ source.name, source.auth, source.header) }}
+          <div class="field"><label for="source-{{ source.name }}-secret">{{ _("New secret (empty: keep the saved one)") }}</label><input id="source-{{ source.name }}-secret" name="secret" type="password" autocomplete="new-password" maxlength="4096"></div>
+          <p class="muted">{{ _("Moving the address to another host asks for the secret again: a saved secret is never sent elsewhere. Choosing no authentication removes it.") }}</p>
+          <button class="button button-primary" type="submit">{{ _("Save") }}</button>
+        </form>
+      </details>
+    </article>
+    {% else %}
+    <p class="empty">{{ _("No external source.") }}</p>
+    {% endfor %}
+  </div>
+  <form class="card section-gap" method="post" action="{{ base }}">
+    <h2>{{ _("New external source") }}</h2>
+    {{ csrf_field() }}
+    <div class="field field-short"><label for="source-name">{{ _("Name") }}</label><input id="source-name" name="name" value="{{ draft.name }}" required maxlength="32" placeholder="status" autocomplete="off" aria-describedby="source-name-help"><p class="muted" id="source-name-help">{{ _("What a routine's file names: sources: status. Lowercase letters, digits and dashes; it cannot be changed afterwards.") }}</p></div>
+    <div class="field"><label for="source-url">{{ _("Base address (HTTPS)") }}</label><input id="source-url" name="url" type="url" value="{{ draft.url }}" required maxlength="500" placeholder="https://status.example.com/api/v2/" aria-describedby="source-url-help"><p class="muted" id="source-url-help">{{ _("Every request of a routine stays under it: same host, same port, a path under this one.") }}</p></div>
+    {{ auth_fields("source", draft.auth or "", draft.header or "") }}
+    <div class="field"><label for="source-secret">{{ _("Secret (optional)") }}</label><input id="source-secret" name="secret" type="password" autocomplete="new-password" maxlength="4096"></div>
+    <button class="button button-primary" type="submit">{{ _("Add the source") }}</button>
+  </form>
+  <details class="help section-gap-small"><summary>{{ _("How it works") }}</summary>
+    <p>{{ _("The agent calls fetch with a source's name and a path under its address; Synaptane adds the secret. Internal addresses are refused, a redirect is followed only under the same source, an answer is read up to 200 KB and only as text (JSON, text, HTML, XML, Markdown), at most {n} calls per run. The run's log lists each call: source, path, status, size.", n=max_calls) }}</p>
+    <p>{{ _("Every routine of the space may read every source of the space, and anyone who can push can write a routine: declare here only services whose content may end up in this space.") }}</p>
+  </details>
+</div>
+{% endblock %}

@@ -549,6 +549,11 @@ class Routine(Base):
     # the days of `frequency` (`at` is then unused); "": at its own time.
     night: Mapped[str] = mapped_column(String(8), default="", server_default="")
     scope: Mapped[list[str]] = mapped_column(JSONB, default=list)  # folders; empty: everything
+    # External sources it reads (`sources`: names of `RoutineSource` rows of the space). The
+    # file only chooses among them: an address is never written in a file.
+    sources: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
     # Outputs: page rewritten on each pass (relative to content/; "": none), items dropped
     # into the inbox, email (organization admins or space members), webhook.
     output_page: Mapped[str] = mapped_column(Text, default="")
@@ -570,6 +575,37 @@ class Routine(Base):
     # (`jobs`) runs them all, one after the other.
     requested: Mapped[str | None] = mapped_column(String(16))
     requested_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class RoutineSource(Base):
+    """An external HTTP source the routines of a space may read (`services.routine_sources`),
+    declared by the organization's administrators: a base address (HTTPS, a host, a path
+    prefix) and, optionally, a secret sent with each request. A routine's file only names the
+    sources it reads; it never declares an address, so a push opens no new destination.
+
+    The secret is encrypted (`SecretBox`), bound to the source and to its origin (scheme,
+    host, port): a secret is never sent anywhere but where it was entered for, and it is
+    never read back (REST, pages, logs)."""
+
+    __tablename__ = "routine_sources"
+    __table_args__ = (
+        UniqueConstraint("space_id", "name"),
+        CheckConstraint("auth IN ('', 'bearer', 'header', 'basic')", name="auth"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(32))  # what a routine's file names
+    base_url: Mapped[str] = mapped_column(Text)  # normalized, ends with "/"
+    # How the secret is sent: "" none, "bearer" (Authorization: Bearer), "header" (the header
+    # named `header`), "basic" (Authorization: Basic, the secret being "user:password").
+    auth: Mapped[str] = mapped_column(String(8), default="")
+    header: Mapped[str] = mapped_column(String(64), default="")
+    secret: Mapped[bytes | None] = mapped_column(LargeBinary)  # encrypted; None: no secret
+    secret_set_at: Mapped[datetime | None]
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
@@ -600,7 +636,8 @@ class RoutineRun(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     report: Mapped[str] = mapped_column(Text, default="")  # output text (page, email…)
     # What was output: {"page": path, "inbox": [titles], "emails": n, "webhook": bool,
-    # "written": [{"path", "change", "from"?}], "conflicts": [paths]}.
+    # "written": [{"path", "change", "from"?}], "conflicts": [paths], "fetches": [{"source",
+    # "path", "status", "size"}]: the external calls, never a secret nor a body}.
     outputs: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
     commit: Mapped[str | None] = mapped_column(String(64))
     input_tokens: Mapped[int] = mapped_column(default=0)

@@ -7,7 +7,7 @@ cause of a failure, translated by `tidy_journal.explain`, without the technical 
 "Run now", the page waits for the result (`…/state`, polled every 3 s by `preferences.js`, like
 the tidy-up journal)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -22,6 +22,7 @@ from synaptane.services import (
     budget,
     routine_files,
     routine_memory,
+    routine_sources,
     routine_writes,
     routines,
     tidy_journal,
@@ -78,6 +79,7 @@ class Draft:
     writes: str = ""  # folders the routine keeps, one per line
     memory: bool = False  # in the file only (`routine_files.memory_enabled`)
     night: str = ""  # "": at its time; "before" or "after" the tidy-up, in the night
+    sources: list[str] = field(default_factory=list)  # external sources it reads, by name
 
     @classmethod
     def of(cls, routine: Routine, writes: list[str] | None = None, memory: bool = False) -> "Draft":
@@ -102,6 +104,7 @@ class Draft:
             "\n".join(writes or []),
             memory,
             routine.night,
+            list(routine.sources or []),
         )
 
     @classmethod
@@ -147,6 +150,7 @@ class Draft:
             writes=[line.strip() for line in self.writes.splitlines() if line.strip()],
             memory=self.memory,
             night=self.night if self.night in routine_files.NIGHT_PLACES else "",
+            sources=list(self.sources),
         )
 
 
@@ -177,6 +181,7 @@ def posted(
     writes: Annotated[str, Form()] = "",
     memory: Annotated[bool, Form()] = False,
     night: Annotated[str, Form()] = "",
+    sources: Annotated[list[str] | None, Form()] = None,
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
@@ -199,6 +204,7 @@ def posted(
         writes,
         memory,
         night,
+        list(sources or []),
     )
 
 
@@ -226,7 +232,9 @@ def _common(page: WebPage, space: Space) -> dict[str, Any]:
         "weekdays": WEEKDAYS,
         "next_run": routines.next_run,
         "routine_error": routine_files.error_of,
-        "routine_warnings": routine_files.warnings_of,
+        "routine_warnings": lambda routine: (
+            routine_files.warnings_of(routine) + routine_sources.notices(page.workspace, routine)
+        ),
         "routine_path": routines.path_of,
         "max_written": routine_writes.MAX_PAGES,
         "max_deletions": routine_writes.MAX_DELETIONS,
@@ -273,6 +281,7 @@ def _form(
         routine=routine,
         draft=draft,
         error=error,
+        space_sources=routine_sources.list_sources(page.db, actor, space),
         # The file changed since the form was opened: offer to replace its current version.
         conflict_sha=routine_files.current_sha(page.workspace, space, routine.name)
         if changed and routine is not None

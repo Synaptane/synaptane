@@ -194,7 +194,11 @@ anglais), `night` (`before` ou `after` le rangement, avec un planning de nuit), 
 (dossiers séparés par des virgules, liste JSON ou un par ligne `- dossier`), `writes` (dossiers
 tenus par la routine, même syntaxe, 5 au plus : elle y écrit ses propres pages ; jamais tout le
 wiki, ni un dossier caché, ni un dossier tenu par une autre routine), `report`, `inbox`,
-`email` (`admins`, `members`, `none`), `webhook`, `enabled`, `template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les
+`email` (`admins`, `members`, `none`), `webhook`, `enabled`, `template`, `memory` (`true` : la routine garde une mémoire, voir plus bas),
+`sources` (noms des sources HTTP extérieures qu'elle lit, même syntaxe, 5 au plus : les
+administrateurs de l'organisation les déclarent dans Synaptane, avec leur adresse et leur
+secret ; un nom que l'espace ne déclare pas rend le fichier invalide, et une adresse n'est
+jamais acceptée, voir [Sources extérieures](../admin/ai.fr.md#sources-extérieures)). Les
 valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et ignoré ; un fichier
 invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines et dans l'API REST.
 

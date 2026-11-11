@@ -3,7 +3,11 @@
 Same rules as the web UI: organization admins create, edit, launch and delete (a commit of the
 routine's file `.synaptane/routines/<name>.md` in their name); the space's contributors read
 the routines and their runs. The memory of a routine (`.synaptane/memory/<name>.md`) is read
-by contributors and cleared by admins; only the routine's runs write it."""
+by contributors and cleared by admins; only the routine's runs write it.
+
+External sources (`…/sources`): the organization's admins declare them, space by space (an
+HTTPS base address, an optional secret); a routine names those it reads (`sources`). A secret
+is accepted when writing, and never sent back: only when it was saved."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -13,9 +17,9 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
-from synaptane.core.errors import invalid
-from synaptane.services import routine_files, routine_memory, routines
-from synaptane.storage.models import Routine, RoutineRun, Space
+from synaptane.core.errors import Label, invalid
+from synaptane.services import routine_files, routine_memory, routine_sources, routines
+from synaptane.storage.models import Routine, RoutineRun, RoutineSource, Space
 
 from .content import SPACE, _db, _ws
 from .routes import CurrentActor, DbSession, api_text, find_space
@@ -42,7 +46,9 @@ class RoutineRunOut(BaseModel):
         "written (pages written in the folders it keeps: path, change created, modified, "
         "moved with from, or deleted), conflicts (pages a person changed during the run: "
         "their version kept), emails (number sent), webhook (true if sent), memory (saved, "
-        "cleared, or changed: changed by someone during the run, so kept as it was)"
+        "cleared, or changed: changed by someone during the run, so kept as it was), "
+        "fetches (calls to the external sources: source, path, status, size; never a secret "
+        "nor a body)"
     )
     commit: str | None
     input_tokens: int
@@ -99,6 +105,11 @@ class RoutineOut(BaseModel):
         description="Keeps notes from one run to the next (`memory: true` in the file), in "
         "`.synaptane/memory/<name>.md`: see `GET …/memory`"
     )
+    sources: list[str] = Field(
+        default_factory=list,
+        description="External sources it reads over HTTP (`sources:` in the file), by name: "
+        "see `…/sources`",
+    )
     next_run: datetime | None = Field(description="Next scheduled run")
     last_run: RoutineRunOut | None
 
@@ -111,8 +122,10 @@ class RoutineOut(BaseModel):
         last: RoutineRun | None,
         writes: list[str],
         memory: bool = False,
+        notices: list[Label] | None = None,
     ) -> "RoutineOut":
         error = routine_files.error_of(routine)
+        warnings = routine_files.warnings_of(routine) + (notices or [])
         return cls(
             id=routine.id,
             name=routine.name,
@@ -122,7 +135,7 @@ class RoutineOut(BaseModel):
             sha=routine.sha,
             pending=routine.sha is None,
             error=api_text(request, error) if error else None,
-            warnings=[api_text(request, w) for w in routine_files.warnings_of(routine)],
+            warnings=[api_text(request, w) for w in warnings],
             template=routine.template,
             instructions=routine.instructions,
             frequency=routine.frequency,
@@ -138,6 +151,7 @@ class RoutineOut(BaseModel):
             output_webhook=routine.output_webhook,
             enabled=routine.enabled,
             memory=memory,
+            sources=list(routine.sources or []),
             next_run=space_next,
             last_run=RoutineRunOut.of(last) if last else None,
         )
@@ -174,6 +188,11 @@ class RoutineIn(BaseModel):
     enabled: bool | None = None
     memory: bool | None = Field(
         default=None, description="Keep notes from one run to the next (`memory: true`)"
+    )
+    sources: list[str] | None = Field(
+        default=None,
+        description="External sources it reads, by name (5 at most), among those of the space "
+        "(`…/sources`); [] removes them; omitted: unchanged",
     )
     night: Literal["", "before", "after"] | None = Field(
         default=None,
@@ -218,6 +237,7 @@ def _out(request: Request, session: DbSession, space: Space, routine: Routine) -
         last,
         routine_files.writes_of(_ws(request), space, routine),
         _memory(request, space, routine),
+        routine_sources.notices(_ws(request), routine),
     )
 
 
@@ -238,6 +258,7 @@ def list_routines(
             last.get(r.id),
             routine_files.writes_of(ws, found, r),
             memory.get(r.name, False),
+            routine_sources.notices(ws, r),
         )
         for r in listed
     ]
@@ -401,3 +422,156 @@ def routine_memory_clear(
     routine = routines.get(session, actor, found, routine_id)
     routine_memory.clear(session, _db(request), actor, _ws(request), found, routine, source="api")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- External sources ---------------------------------------------------------------------------
+
+SOURCES = SPACE + "/sources"
+Auth = Literal["", "bearer", "header", "basic"]
+
+
+class SourceOut(BaseModel):
+    name: str = Field(description="What a routine's file names (`sources: <name>`)")
+    url: str = Field(description="Base address: every request is under it")
+    auth: str = Field(
+        description='"" (none), bearer (Authorization: Bearer), header (the header `header`), '
+        "basic (Authorization: Basic, the secret being user:password)"
+    )
+    header: str = Field(description='Header carrying the secret (auth "header"); "" otherwise')
+    secret: bool = Field(description="A secret is saved (never sent back)")
+    secret_saved_at: datetime | None = Field(description="When the secret was saved")
+    used_by: list[str] = Field(description="Titles of the routines that read it")
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def of(cls, session: DbSession, space: Space, source: RoutineSource) -> "SourceOut":
+        return cls(
+            name=source.name,
+            url=source.base_url,
+            auth=source.auth,
+            header=source.header,
+            secret=source.secret is not None,
+            secret_saved_at=routine_sources.secret_saved(source),
+            used_by=routine_sources.used_by(session, space, source.name),
+            created_at=source.created_at,
+            updated_at=source.updated_at,
+        )
+
+
+class SourceIn(BaseModel):
+    """Creation: `name` and `url` required. Update: only the given fields change; `secret`
+    replaces the saved one (omitted or "": kept). Moving the address to another host asks for
+    the secret again."""
+
+    name: str | None = Field(
+        default=None, description="Creation only: lowercase letters, digits, dashes"
+    )
+    url: str | None = Field(default=None, description="https://host/path/ prefix")
+    auth: Auth | None = None
+    header: str | None = Field(default=None, description='auth "header": its name, X-Api-Key…')
+    secret: str | None = Field(default=None, description="Write only: never sent back")
+
+
+class ProbeOut(BaseModel):
+    status: int | None = Field(description="HTTP status of a GET on the base address")
+    type: str = Field(description="Content type of the answer (its content is not read)")
+    error: str | None = Field(description="Why the call failed; null: it went through")
+
+
+@router.get(SOURCES, tags=["routines"])
+def list_sources(org: str, space: str, session: DbSession, actor: CurrentActor) -> list[SourceOut]:
+    """External sources of the space (organization admins)."""
+    found = find_space(session, actor, org, space)
+    return [
+        SourceOut.of(session, found, s) for s in routine_sources.list_sources(session, actor, found)
+    ]
+
+
+@router.post(SOURCES, status_code=status.HTTP_201_CREATED, tags=["routines"])
+def create_source(
+    org: str,
+    space: str,
+    body: SourceIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> SourceOut:
+    found = find_space(session, actor, org, space)
+    if not body.name or not body.url:
+        raise invalid("Give the source a name and an address.")
+    source = routine_sources.create(
+        session,
+        _db(request),
+        actor,
+        _ws(request),
+        found,
+        name=body.name,
+        url=body.url,
+        auth=body.auth or "",
+        header=body.header or "",
+        secret=body.secret or "",
+    )
+    return SourceOut.of(session, found, source)
+
+
+@router.get(SOURCES + "/{name}", tags=["routines"])
+def get_source(
+    org: str, space: str, name: str, session: DbSession, actor: CurrentActor
+) -> SourceOut:
+    found = find_space(session, actor, org, space)
+    return SourceOut.of(session, found, routine_sources.get(session, actor, found, name))
+
+
+@router.patch(SOURCES + "/{name}", tags=["routines"])
+def update_source(
+    org: str,
+    space: str,
+    name: str,
+    body: SourceIn,
+    request: Request,
+    session: DbSession,
+    actor: CurrentActor,
+) -> SourceOut:
+    found = find_space(session, actor, org, space)
+    source = routine_sources.get(session, actor, found, name)
+    if body.name is not None and body.name.strip().lower() != source.name:
+        raise invalid(
+            "The name of a source cannot be changed: the routines' files name it. Add a new "
+            "source, then remove this one."
+        )
+    source = routine_sources.update(
+        session,
+        actor,
+        _ws(request),
+        found,
+        source,
+        url=body.url,
+        auth=body.auth,
+        header=body.header,
+        secret=body.secret,
+    )
+    return SourceOut.of(session, found, source)
+
+
+@router.delete(SOURCES + "/{name}", status_code=status.HTTP_204_NO_CONTENT, tags=["routines"])
+def delete_source(
+    org: str, space: str, name: str, request: Request, session: DbSession, actor: CurrentActor
+) -> Response:
+    """Removes the source and its secret: the routines that read it become invalid."""
+    found = find_space(session, actor, org, space)
+    source = routine_sources.get(session, actor, found, name)
+    routine_sources.delete(session, _db(request), actor, _ws(request), found, source)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(SOURCES + "/{name}/test", tags=["routines"])
+def test_source(
+    org: str, space: str, name: str, request: Request, session: DbSession, actor: CurrentActor
+) -> ProbeOut:
+    """A GET on the base address, with the secret: the status only, never the content."""
+    found = find_space(session, actor, org, space)
+    source = routine_sources.get(session, actor, found, name)
+    probe = routine_sources.check(session, actor, _ws(request), found, source)
+    error = api_text(request, probe.error) if probe.error else None
+    return ProbeOut(status=probe.status, type=probe.mime, error=error)

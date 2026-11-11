@@ -26,6 +26,7 @@ import ipaddress
 import json
 import secrets
 import socket
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -179,30 +180,55 @@ def emit(session: Session, space: Space, event: str, data: dict[str, Any]) -> No
 # --- Delivery (worker) ------------------------------------------------------------------------
 
 
-def _public_host(host: str) -> str:
+Resolve = Callable[..., Sequence[tuple[Any, ...]]]
+
+
+_EMBEDDING = (
+    ipaddress.IPv6Network("64:ff9b::/96"),  # NAT64: a gateway reaches the IPv4 address inside
+    ipaddress.IPv6Network("::/96"),  # IPv4-compatible (deprecated), `::` and `::1` included
+)
+
+
+def _internal(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Not a public address: loopback, private networks, link-local (cloud metadata),
+    multicast, and an IPv4 one written as IPv6 (`::ffff:10.0.0.1`, or `64:ff9b::a00:1`, which
+    a NAT64 gateway turns into 10.0.0.1, although Python counts it as global)."""
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return _internal(address.ipv4_mapped)
+        if any(address in network for network in _EMBEDDING):
+            return _internal(ipaddress.IPv4Address(int(address) & 0xFFFFFFFF))
+    return not address.is_global or address.is_multicast
+
+
+def _public_host(host: str, resolve: Resolve | None = None) -> str:
     """Refuses internal addresses (SSRF): loopback, private networks, link-local…
 
     Returns the checked address, which is then connected to: a second DNS resolution could
-    answer something else ("DNS rebinding").
+    answer something else ("DNS rebinding"). `resolve`: `socket.getaddrinfo`, or a resolver
+    bounded in time (`routine_fetch`).
     """
     try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
+        # Looked up at each call (never bound at import): the tests replace it.
+        infos = (resolve or socket.getaddrinfo)(host, None, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
         raise DeliveryError(f"Host name not found: {host}", transient=True) from None
-    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
+    addresses = [ipaddress.ip_address(str(info[4][0]).split("%", 1)[0]) for info in infos]
     for address in addresses:
-        if not address.is_global:
+        if _internal(address):
             raise DeliveryError(f"Internal address refused: {address}", transient=False)
     if not addresses:
         raise DeliveryError(f"Host name not found: {host}", transient=True)
     return str(addresses[0])
 
 
-def pinned_request(url: str) -> tuple[str, dict[str, str], dict[str, str]]:
+def pinned_request(
+    url: str, resolve: Resolve | None = None
+) -> tuple[str, dict[str, str], dict[str, str]]:
     """(URL to the checked address, Host header, TLS extensions) for `url`."""
     parts = urlsplit(url)
     host = parts.hostname or ""
-    address = _public_host(host)
+    address = _public_host(host, resolve)
     netloc = f"[{address}]" if ":" in address else address
     if parts.port:
         netloc += f":{parts.port}"

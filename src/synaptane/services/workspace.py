@@ -28,6 +28,9 @@ class Workspace:
     ocr_languages: str = "fra+eng"
     ocr_images: bool = True
     public_url: str = ""  # for the links in emails sent by the worker
+    # External sources of the routines (`services.routine_sources`); False: turned off for
+    # the whole instance, the routines run without the `fetch` tool.
+    routine_sources: bool = True
 
     @classmethod
     def from_settings(cls, settings: Settings, box: SecretBox) -> "Workspace":
@@ -41,6 +44,7 @@ class Workspace:
             ocr_languages=settings.ocr_languages,
             ocr_images=settings.ocr_images,
             public_url=settings.public_url,
+            routine_sources=settings.routine_sources,
         )
 
     def clone_path(self, space_id: UUID) -> Path:

@@ -188,7 +188,11 @@ read too, such as `hebdo lundi 06:00` or `nuit lundi`, and Synaptane writes Engl
 by commas, a JSON list or one `- folder` line each), `writes` (folders the routine keeps, same
 syntax, 5 at most: it writes its own pages there; never the whole wiki, a hidden folder, nor
 a folder another routine keeps), `report`, `inbox`, `email` (`admins`, `members`, `none`),
-`webhook`, `enabled`, `template`, `memory` (`true`: the routine keeps a memory, see below). Values are plain text or JSON. An
+`webhook`, `enabled`, `template`, `memory` (`true`: the routine keeps a memory, see below),
+`sources` (names of the external HTTP sources it reads, same syntax, 5 at most: the
+organization's administrators declare them in Synaptane, with their address and secret; a name
+the space does not declare makes the file invalid, and an address is never accepted, see
+[External sources](../admin/ai.md#external-sources)). Values are plain text or JSON. An
 unknown field is reported and ignored; an invalid file does not run, and its error shows in
 Settings → Routines and the REST API.
 

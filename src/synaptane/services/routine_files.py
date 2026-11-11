@@ -60,6 +60,13 @@ Folders a routine keeps (`writes`): the pages it may write itself, besides its o
 (`services.routine_writes`). The database keeps no copy of them (no column for them): they are
 read from the file at the hash the database knows (`writes_of`), and a copy made from the
 database (`Config.of`) leaves them unknown (None), so that a save keeps the file's.
+
+External sources (`sources: status, zendesk`): the routine reads them over HTTP with the `fetch`
+tool (`services.routine_fetch`). The file only names sources the space's administrators declared
+in Synaptane (`services.routine_sources`: address, secret); it never gives an address. A name
+the space does not know makes the file invalid, at the synchronization (`_mark_unknown_sources`)
+and when Synaptane writes it: a push that names a host, or a source of another space, opens
+nothing. A source removed makes the routines that name it invalid (`recheck`).
 """
 
 import json
@@ -86,7 +93,7 @@ from synaptane.services.inbox import CONTENT_DIR
 from synaptane.services.tidy import parse_time, zone
 from synaptane.services.workspace import Workspace, author_identity, trailers
 from synaptane.storage.db import Database, try_space_lock
-from synaptane.storage.models import Routine, Space
+from synaptane.storage.models import Routine, RoutineSource, Space
 
 ROUTINES_DIR = ".synaptane/routines"
 MEMORY_DIR = ".synaptane/memory"  # one file per routine with `memory: true`
@@ -100,6 +107,9 @@ MAX_SCOPE = 20  # folders
 # Folders a routine keeps (`writes`): a few topics of its own (a watch, digests, a tracking
 # table), never a share of the wiki large enough to make it a second tidy-up.
 MAX_WRITES = 5
+# External sources a routine reads (`sources`): their names, as the administrators declared them.
+SOURCE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?")
+MAX_SOURCES = 5  # per routine: a few services to summarize, not a crawler
 MAX_ROUTINES = 20  # per space: each routine costs, proliferation is paid for
 MAX_DESCRIPTION = 500
 MAX_FILE_SIZE = 64_000  # bytes: instructions, header and a margin
@@ -120,6 +130,7 @@ KNOWN = (
     "template",
     "memory",
     "night",
+    "sources",
 )
 # Settings that live in the file only, never copied to the `routines` table.
 FILE_ONLY = ("memory", "writes")
@@ -153,6 +164,7 @@ class Fields:
     memory: bool | None = None
     writes: list[str] | None = None  # folders the routine keeps; []: none
     night: str | None = None  # "": at `at`; "before" or "after" the tidy-up, in the night
+    sources: list[str] | None = None  # names of the space's external sources; []: none
 
 
 @dataclass
@@ -181,6 +193,7 @@ class Config:
     # from the database, which does not keep them; `save` then keeps the file's.
     writes: list[str] | None = field(default_factory=list)
     night: str = ""
+    sources: list[str] = field(default_factory=list)  # external sources it reads, by name
 
     @classmethod
     def of(cls, routine: Routine) -> "Config":
@@ -203,6 +216,7 @@ class Config:
             routine.template,
             writes=None,
             night=routine.night,
+            sources=list(routine.sources or []),
         )
 
     def store(self, routine: Routine) -> None:
@@ -267,6 +281,41 @@ def clean_writes(folders: list[str]) -> list[str]:
     if len(kept) > MAX_WRITES:
         raise invalid("writes: {n} folders at most.", n=MAX_WRITES)
     return kept
+
+
+def clean_sources(names: list[str]) -> list[str]:
+    """Names of external sources (`sources`): never an address, which only the administrators
+    declare in Synaptane. Whether the space knows them is checked apart (`unknown_source`)."""
+    cleaned: list[str] = []
+    for raw in names:
+        name = raw.strip()
+        if not name:
+            continue
+        if not SOURCE_NAME.fullmatch(name):
+            raise invalid(
+                "sources: {name} is not the name of a source. A routine names the external "
+                "sources declared in Synaptane (Settings → External sources), never an address.",
+                name=name[:80],
+            )
+        if name not in cleaned:
+            cleaned.append(name)
+    if len(cleaned) > MAX_SOURCES:
+        raise invalid("sources: {n} sources at most.", n=MAX_SOURCES)
+    return cleaned
+
+
+def unknown_source(config: Config, known: Iterable[str]) -> Label | None:
+    """Why `config` cannot run: it names a source the space does not declare (removed since,
+    a typo, or one of another space). None: every source is known."""
+    names = set(known)
+    for name in config.sources:
+        if name not in names:
+            return Label(
+                "sources: the space has no external source named {name} (Settings → External "
+                "sources).",
+                name=name,
+            )
+    return None
 
 
 def _nested(a: str, b: str) -> bool:
@@ -386,6 +435,8 @@ def apply(config: Config, fields: Fields) -> None:
         config.memory = fields.memory
     if fields.writes is not None:
         config.writes = clean_writes(fields.writes)
+    if fields.sources is not None:
+        config.sources = clean_sources(fields.sources)
     if fields.night is not None:
         if fields.night not in NIGHT_PLACES:
             raise invalid("Unknown place in the night (before or after the tidy-up).")
@@ -523,6 +574,8 @@ def render(config: Config, extra: Iterable[str] = ()) -> str:
         lines.append(f"scope: {_list(config.scope)}")
     if config.writes:
         lines.append(f"writes: {_list(config.writes)}")
+    if config.sources:
+        lines.append(f"sources: {_list(config.sources)}")
     if config.output_page:
         lines.append(f"report: {_scalar(config.output_page)}")
     lines.append(f"inbox: {json.dumps(config.output_inbox)}")
@@ -784,6 +837,7 @@ def _config(header: _Header, name: str) -> Config:
             memory=_flag(header, "memory", False),
             writes=_folders(header, "writes"),
             night=night,
+            sources=_folders(header, "sources"),
         ),
     )
     return config
@@ -897,6 +951,7 @@ def reconcile(
     files = [f for f in read_files(repo) if len(f.name) <= 120]
     read = {file.name: _read(file, index) for index, file in enumerate(files)}
     _mark_clashes(read)
+    _mark_unknown_sources(read, source_names(session, space.id))
     for file in files:
         seen.add(file.name)
         row = rows.get(file.name)
@@ -947,6 +1002,44 @@ def _mark_clashes(read: dict[str, Parsed]) -> None:
         if (why := clash(name, config, valid)) is not None:
             found = read[name]
             read[name] = Parsed(None, why, found.warnings, found.extra)
+
+
+def source_names(session: Session, space_id: UUID) -> set[str]:
+    """Names of the external sources the space declares (`services.routine_sources`)."""
+    return set(
+        session.scalars(select(RoutineSource.name).where(RoutineSource.space_id == space_id))
+    )
+
+
+def _mark_unknown_sources(read: dict[str, Parsed], known: set[str]) -> None:
+    """Routines naming a source the space does not declare: invalid, with the name. Never
+    run without it, nor with a source of the same name elsewhere."""
+    for name, parsed in list(read.items()):
+        if parsed.config is not None and (why := unknown_source(parsed.config, known)):
+            read[name] = Parsed(None, why, parsed.warnings, parsed.extra)
+
+
+def recheck(database: Database, ws: Workspace, space_id: UUID) -> bool:
+    """Brings the routines of a space in step with its files again, now: after a source was
+    added or removed, a routine naming it becomes valid or invalid at once, not at the next
+    synchronization. Under the space lock; busy, a synchronization is requested instead (it
+    does the same). Returns True if done now."""
+    with database.session() as session:
+        space = session.get(Space, space_id)
+        if space is None:
+            return False
+        try:
+            repo = ws.local_repository(space)
+        except SynaptaneError:
+            return False  # never synchronized: no routine read from a file yet
+        session.commit()  # nothing held while waiting for the lock
+        with try_space_lock(database.engine, space_id, timeout=10) as acquired:
+            if acquired:
+                reconcile(session, space, repo)
+                session.commit()
+                return True
+        jobs.enqueue(session, "sync", space_id)
+    return False
 
 
 def _write_pending(session: Session, space: Space, repo: Repository, committer: Identity) -> bool:
@@ -1088,6 +1181,8 @@ def save(
     path = file_path(name)
     if config is not None:
         _fits(render(config).encode())
+        if why := unknown_source(config, source_names(session, space.id)):
+            raise invalid(why.template, **why.params)
     if config is not None and not allow_secrets:  # scanned outside the space lock
         repo = _synced(ws, space)
         old = repo.blob(path) if repo is not None else None

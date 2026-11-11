@@ -31,6 +31,7 @@ Chaque option de `synaptane.toml` peut être remplacée par une variable d'envir
 | `ocr_images` | Extraire le texte des images (OCR), `true` par défaut. |
 | `allow_private_webhooks` | Autorise les webhooks en HTTP et vers le réseau local. **Développement uniquement.** |
 | `allow_insecure_imap` | Autorise la [capture par e-mail](email-capture.fr.md) à relever sa boîte par une connexion IMAP non chiffrée. **Développement uniquement** (un serveur de test local). |
+| `routine_sources` | Les routines peuvent lire les [sources HTTP extérieures](ai.fr.md#sources-extérieures) que les administrateurs de l'organisation déclarent dans un espace, `true` par défaut : seuls les administrateurs déclarent une source (adresse et secret), et le fichier d'une routine ne fait que nommer celles qu'il lit. `false` coupe la fonction pour toute l'instance : les routines tournent alors sans l'outil `fetch`, et leur page le dit. Avec Docker : `ROUTINE_SOURCES` dans `.env`. |
 | `api_docs` | Publie la documentation interactive `/api/docs` et le schéma `/api/v1/openapi.json`, `false` par défaut. |
 | `metrics_token` | Jeton porteur de `/metrics` pour Prometheus, 32 caractères au moins (voir [Supervision](#supervision)). Vide par défaut : `/metrics` n'existe pas. Avec Docker : `METRICS_TOKEN` dans `.env`. |
 | `backup_dir` | Dossier de la sauvegarde de la nuit faite par le worker (`/backups` dans l'image, `SYNAPTANE_BACKUP_DIR`). Absent : pas de sauvegarde automatique. Voir [Sauvegarde](backup.fr.md). |
@@ -60,6 +61,7 @@ Avec Docker Compose, ces variables se règlent dans `.env` (voir les commentaire
 | `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Copie hors serveur, sans `backup setup` (voir [Sauvegarde](backup.fr.md)). |
 | `SYNAPTANE_DEFAULT_LOCALE`, `OCR_LANGUAGES`, `TZ` | Langue de l'interface, langues de l'OCR, fuseau horaire. |
 | `SYNAPTANE_WORKER_MEMORY`, `SYNAPTANE_LOG_LEVEL` | Mémoire maximale du worker (`2g`), niveau des journaux. |
+| `ROUTINE_SOURCES` | `false` : aucune routine ne lit de [source extérieure](ai.fr.md#sources-extérieures) (`true` par défaut). |
 
 ## Envoi d'e-mails, invitations et mot de passe oublié
 
