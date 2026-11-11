@@ -720,6 +720,16 @@ ajoute-la en tête de resumes/README.md.
   dossier inclus dans un autre déjà donné est retiré. Les pages tenues sont une sortie : une
   routine qui ne fait que tenir des pages n'a besoin ni de rapport, ni d'inbox, ni d'e-mail,
   ni de webhook.
+- **Une routine par dossier** : un dossier tenu par une routine ne peut pas être tenu par une
+  autre routine de l'espace, ni être inclus dans l'un de ses dossiers, ni en inclure un, ni
+  contenir la page de rapport d'une autre routine (une routine peut garder son propre rapport
+  dans son dossier) ; une page de rapport ne peut pas non plus être dans un dossier tenu par
+  une autre routine. Le formulaire et l'API le refusent, en nommant l'autre routine. Un push ne
+  peut pas être refusé : à la synchronisation suivante, les **deux** routines qui se
+  chevauchent deviennent invalides, chacune nommant l'autre, et aucune ne tourne tant qu'un
+  fichier n'est pas corrigé. Git ne dit pas laquelle des deux modifications était fautive, et
+  faire tourner l'une ou l'autre réécrirait des pages que l'autre tient. Un dossier qui contient
+  la page de rapport d'une autre routine rend invalide sa propre routine.
 - **Périmètre et dossiers tenus** : la routine lit ses dossiers même hors de son périmètre. Le
   périmètre dit ce qu'elle relit ; `writes`, ce qu'elle tient.
 - **Un seul commit par passage** : les pages écrites partent avec le rapport, les éléments

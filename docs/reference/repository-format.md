@@ -186,9 +186,9 @@ Fields: `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`
 read too, such as `hebdo lundi 06:00` or `nuit lundi`, and Synaptane writes English back),
 `night` (`before` or `after` the tidy-up, with a night schedule), `scope` (folders separated
 by commas, a JSON list or one `- folder` line each), `writes` (folders the routine keeps, same
-syntax, 5 at most: it writes its own pages there; never the whole wiki nor a hidden folder),
-`report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`, `template`,
-`memory` (`true`: the routine keeps a memory, see below). Values are plain text or JSON. An
+syntax, 5 at most: it writes its own pages there; never the whole wiki, a hidden folder, nor
+a folder another routine keeps), `report`, `inbox`, `email` (`admins`, `members`, `none`),
+`webhook`, `enabled`, `template`, `memory` (`true`: the routine keeps a memory, see below). Values are plain text or JSON. An
 unknown field is reported and ignored; an invalid file does not run, and its error shows in
 Settings → Routines and the REST API.
 

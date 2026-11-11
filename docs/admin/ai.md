@@ -676,6 +676,14 @@ top of digests/README.md.
   absolute path: the file is invalid otherwise, and the form or the API refuses it. A folder
   inside another one given is dropped. Pages kept are an output: a routine that only keeps
   pages needs no report, inbox, email or webhook.
+- **One routine per folder**: a folder kept by a routine cannot be kept by another routine
+  of the space, nor be inside or around one of its folders, nor hold another routine's report
+  page (a routine may keep its own report in its folder); a report page cannot lie in a folder
+  another routine keeps either. The form and the API refuse it, naming the other routine. A
+  push cannot be refused: at the next synchronization, **both** routines of an overlapping pair
+  become invalid, each naming the other, and neither runs until one file is fixed. Git does
+  not say which of the two changes was wrong, and running either would rewrite pages the
+  other keeps. A folder holding another routine's report page makes its own routine invalid.
 - **Scope and folders**: the routine reads its folders even outside its scope. The scope says
   what it reviews; `writes`, what it keeps.
 - **One commit per run**: the pages written go with the report, the inbox items and the

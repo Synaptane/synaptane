@@ -604,3 +604,122 @@ def test_the_digest_archive_template_keeps_its_folder(
     [routine] = db.query(Routine).all()
     assert routine.name == "digest-archive" and routine.template == "archive"
     assert routine_files.writes_of(ctx, wiki.infra, routine) == ["resumes"]
+
+
+# --- Two routines never keep the same pages ---------------------------------------------------
+
+ROUTINES = "/api/v1/organizations/acme/spaces/infra/routines"
+
+
+def plain(text: str) -> str:
+    return html.unescape(text).replace(" ", " ").replace(" ", " ")
+
+
+def routine_file(title: str, writes: str = "", report: str = "") -> str:
+    lines = ["---", f"title: {title}", "schedule: weekly friday 16:00"]
+    if writes:
+        lines.append(f"writes: {writes}")
+    if report:
+        lines.append(f"report: {report}")
+    return "\n".join([*lines, "inbox: true", "---", "Tiens tes pages.", ""])
+
+
+def test_the_rest_api_refuses_folders_another_routine_keeps(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    headers = {"Authorization": f"Bearer {token_for(database, 'root')}", "Accept-Language": "fr"}
+    base = {"instructions": "Tiens tes pages.", "frequency": "daily", "at": "07:00"}
+    # A routine may keep its own report page in its folder.
+    first = client.post(
+        ROUTINES,
+        json={
+            **base,
+            "title": "Veille",
+            "writes": ["equipe/veille"],
+            "output_page": "equipe/veille/index.md",
+        },
+        headers=headers,
+    )
+    assert first.status_code == 201, first.text
+    other = client.post(
+        ROUTINES,
+        json={**base, "title": "Suivi", "writes": ["suivi"], "output_page": "rapports/suivi.md"},
+        headers=headers,
+    )
+    assert other.status_code == 201, other.text
+    kept = "tenu par la routine veille"
+    for wrong, said in (
+        (["equipe/veille"], f"equipe/veille chevauche equipe/veille, {kept}"),  # equal
+        (["equipe/veille/outils"], f"chevauche equipe/veille, {kept}"),  # inside
+        (["outils", "equipe"], f"equipe chevauche equipe/veille, {kept}"),  # around
+        (["rapports"], "contient rapports/suivi.md, la page de rapport de la routine suivi"),
+    ):
+        refused = client.post(
+            ROUTINES, json={**base, "title": "Autre", "writes": wrong}, headers=headers
+        )
+        assert refused.status_code == 400, (wrong, refused.text)
+        assert said in plain(refused.json()["message"]), (wrong, refused.text)
+    # Refused on a change too; a folder next to it is fine.
+    url = f"{ROUTINES}/{other.json()['id']}"
+    assert client.patch(url, json={"writes": ["equipe"]}, headers=headers).status_code == 400
+    assert client.patch(url, json={"writes": ["equipe/suivi"]}, headers=headers).status_code == 200
+    # A report page in a folder another routine keeps: that routine would rewrite it.
+    page = client.patch(url, json={"output_page": "equipe/veille/suivi.md"}, headers=headers)
+    assert page.status_code == 400
+    assert "est dans le dossier equipe/veille, tenu par la routine veille" in plain(
+        page.json()["message"]
+    )
+
+
+def test_the_form_refuses_folders_another_routine_keeps(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    keeper(db, database, ctx, wiki)  # keeps digests/
+    login(client, "root")
+    base = f"/o/{wiki.infra.organization.slug}/{wiki.infra.slug}/-/routines"
+    refused = client.post(
+        base,
+        data={
+            "csrf": csrf(client, base),
+            "title": "Archives",
+            "instructions": "Range les résumés.",
+            "frequency": "daily",
+            "at": "07:00",
+            "writes": "digests/2026",
+        },
+    )
+    assert refused.status_code == 400
+    assert "le dossier digests/2026 chevauche digests" in plain(refused.text)
+    assert db.query(Routine).count() == 1
+
+
+def test_a_push_that_makes_two_routines_overlap_stops_both_until_fixed(
+    client: TestClient, db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Git does not say which of the two files is wrong: both are invalid, each naming the
+    other, and neither runs. A folder holding another routine's report page makes its own
+    routine invalid, not the one that reports there."""
+    configure_ai(db, ctx, wiki)
+    wiki.remote.push(
+        {
+            ".synaptane/routines/veille.md": routine_file("Veille", writes="veille"),
+            ".synaptane/routines/outils.md": routine_file("Outils", writes="veille/outils"),
+            ".synaptane/routines/archive.md": routine_file("Archive", writes="rapports"),
+            ".synaptane/routines/revue.md": routine_file("Revue", report="rapports/revue.md"),
+        }
+    )
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    headers = {"Authorization": f"Bearer {token_for(database, 'root')}", "Accept-Language": "fr"}
+    listed = {r["name"]: r for r in client.get(ROUTINES, headers=headers).json()}
+    assert "chevauche veille, tenu par la routine veille" in plain(listed["outils"]["error"])
+    assert "chevauche veille/outils, tenu par la routine outils" in plain(listed["veille"]["error"])
+    assert "la page de rapport de la routine revue" in plain(listed["archive"]["error"])
+    assert listed["revue"]["error"] is None
+    run_now = client.post(f"{ROUTINES}/{listed['veille']['id']}/run", headers=headers)
+    assert run_now.status_code == 400
+    # Fixed by a push: both run again.
+    wiki.remote.push({".synaptane/routines/outils.md": routine_file("Outils", writes="outils")})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    listed = {r["name"]: r for r in client.get(ROUTINES, headers=headers).json()}
+    assert listed["veille"]["error"] is None and listed["outils"]["error"] is None
+    assert listed["archive"]["error"] is not None

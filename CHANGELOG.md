@@ -62,7 +62,11 @@ at startup; nothing changes for a space until a routine joins its night or its r
   most 15 pages changed and 5 deletions per run. Any other path is refused to the agent as a
   tool error, whatever a page it read asks: another folder, `.synaptane/`, a hidden file, a
   symbolic link, its own report page, a move out of its folders or one that would rewrite a
-  page outside them. A likely secret and a team `block` check are refused too. The pages go
+  page outside them. A likely secret and a team `block` check are refused too. Two routines
+  never keep the same pages: a folder equal to, inside or around one another routine of the
+  space keeps, or holding its report page, is refused by the form and the API, naming that
+  routine; brought by a push, it makes both routines of the pair invalid until a file is fixed
+  (a folder holding another routine's report: its own routine only). The pages go
   in the run's single commit, with the report and the inbox items; a page someone changed
   during the run is merged, their version kept on a conflict; an interrupted run publishes
   nothing. The routine reads its folders even outside its scope. The log, the email, the

@@ -193,8 +193,8 @@ français est lu aussi, comme `hebdo lundi 06:00` ou `nuit lundi`, et Synaptane 
 anglais), `night` (`before` ou `after` le rangement, avec un planning de nuit), `scope`
 (dossiers séparés par des virgules, liste JSON ou un par ligne `- dossier`), `writes` (dossiers
 tenus par la routine, même syntaxe, 5 au plus : elle y écrit ses propres pages ; jamais tout le
-wiki ni un dossier caché), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`,
-`enabled`, `template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les
+wiki, ni un dossier caché, ni un dossier tenu par une autre routine), `report`, `inbox`,
+`email` (`admins`, `members`, `none`), `webhook`, `enabled`, `template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les
 valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et ignoré ; un fichier
 invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines et dans l'API REST.
 

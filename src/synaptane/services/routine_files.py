@@ -269,6 +269,62 @@ def clean_writes(folders: list[str]) -> list[str]:
     return kept
 
 
+def _nested(a: str, b: str) -> bool:
+    """Two folders (relative to content/) share pages: equal, or one inside the other."""
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def clash(name: str, config: Config, others: dict[str, Config]) -> Label | None:
+    """Why the folders `config` keeps cannot sit next to the other routines of the space
+    (`others`, by name; `name` itself left out): a folder another routine keeps too (equal,
+    inside or around one of its folders), or one that holds another routine's report page.
+    Two routines writing the same pages would undo each other's work at every run, and a
+    routine never writes another one's report (its own may lie in its folders). None: no
+    clash. The first one found, in the order of the names, so that the message is stable."""
+    for folder in config.writes or []:
+        for other_name in sorted(others):
+            if other_name == name:
+                continue
+            other = others[other_name]
+            for theirs in other.writes or []:
+                if _nested(folder, theirs):
+                    return Label(
+                        "writes: the folder {folder} overlaps {other}, kept by the routine "
+                        "{routine}: two routines never keep the same pages.",
+                        folder=folder,
+                        other=theirs,
+                        routine=other_name,
+                    )
+            if other.output_page and other.output_page.startswith(folder + "/"):
+                return Label(
+                    "writes: the folder {folder} holds {page}, the report page of the routine "
+                    "{routine}.",
+                    folder=folder,
+                    page=other.output_page,
+                    routine=other_name,
+                )
+    return None
+
+
+def report_clash(name: str, config: Config, others: dict[str, Config]) -> Label | None:
+    """Why `config`'s report page cannot be where it is: in a folder another routine keeps
+    (that routine would rewrite it)."""
+    page = config.output_page
+    for other_name in sorted(others):
+        if other_name == name or not page:
+            continue
+        for theirs in others[other_name].writes or []:
+            if page.startswith(theirs + "/"):
+                return Label(
+                    "report: {page} is in the folder {folder}, kept by the routine {routine}: "
+                    "choose another page.",
+                    page=page,
+                    folder=theirs,
+                    routine=other_name,
+                )
+    return None
+
+
 def clean_page(page: str) -> str:
     """Output page, relative to content/; "": no page."""
     page = page.strip().removeprefix("content/").strip("/")
@@ -838,12 +894,15 @@ def reconcile(
     }
     seen: set[str] = set()
     now = now or datetime.now(UTC)
-    for index, file in enumerate(f for f in read_files(repo) if len(f.name) <= 120):
+    files = [f for f in read_files(repo) if len(f.name) <= 120]
+    read = {file.name: _read(file, index) for index, file in enumerate(files)}
+    _mark_clashes(read)
+    for file in files:
         seen.add(file.name)
         row = rows.get(file.name)
         if row is not None and row.sha is None and file.data != render(Config.of(row)).encode():
             continue  # a routine still to write has this name: `_write_pending` settles it
-        parsed = _read(file, index)
+        parsed = read[file.name]
         error = parsed.error.dumps() if parsed.error else None
         warnings = [w.dumps() for w in parsed.warnings]
         if (
@@ -874,6 +933,20 @@ def reconcile(
             log.info("Space %s: routine %s removed (file removed)", space.id, name)
             session.delete(row)
     session.flush()
+
+
+def _mark_clashes(read: dict[str, Parsed]) -> None:
+    """Routines whose folders clash (`clash`) after a push, which cannot be refused: each of
+    them is invalid, with a message naming the other routine, and does not run until a file is
+    fixed. Both of an overlapping pair, not "the most recent": Git does not say which of the
+    two files was wrong (a push may move an old routine's folders onto a new one's), and
+    running either would keep writing pages the other one keeps. A folder holding another
+    routine's report page makes its own routine invalid, not the one that reports there."""
+    valid = {name: p.config for name, p in read.items() if p.config is not None}
+    for name, config in valid.items():
+        if (why := clash(name, config, valid)) is not None:
+            found = read[name]
+            read[name] = Parsed(None, why, found.warnings, found.extra)
 
 
 def _write_pending(session: Session, space: Space, repo: Repository, committer: Identity) -> bool:
@@ -1065,6 +1138,7 @@ def save(
                 if config.writes is None:  # a copy made from the database: the file's folders
                     config.writes = [] if creating else _file_writes(old)
                     apply(config, Fields())  # the whole checked again, folders known
+                _refuse_clash(repo, name, config)
                 data = _fits(render(config, extra_lines(old)).encode())
                 changes = {path: data}
             # Removed: the routine's memory goes with it, in the same commit.
@@ -1084,6 +1158,20 @@ def save(
             saved.created_by = actor.user.id
         session.commit()  # under the lock: the next synchronization sees it
     return saved
+
+
+def _refuse_clash(repo: Repository, name: str, config: Config) -> None:
+    """Refuses folders another routine of the space keeps (or holding its report page), and a
+    report page in a folder another routine keeps (`clash`, `report_clash`), against the
+    other routine files at HEAD, valid ones only (an invalid file keeps nothing)."""
+    others = {
+        file.name: parsed.config
+        for index, file in enumerate(read_files(repo))
+        if file.name != name and (parsed := _read(file, index)).config is not None
+    }
+    why = clash(name, config, others) or report_clash(name, config, others)
+    if why is not None:
+        raise invalid(why.template, **why.params)
 
 
 def _fits(data: bytes) -> bytes:
