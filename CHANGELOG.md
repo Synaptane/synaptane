@@ -10,6 +10,50 @@ of the target version.
 
 ## [Unreleased]
 
+### Added
+- **A routine can read an outside service over HTTP**: a status page, a ticket tool, the API
+  of another tool. The organization's administrators declare these **external sources** in a
+  space (**Settings → External sources**; REST: `…/spaces/{space}/sources`): a short name, an
+  HTTPS base address (host and path prefix) and, optionally, a secret sent as a bearer token,
+  a named header (`X-Api-Key`…) or Basic. A routine's file only names the sources it reads
+  (`sources: status, tickets`, 5 at most, or the boxes of the routine's form); the agent then
+  gets a `fetch` tool: GET only, a path and its query under the source's address, at most 30
+  calls per run, 200 KB read per answer, text only (JSON, text, HTML turned into text, XML,
+  Markdown). What a source answers is framed as untrusted data. **Test** makes a GET on the
+  base address and shows the status only. The run's log lists each call (source, path,
+  status, size), also in REST (`outputs.fetches`); `sources` is exposed on the routines. A
+  complete example in the docs: a `status` source and a night routine that keeps the state of
+  a service in a page of the wiki. 20 sources at most per space.
+- **`routine_sources` setting** (`SYNAPTANE_ROUTINE_SOURCES`, `ROUTINE_SOURCES` with Docker):
+  `false` turns the external sources off for the whole instance; the routines then run without
+  `fetch`, their agent is told so, and their page says it. On by default: only administrators
+  declare a source, and a routine's file only chooses among them.
+
+### Security
+- **A push never opens a destination.** Addresses and secrets live in Synaptane, written by
+  the organization's administrators only; a routine's file only names a source of its own
+  space. A name the space does not declare, or an address written instead of a name, makes
+  the file invalid; removing a source makes the routines that name it invalid at once.
+- **Every request stays under its source**: same scheme (HTTPS), host and port, and a path
+  under its prefix once normalized (`..`, encoded separators and dots, backslashes, an `@` that
+  never reaches the authority, case of the host, international names); internal addresses
+  refused and the address checked being the one connected to (no DNS rebinding), as for the
+  webhooks, which also refuse an IPv4 address written as IPv6 (`::ffff:10.0.0.1`) from now on;
+  a redirect followed only under the same source, so the secret never leaves for another host.
+- **The secret never reaches the model nor an output.** Encrypted at rest, bound to its source
+  and its host (moving the address to another host asks for it again), never shown again
+  (pages, REST, audit log, run log). An answer that echoes it gets `[secret]` in its place; a
+  report, an inbox item, a page, the memory or a summary that holds it is refused to the
+  agent. The log hides the values of sensitive query parameters and keeps no body. The audit
+  log records each source added, changed, removed, and each secret replaced.
+
+### Upgrade
+- One migration (`0037`), applied at startup: the `routine_sources` table and
+  `routines.sources` (empty for every existing routine). No existing value changes, and nothing
+  changes until an administrator declares a source. Going back to 1.17.0: downgrade to `0036`
+  first (the sources and their secrets are dropped), and remove `sources:` from the routines'
+  files, since 1.17.0 reports it as an unknown field and runs the routine without it.
+
 ## [1.17.0] - 2026-11-11
 
 The night of a space becomes a sequence the team describes in its repository. A routine can

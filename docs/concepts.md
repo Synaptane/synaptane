@@ -223,6 +223,12 @@ synchronization, and the state of its runs. Organization administrators create, 
 and delete routines from Synaptane; anyone who can push to the repository can change them too.
 Contributors of the space see them and their log. The nightly tidy-up is not a routine.
 
+A routine can also read outside services over HTTP (a status page, a ticket tool): the
+organization's administrators declare these **external sources** in the space, with their
+address and secret, and a routine's file only names the ones it reads. A push therefore never
+gives a routine a new destination, and the agent never sees a secret (see
+[External sources](admin/ai.md#external-sources)).
+
 ## Search
 
 - **Text**: ripgrep over `content/` and over the text extracted from PDF, Office documents

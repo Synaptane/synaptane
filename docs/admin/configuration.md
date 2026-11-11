@@ -31,6 +31,7 @@ Each option of `synaptane.toml` can be overridden by an environment variable
 | `ocr_images` | Extract text from images (OCR), `true` by default. |
 | `allow_private_webhooks` | Allows webhooks over HTTP and to the local network. **Development only.** |
 | `allow_insecure_imap` | Allows the [capture by email](email-capture.md) to read its mailbox over an unencrypted IMAP connection. **Development only** (a local test server). |
+| `routine_sources` | Routines may read the [external HTTP sources](ai.md#external-sources) the organization's administrators declare in a space, `true` by default: only administrators declare a source (address and secret), and a routine's file only names those it reads. `false` turns the feature off for the whole instance: the routines then run without the `fetch` tool, and their page says so. With Docker: `ROUTINE_SOURCES` in `.env`. |
 | `api_docs` | Publishes the interactive documentation `/api/docs` and the schema `/api/v1/openapi.json`, `false` by default. |
 | `metrics_token` | Bearer token of `/metrics` for Prometheus, 32 characters or more (see [Monitoring](#monitoring)). Empty by default: `/metrics` does not exist. With Docker: `METRICS_TOKEN` in `.env`. |
 | `backup_dir` | Folder of the nightly backup made by the worker (`/backups` in the image, `SYNAPTANE_BACKUP_DIR`). Unset: no automatic backup. See [Backup](backup.md). |
@@ -59,6 +60,7 @@ With Docker Compose, these variables are set in `.env` (see the comments in `.en
 | `BACKUP_AGE_RECIPIENTS`, `BACKUP_REMOTES`, `BACKUP_RETENTION_DAYS` | Off-site copy, without `backup setup` (see [Backup](backup.md)). |
 | `SYNAPTANE_DEFAULT_LOCALE`, `OCR_LANGUAGES`, `TZ` | Interface language, OCR languages, time zone. |
 | `SYNAPTANE_WORKER_MEMORY`, `SYNAPTANE_LOG_LEVEL` | Worker memory cap (`2g`), log level. |
+| `ROUTINE_SOURCES` | `false`: no routine reads an [external source](ai.md#external-sources) (`true` by default). |
 
 ## Email, invitations and password reset
 

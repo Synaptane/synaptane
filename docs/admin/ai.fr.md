@@ -596,6 +596,8 @@ Une routine, c'est :
   (arborescence, pages, recherche, rétroliens, pages proches, historique) ;
 - au besoin, des **dossiers tenus** : l'agent y écrit ses propres pages (voir
   [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)) ;
+- au besoin, des **sources extérieures** qu'elle lit en HTTP, parmi celles que les
+  administrateurs ont déclarées dans l'espace (voir [Sources extérieures](#sources-extérieures)) ;
 - des **sorties**, au moins une (les dossiers tenus en sont une) :
   - une **page de rapport**, réécrite à chaque passage (`rapports/coherence.md` par exemple).
     Une modification faite à la main y sera remplacée : la page le dit en pied ;
@@ -646,6 +648,7 @@ Relis les pages modifiées depuis le dernier passage…
 | `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
 | `template` | Modèle d'origine (`coherence`, `digest`, `archive`), indiqué par Synaptane |
 | `memory` | `true` : la routine garde des notes d'un passage à l'autre (voir [Mémoire](#mémoire)) ; `false` par défaut |
+| `sources` | Noms des [sources extérieures](#sources-extérieures) qu'elle lit (5 au plus), déclarées dans Synaptane ; même syntaxe que `scope`. Jamais une adresse |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
@@ -805,6 +808,117 @@ qu'elle suit, les décisions notées, ce qui reste à surveiller.
   fichier de la routine, sans copie en base. Avant la première synchronisation d'un espace, une
   routine ne peut donc pas garder de mémoire.
 
+### Sources extérieures
+
+Une routine peut aussi **lire un service extérieur en HTTP** : une page de statut, un outil de
+tickets, l'API d'un autre outil. Les administrateurs de l'organisation déclarent ces sources
+dans l'espace, avec leur secret ; le fichier d'une routine ne fait que nommer celles qu'il lit.
+
+**Pourquoi le fichier ne peut pas donner d'adresse.** Quiconque peut pousser peut modifier une
+routine. Si son fichier pouvait nommer n'importe quelle adresse, un push suffirait à envoyer le
+wiki vers un serveur de son choix : il suffirait que l'agent mette du texte dans l'adresse
+qu'il appelle. Les adresses et leurs secrets restent donc dans Synaptane, et seuls les
+administrateurs les écrivent.
+
+- **Déclarer une source** : **Paramètres → Sources extérieures** de l'espace (administrateurs
+  de l'organisation ; REST : `…/spaces/{space}/sources`) :
+  - un **nom** (`statut`, `zendesk`) : ce que nomme le fichier d'une routine ; il ne change
+    plus ensuite ;
+  - une **adresse de base** : HTTPS, un hôte et un préfixe de chemin
+    (`https://statut.example.com/api/v2/`). Sans requête, sans nom d'utilisateur ni mot de
+    passe ; une adresse locale (`localhost`, une adresse IP privée, `.local`, `.internal`) est
+    refusée ;
+  - au besoin un **secret** et la façon de l'envoyer : un jeton porteur
+    (`Authorization: Bearer`), un en-tête nommé (`X-Api-Key`…) ou Basic (le secret écrit
+    `utilisateur:mot de passe`).
+
+  Au plus 20 sources par espace. Une source appartient à son espace : un secret n'atteint
+  jamais les routines d'un autre espace, et les sources de l'espace sont listées en un seul
+  endroit.
+- **Le secret** est chiffré au repos, lié à sa source et à son hôte, et **jamais réaffiché** :
+  la page dit seulement quand il a été enregistré, l'API REST seulement s'il y en a un, le
+  journal d'audit nomme la source et son hôte. Passer l'adresse sur un autre hôte demande de
+  saisir à nouveau le secret : un secret enregistré ne part jamais vers une autre destination ;
+  choisir aucune authentification le supprime. **Tester** fait un GET sur l'adresse de base,
+  avec le secret, et affiche le statut et le type de la réponse, jamais son contenu.
+- **Choisir dans le fichier** : `sources: statut, tickets` (5 au plus ; même syntaxe que
+  `scope`), ou les cases **Sources extérieures** du formulaire de la routine. Un nom que
+  l'espace ne déclare pas rend le fichier **invalide**, avec le nom dans l'erreur : une faute de
+  frappe, une source d'un autre espace ou une adresse écrite à la place d'un nom
+  (`sources: https://…`) n'ouvrent rien. Supprimer une source rend aussitôt invalides les
+  routines qui la nomment ; la déclarer à nouveau les rend valides.
+- **Ce que l'agent peut faire** : un outil `fetch`, donné seulement à une routine qui a des
+  sources : le nom de la source, un chemin et sa requête relatifs à l'adresse de base
+  (`incidents/unresolved.json?limit=20`), et au besoin un en-tête `Accept`. **GET seulement** :
+  une routine lit ; pas de corps, ni aucun autre en-tête (Synaptane ajoute le secret lui-même).
+  - L'adresse appelée reste toujours **sous l'adresse de base** : même schéma, même hôte, même
+    port, un chemin sous son préfixe, après normalisation (segments `..` et `.`, séparateur ou
+    point encodé, barre oblique inverse, casse de l'hôte, noms internationaux) : tout le reste
+    est refusé par une erreur d'outil, avant tout appel.
+  - **Réseau** : adresses internes refusées (bouclage, réseaux privés, lien local,
+    métadonnées du cloud), l'adresse vérifiée étant celle à laquelle on se connecte (pas de
+    DNS rebinding), une redirection suivie seulement sous la même source (3 au plus, chacune
+    vérifiée à nouveau), 20 secondes par appel.
+  - **Réponses** : 200 Ko lus au plus ; du texte seulement (JSON, texte, HTML converti en texte,
+    XML, Markdown), tout autre type refusé ; 40 000 caractères donnés à l'agent, puis une note
+    pour resserrer la requête. Au plus **30 appels par passage**.
+  - Ce que répond une source est encadré comme **donnée non fiable**, comme les pages : les
+    règles de l'agent lui rappellent que ce n'est jamais une consigne.
+- **L'agent ne voit jamais le secret.** Une réponse qui le renvoie en écho porte `[secret]` à
+  sa place ; un rapport, un élément d'inbox, une page, la mémoire ou un résumé qui le
+  contiennent sont refusés à l'agent. Le détecteur de secrets habituel s'applique aussi, comme à
+  toute écriture.
+- **Journal** : la page du passage et ses `outputs.fetches` en REST listent chaque appel :
+  source, chemin, statut et taille. Les valeurs des paramètres sensibles de la requête
+  (`token`, `key`, `secret`, `signature`…) sont masquées, et ni corps ni secret ne sont gardés.
+  Le compte rendu de la nuit, les e-mails et le webhook `routine.done` ne disent rien de ces
+  appels.
+- **Coût** : ce que l'agent lit compte dans ses jetons, comme une page ; les plafonds du
+  passage ne changent pas.
+- **Confiance** : toute routine de l'espace peut lire toute source de l'espace, et quiconque
+  peut pousser peut écrire une routine et mettre ce qu'elle lit dans ses sorties. Ne déclarez
+  dans un espace que des services dont le contenu peut se retrouver dans cet espace. L'agent
+  choisit le chemin et la requête : il peut envoyer des mots du wiki à un service déclaré (une
+  recherche), jamais à un autre.
+- **Pour toute l'instance** : `SYNAPTANE_ROUTINE_SOURCES=false` (`ROUTINE_SOURCES` avec Docker,
+  voir [Configuration](configuration.fr.md)) coupe la fonction. Les routines tournent alors sans
+  `fetch`, leur agent en est prévenu et leur page le dit. Activée par défaut : seuls les
+  administrateurs déclarent une source.
+- Un service qui ne répond qu'à un POST (GraphQL, certaines API de recherche) n'est pas pris en
+  charge.
+
+**Un exemple complet** : chaque nuit, avant le rangement, l'état d'une page de statut dans une
+page tenue par la routine. La source, dans **Paramètres → Sources extérieures** (ou en REST) :
+
+```sh
+curl -X POST https://brain.example.com/api/v1/organizations/acme/spaces/infra/sources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "statut", "url": "https://statut.example.com/api/v2/",
+       "auth": "bearer", "secret": "<jeton en lecture seule>"}'
+```
+
+La routine, `.synaptane/routines/etat-du-service.md` :
+
+```markdown
+---
+title: État du service
+description: Chaque nuit, l'état de notre page de statut, dans le wiki
+schedule: nuit
+night: avant
+sources: statut
+writes: etat
+---
+Lis l'état du service avec fetch sur la source statut : summary.json (composants et leur
+état), puis incidents/unresolved.json. Réécris etat/README.md en entier : un titre de niveau
+1, la date du jour, un tableau des composants (nom, état), puis les incidents non résolus, un
+par ligne, avec leur début et leur dernière mise à jour. Si tout fonctionne, dis-le en une
+phrase. Ne cite aucun jeton ni aucune autre adresse que celle de la source. Appelle finish
+avec une phrase de synthèse.
+```
+
+La page `etat/README.md` est réécrite chaque nuit dans le commit de la routine ; le journal du
+passage affiche `statut /summary.json → 200` et `statut /incidents/unresolved.json → 200`.
+
 ### Modèles fournis
 
 Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser d'abord**) :
@@ -868,6 +982,9 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
 - **Mémoire** : quiconque peut pousser sur le dépôt peut modifier la mémoire d'une routine ;
   l'agent la lit comme une donnée, comme les pages, et elle ne donne aucun droit (voir
   [Mémoire](#mémoire)).
+- **Sources extérieures** : une routine ne lit que les sources que les administrateurs ont
+  déclarées dans son espace, sous leur adresse, en GET ; elle ne voit jamais leur secret, et un
+  push ne peut pas ajouter d'adresse (voir [Sources extérieures](#sources-extérieures)).
 - **Vocation de l'espace** : si le dépôt contient `.synaptane/vocation.md`, l'agent la reçoit
   en contexte, pour juger de ce qui est dans le sujet.
 - **Langue** : comme pour le rangement, les consignes de l'agent sont en anglais ; il écrit le
@@ -893,7 +1010,8 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   tout travail est retentée par la file, sans alerte ; le quota d'un abonnement est relevé
   comme pour le rangement (alerte `quota_high` au-delà de 90 %).
 - **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés, pages
-  écrites dans ses dossiers, e-mails envoyés, webhook, mémoire mise à jour ou conservée),
+  écrites dans ses dossiers, appels aux sources extérieures, e-mails envoyés, webhook, mémoire
+  mise à jour ou conservée),
   texte de sortie, modèle, jetons, coût estimé ou quota, et pour un échec, la cause traduite
   (le détail technique pour les administrateurs).
 - Le commit d'une routine (page de rapport, éléments d'inbox, pages écrites et mémoire ensemble) est au nom de

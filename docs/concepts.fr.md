@@ -241,6 +241,12 @@ les routines depuis Synaptane ; quiconque peut pousser sur le dépôt peut aussi
 contributeurs de l'espace les voient, ainsi que leur journal. Le rangement nocturne n'est pas
 une routine.
 
+Une routine peut aussi lire des services extérieurs en HTTP (une page de statut, un outil de
+tickets) : les administrateurs de l'organisation déclarent ces **sources extérieures** dans
+l'espace, avec leur adresse et leur secret, et le fichier d'une routine ne fait que nommer
+celles qu'il lit. Un push ne donne donc jamais de nouvelle destination à une routine, et
+l'agent ne voit jamais de secret (voir [Sources extérieures](admin/ai.fr.md#sources-extérieures)).
+
 ## Recherche
 
 - **Texte** : ripgrep sur `content/` et sur le texte extrait des PDF, documents Office et

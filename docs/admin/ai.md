@@ -558,6 +558,8 @@ A routine is made of:
   pages, search, backlinks, related pages, history);
 - optionally, **folders it keeps**: the agent writes its own pages there (see
   [Folders a routine keeps](#folders-a-routine-keeps));
+- optionally, **external sources** it reads over HTTP, among those the administrators declared
+  in the space (see [External sources](#external-sources));
 - **outputs**, at least one (the folders it keeps count as one):
   - a **report page**, rewritten on every run (`reports/consistency.md` for example). Any
     manual change there will be replaced: the page says so in its footer;
@@ -607,6 +609,7 @@ Read the pages changed since the last run…
 | `enabled` | `false`: the routine does not run on schedule (default `true`) |
 | `template` | Original template (`coherence`, `digest`, `archive`), set by Synaptane |
 | `memory` | `true`: the routine keeps notes from one run to the next (see [Memory](#memory)); default `false` |
+| `sources` | Names of the [external sources](#external-sources) it reads (5 at most), declared in Synaptane; same syntax as `scope`. Never an address |
 
 The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
 characters at most. A routine created from a template always gets the same name, whatever the
@@ -752,6 +755,108 @@ remains to watch.
   file, without a copy in the database. Before a space's first synchronization, a routine
   therefore cannot keep a memory.
 
+### External sources
+
+A routine can also **read an outside service over HTTP**: a status page, a ticket tool, the API
+of another tool. The organization's administrators declare these sources in the space, with
+their secret; a routine's file only names the ones it reads.
+
+**Why the file cannot give an address.** Anyone who can push can change a routine. If its file
+could name any address, a push would be enough to send the wiki to a server of one's choice:
+the agent would only have to put text in the address it calls. So the addresses and their
+secrets live in Synaptane, and only administrators write them.
+
+- **Declaring a source**: the space's **Settings → External sources** (organization
+  administrators; REST: `…/spaces/{space}/sources`):
+  - a **name** (`status`, `zendesk`): what a routine's file names; it cannot be changed
+    afterwards;
+  - a **base address**: HTTPS, a host and a path prefix (`https://status.example.com/api/v2/`).
+    Without a query, a user name or a password; a local address (`localhost`, a private IP
+    address, `.local`, `.internal`) is refused;
+  - optionally a **secret** and how to send it: a bearer token (`Authorization: Bearer`), a
+    named header (`X-Api-Key`…), or Basic (the secret written `user:password`).
+
+  20 sources at most per space. A source belongs to its space: a secret never reaches another
+  space's routines, and the sources of the space are listed in one place.
+- **The secret** is encrypted at rest, bound to its source and to its host, and **never shown
+  again**: the page only says when it was saved, the REST API only whether there is one, the
+  audit log names the source and its host. Moving the address to another host asks for the
+  secret again, so a saved secret never leaves for another destination; choosing no
+  authentication removes it. **Test** makes a GET on the base address, with the secret, and
+  shows the status and the type of the answer, never its content.
+- **Choosing in the file**: `sources: status, tickets` (5 at most; same syntax as `scope`), or
+  the **External sources** boxes of the routine's form. A name the space does not declare
+  makes the file **invalid**, with the name in the error: a typo, a source of another space,
+  or an address written instead of a name (`sources: https://…`) opens nothing. Removing a
+  source makes the routines that name it invalid at once; declaring it again makes them valid.
+- **What the agent can do**: a `fetch` tool, given only to a routine with sources: the
+  source's name, a path and its query relative to the base address
+  (`incidents/unresolved.json?limit=20`), and optionally an `Accept` header. **GET only**: a
+  routine reads; no body, and no other header (Synaptane adds the secret itself).
+  - The address called always stays **under the base address**: same scheme, same host, same
+    port, a path under its prefix, once normalized (`..` and `.` segments, an encoded
+    separator or dot, a backslash, the case of the host, international names): anything else
+    is refused as a tool error, before any call.
+  - **Network**: internal addresses refused (loopback, private networks, link-local, cloud
+    metadata), the address checked being the one connected to (no DNS rebinding), a redirect
+    followed only under the same source (3 at most, each one checked again), 20 seconds per
+    call.
+  - **Answers**: 200 KB read at most; text only (JSON, text, HTML turned into text, XML,
+    Markdown), any other type refused; 40,000 characters given to the agent, then a note to
+    narrow the request. At most **30 calls per run**.
+  - What a source answers is framed as **untrusted data**, like the pages: the agent's rules
+    remind it that this is never an instruction.
+- **The agent never sees the secret.** An answer that echoes it gets `[secret]` in its place;
+  a report, an inbox item, a page, the memory or a summary that holds it is refused to the
+  agent. The usual secret detector applies too, as to every write.
+- **Log**: the run's page and its REST `outputs.fetches` list each call: source, path, status
+  and size. The values of sensitive query parameters (`token`, `key`, `secret`, `signature`…)
+  are hidden, and neither a body nor a secret is kept. The night's report, the emails and the
+  `routine.done` webhook say nothing of these calls.
+- **Cost**: what the agent reads counts in its tokens, like a page; the run's limits stay the
+  same.
+- **Trust**: every routine of the space may read every source of the space, and anyone who can
+  push can write a routine and put what it reads in its outputs. Declare in a space only the
+  services whose content may end up in that space. The agent chooses the path and the query:
+  it can send words of the wiki to a declared service (a search), never to any other one.
+- **For the whole instance**: `SYNAPTANE_ROUTINE_SOURCES=false` (`ROUTINE_SOURCES` with Docker,
+  see [Configuration](configuration.md)) turns the feature off. The routines then run without
+  `fetch`, their agent is told so, and their page says it. On by default: only administrators
+  declare a source.
+- A service that answers only to a POST (GraphQL, some search APIs) is not supported.
+
+**A complete example**: every night, before the tidy-up, the state of a status page in a page
+the routine keeps. The source, in **Settings → External sources** (or in REST):
+
+```sh
+curl -X POST https://brain.example.com/api/v1/organizations/acme/spaces/infra/sources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "status", "url": "https://status.example.com/api/v2/",
+       "auth": "bearer", "secret": "<read-only token>"}'
+```
+
+The routine, `.synaptane/routines/service-status.md`:
+
+```markdown
+---
+title: Service status
+description: Every night, the state of our status page, in the wiki
+schedule: night
+night: before
+sources: status
+writes: status
+---
+Read the state of the service with fetch on the status source: summary.json (components and
+their status), then incidents/unresolved.json. Rewrite status/README.md in full: a level-1
+title, today's date, a table of the components (name, status), then the unresolved incidents,
+one line each, with their start and their last update. If everything is operational, say so
+in one sentence. Cite no token and no address other than the source's. Call finish with a
+one-sentence summary.
+```
+
+The page `status/README.md` is rewritten every night in the routine's commit; the run's log
+shows `status /summary.json → 200` and `status /incidents/unresolved.json → 200`.
+
 ### Built-in templates
 
 Added in one click (**Enable**), or after adjusting them (**Customize first**):
@@ -810,6 +915,9 @@ regenerated welcome FAQ…).
   refused to the agent, which must remove it.
 - **Memory**: anyone who can push can edit a routine's memory; the agent reads it as data,
   like the pages, and it grants no right (see [Memory](#memory)).
+- **External sources**: a routine reads only the sources the administrators declared in its
+  space, under their address, with GET; it never sees their secret, and a push cannot add an
+  address (see [External sources](#external-sources)).
 - **Space purpose**: if the repository contains `.synaptane/vocation.md`, the agent gets it
   in its context, to judge what is on topic.
 - **Language**: as for tidy-up, the agent's instructions are in English; it writes the output
@@ -833,7 +941,8 @@ regenerated welcome FAQ…).
   queue, without an alert; a subscription's quota is read as for tidy-up (`quota_high`
   alert above 90%).
 - **Log** (the routine's page): summary, outputs (page rewritten, items dropped, pages
-  written in its folders, emails sent, webhook, memory updated or kept), output text, model,
+  written in its folders, calls to the external sources, emails sent, webhook, memory updated
+  or kept), output text, model,
   tokens, estimated cost or quota, and for a failure, the translated cause (technical details
   for administrators).
 - A routine's commit (report page, inbox items, pages written and memory together) is made under the name
