@@ -629,7 +629,9 @@ remains to watch.
 - **Changed during the run** (a push, an administrator clearing it): that change wins, and
   the run's version is dropped (the log says "Memory kept"). The agent never saw that
   change, and a memory cleared because it held something wrong must not come back with a run
-  that started before.
+  that started before. A push is seen only once Synaptane has synchronized it: if it arrives
+  after the end of the run, the two versions of the memory are in
+  [conflict](git.md#conflicts), and an administrator chooses the one to keep.
 - **Rights**: only the routine's runs write it from Synaptane; no other write path reaches
   `.synaptane/`. Contributors read it on the routine's page and in the REST API
   (`GET …/routines/{id}/memory`); organization administrators also **clear** it (a commit in

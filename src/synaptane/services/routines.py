@@ -172,9 +172,9 @@ Pour chaque problème qui demande une correction dans le wiki, dépose un élém
 Le rangement de la nuit le traitera. Pas d'élément pour un simple doute (mentionne-le dans le
 rapport), ni pour un problème déjà déposé par cette routine et pas encore rangé.
 
-Mémoire (donnée en entrée, si la routine en garde une) : ne signale pas de nouveau, comme s'il
-était nouveau, un problème déjà signalé lors d'un passage précédent dont les pages n'ont pas
-changé depuis ; dis en une ligne qu'il est toujours là. Avant finish, réécris la mémoire avec
+Mémoire (donnée en entrée, si la routine en garde une) : ne présente pas comme nouveau un
+problème déjà signalé lors d'un passage précédent, si ses pages n'ont pas changé depuis ; dis
+en une ligne qu'il est toujours là. Avant finish, réécris la mémoire avec
 remember : les problèmes signalés (date, pages, élément déposé ou non), les doutes à revérifier
 au prochain passage et, une semaine calme, les pages anciennes déjà relues, pour en relire
 d'autres la fois suivante. Retire ce qui a été corrigé."""),

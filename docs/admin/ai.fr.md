@@ -640,7 +640,7 @@ ailleurs que dans ses sorties, dans la limite du budget.
 
 ### Mémoire
 
-Seule, une routine repart de zéro à chaque passage : elle connaît l'activité depuis son
+Sans mémoire, une routine repart de zéro à chaque passage : elle connaît l'activité depuis son
 dernier passage et ses consignes, rien de plus. Avec `memory: true` dans son fichier (la case
 **Garder des notes d'un passage à l'autre** du formulaire), elle garde aussi une **mémoire** :
 ce qu'elle veut que ses prochains passages sachent, comme les sujets déjà signalés, les pages
@@ -671,7 +671,10 @@ qu'elle suit, les décisions notées, ce qui reste à surveiller.
 - **Modifiée pendant le passage** (un push, un administrateur qui la vide) : cette
   modification l'emporte, et la version du passage est abandonnée (le journal indique
   « Mémoire conservée »). L'agent n'a pas vu cette modification, et une mémoire vidée parce
-  qu'elle contenait une erreur ne doit pas revenir avec un passage commencé avant.
+  qu'elle contenait une erreur ne doit pas revenir avec un passage commencé avant. Un push n'est
+  vu que lorsque Synaptane l'a synchronisé : s'il arrive après la fin du passage, les deux
+  versions de la mémoire sont en [conflit](git.fr.md#conflits), et un administrateur choisit
+  celle à garder.
 - **Les droits** : seuls les passages de la routine l'écrivent depuis Synaptane ; aucun autre
   chemin d'écriture n'atteint `.synaptane/`. Les contributeurs la lisent sur la page de la
   routine et dans l'API REST (`GET …/routines/{id}/memory`) ; les administrateurs de
@@ -698,8 +701,8 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   les 20 premières pages à relire (doublons possibles, qu'il vérifie en les lisant). Sortie :
   la page `rapports/coherence.md` et un élément d'inbox par problème à corriger, avec les
   pages et extraits concernés. Il ne redépose pas un problème déjà déposé et pas encore
-  rangé. Il garde une [mémoire](#mémoire) : les problèmes signalés (pour ne pas les signaler
-  de nouveau comme s'ils étaient nouveaux tant que leurs pages restent les mêmes), les doutes
+  rangé. Il garde une [mémoire](#mémoire) : les problèmes signalés (pour ne plus les présenter
+  comme nouveaux tant que leurs pages ne changent pas), les doutes
   à revérifier et, une semaine calme, les pages anciennes déjà relues.
 
   **Une fausse alerte ne revient pas.** Quand un élément déposé par une routine quitte
