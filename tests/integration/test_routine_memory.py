@@ -369,6 +369,8 @@ def test_admins_clear_the_memory_contributors_read_it(
     page = client.get(f"{BASE}/{routine.id}")
     assert "Vider la mémoire" in page.text
     token = csrf(client, BASE)
+    forged = client.post(f"{BASE}/{routine.id}/memory/clear", data={"csrf": "forged"})
+    assert forged.status_code == 403 and memory_of(ctx, wiki) is not None  # CSRF
     done = client.post(f"{BASE}/{routine.id}/memory/clear", data={"csrf": token})
     assert "Mémoire vidée." in done.text
     assert memory_of(ctx, wiki) is None
