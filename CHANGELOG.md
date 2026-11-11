@@ -82,9 +82,11 @@ at startup; nothing changes for a space until a routine joins its night or its r
   then the routines placed after it. A night is planned once per space and local day
   (`night_runs`) and each step is recorded: it never runs twice, and a step cut off by a stopped
   worker is not run again. A failed step never stops the next ones; a transient provider error
-  is retried later on its own; a broken AI connection skips the AI steps left; once the month's
-  budget is used up, the routines left are skipped. With the tidy-up turned off, the routines of
-  the night still run at its time. A night still waiting when the next one comes is skipped. A
+  is retried later on its own; an AI connection broken for good (expired login, refused key,
+  model not found, agents container missing) skips the AI steps left, a timeout does not;
+  once the month's budget is used up, the routines left are skipped. With the tidy-up turned
+  off, the routines of the night still run at its time. A night still waiting when the next
+  one comes is skipped; one left open for 12 hours is closed, unless it is still running. A
   routine at a set time does not change, and a night routine is never run by the routines' own
   schedule. Routine runs started by the night are logged with the trigger "in the night".
 - **The night's report.** **Settings → Tidy-up → The night and its report**: by email to
@@ -100,13 +102,15 @@ at startup; nothing changes for a space until a routine joins its night or its r
   a test, by email to you only and to the Slack webhook (5 an hour at most per space). The
   webhook's address is a secret: encrypted in the database (`secrets`, bound to the space),
   never shown again (only "configured"), never written to the repository; HTTPS, internal
-  addresses refused, no redirect, retried on a transient error. Texts from the agents are data: in Slack, `&`, `<`
-  and `>` are escaped (no `<!channel>`, `<@…>` or link can come from them) and `@channel`,
-  `@here`, `@everyone` are defused. REST: `GET …/tidy-settings` (new: `report_email`,
+  addresses refused, no redirect, retried on a transient error. The cause of a failure names
+  the AI provider's address in the emails to the organization's administrators only. Texts
+  from the agents are data: in Slack, `&`, `<` and `>` are escaped (no `<!channel>`, `<@…>`
+  or link can come from them) and `@channel`, `@here`, `@everyone` are defused. REST: `GET …/tidy-settings` (new: `report_email`,
   `report_always`, `report_webhook` true or false), `PATCH …/tidy-settings` (`report_email`,
   `report_always`, `report_webhook_url`), `POST …/tidy-settings/test-report`, `GET …/nights`.
 - **The last nights** in the space's **Tidy-up** tab: each night's steps in order, with their
-  status and links, and what the report sent.
+  status and links, and what the report sent. The routines' steps are shown to those who see
+  the routines (contributors), as in `GET …/nights`; a reader sees the tidy-up.
 - `night.completed` event for the organization's webhooks: the night's steps (`kind`, `when`,
   `name`, `title`, `status`, `reason`, `run_id`), `quiet`, `checks`, `cost`.
 

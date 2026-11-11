@@ -910,11 +910,14 @@ l'autre, et la nuit se termine par **un seul compte rendu**.
   local, et chaque étape est notée avant et après son passage. Une étape en cours quand le
   worker s'est arrêté n'est pas relancée (elle a peut-être déjà coûté) : elle est marquée
   interrompue, et la nuit continue. Une nuit encore en attente quand la suivante arrive est
-  sautée ; une nuit restée ouverte 12 heures est close.
+  sautée ; une nuit restée ouverte 12 heures est close, sauf si elle tourne encore (elle tient
+  le verrou de l'espace) : une nuit lente n'est jamais coupée.
 - **Un échec n'arrête jamais la nuit** : les étapes suivantes tournent. Une erreur passagère
   du fournisseur (limite de débit, API surchargée) est retentée plus tard, seule, hors de la
-  nuit. Une connexion à l'IA cassée (connexion expirée, clé refusée, modèle introuvable,
-  fournisseur injoignable) saute les étapes d'IA restantes, qui échoueraient de la même façon.
+  nuit. Une connexion à l'IA cassée pour de bon (connexion expirée, clé refusée, modèle
+  introuvable, conteneur des agents absent) saute les étapes d'IA restantes, qui échoueraient
+  de la même façon. Un fournisseur qui ne répond pas à temps, ou injoignable un moment, ne fait
+  rien sauter : l'étape suivante réessaie.
   Une fois le budget du mois épuisé, les routines restantes sont sautées.
 - **Rangement désactivé** : les routines de la nuit tournent quand même à son heure, et le
   compte rendu dit que le rangement est désactivé. **Sans fournisseur d'IA**, rien n'est tenté.
@@ -937,7 +940,13 @@ l'autre, et la nuit se termine par **un seul compte rendu**.
   commit, s'il y en a (l'onglet **Santé** les liste) ;
 - le coût de la nuit (et du mois, avec un budget), ou le quota de l'abonnement ;
 - un lien vers le journal de la nuit (l'onglet **Rangement**, qui montre **Les dernières
-  nuits**, étape par étape).
+  nuits**, étape par étape ; les étapes des routines seulement à qui voit les routines, à
+  partir des contributeurs : un lecteur n'y voit que le rangement, là comme dans
+  `GET …/nights`).
+
+La cause d'un échec donne l'adresse du fournisseur d'IA (un modèle hébergé chez vous, par
+exemple) dans les e-mails aux administrateurs de l'organisation seulement : les membres, et le
+canal Slack, reçoivent la même cause sans elle.
 
 Il part :
 - **par e-mail** à personne, aux administrateurs de l'organisation ou aux membres de l'espace,

@@ -177,3 +177,17 @@ def test_every_text_of_the_report_is_in_the_french_catalog() -> None:
 def test_webhook_addresses_refused(url: str) -> None:
     with pytest.raises(Exception, match="webhook"):
         night.check_webhook_url(url)
+
+
+def test_the_providers_address_is_for_the_admins_only() -> None:
+    error = "Ollama: timed out (http://10.1.2.3:11434/api/chat)"
+    problem = night._problem(error, night.scrub_agent_text)
+    unknown = night.Problem("{detail}", {"detail": "boom at https://10.1.2.3/x"})
+    lines = (
+        night.RoutineLine("R", "after", "failed", problem=problem, routine_id="r"),
+        night.RoutineLine("S", "after", "failed", problem=unknown, routine_id="s"),
+    )
+    members = night.write(report(routines=lines), "en")
+    admins = night.write(report(routines=lines), "en", admin=True)
+    assert "10.1.2.3" not in members and "does not answer in time" in members
+    assert admins.count("10.1.2.3") == 2

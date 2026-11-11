@@ -323,7 +323,8 @@ def tidy_test_report(
 
 @router.get(SPACE + "/nights", tags=["tidy"])
 def tidy_nights(org: str, space: str, session: DbSession, actor: CurrentActor) -> list[NightOut]:
-    """The last nights of the space: routines of the night and tidy-up, in order."""
+    """The last nights of the space: routines of the night and tidy-up, in order (the
+    routines' steps for contributors only, who see the routines)."""
     found = find_space(session, actor, org, space)
     return [
         NightOut(
@@ -332,7 +333,9 @@ def tidy_nights(org: str, space: str, session: DbSession, actor: CurrentActor) -
             status=n.status,
             started_at=n.started_at,
             finished_at=n.finished_at,
-            steps=[NightStepOut.model_validate(step) for step in n.steps],
+            steps=[
+                NightStepOut.model_validate(step) for step in night.shown_steps(actor, found, n)
+            ],
             report=dict(n.report or {}),
         )
         for n in night.nights(session, actor, found)

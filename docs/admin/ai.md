@@ -852,11 +852,13 @@ night ends with **a single report**.
 - **A night never runs twice**: it is planned once per space and local day, and each step is
   recorded before and after it runs. A step that was running when the worker stopped is not run
   again (it may have cost already): it is marked interrupted, and the night goes on. A night
-  still waiting when the next one comes is skipped; one left open for 12 hours is closed.
+  still waiting when the next one comes is skipped; one left open for 12 hours is closed,
+  unless it is still running (it holds the space's lock): a slow night is never cut off.
 - **A failure never stops the night**: the next steps run. A transient provider error (rate
-  limit, overloaded API) is retried later on its own, outside the night. A broken AI
-  connection (expired login, refused key, model not found, unreachable provider) skips the
-  AI steps left, which would fail the same way. Once the month's budget is used up, the
+  limit, overloaded API) is retried later on its own, outside the night. An AI connection
+  broken for good (expired login, refused key, model not found, agents container missing)
+  skips the AI steps left, which would fail the same way. A provider that does not answer in
+  time, or cannot be reached for a moment, skips nothing: the next step tries again. Once the month's budget is used up, the
   routines left are skipped.
 - **Tidy-up turned off**: the routines of the night still run at its time, and the report says
   the tidy-up is off. **Without an AI provider**, nothing is tried.
@@ -877,7 +879,12 @@ REST) says, for the night:
   **Health** tab lists them);
 - the cost of the night (and of the month, with a budget), or the subscription's quota;
 - a link to the night's log (the **Tidy-up** tab, which shows **The last nights**, step by
-  step).
+  step; the routines' steps only to those who see the routines, from contributors up: a reader
+  sees the tidy-up alone, there and in `GET …/nights`).
+
+The cause of a failure names the AI provider's address (a self-hosted model, for example) in
+the emails to the organization's administrators only: the members, and the Slack channel, get
+the same cause without it.
 
 It goes:
 - **by email** to nobody, the organization's administrators or the space's members, as a

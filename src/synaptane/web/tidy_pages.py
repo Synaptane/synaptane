@@ -324,10 +324,11 @@ class NightView:
     report: dict[str, object]
 
     @classmethod
-    def of(cls, run: NightRun, space: Space) -> "NightView":
+    def of(cls, run: NightRun, space: Space, shown: list[dict[str, object]]) -> "NightView":
+        """`shown`: the steps the person may see (`night.shown_steps`)."""
         base = space_url(space)
         steps = []
-        for step in run.steps:
+        for step in shown:
             run_id, routine_id = step.get("run_id"), step.get("routine_id")
             if step.get("kind") == "tidy":
                 link = f"#tidy-run-{run_id}" if run_id else ""
@@ -384,7 +385,10 @@ def space_tidy_journal(page: WebPage, org_slug: str, space_slug: str) -> Respons
     runs = tidy.runs(page.db, actor, space, limit=JOURNAL_SIZE)
     return page.render(
         "tidy.html",
-        nights=[NightView.of(n, space) for n in night.nights(page.db, actor, space)],
+        nights=[
+            NightView.of(n, space, night.shown_steps(actor, space, n))
+            for n in night.nights(page.db, actor, space)
+        ],
         org=space.organization,
         space=space,
         entries=tidy_journal.entries(runs, tidy_journal.zone_of(space), config),

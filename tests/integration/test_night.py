@@ -682,3 +682,75 @@ def test_a_refused_webhook_address_stays_out_of_the_nights_log(
     db.expire_all()
     slack = str(nights_of(db, wiki)[0].report["slack"])
     assert slack == "Internal address refused." and "127.0.0.1" not in slack
+
+
+# --- After review: a running night, readers, the provider's address, a slow provider ----------
+
+
+def test_a_stale_night_that_still_holds_the_lock_is_not_closed(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    slow = NightRun(
+        space_id=wiki.infra.id,
+        day=date(2026, 9, 1),
+        status="running",
+        steps=[{"kind": "tidy", "when": "", "status": "running"}],
+        report={},
+    )
+    slow.created_at = datetime.now(UTC) - timedelta(days=1)
+    db.add(slow)
+    db.commit()
+    with tidy_commit.pass_lock(database.engine, wiki.infra.id) as acquired:
+        assert acquired  # the night, slow but alive
+        assert night.close_orphans(database) == 0
+    db.expire_all()
+    assert db.get(NightRun, slow.id).status == "running"  # type: ignore[union-attr]
+    assert night.close_orphans(database) == 1  # the lock is free: the worker is gone
+
+
+def test_a_reader_sees_the_tidy_up_of_the_nights_not_the_routines(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, client: TestClient
+) -> None:
+    configure_ai(db, ctx, wiki)
+    old_spaces(db, wiki)
+    add_routine(db, database, ctx, wiki, "avant", place="before")
+    night.schedule(database, MONDAY_NIGHT)
+    run_night(database, ctx, wiki, NightModel())
+    api = "/api/v1/organizations/acme/spaces/infra/nights"
+    for user, kinds in (("alice", ["routine", "tidy"]), ("bob", ["tidy"])):
+        found = client.get(api, headers={"Authorization": f"Bearer {token_for(database, user)}"})
+        assert [s["kind"] for s in found.json()[0]["steps"]] == kinds, user
+    login(client, "bob")
+    journal = client.get("/o/acme/infra/tidy").text
+    assert "Nuit du 5 octobre 2026" in journal
+    assert "Routine avant" not in journal and "/-/routines/" not in journal
+    login(client, "alice")
+    assert "Routine avant" in client.get("/o/acme/infra/tidy").text
+
+
+def test_a_slow_provider_skips_nothing_and_its_address_is_for_the_admins(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, smtp: Inbox
+) -> None:
+    """A timeout may pass within minutes: the next steps still run. The report to the members
+    names the cause without the provider's address; the admins read it."""
+    configure_ai(db, ctx, wiki)
+    old_spaces(db, wiki)
+    add_routine(db, database, ctx, wiki, "avant", place="before")
+    add_routine(db, database, ctx, wiki, "apres")
+    note(db, database, ctx, wiki)
+    report_to_admins(db, ctx, wiki)
+    verified(db, wiki.alice.user, "alice@example.com")
+    space = db.get(Space, wiki.infra.id)
+    assert space is not None
+    night.update_report(db, wiki.root, ctx.box, space, email="members")
+    db.commit()
+    night.schedule(database, MONDAY_NIGHT)
+    slow = AIError("Ollama: timed out (http://10.1.2.3:11434/api/chat)")
+    model = NightModel(fail={"avant": slow})
+    done = run_night(database, ctx, wiki, model)
+    assert model.order == ["avant", "tidy", "apres"]
+    assert [s["status"] for s in done.steps] == ["failed", "done", "done"]
+    bodies = {to: body for to, _, body in map(received, smtp.messages)}
+    assert "10.1.2.3" in bodies["ada@example.com"]
+    assert "10.1.2.3" not in bodies["alice@example.com"]
+    assert "ne répond pas à temps" in bodies["alice@example.com"]

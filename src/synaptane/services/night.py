@@ -21,8 +21,10 @@ slips in between; busy, the task comes back two minutes later. Each step is reco
 and after it runs:
 - a step that fails never stops the next ones; a transient failure is retried later on its
   own (a `tidy` or `routine` task), outside the night;
-- a provider failure that breaks the AI connection (expired login, refused key…,
-  `tidy_journal.CONNECTION`) skips the AI steps that remain: they would fail the same way;
+- a provider failure that breaks the AI connection for good (expired login, refused key,
+  model not found, agents container missing: `DURABLE`) skips the AI steps that remain: they
+  would fail the same way. A provider that does not answer in time, or cannot be reached for
+  a moment, does not: the next step tries again;
 - the month's budget used up skips the routines left (the tidy-up says it itself, when it had
   something to do);
 - a step found "running" when the night resumes was cut off by a stopped worker: it is not run
@@ -61,7 +63,7 @@ from sqlalchemy.orm import Session
 from synaptane import __version__
 from synaptane.ai import quota
 from synaptane.ai.providers import open_conversation
-from synaptane.core.access import Action, require
+from synaptane.core.access import Action, can, require
 from synaptane.core.errors import SynaptaneError, invalid, too_many
 from synaptane.core.security import SecretBox
 from synaptane.services import (
@@ -69,6 +71,7 @@ from synaptane.services import (
     audit,
     budget,
     jobs,
+    load_actor,
     mail,
     routine_agent,
     routines,
@@ -418,11 +421,15 @@ def _save_step(night: NightRun, index: int, step: dict[str, object]) -> None:
     night.steps = steps  # a new list: the JSON column is written again
 
 
+# Causes of a failure that last until someone fixes the AI side: the other steps of the night
+# would fail the same way. A timeout, an unreachable or overloaded provider, a rate limit may
+# pass within minutes: skipping a whole night for one slow answer would cost more than trying.
+DURABLE = frozenset({"cli_login", "auth", "model", "agents"})
+
+
 def _connection_broken(error: str | None) -> bool:
-    """The provider refuses the connection itself (login, key, model, address): the other
-    steps of the night would fail the same way. A rate limit or an overloaded provider passes."""
-    code = tidy_journal.explain(error).code
-    return code in tidy_journal.CONNECTION and code not in tidy_journal.PASSING
+    """The provider refuses the connection itself, for good (`DURABLE`)."""
+    return tidy_journal.explain(error).code in DURABLE
 
 
 def _latest_run(session: Session, model: type[Any], since: datetime, **where: object) -> Any:
@@ -515,17 +522,27 @@ def _routine(
 
 def close_orphans(database: Database, now: datetime | None = None) -> int:
     """Closes the nights still open after STALE (task abandoned, worker gone for good): their
-    waiting steps are skipped, nothing is sent."""
+    waiting steps are skipped, nothing is sent. Only when the space's pass lock is free: a
+    night that holds it is running, however slowly, and closing it under its feet would mark
+    its running step interrupted and lose its report."""
     now = now or datetime.now(UTC)
     with database.session() as session:
-        stale = list(
-            session.scalars(
-                select(NightRun).where(NightRun.status != "done", NightRun.created_at < now - STALE)
+        stale = session.execute(
+            select(NightRun.id, NightRun.space_id).where(
+                NightRun.status != "done", NightRun.created_at < now - STALE
             )
-        )
-        for night in stale:
-            _close(night, "interrupted", now)
-        return len(stale)
+        ).all()
+    closed = 0
+    for night_id, space_id in stale:
+        with tidy_commit.pass_lock(database.engine, space_id) as acquired:
+            if not acquired:
+                continue  # running: the night closes itself
+            with database.session() as session:
+                night = session.get(NightRun, night_id, with_for_update=True)
+                if night is not None and night.status != "done":
+                    _close(night, "interrupted", now)
+                    closed += 1
+    return closed
 
 
 # --- The report -------------------------------------------------------------------------------
@@ -533,10 +550,23 @@ def close_orphans(database: Database, now: datetime | None = None) -> int:
 
 @dataclass(frozen=True)
 class Problem:
-    """Why a step failed, as `tidy_journal.explain` puts it (templates to translate)."""
+    """Why a step failed, as `tidy_journal.explain` puts it (templates to translate).
+    `plain`: the message without the provider's address, for the people who are not the
+    organization's admins ("" when the message has none): the address of a self-hosted model
+    says where the organization's infrastructure is, as on the log (`tidy_journal`)."""
 
     message: str
     params: dict[str, str]
+    plain: str = ""
+
+    def shown(self, admin: bool) -> tuple[str, dict[str, str]]:
+        """Message and parameters for an admin, or for anyone else."""
+        if admin:
+            return self.message, self.params
+        if self.plain:
+            return self.plain, {}
+        # A text the rules do not know (`{detail}`) may quote an address too.
+        return self.message, {k: _URL.sub("…", v) for k, v in self.params.items()}
 
 
 @dataclass(frozen=True)
@@ -613,11 +643,16 @@ def scrub_agent_text(text: str) -> str:
     return " ".join(_BIDI.sub("", _CONTROL.sub(" ", text)).split())
 
 
+_URL = re.compile(r"https?://\S+")
+_PLAIN = {rule.code: rule.message for rule in tidy_journal.RULES if rule.with_address}
+
+
 def _problem(error: str | None, scrub: Scrub) -> Problem | None:
     if not error:
         return None
     why = tidy_journal.explain(error)
-    return Problem(why.message, {k: scrub(v) for k, v in why.params.items()})
+    plain = _PLAIN.get(why.code, "") if "address" in why.params else ""
+    return Problem(why.message, {k: scrub(v) for k, v in why.params.items()}, plain)
 
 
 def _one_line(text: str, scrub: Scrub, limit: int = MAX_SUMMARY) -> str:
@@ -797,14 +832,20 @@ def _status(translate: Callable[..., str], status: str, reason: str) -> str:
 
 
 def _cause(
-    translate: Callable[..., str], problem: Problem | None, safe: Callable[[str], str]
+    translate: Callable[..., str],
+    problem: Problem | None,
+    safe: Callable[[str], str],
+    admin: bool = False,
 ) -> str:
     if problem is None:
         return translate(STATUSES["failed"])
-    return translate(problem.message, **{k: safe(v) for k, v in problem.params.items()})
+    message, params = problem.shown(admin)
+    return translate(message, **{k: safe(v) for k, v in params.items()})
 
 
-def _tidy_lines(report: Report, translate: Callable[..., str], style: Style) -> list[str]:
+def _tidy_lines(
+    report: Report, translate: Callable[..., str], style: Style, admin: bool
+) -> list[str]:
     line = report.tidy
     if line is None:
         return []
@@ -823,7 +864,10 @@ def _tidy_lines(report: Report, translate: Callable[..., str], style: Style) -> 
             out.append("  " + style.text(line.summary))
     elif line.status == "failed":
         out = [
-            translate("Tidy-up failed: {cause}", cause=_cause(translate, line.problem, style.text))
+            translate(
+                "Tidy-up failed: {cause}",
+                cause=_cause(translate, line.problem, style.text, admin),
+            )
         ]
         if line.reason == "retry":
             out.append("  " + translate("It is tried again later, outside the night."))
@@ -832,7 +876,9 @@ def _tidy_lines(report: Report, translate: Callable[..., str], style: Style) -> 
     return [*out, ""]
 
 
-def _routine_lines(report: Report, translate: Callable[..., str], style: Style) -> list[str]:
+def _routine_lines(
+    report: Report, translate: Callable[..., str], style: Style, admin: bool
+) -> list[str]:
     from synaptane.web.i18n import quoted_names
 
     if not report.routines:
@@ -841,7 +887,8 @@ def _routine_lines(report: Report, translate: Callable[..., str], style: Style) 
     out = [style.bold(translate("Routines"))]
     for line in report.routines:
         if line.status == "failed" and line.problem is not None:
-            status = translate("failed: {cause}", cause=_cause(translate, line.problem, safe))
+            cause = _cause(translate, line.problem, safe, admin)
+            status = translate("failed: {cause}", cause=cause)
         else:
             status = _status(translate, line.status, line.reason)
         title = safe(line.title)
@@ -875,9 +922,10 @@ def _routine_lines(report: Report, translate: Callable[..., str], style: Style) 
     return [*out, ""]
 
 
-def write(report: Report, locale: str, style: Style = PLAIN) -> str:
+def write(report: Report, locale: str, style: Style = PLAIN, admin: bool = False) -> str:
     """The report in a language and a style. Every text from an agent goes through
-    `style.text`; links are built here, from the space's address."""
+    `style.text`; links are built here, from the space's address. `admin`: written for an
+    administrator of the organization, who may read the AI provider's address in a cause."""
     from synaptane.web.i18n import translator
 
     translate = translator(locale)
@@ -891,8 +939,8 @@ def write(report: Report, locale: str, style: Style = PLAIN) -> str:
         org=style.text(report.org),
     )
     lines += [style.bold(title), ""]
-    lines += _tidy_lines(report, translate, style)
-    lines += _routine_lines(report, translate, style)
+    lines += _tidy_lines(report, translate, style, admin)
+    lines += _routine_lines(report, translate, style, admin)
     if report.checks:
         health = style.link(f"{report.base}/health", translate("Health"), translate)
         lines += [
@@ -951,12 +999,17 @@ def _send_emails(
     if not target or not mail.configured(session):
         return 0
     people = only if only is not None else routine_agent.recipients(session, space, target)
-    texts: dict[str, str] = {}
+    texts: dict[tuple[str, bool], str] = {}
     sent = 0
     for user in people:
         if not user.email:
             continue
-        text = texts.setdefault(user.locale, write(report, user.locale))
+        # The provider's address for the organization's admins only, as on the log.
+        admin = load_actor(session, user).access.is_org_admin(space.org_id)
+        key = (user.locale, admin)
+        if key not in texts:
+            texts[key] = write(report, user.locale, admin=admin)
+        text = texts[key]
         subject, message = mail.compose(
             "night_report",
             user.locale,
@@ -1164,6 +1217,15 @@ def nights(session: Session, actor: Actor, space: Space, limit: int = 7) -> list
             .limit(limit)
         )
     )
+
+
+def shown_steps(actor: Actor, space: Space, night: NightRun) -> list[dict[str, object]]:
+    """The steps of a night as `actor` may see them: the routines' steps (their titles and
+    links) only for those who see the routines (contributors, as `routines.list_routines`);
+    a reader sees the tidy-up alone."""
+    if can(actor.access, Action.CONTRIBUTE_SPACE, org_id=space.org_id, space_id=space.id):
+        return list(night.steps)
+    return [step for step in night.steps if step.get("kind") == "tidy"]
 
 
 def routines_of(session: Session, actor: Actor, space: Space) -> list[Routine]:
