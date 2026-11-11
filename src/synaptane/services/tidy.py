@@ -434,6 +434,7 @@ def tidy_space(
         conversation = factory(config, system, first, TOOLS)
         _drive_api(conversation, tools, state, usage, limit)
     tools.record_problems()  # end-of-run check: what remains goes to the log, without blocking
+    maintenance.scrub_run(found, overlay, state)  # personal data given to fix: never copied out
     failure = state.failure
     if failure is not None and not tools.calls:
         # The provider failed before the agent called a single tool (expired login, refused

@@ -12,7 +12,7 @@ from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import MaintenanceMark, TidyRun
 from tests.integration.test_maintenance import leave_all, pending, problems, reviewed, space
-from tests.integration.test_tidy import Scripted, configure_ai
+from tests.integration.test_tidy import Scripted, configure_ai, deposit_note
 from tests.integration.test_web import login
 from tests.integration.wikidata import Wiki
 
@@ -416,3 +416,34 @@ def test_a_source_that_fails_keeps_its_window_for_the_next_night(
     monkeypatch.undo()
     found = pending(db, ctx, wiki)
     assert team(found) == [(maintenance.TEAM_KIND, "contacts.md", EMAIL)]
+
+
+def test_no_text_of_the_agent_carries_the_data(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Told never to copy it, the agent may still write it in the reason of another item: that
+    reason goes to the log, to the note left in the inbox and to the notice to its author."""
+    configure_ai(db, ctx, wiki)
+    push(database, ctx, wiki, {".synaptane/checks.md": CHECKS})
+    push(database, ctx, wiki, {"content/contacts.md": contacts(f"Jean : {ADDRESS}")})
+    reviewed(db, ctx, wiki)
+    note = deposit_note(db, database, ctx, wiki)
+    script = Scripted(
+        [
+            [("read_inbox_item", {"item": NAME}), ("read_inbox_item", {"item": note})],
+            [
+                ("leave_in_inbox", {"item": note, "reason": f"Voir avec {ADDRESS}"}),
+                ("mark_done", {"item": NAME, "summary": f"P1: {ADDRESS} gardé; P2: à voir"}),
+                ("finish", {"summary": "Fait"}),
+            ],
+        ]
+    )
+    record = tidy.run(database, ctx, wiki.infra.id, trigger="manual", factory=script.factory)
+    assert record is not None and record.status == "done" and record.commit, record
+    stored = db.get(TidyRun, record.id)
+    assert stored is not None
+    assert ADDRESS not in repr(stored.operations)
+    assert f"Voir avec {MASKED}" in repr(stored.operations)
+    repo = ctx.local_repository(wiki.infra)
+    left = repo.blob(f".synaptane/inbox/{note}") or b""
+    assert left and ADDRESS.encode() not in left and MASKED.encode() in left

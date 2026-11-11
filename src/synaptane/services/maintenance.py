@@ -932,6 +932,21 @@ def scrub(found: Found, view: Overlay, text: str) -> str:
     return _rules(view.repo, view.base).scrub(text)
 
 
+def scrub_run(found: Found | None, view: Overlay, state: RunState) -> None:
+    """The agent's own texts in a run given personal data to fix (its summary, and the summary
+    or reason of every item) without that data. Told never to copy it, it still could, and in
+    any of them: they go to the log, to a note left in the inbox (in Git), to the notice sent
+    to the note's author, not only to the maintenance item's reasons."""
+    if found is None or not any(p.private for p in found.problems):
+        return
+    checks = _rules(view.repo, view.base)
+    for texts in (state.done, state.left):
+        for name, text in texts.items():
+            texts[name] = checks.scrub(text)
+    if state.finished:
+        state.finished = checks.scrub(state.finished)
+
+
 def settle(
     session: Session,
     ws: Workspace,
