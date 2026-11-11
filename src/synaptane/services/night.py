@@ -109,6 +109,9 @@ MAX_SLACK = 12_000  # characters of the Slack text (Slack accepts 40,000)
 TEST_ACTION = "space.night_report_test"  # audit action of "Send a test report"
 TESTS_PER_HOUR = 5  # per space: enough to try a webhook, not to flood its channel
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")  # but \t and \n
+# Direction marks and overrides: they would make a text read in another order than written
+# (a link or an address disguised as another one).
+_BIDI = re.compile("[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 # Why a step did not run, or how it failed (`steps[].reason`).
 REASONS = {
@@ -604,9 +607,10 @@ def scrub_agent_text(text: str) -> str:
     """THE point every free text of an agent goes through before the report (summaries of the
     tidy-up and of the routines, titles of the items they dropped, details of an error): the
     hook where the team checks' masking of personal data (`Checks.scrub`) plugs in. Here: one
-    line, without control characters. Never a page's content: the report is built from the
-    counters and operations already logged, and from these short texts only."""
-    return " ".join(_CONTROL.sub(" ", text).split())
+    line, without control characters nor direction overrides. Never a page's content: the
+    report is built from the counters and operations already logged, and from these short
+    texts only."""
+    return " ".join(_BIDI.sub("", _CONTROL.sub(" ", text)).split())
 
 
 def _problem(error: str | None, scrub: Scrub) -> Problem | None:

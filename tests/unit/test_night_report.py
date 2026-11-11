@@ -157,6 +157,10 @@ def test_plain_text_in_french_keeps_the_text_and_drops_control_characters() -> N
     assert "Coût de la nuit : ≈ 0,12 € (ce mois-ci : 3,40 € sur 20,00 €)" in text
     assert "Contrôles de l'équipe : 2 écarts au dernier commit." in text
     assert night.scrub_agent_text("a\x00b\x1b[31m\n c") == "a b [31m c"
+    # A right-to-left override would show what follows backwards: an address disguised.
+    assert night.scrub_agent_text("voir \u202ehttps://evil.com\u202c ici\u2067") == (
+        "voir https://evil.com ici"
+    )
 
 
 def test_every_text_of_the_report_is_in_the_french_catalog() -> None:
