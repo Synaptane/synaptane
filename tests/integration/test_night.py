@@ -33,6 +33,7 @@ from synaptane.services import (
     tidy_commit,
     webhooks,
 )
+from synaptane.services.tidy_tools import Op
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
 from synaptane.storage.models import (
@@ -773,3 +774,41 @@ def test_personal_data_in_an_agents_text_is_masked_in_the_report(
     [message] = smtp.messages
     _, _, body = received(message)
     assert "jean.dupont@gmail.com" not in body and "j•••@gmail.com" in body
+
+
+def test_the_report_tells_what_the_maintenance_did_of_the_team_checks(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Read from the tidy-up's operations (excerpts already masked), not from Health: a
+    violation left alone would otherwise be told again every night."""
+    team = 'team check "No personal email" `j•••@gmail.com`'
+    run = TidyRun(
+        space_id=wiki.infra.id,
+        trigger="schedule",
+        status="done",
+        items_done=1,
+        operations=[
+            {"op": Op.FIXED, "path": "contacts.md", "detail": team},
+            {"op": Op.PROBLEM_LEFT, "path": "rh.md", "detail": team + " — à voir"},
+            {"op": Op.FIXED, "path": "nas.md", "detail": "broken link nas.md"},
+        ],
+    )
+    db.add(run)
+    db.flush()
+    done = NightRun(
+        space_id=wiki.infra.id,
+        day=MONDAY,
+        status="done",
+        steps=[{"kind": "tidy", "when": "", "status": "done", "run_id": str(run.id)}],
+        report={},
+    )
+    db.add(done)
+    db.commit()
+    space = db.get(Space, wiki.infra.id)
+    assert space is not None
+    report = night.build(db, space, done, "https://b")
+    assert report.tidy is not None
+    assert (report.tidy.fixed, report.tidy.checks_fixed, report.tidy.checks_left) == (2, 1, 1)
+    text = night.write(report, "en")
+    assert "given to the maintenance: fixed 1, left 1." in text and "j•••@gmail.com" not in text
+    assert night.night_event(report)["checks"] == {"fixed": 1, "left": 1}

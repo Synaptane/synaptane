@@ -2462,7 +2462,7 @@
  "Routine log": "Journal de la routine",
  "Test report: this is what the night's report looks like.": "Compte rendu d'essai : voici à quoi ressemble le compte rendu de la nuit.",
  "Night of {day} in “{space}” ({org})": "Nuit du {day} dans « {space} » ({org})",
- "Team checks: {n} broken at the last commit.": "Contrôles de l'équipe : {n} écarts au dernier commit.",
+ "Team checks broken by people, given to the maintenance: fixed {fixed}, left {left}.": "Contrôles de l'équipe enfreints, donnés à l'entretien : corrigés {fixed}, laissés {left}.",
  "Subscription quota: {usage}": "Quota de l'abonnement : {usage}",
  "Cost of the night: ≈ {amount}": "Coût de la nuit : ≈ {amount}",
  "(this month: {spent} of {budget})": "(ce mois-ci : {spent} sur {budget})",

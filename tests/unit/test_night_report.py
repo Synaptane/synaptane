@@ -86,7 +86,6 @@ def report(**values: object) -> night.Report:
 def test_quiet_nights() -> None:
     assert report().quiet
     assert report(tidy=night.TidyLine("skipped", "disabled")).quiet
-    assert report(checks=4).quiet  # the same every night: not news
     assert not report(tidy=night.TidyLine("done", filed=1)).quiet
     assert not report(tidy=night.TidyLine("failed")).quiet
     assert not report(routines=(night.RoutineLine("R", "after", "done"),)).quiet
@@ -99,7 +98,16 @@ EVIL = "Fini <!channel> <!here|here> @here @Channel <@U123> <https://evil.exampl
 
 def full() -> night.Report:
     return report(
-        tidy=night.TidyLine("done", filed=3, left=1, fixed=2, problems_left=1, summary=EVIL),
+        tidy=night.TidyLine(
+            "done",
+            filed=3,
+            left=1,
+            fixed=2,
+            problems_left=1,
+            summary=EVIL,
+            checks_fixed=1,
+            checks_left=1,
+        ),
         routines=(
             night.RoutineLine(
                 "Cohérence",
@@ -118,7 +126,6 @@ def full() -> night.Report:
                 routine_id="r2",
             ),
         ),
-        checks=2,
         cost=Decimal("0.1234"),
         month=(Decimal("3.4"), Decimal("20")),
     )
@@ -155,7 +162,9 @@ def test_plain_text_in_french_keeps_the_text_and_drops_control_characters() -> N
     assert "- Cohérence (avant le rangement) : fait" in text
     assert "Voir le rapport : https://brain.example.com/o/acme/infra/p/rapports/" in text
     assert "Coût de la nuit : ≈ 0,12 € (ce mois-ci : 3,40 € sur 20,00 €)" in text
-    assert "Contrôles de l'équipe : 2 écarts au dernier commit." in text
+    assert "Contrôles de l'équipe enfreints, donnés à l'entretien : corrigés 1, laissés 1." in text
+    # Nothing given to the maintenance: no line (Health counts the rest, the same every night).
+    assert "Contrôles" not in night.write(report(tidy=night.TidyLine("done", filed=1)), "fr")
     assert night.scrub_agent_text("a\x00b\x1b[31m\n c") == "a b [31m c"
     # A right-to-left override would show what follows backwards: an address disguised.
     assert night.scrub_agent_text("voir \u202ehttps://evil.com\u202c ici\u2067") == (

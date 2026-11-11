@@ -73,6 +73,7 @@ from synaptane.services import (
     jobs,
     load_actor,
     mail,
+    maintenance,
     routine_agent,
     routines,
     secrets,
@@ -579,6 +580,9 @@ class TidyLine:
     problems_left: int = 0
     summary: str = ""
     problem: Problem | None = None
+    # Of `fixed` and `problems_left`: the team checks people broke, given to the maintenance.
+    checks_fixed: int = 0
+    checks_left: int = 0
 
     @property
     def notable(self) -> bool:
@@ -614,7 +618,6 @@ class Report:
     base: str  # the space's address on the web: `{public_url}/o/{org}/{space}`
     tidy: TidyLine | None
     routines: tuple[RoutineLine, ...]
-    checks: int = 0  # team checks broken at the last commit
     cost: Decimal | None = None
     quota: dict[str, Any] | None = None
     month: tuple[Decimal, Decimal] | None = None  # (spent, budget) of the month
@@ -698,6 +701,14 @@ def build(
                 tidy_line = TidyLine(status, reason)
                 continue
             ops = [str(op.get("op")) for op in run.operations or []]
+            # What the maintenance did of the team checks, from its operations (their
+            # excerpts already masked): not what Health counts, the same every night.
+            team = [
+                str(op.get("op"))
+                for op in run.operations or []
+                if op.get("op") in (Op.FIXED, Op.PROBLEM_LEFT)
+                and str(op.get("detail", "")).startswith(maintenance.TEAM_PHRASE)
+            ]
             tidy_line = TidyLine(
                 status,
                 reason,
@@ -707,6 +718,8 @@ def build(
                 ops.count(Op.PROBLEM_LEFT),
                 _one_line(run.summary, scrub),
                 _problem(run.error, scrub) if run.status == "failed" else None,
+                team.count(Op.FIXED),
+                team.count(Op.PROBLEM_LEFT),
             )
             if run.cost is not None:
                 cost = (cost or Decimal(0)) + run.cost
@@ -758,15 +771,6 @@ def build(
         month=(spending.spent, spending.budget) if spending.budget else None,
         steps=list(night.steps),
     )
-
-
-def _checks(ws: Workspace, space: Space) -> int:
-    """Team checks broken at the space's last commit (as Health counts them); 0 if unknown."""
-    try:
-        return team_checks.at_commit(ws.local_repository(space)).total
-    except Exception:  # noqa: BLE001 — an extra line of the report, never a failure
-        log.warning("Night of %s: team checks not counted", space.id, exc_info=True)
-        return 0
 
 
 # --- Writing it: plain text (email) and Slack ---------------------------------------------------
@@ -957,10 +961,16 @@ def write(report: Report, locale: str, style: Style = PLAIN, admin: bool = False
     lines += [style.bold(title), ""]
     lines += _tidy_lines(report, translate, style, admin)
     lines += _routine_lines(report, translate, style, admin)
-    if report.checks:
+    line = report.tidy
+    if line is not None and (line.checks_fixed or line.checks_left):
         health = style.link(f"{report.base}/health", translate("Health"), translate)
         lines += [
-            translate("Team checks: {n} broken at the last commit.", n=report.checks)
+            translate(
+                "Team checks broken by people, given to the maintenance: fixed {fixed}, "
+                "left {left}.",
+                fixed=line.checks_fixed,
+                left=line.checks_left,
+            )
             + " "
             + health,
             "",
@@ -998,7 +1008,10 @@ def night_event(report: Report) -> dict[str, object]:
             }
             for step in report.steps
         ],
-        "checks": report.checks,
+        "checks": {
+            "fixed": report.tidy.checks_fixed if report.tidy else 0,
+            "left": report.tidy.checks_left if report.tidy else 0,
+        },
         "cost": str(report.cost) if report.cost is not None else None,
     }
 
@@ -1080,7 +1093,6 @@ def finish(database: Database, ws: Workspace, night_id: UUID, public_url: str) -
         space = session.get(Space, night.space_id)
         assert space is not None
         report = build(session, space, night, link, space_scrub(ws, space))
-        report = replace(report, checks=_checks(ws, space))
         settings = report_settings(session, space)
         sent: dict[str, object] = {"quiet": report.quiet}
         if settings.active and (not report.quiet or settings.always):

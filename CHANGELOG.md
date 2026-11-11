@@ -95,8 +95,8 @@ at startup; nothing changes for a space until a routine joins its night or its r
   webhook** (incoming webhook, `{"text": …}` in mrkdwn, without link previews; Mattermost and
   other compatible tools work too). It gives the tidy-up (items filed and left, wiki problems
   fixed and left, or its failure and cause), each routine (status, summary, link to its report
-  page, items dropped, link to its log on failure), the team checks broken at the last commit,
-  the cost of the night and of the month, or the subscription's quota, and a link to the log. A
+  page, items dropped, link to its log on failure), what the maintenance did of the team
+  checks people broke (fixed, left), the cost of the night and of the month, or the subscription's quota, and a link to the log. A
   quiet night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
   when nothing happened** is ticked. **Send a test report**: the last night's report, marked as
   a test, by email to you only and to the Slack webhook (5 an hour at most per space). The
@@ -113,7 +113,8 @@ at startup; nothing changes for a space until a routine joins its night or its r
   status and links, and what the report sent. The routines' steps are shown to those who see
   the routines (contributors), as in `GET …/nights`; a reader sees the tidy-up.
 - `night.completed` event for the organization's webhooks: the night's steps (`kind`, `when`,
-  `name`, `title`, `status`, `reason`, `run_id`), `quiet`, `checks`, `cost`.
+  `name`, `title`, `status`, `reason`, `run_id`), `quiet`, `checks` (`fixed`, `left` by the
+  maintenance), `cost`.
 
 ### Changed
 - **The Consistency check template keeps a memory**, so that it no longer reports the same

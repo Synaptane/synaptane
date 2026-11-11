@@ -875,8 +875,9 @@ REST) says, for the night:
   with the cause;
 - each routine: its status, before or after the tidy-up, its summary, a link to its report
   page, the items it dropped into the inbox, and a link to its log when it failed;
-- the [team checks](../guide/wiki.md#team-checks) broken at the last commit, if any (the
-  **Health** tab lists them);
+- what the [maintenance](#wiki-maintenance) did of the
+  [team checks](../guide/wiki.md#team-checks) people broke: fixed, left, if any. Not every
+  violation still in the wiki, the same every night: the **Health** tab lists those;
 - the cost of the night (and of the month, with a budget), or the subscription's quota;
 - a link to the night's log (the **Tidy-up** tab, which shows **The last nights**, step by
   step; the routines' steps only to those who see the routines, from contributors up: a reader

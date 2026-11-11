@@ -936,8 +936,10 @@ l'autre, et la nuit se termine par **un seul compte rendu**.
 - chaque routine : son statut, avant ou après le rangement, son résumé, un lien vers sa page
   de rapport, les éléments qu'elle a déposés dans l'inbox, et un lien vers son journal en cas
   d'échec ;
-- les [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) enfreints au dernier
-  commit, s'il y en a (l'onglet **Santé** les liste) ;
+- ce que l'[entretien](#entretien-du-wiki) a fait des
+  [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) enfreints par des
+  personnes : corrigés, laissés, s'il y en a. Pas tous les écarts encore présents dans le wiki,
+  les mêmes chaque nuit : l'onglet **Santé** les liste ;
 - le coût de la nuit (et du mois, avec un budget), ou le quota de l'abonnement ;
 - un lien vers le journal de la nuit (l'onglet **Rangement**, qui montre **Les dernières
   nuits**, étape par étape ; les étapes des routines seulement à qui voit les routines, à
