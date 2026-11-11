@@ -394,6 +394,8 @@ def test_the_memory_setting_is_kept_by_every_edit(
     assert b"\nmemory: true\n" in (repo.blob(path) or b"")
     digest = client.post(API, json={"template": "digest"}, headers=root).json()
     assert digest["memory"] is False  # the digest reads the week's history: no memory
+    listed = {r["name"]: r["memory"] for r in client.get(API, headers=root).json()}
+    assert listed == {"consistency-check": True, "weekly-digest": False}
     rid = created["id"]
 
     # A change that does not mention it keeps it (REST, then the web toggle).

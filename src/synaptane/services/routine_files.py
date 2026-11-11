@@ -991,6 +991,12 @@ def memory_enabled(ws: Workspace, space: Space, name: str) -> bool:
     return memory_of(repo.blob(file_path(name))) if repo is not None else False
 
 
+def memory_flags(ws: Workspace, space: Space) -> dict[str, bool]:
+    """`memory_enabled` of every routine file, read in a single call (a list of routines)."""
+    repo = _synced(ws, space)
+    return {f.name: memory_of(f.data) for f in read_files(repo)} if repo is not None else {}
+
+
 def current_sha(ws: Workspace, space: Space, name: str) -> str | None:
     """Hash of the routine's file in the local copy now (None: missing or not synced)."""
     repo = _synced(ws, space)

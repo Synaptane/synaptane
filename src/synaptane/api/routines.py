@@ -202,12 +202,14 @@ def list_routines(
     org: str, space: str, request: Request, session: DbSession, actor: CurrentActor
 ) -> list[RoutineOut]:
     found = find_space(session, actor, org, space)
+    listed = routines.list_routines(session, actor, found)
     last = routines.last_runs(session, found)
+    memory = routine_files.memory_flags(_ws(request), found)  # one read, not one per routine
     return [
         RoutineOut.of(
-            request, r, routines.next_run(r, found), last.get(r.id), _memory(request, found, r)
+            request, r, routines.next_run(r, found), last.get(r.id), memory.get(r.name, False)
         )
-        for r in routines.list_routines(session, actor, found)
+        for r in listed
     ]
 
 
