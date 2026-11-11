@@ -15,7 +15,9 @@ No flood, no repetition:
 - only the commits of people count: Synaptane's own (tidy-up, routines…) are left out, since
   the tidy-up already fixes what it breaks (its end-of-run check); so are imports (a commit
   of more than `changes.BULK` pages), already reviewed as a whole by the "Import: N pages"
-  item: only what people change after them counts;
+  item: only what people change after them counts. Except the pages a routine keeps in its
+  own folders (`services.routine_writes`): its commit names them, and they count like a
+  person's change (not its report page, rewritten at each run);
 - at most MAX_PROBLEMS per night; the others wait for the next nights (the watermark only moves
   once every problem of its window was given);
 - a problem the agent leaves is remembered with its reason (`MaintenanceMark`), and forgotten
@@ -54,11 +56,12 @@ from sqlalchemy.orm.attributes import set_committed_value
 from synaptane.core.checks import EMPTY, MAX_HITS, Checks, Rule, Violation, is_page
 from synaptane.core.errors import Label
 from synaptane.core.markdown import WikiIndex, broken_among, broken_links, link_targets
-from synaptane.git.repo import GitError, Repository
+from synaptane.git.repo import Commit, GitError, Repository
 from synaptane.services import changes, health
 from synaptane.services import checks as team_checks
 from synaptane.services import links as links_service
-from synaptane.services.inbox import CONTENT_DIR, InboxItem
+from synaptane.services.inbox import CONTENT_DIR, InboxItem, is_routine_agent
+from synaptane.services.routine_writes import kept
 from synaptane.services.tidy_metrics import _moves
 from synaptane.services.tidy_tools import FOLDER_INDEXES, Op, Overlay, RunState, _broken_keys
 from synaptane.services.workspace import Workspace
@@ -567,17 +570,32 @@ def _text(data: bytes | None) -> str:
     return data.decode("utf-8", "replace") if data is not None else ""
 
 
+def counted(commit: Commit, own_email: str) -> Callable[[str], bool] | None:
+    """Which paths of a commit are people's changes: all of a person's commit; none of
+    Synaptane's (None); of a routine's commit, those in the folders it keeps, named by its
+    trailers (`routine_writes.commit_trailers`), its report page aside."""
+    if commit.author.email != own_email:
+        return lambda path: True
+    found = kept(commit.source, commit.via)
+    if found is None or not is_routine_agent(commit.author.name):
+        return None
+    counts = found.counts
+    return lambda path: path.startswith(PREFIX) and counts(path[len(PREFIX) :])
+
+
 def window(repo: Repository, since: str, view: Overlay, own_email: str) -> Window:
-    """Pages people changed from `since` to the view's commit (Synaptane's commits aside)."""
+    """Pages people changed from `since` to the view's commit (Synaptane's commits aside,
+    except the pages a routine keeps: `counted`)."""
     found = Window(repo, since, view)
     for commit, entries in repo.changes_since(since, CONTENT_DIR, until=view.base):
-        if commit.author.email == own_email:
+        keep = counted(commit, own_email)
+        if keep is None:
             continue
         if changes.bulk(entries):
             _imported(found, commit.sha, entries)
             continue
         for status, path, old in entries:
-            if not path.startswith(PREFIX):
+            if not path.startswith(PREFIX) or not keep(path):
                 continue
             here = _rel(path)
             if status == "D":
@@ -788,9 +806,9 @@ def _reintroduced(
         touches = [
             Touch(commit.sha, status, _rel(path))
             for commit, entries in repo.changes_since(until, CONTENT_DIR, until=head)
-            if commit.author.email != own_email and not changes.bulk(entries)
+            if (keep := counted(commit, own_email)) is not None and not changes.bulk(entries)
             for status, path, _ in entries
-            if status in ("A", "M", "R") and _rel(path) in pages
+            if status in ("A", "M", "R") and _rel(path) in pages and keep(path)
         ]
         if not touches:
             continue

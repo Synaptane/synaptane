@@ -457,8 +457,10 @@ n'arrivait. Avec la case **Entretenir le wiki chaque nuit** (Paramètres → Ran
     Une règle en décide autrement avec `fix: yes` ou `fix: no`. Une règle fautive est
     écartée, comme partout : **Santé** nomme sa ligne, et les autres règles s'appliquent.
   Les commits de Synaptane ne comptent pas : ce que casse le rangement est déjà repris par
-  sa vérification de fin de passage. Les imports non plus, c'est-à-dire tout commit qui touche
-  plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
+  sa vérification de fin de passage. Seule exception : les pages qu'une routine tient dans
+  ses propres dossiers comptent comme la modification d'une personne (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)). Les imports ne
+  comptent pas non plus, c'est-à-dire tout commit qui touche plus de 20 pages (un import Obsidian, Notion ou Confluence, une réorganisation) : le
   rangement les relit déjà d'un bloc, avec son élément « Import : N pages ». Seul compte ce
   que les membres changent ensuite dans ces pages. Un import plus petit est relu page par
   page, comme toute modification.
@@ -583,7 +585,9 @@ Une routine, c'est :
   fait tourner aussitôt ;
 - un **périmètre** : des dossiers du wiki, ou tout l'espace. L'agent ne lit que là
   (arborescence, pages, recherche, rétroliens, pages proches, historique) ;
-- des **sorties**, au moins une :
+- au besoin, des **dossiers tenus** : l'agent y écrit ses propres pages (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)) ;
+- des **sorties**, au moins une (les dossiers tenus en sont une) :
   - une **page de rapport**, réécrite à chaque passage (`rapports/coherence.md` par exemple).
     Une modification faite à la main y sera remplacée : la page le dit en pied ;
   - des **éléments dans l'inbox** (10 au plus par passage), un par correction à faire, avec
@@ -624,19 +628,21 @@ Relis les pages modifiées depuis le dernier passage…
 | `description` | Facultative, sur une ligne |
 | `schedule` | `daily 02:30`, `weekly monday 06:00` (ou `mon`), `monthly 1 06:00` (jour 1 à 28) ; heure locale de l'espace. Le français est lu aussi : `quotidien` ou `chaque jour`, `hebdo` ou `hebdomadaire` avec `lundi` à `dimanche` (ou `lun`, `mar`…), `mensuel`, par exemple `hebdo lundi 06:00` |
 | `scope` | Dossiers du wiki, séparés par des virgules, en liste JSON, ou un par ligne `- dossier` ; absent : tout l'espace |
+| `writes` | Dossiers tenus par la routine, avec la même syntaxe que `scope` (5 au plus) ; absent : aucun, la routine n'écrit que dans ses sorties |
 | `report` | Page de rapport réécrite à chaque passage, relative au wiki |
 | `inbox` | `true` : un élément dans l'inbox par correction à faire |
 | `email` | `admins`, `members` ou `none` |
 | `webhook` | `true` : le webhook `routine.done` |
 | `enabled` | `false` : la routine ne tourne pas selon son planning (`true` par défaut) |
-| `template` | Modèle d'origine (`coherence`, `digest`), indiqué par Synaptane |
+| `template` | Modèle d'origine (`coherence`, `digest`, `archive`), indiqué par Synaptane |
 | `memory` | `true` : la routine garde des notes d'un passage à l'autre (voir [Mémoire](#mémoire)) ; `false` par défaut |
 
 Le nom de la routine est celui du fichier : minuscules, chiffres et tirets, 40 caractères au
 plus. Une routine créée depuis un modèle a toujours le même nom, quelle que soit la langue de
 son titre : `consistency-check.md`, `weekly-digest.md` ; une autre prend un nom tiré de son
 titre, sauf si vous en choisissez un. Au plus 20 routines par espace, des consignes de 20 000 caractères au plus, un périmètre
-de 20 dossiers au plus, au moins une sortie, et un fichier de 64 000 octets au plus.
+de 20 dossiers au plus, 5 dossiers tenus au plus, au moins une sortie, et un fichier de
+64 000 octets au plus.
 
 - **À chaque synchronisation**, Synaptane lit les fichiers au commit courant de l'espace. Un
   nouveau fichier crée la routine, qui attend son prochain créneau. Un fichier modifié change
@@ -659,7 +665,68 @@ peut modifier les consignes de rangement : accordez le droit de pousser en cons�
 Synaptane, seuls les administrateurs de l'organisation écrivent ces fichiers : pages, notes,
 imports, e-mails capturés et assistants (MCP, REST) n'écrivent que dans `content/` et dans
 l'inbox. Quel que soit son auteur, une routine garde ses garde-fous : elle n'écrit nulle part
-ailleurs que dans ses sorties, dans la limite du budget.
+ailleurs que dans ses sorties et ses dossiers tenus, dans la limite du budget.
+
+### Dossiers tenus par une routine
+
+Une routine peut aussi tenir ses propres pages, comme des modules qui tiennent chacun les
+leurs : une page par semaine dans `resumes/`, une page de veille, un tableau de suivi.
+Donnez-lui des dossiers dans `writes` (Paramètres → Routines : **Dossiers tenus par la
+routine**, un par ligne ; REST : `writes`) :
+
+```markdown
+---
+title: Archive des résumés
+schedule: hebdo vendredi 16:00
+scope: projets, decisions
+writes: resumes
+email: members
+---
+Écris le résumé de la semaine dans une nouvelle page resumes/<année>-S<semaine>.md, puis
+ajoute-la en tête de resumes/README.md.
+```
+
+- **Sans `writes`, rien ne change** : la routine n'écrit que dans ses sorties.
+- **Ce qu'elle peut y faire** : créer, réécrire, compléter, modifier, déplacer et supprimer
+  des pages Markdown, avec les outils d'écriture du rangement et leurs garde-fous : une page
+  est lue en entier avant d'être remplacée, les champs de vérification (`owner`, `verified`,
+  `review_every`) sont gardés, les liens cassés sont signalés à l'agent. Au plus 15 pages
+  modifiées et 5 suppressions par passage ; ce qu'elle supprime reste dans l'historique Git.
+- **Nulle part ailleurs**, quoi que demande une page lue : un autre dossier, `.synaptane/`, un
+  fichier caché, un lien symbolique du dépôt, sa propre page de rapport (écrite par
+  `write_report`), un déplacement qui fait sortir une page de ses dossiers ou en fait entrer
+  une, un déplacement qui réécrirait les liens d'une page située ailleurs (sa page de rapport
+  mise à part). L'agent
+  reçoit le refus comme une erreur d'outil, avec la raison, et continue : le passage n'échoue
+  pas pour autant.
+- **Contrôlée comme toute écriture de Synaptane** : un secret probable ajouté dans une page
+  est refusé, tout comme ce qui enfreint une règle `block` des contrôles de l'équipe
+  (`.synaptane/checks.md`).
+- **Les dossiers** : 5 au plus, relatifs au wiki (`content/resumes` se lit `resumes`). Jamais
+  tout le wiki, un dossier caché (`.synaptane`, `.git`), un chemin qui remonte (`..`) ni un
+  chemin absolu : sinon le fichier est invalide, et le formulaire ou l'API le refusent. Un
+  dossier inclus dans un autre déjà donné est retiré. Les pages tenues sont une sortie : une
+  routine qui ne fait que tenir des pages n'a besoin ni de rapport, ni d'inbox, ni d'e-mail,
+  ni de webhook.
+- **Périmètre et dossiers tenus** : la routine lit ses dossiers même hors de son périmètre. Le
+  périmètre dit ce qu'elle relit ; `writes`, ce qu'elle tient.
+- **Un seul commit par passage** : les pages écrites partent avec le rapport et les éléments
+  d'inbox, au nom de la routine. Une page modifiée par quelqu'un pendant le passage est
+  fusionnée avec sa modification ; en cas de conflit, sa version est gardée et le journal le
+  dit. Un passage interrompu ne publie rien.
+- **Ensuite** : ces pages n'arrivent pas au rangement comme des modifications à examiner (les
+  dossiers sont ceux de la routine : le rangement ne les réécrit pas dans son dos).
+  L'[entretien de la nuit](#entretien-du-wiki), lui, les lit comme la modification d'une
+  personne : un lien cassé qu'elles apportent, ou une nouvelle page absente de l'index de son
+  dossier, est corrigé. La page de rapport reste en dehors, comme avant : elle est réécrite à
+  chaque passage.
+- **Journal** : la page de la routine, son e-mail, le webhook `routine.done` (`written`) et
+  l'API REST (`outputs.written` d'un passage) listent les pages écrites : chemin et nature
+  (créée, modifiée, déplacée, supprimée).
+- **Dans le fichier seulement** : Synaptane lit les dossiers dans le fichier de la routine,
+  sans copie en base. Avant la première synchronisation d'un espace, une routine ne peut donc
+  pas en avoir.
+- Parmi les modèles fournis, seule l'**Archive des résumés** tient un dossier.
 
 ### Mémoire
 
@@ -744,8 +811,13 @@ Ajoutés en un clic (**Activer**), ou après les avoir ajustés (**Personnaliser
   la semaine, d'après l'historique Git du wiki (pages créées, très modifiées) et les passages
   du rangement (éléments rangés, laissés). Sortie : la page `rapports/semaine.md` et un
   e-mail aux membres de l'espace.
+- **Archive des résumés**, chaque vendredi à 16:30 : le même résumé, mais dans une page à lui
+  par semaine, `resumes/2026-S46.md`, ajoutée en tête de `resumes/README.md` ; les semaines
+  précédentes restent telles quelles. Il tient le dossier `resumes/` (`digests/` en anglais) :
+  voir [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine). Ni page de rapport,
+  ni e-mail.
 
-Les deux modèles existent en anglais et en français : le formulaire est pré-rempli avec les
+Les modèles existent en anglais et en français : le formulaire est pré-rempli avec les
 consignes et la page de rapport dans la langue de la personne qui crée la routine
 (`reports/consistency.md` et `reports/weekly-digest.md` en anglais), et une routine activée en
 un clic prend aussi cette langue. Une **routine vierge** prend vos propres consignes (revue
@@ -753,11 +825,13 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
 
 ### Sécurité
 
-- **Une routine n'écrit nulle part ailleurs que dans ses sorties.** Elle n'a aucun outil
-  d'écriture du wiki : la page de rapport a un chemin fixé par la routine (l'agent ne le
-  choisit pas), les éléments vont dans l'inbox, et les vraies corrections passent par le
+- **Une routine n'écrit nulle part ailleurs que dans ses sorties.** Sans dossier tenu, elle n'a
+  aucun outil d'écriture du wiki : la page de rapport a un chemin fixé par la routine (l'agent
+  ne le choisit pas), les éléments vont dans l'inbox, et les vraies corrections passent par le
   rangement. C'est aussi ce qui limite l'injection : un texte malveillant lu dans une page ne
-  peut, au pire, que proposer un élément d'inbox, que le rangement examine.
+  peut, au pire, que proposer un élément d'inbox, que le rangement examine. Avec des dossiers
+  tenus, le pire est une page modifiée dans ces dossiers, inscrite dans l'historique Git (voir
+  [Dossiers tenus par une routine](#dossiers-tenus-par-une-routine)).
 - Tout ce que l'agent lit (pages, résultats de recherche, historique, activité, contrôle de
   santé, vocation de l'espace) lui est présenté comme une donnée, jamais une consigne, entre
   des balises qu'un texte ne peut pas refermer. Les consignes de la routine viennent d'un
@@ -791,10 +865,11 @@ d'un dossier, briefing du lundi, FAQ d'accueil régénérée…).
   `routine_failed` (e-mail, webhook `space.alert`). Une erreur passagère du fournisseur avant
   tout travail est retentée par la file, sans alerte ; le quota d'un abonnement est relevé
   comme pour le rangement (alerte `quota_high` au-delà de 90 %).
-- **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés,
-  e-mails envoyés, webhook, mémoire mise à jour ou conservée), texte de sortie, modèle, jetons, coût estimé ou quota, et pour
-  un échec, la cause traduite (le détail technique pour les administrateurs).
-- Le commit d'une routine (page de rapport, éléments d'inbox et mémoire ensemble) est au nom de
+- **Journal** (page de la routine) : résumé, sorties (page réécrite, éléments déposés, pages
+  écrites dans ses dossiers, e-mails envoyés, webhook, mémoire mise à jour ou conservée),
+  texte de sortie, modèle, jetons, coût estimé ou quota, et pour un échec, la cause traduite
+  (le détail technique pour les administrateurs).
+- Le commit d'une routine (page de rapport, éléments d'inbox, pages écrites et mémoire ensemble) est au nom de
   `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` : il n'apparaît pas comme une
   modification à examiner par le rangement (pas plus que ceux des versions antérieures, au nom
   de `Synaptane – routine`). Les passages d'une routine supprimée restent comptés dans le budget du mois.

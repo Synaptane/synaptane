@@ -45,6 +45,27 @@ of the target version.
   memory in the same commit; a routine removed or renamed by a push loses it at the next
   synchronization (move the file along to keep it). Off by default: a memory is read at every
   run and costs tokens.
+- **A routine can keep pages in folders assigned to it**. A new `writes` field of the routine
+  file (Settings → Routines: **Folders the routine keeps**; REST: `writes`) gives it up to 5
+  folders of the wiki, with the syntax of `scope`: a weekly digest writes
+  `digests/2026-W46.md`, a watch routine keeps `watch/` up to date. There, the agent gets the
+  tidy-up's writing tools (write, append, edit, move, delete) and their safeguards (page read
+  in full before it is replaced, verification fields kept, broken links reported), with at
+  most 15 pages changed and 5 deletions per run. Any other path is refused to the agent as a
+  tool error, whatever a page it read asks: another folder, `.synaptane/`, a hidden file, a
+  symbolic link, its own report page, a move out of its folders or one that would rewrite a
+  page outside them. A likely secret and a team `block` check are refused too. The pages go
+  in the run's single commit, with the report and the inbox items; a page someone changed
+  during the run is merged, their version kept on a conflict; an interrupted run publishes
+  nothing. The routine reads its folders even outside its scope. The log, the email, the
+  `routine.done` webhook (`written`) and `GET …/routines/{id}/runs` (`outputs.written`) list
+  the pages written. These pages are not reviewed by the tidy-up as changes, but the nightly
+  maintenance treats them like a person's: it fixes the broken links they bring. Without
+  `writes`, nothing changes; the two existing templates keep no folder.
+- **Digest archive template**: every Friday at 16:30, the summary of the week as a page of its
+  own, `digests/2026-W46.md` (`resumes/2026-S46.md` in French), added at the top of the
+  folder's `README.md`. It keeps that folder and writes nothing else. Every routine is now
+  given the ISO week along with today's date, so that it does not have to compute it.
 
 ### Changed
 - **The Consistency check template keeps a memory**, so that it no longer reports the same
@@ -56,7 +77,8 @@ of the target version.
   value had the wrong form (`expect: date`, `list`): it is masked now, in Health too.
 
 ### Upgrade
-- No migration: update the image and restart.
+- No migration: the memory and the folders of a routine live in its file only, the `fix` key
+  in `.synaptane/checks.md`. Update the image and restart.
 - Routines created before keep their behavior: to give an existing
   consistency check its memory, tick the box in its form or add `memory: true` to its file
   (the new instructions of the template can be copied from a routine created from it).

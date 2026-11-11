@@ -156,7 +156,7 @@ trop complexe, motif qui correspond à un texte vide, deux règles du même titr
 enregistrement depuis Synaptane refuse un fichier qui a une règle fautive.
 
 Une règle `block` refuse les écritures de l'interface web, de l'API REST, de MCP, de l'import,
-du rangement, de la page de rapport d'une routine et de l'annulation d'un rangement ou du
+du rangement, de la page de rapport et des pages tenues d'une routine, et de l'annulation d'un rangement ou du
 passage d'un assistant, quand elles ajoutent une infraction : une page qui enfreignait déjà la règle
 reste modifiable, et une page déplacée dans un dossier que couvre une règle compte comme
 nouvelle. Un push ne peut pas être refusé.
@@ -190,10 +190,12 @@ Rédige le résumé de la semaine…
 Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00`,
 `monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
 en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
-`- dossier`), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
-`template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les valeurs sont
-du texte simple ou du JSON. Un champ inconnu est signalé et ignoré ; un fichier invalide ne
-tourne pas, et son erreur s'affiche dans Paramètres → Routines et dans l'API REST.
+`- dossier`), `writes` (dossiers tenus par la routine, même syntaxe, 5 au plus : elle y écrit
+ses propres pages ; jamais tout le wiki ni un dossier caché), `report`, `inbox`, `email`
+(`admins`, `members`, `none`), `webhook`, `enabled`, `template`, `memory` (`true` : la routine
+garde une mémoire, voir plus bas). Les valeurs sont du texte simple ou du JSON. Un champ inconnu
+est signalé et ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans
+Paramètres → Routines et dans l'API REST.
 
 Écrites dans **Paramètres → Routines** (administrateurs de l'organisation : un commit à leur
 nom) ou par un push : quiconque peut pousser peut les modifier. Lues à chaque
@@ -267,9 +269,13 @@ elles sont calculées depuis l'historique Git depuis le dernier rangement.
   dans les historiques plus anciens), sujet `Tidy-up: …` : un commit par passage. Ses commits,
   comme les fusions de Synaptane et les fichiers initiaux, ne sont jamais signalés à l'inbox
   comme des modifications.
-- Une routine commite sa page de rapport, ses éléments d'inbox et sa mémoire au nom de
-  `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` (`Synaptane – routine` dans les
-  historiques plus anciens).
+- Une routine commite sa page de rapport, ses éléments d'inbox, les pages écrites dans ses
+  dossiers et sa mémoire au nom de `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …`
+  (`Synaptane – routine` dans les historiques plus anciens). Quand elle a écrit des pages dans
+  ses dossiers, le message se termine par les trailers `Source: routine-pages` et
+  `Via: {"folders": ["<dossier>", …], "report": "<page>"}` (`report` si elle a une page de
+  rapport) : l'entretien de la nuit lit les pages de ces dossiers comme la modification d'une
+  personne, sa page de rapport mise à part.
 - Une routine enregistrée depuis Synaptane : `Routine updated: <nom>` ou
   `Routine removed: <nom>` (avec sa mémoire), au nom de l'administrateur ; une mémoire vidée :
   `Routine memory cleared: <nom>`. Les mémoires des routines supprimées par un push :

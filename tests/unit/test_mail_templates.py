@@ -132,6 +132,7 @@ CALLERS: dict[str, dict[str, object]] = {
         "space": "Infra",
         "org": "Acme",
         "text": "# Semaine\n\n- Le NAS passe à 8 To.",
+        "pages": "\n\nPages écrites par la routine :\n- digests/2026-W46.md (créée)",
         "link": "https://brain.example.com/o/acme/infra/p/rapports/semaine.md",
         "account": "https://brain.example.com/account",
     },

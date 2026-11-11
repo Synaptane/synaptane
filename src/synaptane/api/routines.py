@@ -39,8 +39,10 @@ class RoutineRunOut(BaseModel):
     report: str = Field(description="Output text (page, email, webhook)")
     outputs: dict[str, object] = Field(
         description="What was output: page (path), inbox (titles of the dropped items), "
-        "emails (number sent), webhook (true if sent), memory (saved, cleared, or changed: "
-        "changed by someone during the run, so kept as it was)"
+        "written (pages written in the folders it keeps: path, change created, modified, "
+        "moved with from, or deleted), conflicts (pages a person changed during the run: "
+        "their version kept), emails (number sent), webhook (true if sent), memory (saved, "
+        "cleared, or changed: changed by someone during the run, so kept as it was)"
     )
     commit: str | None
     input_tokens: int
@@ -72,13 +74,17 @@ class RoutineOut(BaseModel):
         description="Why the file is invalid (the routine does not run); null: valid"
     )
     warnings: list[str] = Field(description="What was ignored in the file (unknown field…)")
-    template: str = Field(description='Original template (coherence, digest); "": blank')
+    template: str = Field(description='Original template (coherence, digest, archive); "": blank')
     instructions: str
     frequency: str
     weekday: int | None = Field(description="Weekly: 0 = Monday … 6 = Sunday")
     monthday: int | None = Field(description="Monthly: 1 to 28")
     at: str = Field(description="HH:MM, the space's local time (tidy-up time zone)")
     scope: list[str] = Field(description="Folders relative to content/; empty: the whole space")
+    writes: list[str] = Field(
+        description="Folders the routine keeps (relative to content/): it writes its pages "
+        "there, and reads them even outside the scope; empty: it only writes its outputs"
+    )
     output_page: str = Field(description='Page rewritten on each run; "": none')
     output_inbox: bool
     output_email: str = Field(description='"" (none), admins or members')
@@ -98,6 +104,7 @@ class RoutineOut(BaseModel):
         routine: Routine,
         space_next: datetime | None,
         last: RoutineRun | None,
+        writes: list[str],
         memory: bool = False,
     ) -> "RoutineOut":
         error = routine_files.error_of(routine)
@@ -118,6 +125,7 @@ class RoutineOut(BaseModel):
             monthday=routine.monthday,
             at=routine.at,
             scope=list(routine.scope or []),
+            writes=writes,
             output_page=routine.output_page,
             output_inbox=routine.output_inbox,
             output_email=routine.output_email,
@@ -134,7 +142,7 @@ class RoutineIn(BaseModel):
     fields); update: only the given fields change. Every write is a commit of the routine's
     file in the caller's name."""
 
-    template: Literal["", "coherence", "digest"] = ""
+    template: Literal["", "coherence", "digest", "archive"] = ""
     name: str | None = Field(
         default=None,
         description="Creation: file name (lowercase letters, digits, dashes); default: made "
@@ -148,6 +156,11 @@ class RoutineIn(BaseModel):
     monthday: int | None = Field(default=None, ge=1, le=28)
     at: str | None = Field(default=None, description="HH:MM")
     scope: list[str] | None = None
+    writes: list[str] | None = Field(
+        default=None,
+        description="Folders the routine keeps (5 at most; never the whole wiki nor a hidden "
+        "folder); [] removes them; omitted: unchanged",
+    )
     output_page: str | None = None
     output_inbox: bool | None = None
     output_email: EmailTarget | None = None
@@ -193,6 +206,7 @@ def _out(request: Request, session: DbSession, space: Space, routine: Routine) -
         routine,
         routines.next_run(routine, space),
         last,
+        routine_files.writes_of(_ws(request), space, routine),
         _memory(request, space, routine),
     )
 
@@ -204,10 +218,16 @@ def list_routines(
     found = find_space(session, actor, org, space)
     listed = routines.list_routines(session, actor, found)
     last = routines.last_runs(session, found)
-    memory = routine_files.memory_flags(_ws(request), found)  # one read, not one per routine
+    ws = _ws(request)
+    memory = routine_files.memory_flags(ws, found)  # one read, not one per routine
     return [
         RoutineOut.of(
-            request, r, routines.next_run(r, found), last.get(r.id), memory.get(r.name, False)
+            request,
+            r,
+            routines.next_run(r, found),
+            last.get(r.id),
+            routine_files.writes_of(ws, found, r),
+            memory.get(r.name, False),
         )
         for r in listed
     ]

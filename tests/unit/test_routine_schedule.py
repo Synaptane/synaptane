@@ -100,7 +100,7 @@ def test_output_page_and_scope_are_cleaned() -> None:
 
 
 def test_templates_are_ready_to_use() -> None:
-    assert set(routines.TEMPLATES) == {"coherence", "digest"}
+    assert set(routines.TEMPLATES) == {"coherence", "digest", "archive"}
     coherence, digest = routines.TEMPLATES["coherence"], routines.TEMPLATES["digest"]
     french = coherence.text_for("fr")
     assert french.output_page == "rapports/coherence.md" and coherence.output_inbox
@@ -111,3 +111,12 @@ def test_templates_are_ready_to_use() -> None:
     assert "depuis le dernier passage, puis pages liées" in french.instructions
     assert "\n  " not in french.instructions + digest.text_for("fr").instructions
     assert routines.flow("a\nb\n- c\n  d\ne\n\nf") == "a b\n- c d\ne\n\nf"
+    # The digest archive keeps a folder (named in each language); the others keep none.
+    archive = routines.TEMPLATES["archive"]
+    assert archive.text_for("fr").writes == ("resumes",) and archive.text_for("en").writes
+    assert not archive.text_for("fr").output_page and not archive.output_email
+    assert "\n  " not in archive.text_for("fr").instructions
+    config = routines.from_template("archive", "fr")
+    assert config.writes == ["resumes"] and config.title == "Archive des résumés"
+    assert routines.from_template("coherence", "fr").writes == []
+    assert routines.from_template("digest", "en").writes == []
