@@ -973,7 +973,10 @@ Une nuit n'est planifiée que si l'espace a des routines de nuit ce jour-là, ou
 viennent des modèles : dans Slack, `&`, `<` et `>` sont échappés, si bien qu'aucun
 `<!channel>`, `<@…>` ni lien ne peut en venir, et `@channel`, `@here`, `@everyone` sont
 désamorcés ; les liens sont ceux de Synaptane. Le compte rendu ne cite jamais le contenu d'une
-page : il est fait des compteurs et du journal.
+page : il est fait des compteurs et du journal. Une donnée personnelle qu'un agent aurait
+recopiée dans l'un de ces textes est masquée avec les
+[contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) de l'espace (préréglages,
+`mask: yes`), comme dans le journal : `j•••@gmail.com`.
 
 Le rangement nocturne lui-même n'est pas une routine et garde ses réglages.
 

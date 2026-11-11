@@ -105,7 +105,8 @@ at startup; nothing changes for a space until a routine joins its night or its r
   addresses refused, no redirect, retried on a transient error. The cause of a failure names
   the AI provider's address in the emails to the organization's administrators only. Texts
   from the agents are data: in Slack, `&`, `<` and `>` are escaped (no `<!channel>`, `<@…>`
-  or link can come from them) and `@channel`, `@here`, `@everyone` are defused. REST: `GET …/tidy-settings` (new: `report_email`,
+  or link can come from them) and `@channel`, `@here`, `@everyone` are defused; personal data
+  copied into them is masked with the space's team checks. REST: `GET …/tidy-settings` (new: `report_email`,
   `report_always`, `report_webhook` true or false), `PATCH …/tidy-settings` (`report_email`,
   `report_always`, `report_webhook_url`), `POST …/tidy-settings/test-report`, `GET …/nights`.
 - **The last nights** in the space's **Tidy-up** tab: each night's steps in order, with their

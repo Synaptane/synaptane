@@ -909,7 +909,10 @@ send: otherwise the tidy-up runs alone, as before.
 **Texts from the agents are data.** Summaries, titles of inbox items and errors come from the
 models: in Slack, `&`, `<` and `>` are escaped, so no `<!channel>`, `<@…>` or link can come from
 them, and `@channel`, `@here`, `@everyone` are defused; the links are Synaptane's own. The
-report never quotes a page's content: it is built from the counters and the log.
+report never quotes a page's content: it is built from the counters and the log. Personal data
+an agent copied into one of these texts is masked with the space's
+[team checks](../guide/wiki.md#team-checks) (presets, `mask: yes`), as in the log:
+`j•••@gmail.com`.
 
 The nightly tidy-up itself is not a routine and keeps its own settings.
 

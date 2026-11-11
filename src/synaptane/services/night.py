@@ -635,9 +635,9 @@ Scrub = Callable[[str], str]
 
 def scrub_agent_text(text: str) -> str:
     """THE point every free text of an agent goes through before the report (summaries of the
-    tidy-up and of the routines, titles of the items they dropped, details of an error): the
-    hook where the team checks' masking of personal data (`Checks.scrub`) plugs in. Here: one
-    line, without control characters nor direction overrides. Never a page's content: the
+    tidy-up and of the routines, titles of the items they dropped, details of an error): one
+    line, without control characters nor direction overrides. `space_scrub` adds the team
+    checks' masking of personal data (`Checks.scrub`) on top. Never a page's content: the
     report is built from the counters and operations already logged, and from these short
     texts only."""
     return " ".join(_BIDI.sub("", _CONTROL.sub(" ", text)).split())
@@ -645,6 +645,22 @@ def scrub_agent_text(text: str) -> str:
 
 _URL = re.compile(r"https?://\S+")
 _PLAIN = {rule.code: rule.message for rule in tidy_journal.RULES if rule.with_address}
+
+
+def space_scrub(ws: Workspace, space: Space) -> Scrub:
+    """`scrub_agent_text`, then the masking of the space's team checks at its last commit
+    (`Checks.scrub`: personal data, `mask: yes`), whatever the night did: an agent may copy an
+    address it read into a summary or a title any night, not only when the maintenance gave it
+    personal data to fix. Cheap: the rules are cached by the file's hash, and a space without
+    masked rules keeps the plain cleaning."""
+    try:
+        checks = team_checks.load(ws.local_repository(space))
+    except Exception:  # noqa: BLE001 — the report still goes, cleaned as usual
+        log.warning("Night of %s: team checks unreadable, texts not masked", space.id)
+        return scrub_agent_text
+    if not any(rule.masked for rule in checks.rules):
+        return scrub_agent_text
+    return lambda text: checks.scrub(scrub_agent_text(text))
 
 
 def _problem(error: str | None, scrub: Scrub) -> Problem | None:
@@ -1063,7 +1079,7 @@ def finish(database: Database, ws: Workspace, night_id: UUID, public_url: str) -
             return night
         space = session.get(Space, night.space_id)
         assert space is not None
-        report = build(session, space, night, link)
+        report = build(session, space, night, link, space_scrub(ws, space))
         report = replace(report, checks=_checks(ws, space))
         settings = report_settings(session, space)
         sent: dict[str, object] = {"quiet": report.quiet}
@@ -1111,7 +1127,7 @@ def send_test(
     ).first()
     org = space.organization
     if last is not None:
-        report = build(session, space, last, public_url)
+        report = build(session, space, last, public_url, space_scrub(ws, space))
     else:
         report = Report(
             space.name,

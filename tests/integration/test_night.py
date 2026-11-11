@@ -23,6 +23,7 @@ from synaptane.core.access import OrgRole
 from synaptane.core.errors import SynaptaneError
 from synaptane.services import (
     deposits,
+    git_sync,
     night,
     organizations,
     routine_files,
@@ -754,3 +755,21 @@ def test_a_slow_provider_skips_nothing_and_its_address_is_for_the_admins(
     assert "10.1.2.3" in bodies["ada@example.com"]
     assert "10.1.2.3" not in bodies["alice@example.com"]
     assert "ne répond pas à temps" in bodies["alice@example.com"]
+
+
+def test_personal_data_in_an_agents_text_is_masked_in_the_report(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, smtp: Inbox
+) -> None:
+    """Masked with the space's rules every night it has some, not only the nights the
+    maintenance was given personal data: an agent may copy an address it read anywhere."""
+    configure_ai(db, ctx, wiki)
+    old_spaces(db, wiki)
+    wiki.remote.push({".synaptane/checks.md": "## No personal email\n- preset: email\n"})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    add_routine(db, database, ctx, wiki, "apres")
+    report_to_admins(db, ctx, wiki)
+    night.schedule(database, MONDAY_NIGHT)
+    run_night(database, ctx, wiki, NightModel(summary="Écrire à jean.dupont@gmail.com."))
+    [message] = smtp.messages
+    _, _, body = received(message)
+    assert "jean.dupont@gmail.com" not in body and "j•••@gmail.com" in body
