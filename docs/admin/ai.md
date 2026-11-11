@@ -874,7 +874,9 @@ REST) says, for the night:
 - the tidy-up: items filed and left, wiki problems fixed and left, its summary, or its failure
   with the cause;
 - each routine: its status, before or after the tidy-up, its summary, a link to its report
-  page, the items it dropped into the inbox, and a link to its log when it failed;
+  page, the items it dropped into the inbox, the pages it wrote in the
+  [folders it keeps](#folders-a-routine-keeps), whether its [memory](#memory) was updated, and
+  a link to its log when it failed;
 - what the [maintenance](#wiki-maintenance) did of the
   [team checks](../guide/wiki.md#team-checks) people broke: fixed, left, if any. Not every
   violation still in the wiki, the same every night: the **Health** tab lists those;

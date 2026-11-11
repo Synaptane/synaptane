@@ -95,9 +95,10 @@ at startup; nothing changes for a space until a routine joins its night or its r
   webhook** (incoming webhook, `{"text": …}` in mrkdwn, without link previews; Mattermost and
   other compatible tools work too). It gives the tidy-up (items filed and left, wiki problems
   fixed and left, or its failure and cause), each routine (status, summary, link to its report
-  page, items dropped, link to its log on failure), what the maintenance did of the team
-  checks people broke (fixed, left), the cost of the night and of the month, or the subscription's quota, and a link to the log. A
-  quiet night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
+  page, items dropped, pages written in its folders, memory updated, link to its log on
+  failure), what the maintenance did of the team checks people broke (fixed, left), the cost
+  of the night and of the month, or the subscription's quota, and a link to the log. A quiet
+  night (nothing filed, fixed or run, no failure) sends nothing, unless **Also send it
   when nothing happened** is ticked. **Send a test report**: the last night's report, marked as
   a test, by email to you only and to the Slack webhook (5 an hour at most per space). The
   webhook's address is a secret: encrypted in the database (`secrets`, bound to the space),

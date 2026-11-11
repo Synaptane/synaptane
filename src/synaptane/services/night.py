@@ -604,6 +604,8 @@ class RoutineLine:
     inbox: tuple[str, ...] = ()
     problem: Problem | None = None
     routine_id: str = ""
+    written: tuple[str, ...] = ()  # pages written in the folders it keeps (`outputs.written`)
+    memory: str = ""  # its memory: saved, cleared or changed (`outputs.memory`)
 
     @property
     def notable(self) -> bool:
@@ -741,6 +743,10 @@ def build(
         outputs = routine_run.outputs or {}
         found = outputs.get("inbox")
         titles: list[object] = found if isinstance(found, list) else []
+        kept = outputs.get("written")
+        pages = (
+            [p.get("path") for p in kept if isinstance(p, dict)] if isinstance(kept, list) else []
+        )
         lines.append(
             RoutineLine(
                 title,
@@ -752,6 +758,8 @@ def build(
                 tuple(_one_line(str(t), scrub, MAX_TITLE) for t in titles),
                 _problem(routine_run.error, scrub) if routine_run.status == "failed" else None,
                 str(step.get("routine_id") or ""),
+                tuple(_one_line(str(p), scrub, MAX_TITLE) for p in pages if p),
+                str(outputs.get("memory") or ""),
             )
         )
         if routine_run.cost is not None:
@@ -836,6 +844,12 @@ STATUSES = {
     "skipped": "not run",
 }
 PLACES = {"before": "before the tidy-up", "after": "after the tidy-up"}
+# What a routine did of its memory (`outputs.memory`).
+MEMORY = {
+    "saved": "Memory updated.",
+    "cleared": "Memory cleared by the routine.",
+    "changed": "Memory kept: changed by someone during the run.",
+}
 
 
 def _count(translate: Callable[..., str], key: str, n: int) -> str:
@@ -930,6 +944,15 @@ def _routine_lines(
                     "Dropped into the inbox ({n}): {titles}", n=len(line.inbox), titles=shown
                 )
             )
+        if line.written:
+            shown = quoted_names(translate, [safe(p) for p in line.written[:MAX_TITLES]])
+            if len(line.written) > MAX_TITLES:
+                shown += f" (+{len(line.written) - MAX_TITLES})"
+            out.append(
+                "  " + translate("Pages written ({n}): {pages}", n=len(line.written), pages=shown)
+            )
+        if line.memory in MEMORY:
+            out.append("  " + translate(MEMORY[line.memory]))
         if line.routine_id and (line.status == "failed" or line.reason in NOTABLE):
             out.append(
                 "  "

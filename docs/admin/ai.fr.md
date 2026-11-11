@@ -934,8 +934,9 @@ l'autre, et la nuit se termine par **un seul compte rendu**.
 - le rangement : éléments rangés et laissés, problèmes du wiki corrigés et laissés, son
   résumé, ou son échec avec la cause ;
 - chaque routine : son statut, avant ou après le rangement, son résumé, un lien vers sa page
-  de rapport, les éléments qu'elle a déposés dans l'inbox, et un lien vers son journal en cas
-  d'échec ;
+  de rapport, les éléments qu'elle a déposés dans l'inbox, les pages écrites dans ses
+  [dossiers tenus](#dossiers-tenus-par-une-routine), si sa [mémoire](#mémoire) a été mise à
+  jour, et un lien vers son journal en cas d'échec ;
 - ce que l'[entretien](#entretien-du-wiki) a fait des
   [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) enfreints par des
   personnes : corrigés, laissés, s'il y en a. Pas tous les écarts encore présents dans le wiki,

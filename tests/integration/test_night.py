@@ -42,6 +42,7 @@ from synaptane.storage.models import (
     NightRun,
     OrgAISettings,
     Routine,
+    RoutineRun,
     Secret,
     Space,
     TidyRun,
@@ -812,3 +813,44 @@ def test_the_report_tells_what_the_maintenance_did_of_the_team_checks(
     text = night.write(report, "en")
     assert "given to the maintenance: fixed 1, left 1." in text and "j•••@gmail.com" not in text
     assert night.night_event(report)["checks"] == {"fixed": 1, "left": 1}
+
+
+def test_the_report_names_the_pages_a_routine_wrote_and_its_memory(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    routine = add_routine(db, database, ctx, wiki, "veille", writes=["veille"], memory=True)
+    run = RoutineRun(
+        routine_id=routine.id,
+        space_id=wiki.infra.id,
+        name=routine.name,
+        trigger="night",
+        status="done",
+        summary="Veille à jour.",
+        outputs={
+            "written": [
+                {"path": "veille/s46.md", "change": "created"},
+                {"path": "veille/jean.dupont@gmail.com notes.md", "change": "modified"},
+            ],
+            "memory": "saved",
+        },
+    )
+    db.add(run)
+    db.flush()
+    step = {"kind": "routine", "when": "after", "name": "veille", "title": "Veille"}
+    done = NightRun(
+        space_id=wiki.infra.id,
+        day=MONDAY,
+        status="done",
+        steps=[{**step, "status": "done", "run_id": str(run.id), "routine_id": str(routine.id)}],
+        report={},
+    )
+    db.add(done)
+    db.commit()
+    wiki.remote.push({".synaptane/checks.md": "## No personal email\n- preset: email\n"})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    space = db.get(Space, wiki.infra.id)
+    assert space is not None
+    report = night.build(db, space, done, "https://b", night.space_scrub(ctx, space))
+    text = night.write(report, "en")
+    assert "Pages written (2): “veille/s46.md”, “veille/j•••@gmail.com notes.md”" in text
+    assert "Memory updated." in text and "jean.dupont" not in text

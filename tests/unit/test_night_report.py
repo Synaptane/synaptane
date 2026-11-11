@@ -177,6 +177,7 @@ def test_every_text_of_the_report_is_in_the_french_catalog() -> None:
         *night.REASONS.values(),
         *night.STATUSES.values(),
         *night.PLACES.values(),
+        *night.MEMORY.values(),
         *(form for pair in night.COUNTS.values() for form in pair),
     ]
     assert sorted(t for t in texts if t not in CATALOG) == []
@@ -200,3 +201,20 @@ def test_the_providers_address_is_for_the_admins_only() -> None:
     admins = night.write(report(routines=lines), "en", admin=True)
     assert "10.1.2.3" not in members and "does not answer in time" in members
     assert admins.count("10.1.2.3") == 2
+
+
+def test_a_routine_tells_the_pages_it_wrote_and_its_memory() -> None:
+    line = night.RoutineLine(
+        "Veille",
+        "after",
+        "done",
+        written=("veille/s46.md", "<!here> veille/README.md"),
+        memory="saved",
+    )
+    text = night.write(report(routines=(line,)), "en", night.SLACK_STYLE)
+    assert "Pages written (2): “veille/s46.md”, “&lt;!here&gt; veille/README.md”" in text
+    assert "Memory updated." in text
+    kept = night.write(
+        report(routines=(night.RoutineLine("V", "", "done", memory="changed"),)), "fr"
+    )
+    assert "Mémoire conservée : modifiée par quelqu'un" in kept.replace("\u00a0", " ")
