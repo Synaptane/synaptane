@@ -701,7 +701,9 @@ ajoute-la en tête de resumes/README.md.
   pas pour autant.
 - **Contrôlée comme toute écriture de Synaptane** : un secret probable ajouté dans une page
   est refusé, tout comme ce qui enfreint une règle `block` des contrôles de l'équipe
-  (`.synaptane/checks.md`).
+  (`.synaptane/checks.md`). Une règle `warn` n'arrête pas la routine : comme pour une
+  personne, ce qu'elle enfreint s'affiche dans **Santé**, et l'entretien de la nuit le corrige
+  si la règle est de celles qu'il corrige (données personnelles, `fix: yes`).
 - **Les dossiers** : 5 au plus, relatifs au wiki (`content/resumes` se lit `resumes`). Jamais
   tout le wiki, un dossier caché (`.synaptane`, `.git`), un chemin qui remonte (`..`) ni un
   chemin absolu : sinon le fichier est invalide, et le formulaire ou l'API le refusent. Un
@@ -710,16 +712,17 @@ ajoute-la en tête de resumes/README.md.
   ni de webhook.
 - **Périmètre et dossiers tenus** : la routine lit ses dossiers même hors de son périmètre. Le
   périmètre dit ce qu'elle relit ; `writes`, ce qu'elle tient.
-- **Un seul commit par passage** : les pages écrites partent avec le rapport et les éléments
-  d'inbox, au nom de la routine. Une page modifiée par quelqu'un pendant le passage est
-  fusionnée avec sa modification ; en cas de conflit, sa version est gardée et le journal le
-  dit. Un passage interrompu ne publie rien.
+- **Un seul commit par passage** : les pages écrites partent avec le rapport, les éléments
+  d'inbox et la [mémoire](#mémoire) si elle en garde une, au nom de la routine. Une page
+  modifiée par quelqu'un pendant le passage est fusionnée avec sa modification ; en cas de
+  conflit, sa version est gardée et le journal le dit. Un passage interrompu ne publie rien.
 - **Ensuite** : ces pages n'arrivent pas au rangement comme des modifications à examiner (les
   dossiers sont ceux de la routine : le rangement ne les réécrit pas dans son dos).
   L'[entretien de la nuit](#entretien-du-wiki), lui, les lit comme la modification d'une
-  personne : un lien cassé qu'elles apportent, ou une nouvelle page absente de l'index de son
-  dossier, est corrigé. La page de rapport reste en dehors, comme avant : elle est réécrite à
-  chaque passage.
+  personne : un lien cassé qu'elles apportent, une nouvelle page absente de l'index de son
+  dossier, ou une donnée personnelle qui y est écrite (un contrôle de l'équipe qu'il corrige),
+  est corrigé. La page de rapport reste en dehors, comme avant (elle est réécrite à chaque
+  passage), tout comme la mémoire, qui n'est pas une page du wiki.
 - **Journal** : la page de la routine, son e-mail, le webhook `routine.done` (`written`) et
   l'API REST (`outputs.written` d'un passage) listent les pages écrites : chemin et nature
   (créée, modifiée, déplacée, supprimée).
@@ -743,8 +746,8 @@ qu'elle suit, les décisions notées, ce qui reste à surveiller.
 - **Désactivée par défaut** : la mémoire est relue à chaque passage, elle coûte donc des
   jetons à chaque fois (quelques milliers de caractères au plus). Une routine existante ne
   change pas de comportement tant que vous ne l'activez pas. Le modèle **Contrôle de
-  cohérence** garde une mémoire ; le **Résumé hebdomadaire** non (l'historique de la semaine
-  lui suffit).
+  cohérence** garde une mémoire ; le **Résumé hebdomadaire** et l'**Archive des résumés** non
+  (l'historique de la semaine leur suffit).
 - **En lecture** : au début du passage, l'agent reçoit la mémoire telle qu'elle est au commit
   que lit le passage, 4 000 caractères au plus (un fichier plus long, modifié à la main, est
   coupé, et l'agent en est averti). Comme les pages, elle lui est donnée comme une donnée,
@@ -756,8 +759,9 @@ qu'elle suit, les décisions notées, ce qui reste à surveiller.
   [contrôles de l'équipe](../guide/wiki.fr.md#contrôles-de-léquipe) portant sur le texte de
   toutes les pages (un motif, les adresses e-mail…) ; les règles limitées à des dossiers ou à
   un champ d'en-tête concernent les pages et ne s'appliquent pas. La mémoire entre dans le
-  commit unique du passage, avec le rapport et les éléments d'inbox : **un passage interrompu
-  la laisse telle quelle**.
+  commit unique du passage, avec le rapport, les éléments d'inbox et les pages écrites dans les
+  [dossiers tenus](#dossiers-tenus-par-une-routine) : **un passage interrompu la laisse telle
+  quelle**, et n'en publie aucun.
 - **Modifiée pendant le passage** (un push, un administrateur qui la vide) : cette
   modification l'emporte, et la version du passage est abandonnée (le journal indique
   « Mémoire conservée »). L'agent n'a pas vu cette modification, et une mémoire vidée parce

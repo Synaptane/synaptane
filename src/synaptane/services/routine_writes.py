@@ -24,7 +24,8 @@ interrupted run publishes nothing.
 Those commits carry the trailers `Source: routine-pages` and
 `Via: {"folders": ["folder", …], "report": "page"}`: the nightly maintenance reads the pages
 of these folders like a person's change (broken links, pages missing from their folder's
-index), except the report page, while Synaptane's other commits stay out of it
+index, the team checks it fixes, such as personal data a `warn` rule let through), except
+the report page, while Synaptane's other commits stay out of it
 (`maintenance.window`). They are not reviewed by the tidy-up as changes (`services.changes`):
 the folders belong to the routine, the tidy-up does not rewrite them behind its back.
 """

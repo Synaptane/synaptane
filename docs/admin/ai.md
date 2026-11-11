@@ -657,7 +657,10 @@ top of digests/README.md.
   links of a page outside them (the routine's report page aside). The agent gets the refusal
   as a tool error, with the reason, and goes on: the run does not fail for it.
 - **Checked like every write by Synaptane**: a likely secret added to a page is refused, and
-  so is a violation of a `block` rule of the team's checks (`.synaptane/checks.md`).
+  so is a violation of a `block` rule of the team's checks (`.synaptane/checks.md`). A `warn`
+  rule does not stop the routine: like a person's, what it breaks is shown in **Health**,
+  and the nightly maintenance fixes it when the rule is one it fixes (personal data,
+  `fix: yes`).
 - **The folders**: 5 at most, relative to the wiki (`content/digests` is read as `digests`).
   Never the whole wiki, a hidden folder (`.synaptane`, `.git`), a path going up (`..`) or an
   absolute path: the file is invalid otherwise, and the form or the API refuses it. A folder
@@ -665,14 +668,16 @@ top of digests/README.md.
   pages needs no report, inbox, email or webhook.
 - **Scope and folders**: the routine reads its folders even outside its scope. The scope says
   what it reviews; `writes`, what it keeps.
-- **One commit per run**: the pages written go with the report and the inbox items, in the
-  routine's name. A page someone changed during the run is merged with their change; on a
-  conflict, their version is kept and the log says so. An interrupted run publishes nothing.
+- **One commit per run**: the pages written go with the report, the inbox items and the
+  [memory](#memory) if it keeps one, in the routine's name. A page someone changed during the
+  run is merged with their change; on a conflict, their version is kept and the log says so.
+  An interrupted run publishes nothing.
 - **Afterwards**: these pages do not come to the tidy-up as changes to review (the folders
   are the routine's: the tidy-up does not rewrite them behind its back). The
   [nightly maintenance](#wiki-maintenance) does read them like a person's change: a broken
-  link they bring, or a new page missing from its folder's index, gets fixed. The report page
-  stays out of it, as before: it is rewritten at every run.
+  link they bring, a new page missing from its folder's index, or personal data written there
+  (a team check it fixes), gets fixed. The report page stays out of it, as before (it is
+  rewritten at every run), and so does the memory, which is not a page of the wiki.
 - **Log**: the routine's page, its email, the `routine.done` webhook (`written`) and the REST
   API (`outputs.written` of a run) list the pages written: path and change (created,
   modified, moved, deleted).
@@ -696,7 +701,7 @@ remains to watch.
 - **Off by default**: the memory is read again at every run, so it costs tokens every time
   (a few thousand characters at most). An existing routine does not change behavior until
   you turn it on. The **Consistency check** template keeps a memory; the **Weekly digest**
-  does not (the week's history is all it needs).
+  and the **Digest archive** do not (the week's history is all they need).
 - **Reading**: at the start of the run, the agent receives the memory as it is at the commit
   the run reads, 4,000 characters at most (a longer file, edited by hand, is cut and the
   agent is told). Like the pages, it is given as data, never as instructions: it changes
@@ -706,7 +711,9 @@ remains to watch.
   text that breaks a `block` rule of the [team checks](../guide/wiki.md#team-checks) on the
   text of every page (a pattern, email addresses…); rules restricted to folders or to a
   front matter field are about pages and do not apply. The memory goes in the run's single
-  commit, with the report and the inbox items: **an interrupted run leaves it as it was**.
+  commit, with the report, the inbox items and the pages written in the
+  [folders it keeps](#folders-a-routine-keeps): **an interrupted run leaves it as it was**,
+  and publishes none of them.
 - **Changed during the run** (a push, an administrator clearing it): that change wins, and
   the run's version is dropped (the log says "Memory kept"). The agent never saw that
   change, and a memory cleared because it held something wrong must not come back with a run
