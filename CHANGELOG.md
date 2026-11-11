@@ -10,6 +10,16 @@ of the target version.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-11
+
+A routine can read an outside service over HTTP: a status page, a ticket tool, another tool's
+API. The organization's administrators declare these sources in a space, with their secret;
+a routine's file only names the ones it uses, the agent only reads (GET) under the declared
+address, and the model never sees the secret. Upgrading from 1.17.0: one migration
+(`0037`), applied at startup; nothing changes until a source is declared, and
+`SYNAPTANE_ROUTINE_SOURCES=false` turns the feature off for the whole instance. Back up
+first: going back to 1.17.0 then means restoring that backup.
+
 ### Added
 - **A routine can read an outside service over HTTP**: a status page, a ticket tool, the API
   of another tool. The organization's administrators declare these **external sources** in a
@@ -1400,7 +1410,8 @@ First public release.
   basis by one person. The REST API, MCP tools and configuration may still change.
 - See [Known limitations](README.md#known-limitations) in the README.
 
-[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/synaptane/synaptane/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/synaptane/synaptane/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/synaptane/synaptane/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/synaptane/synaptane/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/synaptane/synaptane/compare/v1.15.0...v1.16.0
