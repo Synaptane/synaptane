@@ -574,6 +574,7 @@ email: admins
 webhook: false
 enabled: true
 template: coherence
+memory: true
 ---
 Read the pages changed since the last run…
 ```
@@ -590,6 +591,7 @@ Read the pages changed since the last run…
 | `webhook` | `true`: the `routine.done` webhook |
 | `enabled` | `false`: the routine does not run on schedule (default `true`) |
 | `template` | Original template (`coherence`, `digest`), set by Synaptane |
+| `memory` | `true`: the routine keeps notes from one run to the next (see [Memory](#memory)); default `false` |
 
 The name of the routine is the name of the file: lowercase letters, digits and dashes, 40
 characters at most. A routine created from a template always gets the same name, whatever the
@@ -618,6 +620,49 @@ administrators write these files: pages, notes, imports, captured emails and ass
 (MCP, REST) write in `content/` and in the inbox only. A routine stays bound by its safeguards
 whoever wrote it: it writes nowhere except its outputs, within the budget.
 
+### Memory
+
+On its own, a routine starts every run afresh: it knows the activity since its last run and
+its instructions, nothing more. With `memory: true` in its file (the **Keep notes from one
+run to the next** box of the form), it also keeps a **memory**: what it wants its next runs to
+know, such as the topics already reported, the pages it follows, the decisions noted, what
+remains to watch.
+
+- **Where**: `.synaptane/memory/<name>.md`, next to the other files of `.synaptane/`, under
+  the routine's name. A file of the repository, versioned and visible to the team: its
+  history says what the routine noted and when, and anyone who can push can correct it or
+  delete it. A run never rewrites the routine's own file.
+- **Off by default**: the memory is read again at every run, so it costs tokens every time
+  (a few thousand characters at most). An existing routine does not change behavior until
+  you turn it on. The **Consistency check** template keeps a memory; the **Weekly digest**
+  does not (the week's history is all it needs).
+- **Reading**: at the start of the run, the agent receives the memory as it is at the commit
+  the run reads, 4,000 characters at most (a longer file, edited by hand, is cut and the
+  agent is told). Like the pages, it is given as data, never as instructions: it changes
+  neither the routine's instructions, nor its tools, nor its scope.
+- **Writing**: the agent rewrites it in full with the `remember` tool, 4,000 characters at
+  most: a summary, not a log that grows without end. A likely secret is refused, and so is
+  text that breaks a `block` rule of the [team checks](../guide/wiki.md#team-checks) on the
+  text of every page (a pattern, email addresses…); rules restricted to folders or to a
+  front matter field are about pages and do not apply. The memory goes in the run's single
+  commit, with the report and the inbox items: **an interrupted run leaves it as it was**.
+- **Changed during the run** (a push, an administrator clearing it): that change wins, and
+  the run's version is dropped (the log says "Memory kept"). The agent never saw that
+  change, and a memory cleared because it held something wrong must not come back with a run
+  that started before. A push is seen only once Synaptane has synchronized it: if it arrives
+  after the end of the run, the two versions of the memory are in
+  [conflict](git.md#conflicts), and an administrator chooses the one to keep.
+- **Rights**: only the routine's runs write it from Synaptane; no other write path reaches
+  `.synaptane/`. Contributors read it on the routine's page and in the REST API
+  (`GET …/routines/{id}/memory`); organization administrators also **clear** it (a commit in
+  their name; REST: `DELETE …/routines/{id}/memory`).
+- **Renamed or removed routine**: deleting a routine from Synaptane removes its memory in the
+  same commit. A routine removed or renamed by a push loses its memory at the next
+  synchronization (a commit `Synaptane: memories of removed routines deleted`), so that a new
+  routine of the same name never inherits notes written for another one; to keep it when
+  renaming, move it as well (`git mv .synaptane/memory/old.md .synaptane/memory/new.md`). The
+  history keeps the notes in any case.
+
 ### Built-in templates
 
 Added in one click (**Enable**), or after adjusting them (**Customize first**):
@@ -630,7 +675,9 @@ Added in one click (**Enable**), or after adjusting them (**Customize first**):
   pages with very similar content among the first 20 pages to reread (possible duplicates,
   which it checks by reading them). Output: the `reports/consistency.md` page and one inbox
   item per problem to fix, with the pages and excerpts concerned. It does not drop again a
-  problem already dropped and not yet filed.
+  problem already dropped and not yet filed. It keeps a [memory](#memory): the problems
+  reported (so as not to report them again as new while their pages stay the same), the
+  doubts to check again, and, in a quiet week, the old pages already reread.
 
   **A false alarm does not come back.** When an item a routine dropped leaves the inbox, what
   became of it is remembered, bound to the pages concerned as they were then:
@@ -664,8 +711,10 @@ regenerated welcome FAQ…).
   purpose) is presented to it as data, never as instructions, between tags that text cannot
   close. The routine's instructions come from an administrator and remain subject to these
   rules.
-- A probable secret (password, key, token) in the output text or an item is refused to the
-  agent, which must remove it.
+- A probable secret (password, key, token) in the output text, an item or the memory is
+  refused to the agent, which must remove it.
+- **Memory**: anyone who can push can edit a routine's memory; the agent reads it as data,
+  like the pages, and it grants no right (see [Memory](#memory)).
 - **Space purpose**: if the repository contains `.synaptane/vocation.md`, the agent gets it
   in its context, to judge what is on topic.
 - **Language**: as for tidy-up, the agent's instructions are in English; it writes the output
@@ -689,9 +738,9 @@ regenerated welcome FAQ…).
   queue, without an alert; a subscription's quota is read as for tidy-up (`quota_high`
   alert above 90%).
 - **Log** (the routine's page): summary, outputs (page rewritten, items dropped, emails
-  sent, webhook), output text, model, tokens, estimated cost or quota, and for a failure,
+  sent, webhook, memory updated or kept), output text, model, tokens, estimated cost or quota, and for a failure,
   the translated cause (technical details for administrators).
-- A routine's commit (report page and inbox items together) is made under the name
+- A routine's commit (report page, inbox items and memory together) is made under the name
   `Synaptane routine (<title>)`, subject `Routine "<title>": …`: it does not show up as a change
   for tidy-up to examine (nor do those of older versions, named `Synaptane – routine`).
   Runs of a deleted routine still count toward the month's budget.

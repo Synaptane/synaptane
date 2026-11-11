@@ -53,6 +53,12 @@
     <label class="checkbox"><input type="checkbox" name="output_webhook" value="true" {% if draft.output_webhook %}checked{% endif %}>{{ _("Send the routine.done webhook (organization webhooks)") }}</label>
   </fieldset>
 
+  <fieldset class="settings-group">
+    <legend>{{ _("Memory") }}</legend>
+    <label class="checkbox"><input type="checkbox" name="memory" value="true" {% if draft.memory %}checked{% endif %} aria-describedby="routine-memory-help">{{ _("Keep notes from one run to the next") }}</label>
+    <p class="muted" id="routine-memory-help">{{ _("The routine notes what its next runs should know (topics already reported, pages to follow), in .synaptane/memory/<name>.md: a short text, read again at every run, which costs a few tokens.") }}</p>
+  </fieldset>
+
   <div class="settings-group">
     <label class="checkbox"><input type="checkbox" name="enabled" value="true" {% if draft.enabled %}checked{% endif %}>{{ _("Enabled: runs on schedule") }}</label>
   </div>

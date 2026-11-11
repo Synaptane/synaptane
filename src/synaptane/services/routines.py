@@ -76,6 +76,7 @@ class Template:
     output_inbox: bool = False
     output_email: str = ""
     output_webhook: bool = False
+    memory: bool = False  # keeps notes from one run to the next (`services.routine_memory`)
 
     def text_for(self, locale: str) -> Text:
         """Instructions and report page in a language; English for any language missing."""
@@ -137,7 +138,13 @@ health points most worth fixing. If all is well, say so in one sentence.
 For each problem that requires a fix in the wiki, deposit an item in the inbox
 (add_to_inbox): what is wrong, the pages and excerpts concerned, and the fix suggested. The
 nightly tidy-up will process it. No item for a mere doubt (mention it in the report), nor for
-a problem already deposited by this routine and not filed yet."""),
+a problem already deposited by this routine and not filed yet.
+
+Memory (given as input, if the routine keeps one): do not report again, as new, a problem
+already reported at an earlier run whose pages have not changed since; say in one line that it
+is still there. Before finish, rewrite the memory with remember: the problems reported (date,
+pages, item deposited or not), the doubts to check again at the next run, and, in a quiet week,
+the old pages already reread, so as to reread others next time. Drop what has been fixed."""),
             "reports/consistency.md",
         ),
         "fr": Text(
@@ -163,7 +170,14 @@ phrase.
 Pour chaque problème qui demande une correction dans le wiki, dépose un élément dans l'inbox
 (add_to_inbox) : ce qui ne va pas, les pages et extraits concernés, et la correction proposée.
 Le rangement de la nuit le traitera. Pas d'élément pour un simple doute (mentionne-le dans le
-rapport), ni pour un problème déjà déposé par cette routine et pas encore rangé."""),
+rapport), ni pour un problème déjà déposé par cette routine et pas encore rangé.
+
+Mémoire (donnée en entrée, si la routine en garde une) : ne présente pas comme nouveau un
+problème déjà signalé lors d'un passage précédent, si ses pages n'ont pas changé depuis ; dis
+en une ligne qu'il est toujours là. Avant finish, réécris la mémoire avec
+remember : les problèmes signalés (date, pages, élément déposé ou non), les doutes à revérifier
+au prochain passage et, une semaine calme, les pages anciennes déjà relues, pour en relire
+d'autres la fois suivante. Retire ce qui a été corrigé."""),
             "rapports/coherence.md",
         ),
     },
@@ -171,6 +185,7 @@ rapport), ni pour un problème déjà déposé par cette routine et pas encore r
     weekday=0,
     at="06:00",
     output_inbox=True,
+    memory=True,
 )
 
 DIGEST = Template(
@@ -237,6 +252,7 @@ def from_template(key: str, locale: str) -> Config:
             output_inbox=model.output_inbox,
             output_email=model.output_email,
             output_webhook=model.output_webhook,
+            memory=model.memory,
         ),
     )
     return config
@@ -370,8 +386,8 @@ def delete(
     base_sha: str | None = None,
     source: str = "web",
 ) -> None:
-    """Removes the routine's file. Its runs stay in the log (and in the month's budget); the
-    report page stays in the wiki, like any page."""
+    """Removes the routine's file, and its memory in the same commit. Its runs stay in the
+    log (and in the month's budget); the report page stays in the wiki, like any page."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
     title = routine.title
     save(session, database, actor, ws, space, routine.name, None, base_sha=base_sha, source=source)

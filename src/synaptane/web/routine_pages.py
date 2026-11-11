@@ -1,5 +1,6 @@
 """Agent routines in a space's settings: list, adding from a template or blank, editing,
-enabling, running, deleting, and the run journal.
+enabling, running, deleting, the run journal, and the routine's memory (shown to whoever sees
+the routine, cleared by the admins).
 
 The organization's admins manage them; contributors see the routines and their journal (the
 cause of a failure, translated by `tidy_journal.explain`, without the technical detail). After
@@ -15,7 +16,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from synaptane.core.access import Action, can
 from synaptane.core.errors import ErrorCode, SynaptaneError, forbidden, invalid
-from synaptane.services import Actor, ai_settings, budget, routine_files, routines, tidy_journal
+from synaptane.services import (
+    Actor,
+    ai_settings,
+    budget,
+    routine_files,
+    routine_memory,
+    routines,
+    tidy_journal,
+)
 from synaptane.storage.models import Routine, RoutineRun, Space
 from synaptane.web.pages import (
     ERROR_STATUS,
@@ -65,9 +74,10 @@ class Draft:
     name: str = ""  # file name; empty on creation: made from the title
     description: str = ""
     base_sha: str = ""  # hash of the file when the form was opened
+    memory: bool = False  # in the file only (`routine_files.memory_enabled`)
 
     @classmethod
-    def of(cls, routine: Routine) -> "Draft":
+    def of(cls, routine: Routine, memory: bool = False) -> "Draft":
         return cls(
             routine.title,
             routine.instructions,
@@ -85,6 +95,7 @@ class Draft:
             routine.name,
             routine.description,
             routine.sha or "",
+            memory,
         )
 
     @classmethod
@@ -108,6 +119,7 @@ class Draft:
             config.output_webhook,
             True,
             key,
+            memory=bool(config.memory),
         )
 
     def fields(self) -> routines.Fields:
@@ -125,6 +137,7 @@ class Draft:
             output_email=self.output_email,
             output_webhook=self.output_webhook,
             enabled=self.enabled,
+            memory=self.memory,
         )
 
 
@@ -152,6 +165,7 @@ def posted(
     name: Annotated[str, Form()] = "",
     description: Annotated[str, Form()] = "",
     base_sha: Annotated[str, Form()] = "",
+    memory: Annotated[bool, Form()] = False,
 ) -> Draft:
     """A routine's form (FastAPI dependency)."""
     return Draft(
@@ -171,6 +185,7 @@ def posted(
         name,
         description,
         base_sha,
+        memory,
     )
 
 
@@ -350,6 +365,7 @@ def routine_page(page: WebPage, org_slug: str, space_slug: str, routine_id: UUID
         runs=_views(page, space, runs),
         version=_version(routine, runs),
         poll=routine.requested is not None or bool(runs and runs[0].status == "running"),
+        memory=routine_memory.view(page.db, actor, page.workspace, space, routine),
         **_common(page, space),
     )
 
@@ -359,7 +375,8 @@ def routine_edit_page(page: WebPage, org_slug: str, space_slug: str, routine_id:
     actor = page.user_actor()
     space = find_space(page, actor, org_slug, space_slug)
     routine = routines.get(page.db, actor, space, routine_id)
-    return _form(page, actor, space, routine, Draft.of(routine))
+    memory = routine_files.memory_enabled(page.workspace, space, routine.name)
+    return _form(page, actor, space, routine, Draft.of(routine, memory))
 
 
 @router.post(BASE + "/{routine_id}")
@@ -452,6 +469,24 @@ def routine_delete(
         page.db.rollback()
         return failure(target, page, error)
     return redirect(_url(space), page, "Routine deleted.")
+
+
+@router.post(BASE + "/{routine_id}/memory/clear")
+def routine_memory_clear(
+    page: WebPage, org_slug: str, space_slug: str, routine_id: UUID, csrf: Csrf
+) -> Response:
+    actor = page.check_csrf(csrf)
+    space = find_space(page, actor, org_slug, space_slug)
+    routine = routines.get(page.db, actor, space, routine_id)
+    target = _url(space, routine)
+    try:
+        cleared = routine_memory.clear(
+            page.db, page.database, actor, page.workspace, space, routine
+        )
+    except SynaptaneError as error:
+        page.db.rollback()
+        return failure(target, page, error)
+    return redirect(target, page, "Memory cleared." if cleared else "The memory was already empty.")
 
 
 @router.get(BASE + "/{routine_id}/state")

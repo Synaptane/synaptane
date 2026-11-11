@@ -343,6 +343,7 @@ ACTIONS: dict[str, Kind] = {
     "routine.created": Kind("settings", Label("Routine created"), ("routine", "routine_template")),
     "routine.updated": Kind("settings", Label("Routine changed"), ("routine",)),
     "routine.deleted": Kind("settings", Label("Routine deleted"), ("routine",)),
+    "routine.memory_cleared": Kind("settings", Label("Routine memory cleared"), ("routine",)),
     "sso.provider_saved": Kind(
         "settings", Label("SSO provider saved"), ("sso", "auto_create", "domains")
     ),

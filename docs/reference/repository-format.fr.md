@@ -18,6 +18,7 @@ content/                          visible : wiki, recherche, MCP
   prompts/<nom>.md                prompts d'équipe pour les assistants (facultatif)
   checks.md                       contrôles de l'équipe : règles que chaque page doit suivre (facultatif)
   routines/<nom>.md               routines d'agent de l'espace (facultatif)
+  memory/<nom>.md                 ce qu'une routine retient d'un passage à l'autre (facultatif)
   inbox/
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a.md   une note
     2026-10-03T14-12-05Z-note-politique-mots-de-passe-wifi-3f2a/     ses pièces jointes éventuelles
@@ -190,15 +191,27 @@ Champs : `title`, `description`, `schedule` (`daily 02:30`, `weekly monday 06:00
 `monthly 1 06:00` ; le français est lu aussi, comme `hebdo lundi 06:00`, et Synaptane réécrit
 en anglais), `scope` (dossiers séparés par des virgules, liste JSON ou un par ligne
 `- dossier`), `report`, `inbox`, `email` (`admins`, `members`, `none`), `webhook`, `enabled`,
-`template`. Les valeurs sont du texte simple ou du JSON. Un champ inconnu est signalé et
-ignoré ; un fichier invalide ne tourne pas, et son erreur s'affiche dans Paramètres → Routines
-et dans l'API REST.
+`template`, `memory` (`true` : la routine garde une mémoire, voir plus bas). Les valeurs sont
+du texte simple ou du JSON. Un champ inconnu est signalé et ignoré ; un fichier invalide ne
+tourne pas, et son erreur s'affiche dans Paramètres → Routines et dans l'API REST.
 
 Écrites dans **Paramètres → Routines** (administrateurs de l'organisation : un commit à leur
 nom) ou par un push : quiconque peut pousser peut les modifier. Lues à chaque
 synchronisation ; l'état des passages (dernier passage, passage demandé) reste en base, si bien
 qu'un fichier modifié ne relance jamais une routine. Voir
 [Routines d'agent](../admin/ai.fr.md#routines-dagent-par-espace).
+
+## `.synaptane/memory/<nom>.md`
+
+La **mémoire** de la routine `<nom>`, quand son fichier indique `memory: true` : du Markdown
+libre, 4 000 caractères au plus, que la routine réécrit en entier à la fin d'un passage et
+relit au début du suivant (sujets déjà signalés, pages suivies, ce qui reste à surveiller).
+Elle entre dans le commit du passage ; un passage interrompu la laisse telle quelle, et une
+mémoire modifiée pendant un passage (un push déjà synchronisé, un administrateur qui la vide)
+garde cette modification. Quiconque peut pousser peut la corriger ou l'effacer ; la routine la lit comme
+une donnée, jamais comme une consigne. Elle est retirée avec sa routine depuis Synaptane, et à
+la synchronisation suivante quand un push supprime ou renomme la routine sans déplacer sa
+mémoire. Voir [Mémoire](../admin/ai.fr.md#mémoire).
 
 ## `.synaptane/inbox/`
 
@@ -254,11 +267,13 @@ elles sont calculées depuis l'historique Git depuis le dernier rangement.
   dans les historiques plus anciens), sujet `Tidy-up: …` : un commit par passage. Ses commits,
   comme les fusions de Synaptane et les fichiers initiaux, ne sont jamais signalés à l'inbox
   comme des modifications.
-- Une routine commite sa page de rapport et ses éléments d'inbox au nom de
+- Une routine commite sa page de rapport, ses éléments d'inbox et sa mémoire au nom de
   `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …` (`Synaptane – routine` dans les
   historiques plus anciens).
 - Une routine enregistrée depuis Synaptane : `Routine updated: <nom>` ou
-  `Routine removed: <nom>`, au nom de l'administrateur. Les routines gardées en base par les
+  `Routine removed: <nom>` (avec sa mémoire), au nom de l'administrateur ; une mémoire vidée :
+  `Routine memory cleared: <nom>`. Les mémoires des routines supprimées par un push :
+  `Synaptane: memories of removed routines deleted`. Les routines gardées en base par les
   versions précédentes sont écrites par `Synaptane: routines written to the repository`, à la
   première synchronisation après la mise à jour.
 - Les commits de Synaptane lui-même ont des sujets en anglais : `Inbox: <titre>` (une note
