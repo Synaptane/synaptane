@@ -1130,7 +1130,10 @@ def deliver_slack(
         status = f"network error: {type(failure).__name__}"
         error = webhooks.DeliveryError("Receiver unreachable.", transient=True)
     except webhooks.DeliveryError as failure:
-        status, error = str(failure), failure
+        # The host or the address it names stays in the task's error (administrators): the
+        # night's log is seen by every reader of the space.
+        status = "Receiver unreachable." if failure.transient else "Internal address refused."
+        error = failure
     night_id = payload.get("night")
     if night_id:
         with database.session() as session:

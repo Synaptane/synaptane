@@ -30,6 +30,7 @@ from synaptane.services import (
     secrets,
     tidy,
     tidy_commit,
+    webhooks,
 )
 from synaptane.services.workspace import Workspace
 from synaptane.storage.db import Database
@@ -658,3 +659,26 @@ def test_the_test_report_cannot_flood_a_channel(
     assert other is not None
     night.update_report(db, wiki.root, ctx.box, other, webhook_url=HOOK)
     assert night.send_test(db, wiki.root, ctx, other, "https://b") == (False, True)
+
+
+def test_a_refused_webhook_address_stays_out_of_the_nights_log(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Readers of the space see the night's log: the address refused is only in the task's
+    error, for the administrators."""
+    configure_ai(db, ctx, wiki)
+    old_spaces(db, wiki)
+    add_routine(db, database, ctx, wiki, "apres")
+    space = db.get(Space, wiki.infra.id)
+    assert space is not None
+    night.update_report(db, wiki.root, ctx.box, space, webhook_url="https://127.0.0.1:9/hook")
+    db.commit()
+    night.schedule(database, MONDAY_NIGHT)
+    run_night(database, ctx, wiki, NightModel())
+    db.expire_all()
+    [job] = db.scalars(select(Job).where(Job.kind == night.SLACK))
+    with pytest.raises(webhooks.DeliveryError, match=r"127\.0\.0\.1"):
+        night.deliver_slack(database, ctx.box, job.payload)
+    db.expire_all()
+    slack = str(nights_of(db, wiki)[0].report["slack"])
+    assert slack == "Internal address refused." and "127.0.0.1" not in slack
