@@ -945,6 +945,11 @@ def _save_pending(
 ) -> None:
     """The routine of a space not synced yet, kept in the database until its first
     synchronization writes it (`synchronize`)."""
+    if config is not None and config.writes is None:
+        # A copy made from the database: a routine not written yet has no folders. Checked
+        # again as a whole, as `save` does once the folders are known (at least one output).
+        config.writes = []
+        apply(config, Fields())
     if config is not None and config.writes:
         # The database keeps no copy of them: they would be lost before the first write.
         raise invalid(

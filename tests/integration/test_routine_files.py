@@ -289,6 +289,18 @@ def test_a_routine_created_before_the_first_sync_is_written_by_it(
         db, database, wiki.root, ctx, space, routine, routines.Fields(at="17:00")
     )
     assert routine.sha is None and routine.at == "17:00"
+    # Waiting, it has no folders: its only outputs gone, it has none (checked as a whole).
+    with pytest.raises(SynaptaneError, match="at least one output"):
+        routines.update(
+            db,
+            database,
+            wiki.root,
+            ctx,
+            space,
+            routine,
+            routines.Fields(output_page="", output_email=""),
+        )
+    db.rollback()
     sync(database, ctx, space.id)
     text = remote.read(".synaptane/routines/weekly-digest.md") or ""
     assert "schedule: weekly friday 17:00" in text and "template: digest" in text

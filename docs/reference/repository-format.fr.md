@@ -258,8 +258,9 @@ elles sont calculées depuis l'historique Git depuis le dernier rangement.
   dossiers au nom de `Synaptane routine (<titre>)`, sujet `Routine "<titre>": …`
   (`Synaptane – routine` dans les historiques plus anciens). Quand elle a écrit des pages dans
   ses dossiers, le message se termine par les trailers `Source: routine-pages` et
-  `Via: ["<dossier>", …]` : l'entretien de la nuit lit ces pages comme la modification d'une
-  personne.
+  `Via: {"folders": ["<dossier>", …], "report": "<page>"}` (`report` si elle a une page de
+  rapport) : l'entretien de la nuit lit les pages de ces dossiers comme la modification d'une
+  personne, sa page de rapport mise à part.
 - Une routine enregistrée depuis Synaptane : `Routine updated: <nom>` ou
   `Routine removed: <nom>`, au nom de l'administrateur. Les routines gardées en base par les
   versions précédentes sont écrites par `Synaptane: routines written to the repository`, à la

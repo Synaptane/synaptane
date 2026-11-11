@@ -1134,7 +1134,7 @@ def execute(
         title = f'Routine "{spec.name}": {", ".join(parts or ["no change"])}'
         message = f"{title}\n\n{outcome.summary}"
         if outcome.written:  # read by the nightly maintenance (`routine_writes`)
-            message += routine_writes.commit_trailers(spec.writes)
+            message += routine_writes.commit_trailers(spec.writes, spec.output_page)
         outcome.commit = repo.commit_changes(files, author, message)
     return outcome
 

@@ -21,15 +21,17 @@ inbox items, in the routine's single commit (`routine_agent.execute`): a page a 
 meanwhile is merged (`tidy_commit.merge`), the person's version kept on a conflict. An
 interrupted run publishes nothing.
 
-Those commits carry the trailers `Source: routine-pages` and `Via: ["folder", …]`: the
-nightly maintenance reads the pages of these folders like a person's change (broken links,
-pages missing from their folder's index), while Synaptane's other commits stay out of it
+Those commits carry the trailers `Source: routine-pages` and
+`Via: {"folders": ["folder", …], "report": "page"}`: the nightly maintenance reads the pages
+of these folders like a person's change (broken links, pages missing from their folder's
+index), except the report page, while Synaptane's other commits stay out of it
 (`maintenance.window`). They are not reviewed by the tidy-up as changes (`services.changes`):
 the folders belong to the routine, the tidy-up does not rewrite them behind its back.
 """
 
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from synaptane.ai.base import ToolSpec
@@ -99,24 +101,46 @@ def owns(folders: tuple[str, ...], relative: str) -> bool:
     return any(relative.startswith(f + "/") for f in folders)
 
 
-def commit_trailers(folders: tuple[str, ...]) -> str:
-    """End of the commit message of a run that wrote pages (read by the maintenance)."""
-    return trailers(SOURCE, json.dumps(list(folders), ensure_ascii=False))
+def commit_trailers(folders: tuple[str, ...], report: str = "") -> str:
+    """End of the commit message of a run that wrote pages (read by the maintenance): its
+    folders, and its report page, which may lie in one of them but is not one of its pages."""
+    via: dict[str, object] = {"folders": list(folders)}
+    if report:
+        via["report"] = report
+    return trailers(SOURCE, json.dumps(via, ensure_ascii=False))
 
 
-def kept_folders(source: str, via: str) -> tuple[str, ...] | None:
-    """The folders named by a routine commit's trailers; None if it wrote no pages there (or
-    the trailers cannot be read)."""
+@dataclass(frozen=True)
+class Kept:
+    """What a routine commit's trailers name: the folders it keeps, and its report page."""
+
+    folders: tuple[str, ...]
+    report: str = ""
+
+    def counts(self, relative: str) -> bool:
+        """`relative` (to content/) is one of the pages the routine keeps: in its folders, and
+        not its report page, rewritten at each run."""
+        return owns(self.folders, relative) and relative != self.report
+
+
+def kept(source: str, via: str) -> Kept | None:
+    """The folders (and report page) named by a routine commit's trailers; None if it wrote
+    no pages there (or the trailers cannot be read). A bare list of folders is read too."""
     if source != SOURCE:
         return None
     try:
         value = json.loads(via)
     except ValueError:
         return None
+    report = ""
+    if isinstance(value, dict):
+        named = value.get("report")
+        report = named.strip("/") if isinstance(named, str) else ""
+        value = value.get("folders")
     if not isinstance(value, list):
         return None
     folders = tuple(str(f).strip("/") for f in value if isinstance(f, str) and f.strip("/"))
-    return folders or None
+    return Kept(folders, report) if folders else None
 
 
 _MISSING = object()
@@ -137,7 +161,6 @@ class Writer:
         self.folders = folders
         self.protected = protected  # paths relative to content/ the tools never write
         self.symlinks = symlinks  # full paths: symbolic links of the repository
-        self.deletions = 0
 
     @classmethod
     def build(
@@ -199,19 +222,34 @@ class Writer:
         )
 
     def _apply(self, action: Callable[[], str]) -> str:
-        """Runs a tool of the tidy-up, then checks what it actually wrote; undone if refused."""
+        """Runs a tool of the tidy-up, then checks what it actually wrote; undone if refused,
+        and on any error of the tool itself: a move that failed after rewriting the links of
+        pages elsewhere must not leave them rewritten, unchecked."""
         snapshot = dict(self.overlay.changes)
         operations = len(self.tools.state.operations)
         origins = dict(self.tools.origins)
-        answer = action()
+        deletions = self.tools.state.deletions
         try:
+            answer = action()
             self._check(snapshot)
-        except ToolFailure:
+        except BaseException:
             self.overlay.changes = snapshot
             del self.tools.state.operations[operations:]
             self.tools.origins = origins
+            self.tools.state.deletions = deletions
             raise
         return answer
+
+    def _deleted(self) -> int:
+        """Pages of the starting commit this run removes, however: deleted, or moved and then
+        deleted (a page moved within the folders is not deleted)."""
+        changes = self.overlay.changes
+        alive = {self.tools.origins.get(p, p) for p, data in changes.items() if data is not None}
+        return sum(
+            1
+            for p, data in changes.items()
+            if data is None and self.overlay.existed(p) and p not in alive
+        )
 
     def _check(self, snapshot: Mapping[str, bytes | None]) -> None:
         changes = self.overlay.changes
@@ -245,6 +283,11 @@ class Writer:
                     f"Likely secret in {relative} ({kinds}): nothing was written. Copy no "
                     "secret, remove it."
                 )
+        if self._deleted() > MAX_DELETIONS:
+            raise ToolFailure(
+                f"Cap of {MAX_DELETIONS} deletions reached for this run: delete nothing else; "
+                "say in the report which pages are outdated."
+            )
         if len(changes) > MAX_PAGES:
             raise ToolFailure(
                 f"Cap of {MAX_PAGES} pages changed per run reached: nothing was done. Finish "
@@ -270,17 +313,10 @@ class Writer:
         return self._apply(lambda: self.tools.t_move(old, new))
 
     def t_delete(self, path: str) -> str:
+        # The cap is checked on the result (`_check`): a page created in this run does not
+        # count, a starting page moved then deleted does.
         full = self._confine(path)
-        counted = self.overlay.existed(full)  # a page created in this run does not count
-        if counted and self.deletions >= MAX_DELETIONS:
-            raise ToolFailure(
-                f"Cap of {MAX_DELETIONS} deletions reached for this run: delete nothing else; "
-                "say in the report which pages are outdated."
-            )
-        answer = self._apply(lambda: self.tools.t_delete(full))
-        if counted:
-            self.deletions += 1
-        return answer
+        return self._apply(lambda: self.tools.t_delete(full))
 
     # What was written ---------------------------------------------------------------------
 

@@ -52,7 +52,7 @@ from synaptane.git.repo import Commit, GitError, Repository
 from synaptane.services import changes, health
 from synaptane.services import links as links_service
 from synaptane.services.inbox import CONTENT_DIR, InboxItem, is_routine_agent
-from synaptane.services.routine_writes import kept_folders
+from synaptane.services.routine_writes import kept
 from synaptane.services.tidy_tools import FOLDER_INDEXES, Op, Overlay, RunState, _broken_keys
 from synaptane.services.workspace import Workspace
 from synaptane.storage.models import MaintenanceMark, Space
@@ -377,14 +377,14 @@ def _text(data: bytes | None) -> str:
 def counted(commit: Commit, own_email: str) -> Callable[[str], bool] | None:
     """Which paths of a commit are people's changes: all of a person's commit; none of
     Synaptane's (None); of a routine's commit, those in the folders it keeps, named by its
-    trailers (`routine_writes.commit_trailers`)."""
+    trailers (`routine_writes.commit_trailers`), its report page aside."""
     if commit.author.email != own_email:
         return lambda path: True
-    folders = kept_folders(commit.source, commit.via)
-    if folders is None or not is_routine_agent(commit.author.name):
+    found = kept(commit.source, commit.via)
+    if found is None or not is_routine_agent(commit.author.name):
         return None
-    prefixes = tuple(f"{PREFIX}{f}/" for f in folders)
-    return lambda path: path.startswith(prefixes)
+    counts = found.counts
+    return lambda path: path.startswith(PREFIX) and counts(path[len(PREFIX) :])
 
 
 def window(repo: Repository, since: str, view: Overlay, own_email: str) -> Window:

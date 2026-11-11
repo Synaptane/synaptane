@@ -24,6 +24,7 @@ from synaptane.services import (
     routine_writes,
     routines,
     tidy,
+    tidy_tools,
     vocation,
     webhooks,
 )
@@ -134,7 +135,10 @@ def test_a_routine_keeps_its_pages_in_one_commit_with_its_report(
     assert blob(ctx, wiki, "digests/2026-W46.md") == page
     assert blob(ctx, wiki, "digests/README.md") == "# Résumés\n- [S46](2026-W46.md)"
     message = git(repo.path, "log", "-1", "--format=%B")
-    assert "Source: routine-pages" in message and 'Via: ["digests"]' in message
+    assert (
+        "Source: routine-pages" in message
+        and 'Via: {"folders": ["digests"], "report": "rapports/semaine.md"}' in message
+    )
 
     # The log, the REST view and the webhook list them.
     assert record.outputs["written"] == [
@@ -233,6 +237,72 @@ def test_writes_stay_in_the_folders_whatever_the_pages_say(
     assert (blob(ctx, wiki, "digests/rapport.md") or "").startswith("# Résumé de la semaine")
 
 
+def test_a_tool_that_fails_midway_leaves_nothing_behind(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_ai(db, ctx, wiki)
+    wiki.remote.push(
+        {
+            "content/digests/ancien.md": "# Ancien\n",
+            "content/serveurs/lien.md": "# Lien\n\nVoir [ancien](../digests/ancien.md).\n",
+        }
+    )
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    routine = keeper(db, database, ctx, wiki)
+
+    def broken(self: Any, full: str) -> str:
+        raise RuntimeError("index unavailable")
+
+    # The move has rewritten the link of serveurs/lien.md when the tool fails: undone.
+    monkeypatch.setattr(tidy_tools.Tools, "_check_links", broken)
+    script = RoutineScript(
+        [
+            [("move", {"source": "digests/ancien.md", "target": "digests/nouveau.md"})],
+            [("write_report", {"content": "Fait."}), ("finish", {"summary": "Fait."})],
+        ]
+    )
+    record = run(database, ctx, routine, script)
+    assert record.status == "done", record.error
+    assert [e[:19] for e in errors(script)] == ["Internal tool error"]
+    _, files = head_files(ctx, wiki)
+    assert sorted(files) == ["content/rapports/semaine.md"]
+    assert "(../digests/ancien.md)" in (blob(ctx, wiki, "serveurs/lien.md") or "")
+    assert "written" not in record.outputs
+
+
+def test_a_report_page_inside_its_folders_stays_out_of_the_maintenance(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    configure_ai(db, ctx, wiki)
+    routine = keeper(db, database, ctx, wiki, output_page="digests/rapport.md")
+    repo = ctx.local_repository(wiki.infra)
+    before = repo.head()
+    assert before is not None
+    script = RoutineScript(
+        [
+            [
+                ("write_page", {"path": "digests/s46.md", "content": "# S46\n"}),
+                ("write_report", {"content": "Voir [S46](s46.md)."}),
+            ],
+            [("finish", {"summary": "Fait."})],
+        ]
+    )
+    record = run(database, ctx, routine, script)
+    assert record.status == "done", record.error
+    message = git(repo.path, "log", "-1", "--format=%B")
+    assert 'Via: {"folders": ["digests"], "report": "digests/rapport.md"}' in message
+    head = repo.head()
+    assert head is not None
+    seen = maintenance.window(repo, before, Overlay(repo, head), ctx.committer.email)
+    assert seen.created == {"digests/s46.md"}
+    assert "digests/rapport.md" not in seen.touched
+    # Trailers of a bare list of folders are read as well; anything else is not.
+    assert routine_writes.kept("routine-pages", '["digests"]') == routine_writes.Kept(("digests",))
+    for via in ("", "{", '{"report": "a.md"}', '"digests"', '{"folders": []}'):
+        assert routine_writes.kept("routine-pages", via) is None, via
+    assert routine_writes.kept("mcp", '["digests"]') is None
+
+
 def test_symbolic_links_secrets_and_team_checks_are_refused(
     db: Session, database: Database, ctx: Workspace, wiki: Wiki
 ) -> None:
@@ -322,6 +392,32 @@ def test_caps_on_pages_and_deletions(
         "digests/d.md",
     ]
     assert blob(ctx, wiki, "digests/c.md") == "# c\n"
+
+    # A page moved then deleted is a deletion too: the cap is not bypassed that way.
+    again = RoutineScript(
+        [
+            [
+                ("delete", {"path": "digests/c.md"}),
+                ("move", {"source": "digests/d.md", "target": "digests/d2.md"}),
+                ("delete", {"path": "digests/d2.md"}),
+                ("move", {"source": "digests/e.md", "target": "digests/e2.md"}),
+            ],
+            [("write_report", {"content": "Fait."}), ("finish", {"summary": "Fait."})],
+        ]
+    )
+    wiki.remote.push({"content/digests/e.md": "# E\n"})
+    git_sync.run_sync(database, ctx, wiki.infra.id)
+    monkeypatch.setattr(routine_writes, "MAX_DELETIONS", 1)
+    monkeypatch.setattr(routine_writes, "MAX_PAGES", 10)
+    record = run(database, ctx, routine, again)
+    assert record.status == "done", record.error
+    found = errors(again)
+    assert len(found) == 1 and "Cap of 1 deletions" in found[0], found
+    assert record.outputs["written"] == [
+        {"path": "digests/c.md", "change": "deleted"},
+        {"path": "digests/d2.md", "change": "moved", "from": "digests/d.md"},
+        {"path": "digests/e2.md", "change": "moved", "from": "digests/e.md"},
+    ]
 
 
 def test_an_interrupted_run_writes_nothing_and_a_persons_change_wins_a_conflict(

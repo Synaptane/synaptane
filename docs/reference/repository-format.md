@@ -248,8 +248,9 @@ Git history since the last tidy-up.
 - A routine commits its report page, inbox items and the pages written in its folders as
   `Synaptane routine (<title>)`, subject `Routine "<title>": …` (`Synaptane – routine` in
   older histories). When it wrote pages in its folders, the message ends with the trailers
-  `Source: routine-pages` and `Via: ["<folder>", …]`: the nightly maintenance reads those
-  pages like a person's change.
+  `Source: routine-pages` and `Via: {"folders": ["<folder>", …], "report": "<page>"}`
+  (`report` when it has a report page): the nightly maintenance reads the pages of those
+  folders like a person's change, its report page aside.
 - A routine saved from Synaptane: `Routine updated: <name>` or `Routine removed: <name>`, in
   the administrator's name. The routines kept in the database by older versions are written by
   `Synaptane: routines written to the repository`, at the first synchronization after the
