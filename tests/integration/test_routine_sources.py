@@ -475,6 +475,10 @@ def test_the_instance_can_turn_sources_off(
     warnings = client.get(f"{API}/routines/{routine.id}", headers=root).json()["warnings"]
     assert any("SYNAPTANE_ROUTINE_SOURCES" in w for w in warnings)
     assert "coupées sur cette instance" in html.unescape(client.get(PAGE).text)
+    # Not even the test button calls out.
+    probe = client.post(f"{API}/sources/statut/test", headers=root).json()
+    assert probe["status"] is None and "SYNAPTANE_ROUTINE_SOURCES" in probe["error"]
+    assert service.received == []
 
 
 def test_a_removed_source_stops_a_waiting_run(
@@ -541,3 +545,44 @@ def test_admins_add_test_and_remove_a_source_from_the_settings(
     gone = shown(client.post(f"{PAGE}/statut/delete", data={"csrf": token}))
     assert "Ces routines ne tournent plus tant que leur fichier la nomme : État du service." in gone
     assert reload(db).error is not None
+
+
+def test_a_secret_a_header_cannot_carry_is_refused(
+    db: Session, database: Database, ctx: Workspace, wiki: Wiki
+) -> None:
+    """Accepted, it would fail every call (and the test button) with an encoding error."""
+    with pytest.raises(Exception, match="without accents"):
+        routine_sources.create(
+            db,
+            database,
+            wiki.root,
+            ctx,
+            wiki.infra,
+            name="statut",
+            url="https://status.example.com/",
+            auth="bearer",
+            secret="jeton-é-1234",
+        )
+    db.rollback()
+    # Basic encodes it in base64: accents go through.
+    source = routine_sources.create(
+        db,
+        database,
+        wiki.root,
+        ctx,
+        wiki.infra,
+        name="statut",
+        url="https://status.example.com/",
+        auth="basic",
+        secret="robot:mot-de-passé",
+    )
+    # Leaving Basic asks for a token: the user:password kept is not one.
+    with pytest.raises(Exception, match="Enter the secret again"):
+        routine_sources.update(db, wiki.root, ctx, wiki.infra, source, auth="bearer")
+    db.rollback()
+    source = routine_sources.get(db, wiki.root, wiki.infra, "statut")
+    routine_sources.update(
+        db, wiki.root, ctx, wiki.infra, source, auth="bearer", secret="jeton-1234"
+    )
+    [endpoint] = routine_sources.endpoints(db, ctx.box, wiki.infra.id, ["statut"])
+    assert endpoint.auth == "bearer" and endpoint.secret == "jeton-1234"

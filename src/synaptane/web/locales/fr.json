@@ -2584,6 +2584,8 @@
  "Name of a source: lowercase letters, digits and dashes, 32 characters at most (e.g. status, zendesk).": "Nom d'une source : minuscules, chiffres et tirets, 32 caractères au plus (par ex. statut, zendesk).",
  "No user name nor password in the address: enter the secret in its own field.": "Ni nom d'utilisateur ni mot de passe dans l'adresse : saisissez le secret dans son propre champ.",
  "Secret: one line of text, {n} characters at most.": "Secret : une ligne de texte, {n} caractères au plus.",
+ "Secret: letters without accents, digits and punctuation only.": "Secret : lettres sans accents, chiffres et ponctuation seulement.",
+ "Enter the secret again: the one of Basic authentication is a user:password.": "Saisissez de nouveau le secret : celui de l'authentification Basic est un utilisateur:mot de passe.",
  "Test of {name}: HTTP {status} ({type}).": "Test de {name} : HTTP {status} ({type}).",
  "Test of {name}: {error}": "Test de {name} : {error}",
  "The address must start with https://.": "L'adresse doit commencer par https://.",

@@ -68,6 +68,10 @@ RESERVED_HEADERS = frozenset(
 )
 _PRINTABLE = re.compile(r"[\x20-\x7e -￿]+")
 
+OFF = (
+    "External sources are turned off on this instance (SYNAPTANE_ROUTINE_SOURCES): the "
+    "routine runs without them."
+)
 KEY_REQUIRED = (
     "Enter the secret again: the address now leads to another host, and a saved secret is "
     "never sent to any destination other than its own."
@@ -135,6 +139,9 @@ def _check_header(auth: str, header: str) -> str:
 def _check_secret(auth: str, secret: str) -> str:
     if len(secret) > MAX_SECRET or not _PRINTABLE.fullmatch(secret):
         raise invalid("Secret: one line of text, {n} characters at most.", n=MAX_SECRET)
+    if auth != "basic" and not secret.isascii():
+        # Sent as is in a header, which only carries ASCII (Basic encodes it in base64).
+        raise invalid("Secret: letters without accents, digits and punctuation only.")
     if auth == "basic" and ":" not in secret:
         raise invalid("Basic authentication: enter the secret as user:password.")
     return secret
@@ -254,6 +261,10 @@ def update(
     elif keep is not None and kind == "basic" and source.auth != "basic":
         # A bearer token is not a user:password: Basic needs its own secret.
         raise invalid("Basic authentication: enter the secret as user:password.")
+    elif keep is not None and source.auth == "basic" and kind != "basic":
+        # Nor the other way round; and a user:password may hold accents, which a header
+        # does not carry (`_check_secret`).
+        raise invalid("Enter the secret again: the one of Basic authentication is a user:password.")
     source.base_url, source.auth, source.header = base.url, kind, named
     if replaced:
         assert secret is not None
@@ -321,6 +332,8 @@ def check(
     """ "Test": a GET on the source's base address, with its secret, through the same
     safeguards as a run. Only the status and the content's type come back."""
     require(actor.access, Action.MANAGE_ORG, org_id=space.org_id)
+    if not ws.routine_sources:  # turned off: no call leaves the instance, not even a test
+        return Probe(None, error=Label(OFF))
     endpoint = _endpoint(ws.box, source)
     try:
         answer = routine_fetch.request(endpoint, endpoint.base.path, read=False)
@@ -364,12 +377,7 @@ def endpoints(
 def notices(ws: Workspace, routine: Routine) -> list[Label]:
     """What to say about a routine's sources on its page: off for the whole instance."""
     if routine.sources and not ws.routine_sources:
-        return [
-            Label(
-                "External sources are turned off on this instance (SYNAPTANE_ROUTINE_SOURCES): "
-                "the routine runs without them."
-            )
-        ]
+        return [Label(OFF)]
     return []
 
 
