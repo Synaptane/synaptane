@@ -4,7 +4,7 @@
 # With Docker Compose: compose.build.yaml. Keep a local name (synaptane:local), never the
 # published one (ghcr.io/synaptane/synaptane), which contains no subscription CLI.
 
-FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS build
+FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
 COPY --from=ghcr.io/astral-sh/uv:0.11.31@sha256:ecd4de2f060c64bea0ff8ecb182ddf46ba3fcccdc8a60cfdbaf20d1a047d7437 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
@@ -37,7 +37,7 @@ RUN mkdir -p /out/usr/local/bin /out/opt \
     fi
 
 
-FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # `upgrade`: Debian security fixes, even if the Python image has not been republished
 # (rebuild with `--pull --no-cache` to get them: see docs/admin/installation.md).
